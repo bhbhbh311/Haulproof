@@ -4,12 +4,14 @@ const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
 const { login, requireAuth, createUser } = require('./auth');
 const { db } = require('./db');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
 const loadsRouter = require('./loads');
 const podsRouter = require('./pods');
 const usersRouter = require('./users');
+const orgsRouter = require('./orgs');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -49,24 +51,56 @@ app.get('/api/me', requireAuth, (req, res) => res.json({ user: req.user }));
 app.use('/api/loads', loadsRouter);
 app.use('/api/pods', podsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/orgs', orgsRouter);
 
-// Admin-only: the ready-to-share driver link with the device key baked in.
-// Drivers open this once on their phone and the app auto-configures itself (no Outbox setup).
+// The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
+// Super-admins provision drivers per customer from the Customers screen instead.
 app.get('/api/driver-link', requireAuth, (req, res) => {
-  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
-  const key = process.env.INGEST_API_KEY || '';
+  if (req.user.role === 'superadmin') return res.status(400).json({ error: 'Open a customer from the Customers list to get its driver link.' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+  const org = req.user.orgId ? db.prepare('SELECT * FROM orgs WHERE id = ?').get(req.user.orgId) : null;
+  if (!org) return res.status(404).json({ error: 'Your login is not attached to a customer' });
   const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
-  res.json({ key, driverUrl: origin + '/driver', link: origin + '/driver?k=' + encodeURIComponent(key) });
+  res.json({ key: org.deviceKey, driverUrl: origin + '/driver', link: origin + '/driver?k=' + encodeURIComponent(org.deviceKey) });
 });
 
-// Auto-create the admin from env on first boot (so a managed host needs no manual seed step).
+// --- Boot migration + seeding: make the single-tenant install multi-customer safely ---
+function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 try {
-  const em = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
-  if (em && process.env.ADMIN_PASSWORD) {
-    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(em);
-    if (!exists) { createUser({ email: em, name: 'Administrator', role: 'admin', password: process.env.ADMIN_PASSWORD }); console.log('Seeded admin: ' + em); }
+  // 1) A default customer holds any pre-existing (single-tenant) data. Its device key reuses the
+  //    legacy INGEST_API_KEY when present, so drivers already configured keep working.
+  const defName = (process.env.DEFAULT_ORG_NAME || 'Callahan Transportation').trim();
+  let defOrg = db.prepare('SELECT * FROM orgs WHERE name = ?').get(defName);
+  if (!defOrg) {
+    const id = crypto.randomUUID();
+    const key = (process.env.INGEST_API_KEY || '').trim() || newDeviceKey();
+    db.prepare(`INSERT INTO orgs (id, name, deviceKey, active, createdAt) VALUES (?,?,?,1,?)`).run(id, defName, key, Date.now());
+    defOrg = db.prepare('SELECT * FROM orgs WHERE id = ?').get(id);
+    console.log('Created default customer: ' + defName);
   }
-} catch (e) { console.error('auto-seed failed', e); }
+  // 2) Backfill any rows that predate multi-customer support into the default customer.
+  db.prepare(`UPDATE loads SET orgId = ? WHERE orgId IS NULL`).run(defOrg.id);
+  db.prepare(`UPDATE pods  SET orgId = ? WHERE orgId IS NULL`).run(defOrg.id);
+  db.prepare(`UPDATE users SET orgId = ? WHERE orgId IS NULL AND role != 'superadmin'`).run(defOrg.id);
+
+  // 3) The default customer's admin (existing password login) — unchanged day-to-day experience.
+  const adminEm = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+  if (adminEm && process.env.ADMIN_PASSWORD) {
+    const ex = db.prepare('SELECT * FROM users WHERE email = ?').get(adminEm);
+    if (!ex) { createUser({ email: adminEm, name: 'Administrator', role: 'admin', password: process.env.ADMIN_PASSWORD, orgId: defOrg.id }); console.log('Seeded customer admin: ' + adminEm); }
+    else if (ex.role !== 'superadmin' && !ex.orgId) { db.prepare('UPDATE users SET orgId = ?, role = ? WHERE id = ?').run(defOrg.id, ex.role === 'admin' ? 'admin' : ex.role, ex.id); }
+  }
+
+  // 4) The platform master admin (super-admin) — manages all customers. Same password as ADMIN_PASSWORD
+  //    unless SUPERADMIN_PASSWORD is set, so no extra secret to configure.
+  const superEm = (process.env.SUPERADMIN_EMAIL || 'bharris@callahantrans.com').toLowerCase().trim();
+  const superPw = process.env.SUPERADMIN_PASSWORD || process.env.ADMIN_PASSWORD;
+  if (superEm && superPw) {
+    const ex = db.prepare('SELECT * FROM users WHERE email = ?').get(superEm);
+    if (!ex) { createUser({ email: superEm, name: 'Master Admin', role: 'superadmin', password: superPw, orgId: null }); console.log('Seeded super-admin: ' + superEm); }
+    else if (ex.role !== 'superadmin') { db.prepare('UPDATE users SET role = ?, orgId = NULL WHERE id = ?').run('superadmin', ex.id); console.log('Promoted to super-admin: ' + superEm); }
+  }
+} catch (e) { console.error('boot migration failed', e); }
 
 // --- signature setup screen + its pdf.js engine ---
 app.get('/prepare', (_req, res) => res.sendFile(path.join(__dirname, 'prepare.html')));

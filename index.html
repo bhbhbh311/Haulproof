@@ -64,7 +64,42 @@
 
   <!-- SEARCH -->
   <div id="appView" class="hide">
-    <div class="card">
+
+    <!-- CUSTOMERS (super-admin only) -->
+    <div class="card hide" id="customersCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Customers</h1><p class="sub" style="margin-bottom:0;">Each customer is a private, walled-off account. Add one, and it gets its own admin login and its own driver link.</p></div>
+        <button class="ghost" id="ncToggle" type="button">＋ Add customer</button>
+      </div>
+      <div id="ncForm" class="hide" style="margin-top:16px;">
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+          <div><label>Company name <span style="color:#c0392b;">*required</span></label><input id="ncName" placeholder="e.g. Brown Strauss"></div>
+          <div><label>Contact name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncContact" placeholder="Main contact"></div>
+          <div><label>Contact phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncPhone" placeholder="(555) 555-5555"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;">
+          <div><label>Contact email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncEmail" placeholder="ops@customer.com"></div>
+          <div><label>Address <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncAddr" placeholder="City, State"></div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+          <p class="sub" style="margin:0 0 10px;">Their first admin login — this person manages their own dispatchers and drivers:</p>
+          <div class="row" style="grid-template-columns:1fr 1fr;">
+            <div><label>Admin email <span style="color:#c0392b;">*required</span></label><input id="ncAdminEmail" type="email" placeholder="admin@customer.com"></div>
+            <div><label>Admin password <span style="color:#c0392b;">*required</span></label><input id="ncAdminPass" placeholder="at least 6 characters"></div>
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="ncBtn" type="button">Create customer</button>
+          <button class="ghost" id="ncGen" type="button">Suggest password</button>
+          <button class="ghost" id="ncCancel" type="button">Cancel</button>
+          <span id="ncMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="ncAfter" class="hide" style="margin-top:14px;padding:12px 14px;border:1px solid var(--ok);border-radius:9px;background:var(--ok-soft);font-size:13px;"></div>
+      </div>
+      <div id="custList" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
         <button class="ghost" id="upToggle" type="button">＋ New upload</button>
@@ -91,7 +126,7 @@
         </div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="findCard">
       <h1>Find a document</h1><p class="sub">Search filed documents by customer PO #, our load #, consignee, or any text.</p>
       <div class="row">
         <div><label>PO #</label><input id="fPo" placeholder="e.g. 4501-88"></div>
@@ -101,7 +136,7 @@
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;"><button id="searchBtn">Search</button><button class="ghost" id="clearBtn">Clear</button></div>
     </div>
-    <div class="card">
+    <div class="card" id="resultsCard">
       <table>
         <thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Signed</th><th>Copy sent</th><th></th></tr></thead>
         <tbody id="rows"><tr><td colspan="7" class="empty">Search to see documents.</td></tr></tbody>
@@ -116,7 +151,7 @@
         <button id="dlCopy" type="button">Copy link</button>
         <span id="dlMsg" style="font-size:13px;font-weight:600;"></span>
       </div>
-      <p class="sub" style="margin:12px 0 0;">Keep this link private — anyone who has it can pull and sign your documents. If you ever need to invalidate it, rotate <b>INGEST_API_KEY</b> in Render.</p>
+      <p class="sub" style="margin:12px 0 0;">Keep this link private — anyone who has it can pull and sign this customer's documents.</p>
     </div>
 
     <!-- TEAM LOGINS (admin only) -->
@@ -125,7 +160,7 @@
       <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;align-items:end;">
         <div><label>Email</label><input id="nuEmail" type="email" placeholder="person@callahantrans.com"></div>
         <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
-        <div><label>Role</label><select id="nuRole"><option value="dispatcher">Dispatcher</option><option value="admin">Admin</option></select></div>
+        <div><label>Role</label><select id="nuRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
         <div><label>Temp password</label><input id="nuPass" placeholder="at least 6 characters"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -151,11 +186,65 @@
   }
   function enterApp(u) {
     user = u;
-    $('who').innerHTML = `${user.name||user.email} <span style="opacity:.7">(${user.role})</span> <button class="ghost" id="logoutBtn">Sign out</button>`;
+    const roleLabel = u.role === 'superadmin' ? 'master admin' : u.role;
+    $('who').innerHTML = `${user.name||user.email} <span style="opacity:.7">(${roleLabel})</span> <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
-    if (u.role === 'admin') { $('driverCard').classList.remove('hide'); loadDriverLink(); $('teamCard').classList.remove('hide'); loadUsers(); }
+    const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
+    if (u.role === 'superadmin') {
+      // Master admin manages customers only — no single-customer document workflow.
+      show('customersCard', true); loadCustomers();
+      ['uploadCard','findCard','resultsCard','driverCard','teamCard'].forEach(id => show(id, false));
+    } else {
+      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true));
+      show('customersCard', false);
+      if (u.role === 'admin') { show('driverCard', true); loadDriverLink(); show('teamCard', true); loadUsers(); }
+      else { show('driverCard', false); show('teamCard', false); }
+    }
   }
+
+  // --- Customers (super-admin only) ---
+  function ncMsg(t, kind) { const el = $('ncMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
+  function randPw() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 10; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+  async function copyText(t) { try { await navigator.clipboard.writeText(t); return true; } catch (_) { return false; } }
+  async function loadCustomers() {
+    try {
+      const r = await api('/api/orgs');
+      const box = $('custList');
+      if (!r.orgs || !r.orgs.length) { box.innerHTML = '<div class="empty">No customers yet. Add your first one above.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Customer</th><th>Admin(s)</th><th>Docs</th><th>Driver link</th></tr></thead><tbody>' +
+        r.orgs.map(o => `<tr>
+          <td><b>${o.name}</b>${o.contactName ? '<div style="color:var(--muted);font-size:12px;">' + o.contactName + (o.contactPhone ? ' · ' + o.contactPhone : '') + '</div>' : ''}</td>
+          <td style="font-size:13px;">${(o.admins || []).join('<br>') || '—'}</td>
+          <td>${o.docCount}</td>
+          <td><button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button></td>
+        </tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
+    } catch (e) { $('custList').innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  $('ncToggle').onclick = () => { $('ncForm').classList.toggle('hide'); if (!$('ncForm').classList.contains('hide')) $('ncName').focus(); };
+  $('ncCancel').onclick = () => { $('ncForm').classList.add('hide'); $('ncAfter').classList.add('hide'); ncMsg(''); };
+  $('ncGen').onclick = () => { $('ncAdminPass').value = randPw(); };
+  $('ncBtn').onclick = async () => {
+    const body = {
+      name: $('ncName').value.trim(), contactName: $('ncContact').value.trim(), contactPhone: $('ncPhone').value.trim(),
+      contactEmail: $('ncEmail').value.trim(), address: $('ncAddr').value.trim(),
+      adminEmail: $('ncAdminEmail').value.trim(), adminPassword: $('ncAdminPass').value,
+    };
+    if (!body.name) { ncMsg('Company name is required', 'err'); return; }
+    if (!body.adminEmail) { ncMsg('Admin email is required', 'err'); return; }
+    if (!body.adminPassword || body.adminPassword.length < 6) { ncMsg('Admin password must be at least 6 characters', 'err'); return; }
+    ncMsg('Creating…');
+    try {
+      const r = await api('/api/orgs', { method: 'POST', body: JSON.stringify(body) });
+      ncMsg('Customer created ✓', 'ok');
+      const o = r.org;
+      $('ncAfter').innerHTML = `<b>${o.name}</b> is set up.<br>Admin login: <b>${body.adminEmail}</b> / <b>${body.adminPassword}</b><br>Driver link: <span style="font-family:ui-monospace,monospace;font-size:12px;">${o.driverLink}</span><br><span style="color:var(--muted);">Share the admin login with your contact and the driver link with their drivers. Copy these now.</span>`;
+      $('ncAfter').classList.remove('hide');
+      ['ncName','ncContact','ncPhone','ncEmail','ncAddr','ncAdminEmail','ncAdminPass'].forEach(id => $(id).value = '');
+      loadCustomers();
+    } catch (e) { ncMsg(e.message, 'err'); }
+  };
 
   // --- Driver link (admin only) ---
   async function loadDriverLink() {
