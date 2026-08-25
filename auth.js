@@ -66,24 +66,33 @@ function requireAdmin(req, res, next) { // super-admin OR a customer admin
   next();
 }
 
-// --- Per-customer device keys (drivers) ---
-// Find the customer (org) that owns the X-Api-Key on this request, if any.
-function orgForApiKey(req) {
+// --- Device keys: a shared per-customer key OR a personal per-driver token ---
+// Resolve the X-Api-Key to its customer (org) and, if it's a driver's personal token, that driver.
+function resolveKey(req) {
   const key = (req.headers['x-api-key'] || '').trim();
   if (!key) return null;
-  return db.prepare(`SELECT * FROM orgs WHERE deviceKey = ? AND active = 1`).get(key) || null;
+  const org = db.prepare(`SELECT * FROM orgs WHERE deviceKey = ? AND active = 1`).get(key);
+  if (org) return { org, driver: null };
+  const drv = db.prepare(`SELECT * FROM drivers WHERE token = ? AND active = 1`).get(key);
+  if (drv) {
+    const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND active = 1`).get(drv.orgId);
+    if (o) return { org: o, driver: drv };
+  }
+  return null;
 }
-// Middleware: a valid customer device key. Sets req.org to that customer.
+// Backward-compatible: returns just the org for a valid key (shared or driver token).
+function orgForApiKey(req) { const r = resolveKey(req); return r ? r.org : null; }
+// Middleware: a valid key. Sets req.org (customer) and req.driver (null unless a personal token).
 function requireApiKey(req, res, next) {
-  const org = orgForApiKey(req);
-  if (!org) return res.status(401).json({ error: 'Invalid device key' });
-  req.org = org; next();
+  const r = resolveKey(req);
+  if (!r) return res.status(401).json({ error: 'Invalid device key' });
+  req.org = r.org; req.driver = r.driver; next();
 }
-function hasValidApiKey(req) { return !!orgForApiKey(req); }
+function hasValidApiKey(req) { return !!resolveKey(req); }
 
 module.exports = {
   createUser, login, signToken, upsertSsoUser,
-  requireAuth, requireApiKey, hasValidApiKey, orgForApiKey,
+  requireAuth, requireApiKey, hasValidApiKey, orgForApiKey, resolveKey,
   isSuper, requireSuper, requireAdmin,
   JWT_SECRET, LEGACY_INGEST_KEY,
 };

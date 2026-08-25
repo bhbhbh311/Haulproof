@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
-const { requireAuth, requireApiKey, hasValidApiKey, orgForApiKey } = require('./auth');
+const { requireAuth, requireApiKey, hasValidApiKey, resolveKey } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 
 const router = express.Router();
@@ -15,10 +15,10 @@ function uriDec(v) { if (v == null) return v; try { return decodeURIComponent(v)
 function decoder(h) { return h['x-enc'] === 'uri' || h['x-pod-enc'] === 'uri' ? uriDec : (v) => v; }
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 
-// Accept either a logged-in session OR a customer device key. Sets req.org when via key.
+// Accept either a logged-in session OR a device key (shared org key or a driver's personal token).
 function requireAuthOrKey(req, res, next) {
-  const org = orgForApiKey(req);
-  if (org) { req.org = org; req.viaKey = true; return next(); }
+  const r = resolveKey(req);
+  if (r) { req.org = r.org; req.driver = r.driver; req.viaKey = true; return next(); }
   return requireAuth(req, res, next);
 }
 // The customer this request acts within.
@@ -103,6 +103,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       recipients: (dec(h['x-pod-emails']) || '').split(',').map(s => s.trim()).filter(Boolean),
       filename: dec(h['x-pod-name']) || 'Signed POD',
     };
+    // If a named driver's personal token was used, attribute the signature to them automatically.
+    if (req.driver && req.driver.name) meta.driver = req.driver.name;
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
     const id = crypto.randomUUID();

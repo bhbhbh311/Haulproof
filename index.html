@@ -99,6 +99,41 @@
       <div id="custList" style="margin-top:16px;"></div>
     </div>
 
+    <!-- MANAGE ONE CUSTOMER (super-admin) -->
+    <div class="card hide" id="custManageCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;" id="cmTitle">Manage customer</h1><p class="sub" style="margin-bottom:0;">Add logins and drivers for this customer.</p></div>
+        <button class="ghost" id="cmBack" type="button">← Back to customers</button>
+      </div>
+      <div style="margin-top:18px;">
+        <h1 style="font-size:16px;">Logins</h1>
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;align-items:end;">
+          <div><label>Email</label><input id="cmuEmail" type="email" placeholder="person@customer.com"></div>
+          <div><label>Name</label><input id="cmuName" placeholder="Full name"></div>
+          <div><label>Role</label><select id="cmuRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
+          <div><label>Temp password</label><input id="cmuPass" placeholder="at least 6 characters"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="cmuBtn" type="button">Add login</button>
+          <button class="ghost" id="cmuGen" type="button">Suggest password</button>
+          <span id="cmuMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <table style="margin-top:14px;"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th></th></tr></thead><tbody id="cmUserRows"></tbody></table>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <h1 style="font-size:16px;">Drivers</h1>
+        <div class="row" style="grid-template-columns:1fr 1fr;align-items:end;">
+          <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
+          <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPhone" placeholder="(555) 555-5555"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="cmdBtn" type="button">Add driver</button>
+          <span id="cmdMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <table style="margin-top:14px;"><thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead><tbody id="cmDriverRows"></tbody></table>
+      </div>
+    </div>
+
     <div class="card" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
@@ -173,6 +208,23 @@
         <tbody id="userRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
+
+    <!-- DRIVERS (admin only) -->
+    <div class="card hide" id="driversCard">
+      <h1>Drivers</h1><p class="sub">Add each driver once. They get their own link to open on their phone — their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
+      <div class="row" style="grid-template-columns:1fr 1fr;align-items:end;">
+        <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
+        <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button id="ndBtn" type="button">Add driver</button>
+        <span id="ndMsg" style="font-size:13px;font-weight:600;"></span>
+      </div>
+      <table style="margin-top:18px;">
+        <thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead>
+        <tbody id="driverRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </main>
 <script>
@@ -194,14 +246,100 @@
     if (u.role === 'superadmin') {
       // Master admin manages customers only — no single-customer document workflow.
       show('customersCard', true); loadCustomers();
-      ['uploadCard','findCard','resultsCard','driverCard','teamCard'].forEach(id => show(id, false));
+      ['uploadCard','findCard','resultsCard','driverCard','teamCard','driversCard','custManageCard'].forEach(id => show(id, false));
     } else {
       ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true));
-      show('customersCard', false);
-      if (u.role === 'admin') { show('driverCard', true); loadDriverLink(); show('teamCard', true); loadUsers(); }
-      else { show('driverCard', false); show('teamCard', false); }
+      ['customersCard','custManageCard'].forEach(id => show(id, false));
+      if (u.role === 'admin') {
+        show('driverCard', true); loadDriverLink();
+        show('teamCard', true); loadUsers();
+        show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
+      } else { show('driverCard', false); show('teamCard', false); show('driversCard', false); }
     }
   }
+
+  // --- Drivers (shared: customer admin uses own org; super passes an orgId) ---
+  function driverRowsHtml(drivers) {
+    if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
+    return drivers.map(d => `<tr>
+      <td><b>${d.name}</b></td>
+      <td>${d.phone || '—'}</td>
+      <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
+      <td><button class="ghost drvCopy" data-link="${d.link}" style="padding:6px 10px;font-size:12px;">Copy link</button></td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
+        <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
+      </td></tr>`).join('');
+  }
+  async function loadDrivers(orgId, tbody) {
+    try { const r = await api('/api/drivers' + (orgId ? ('?orgId=' + encodeURIComponent(orgId)) : '')); tbody.innerHTML = driverRowsHtml(r.drivers); }
+    catch (e) { tbody.innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
+  }
+  function wireDriverTable(tbody, orgId) {
+    tbody.onclick = async (e) => {
+      const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel');
+      if (c) { const ok = await copyText(c.dataset.link); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
+      if (t) { try { await api('/api/drivers/' + t.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: t.dataset.active !== '1' }) }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
+      if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
+    };
+  }
+  async function addDriver(orgId, nameEl, phoneEl, msgEl, tbody) {
+    const name = nameEl.value.trim(), phone = phoneEl.value.trim();
+    if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
+    msgEl.textContent = 'Adding…'; msgEl.className = '';
+    try {
+      const body = { name, phone }; if (orgId) body.orgId = orgId;
+      await api('/api/drivers', { method: 'POST', body: JSON.stringify(body) });
+      msgEl.textContent = 'Added ✓ — copy their link from the table'; msgEl.className = 'umsg-ok';
+      nameEl.value = ''; phoneEl.value = ''; loadDrivers(orgId, tbody);
+    } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
+  }
+  $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndMsg'), $('driverRows'));
+
+  // --- Super-admin: manage one customer's users + drivers ---
+  let cmOrgId = null;
+  function cmMsg(el, t, kind) { el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
+  function cmUserRowsHtml(users) {
+    if (!users || !users.length) return '<tr><td colspan="4" class="empty">No logins yet.</td></tr>';
+    return users.map(u => `<tr><td>${u.email}</td><td>${u.name || '—'}</td><td>${u.role}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="ghost cmuReset" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;">Reset pw</button>
+        <button class="ghost cmuDel" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
+      </td></tr>`).join('');
+  }
+  async function cmLoadUsers() {
+    try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users); }
+    catch (e) { $('cmUserRows').innerHTML = '<tr><td colspan="4" class="empty">' + e.message + '</td></tr>'; }
+  }
+  async function openCustManage(orgId, name) {
+    cmOrgId = orgId;
+    $('cmTitle').textContent = 'Manage ' + name;
+    ['customersCard'].forEach(id => $(id).classList.add('hide'));
+    $('custManageCard').classList.remove('hide');
+    cmMsg($('cmuMsg'), ''); cmMsg($('cmdMsg'), '');
+    cmLoadUsers();
+    loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId);
+    window.scrollTo(0, 0);
+  }
+  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $('customersCard').classList.remove('hide'); loadCustomers(); };
+  $('cmuGen').onclick = () => { $('cmuPass').value = randPw(); };
+  $('cmuBtn').onclick = async () => {
+    const email = $('cmuEmail').value.trim(), name = $('cmuName').value.trim(), role = $('cmuRole').value, password = $('cmuPass').value;
+    if (!email) { cmMsg($('cmuMsg'), 'Enter an email', 'err'); return; }
+    if (!password || password.length < 6) { cmMsg($('cmuMsg'), 'Password must be at least 6 characters', 'err'); return; }
+    cmMsg($('cmuMsg'), 'Adding…');
+    try {
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password, orgId: cmOrgId }) });
+      cmMsg($('cmuMsg'), 'Added ✓ — give them this email + password', 'ok');
+      $('cmuEmail').value = ''; $('cmuName').value = ''; $('cmuPass').value = ''; cmLoadUsers();
+    } catch (e) { cmMsg($('cmuMsg'), e.message, 'err'); }
+  };
+  $('cmUserRows').addEventListener('click', async (e) => {
+    const r = e.target.closest('.cmuReset'), d = e.target.closest('.cmuDel');
+    if (r) { const np = randPw(); try { await api('/api/users/' + r.dataset.id + '/password?orgId=' + encodeURIComponent(cmOrgId), { method: 'POST', body: JSON.stringify({ password: np }) }); cmMsg($('cmuMsg'), 'New password for ' + r.dataset.email + ': ' + np + ' (copy now)', 'ok'); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
+    if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
+  });
+  $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdMsg'), $('cmDriverRows'));
 
   // --- Customers (super-admin only) ---
   function ncMsg(t, kind) { const el = $('ncMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
@@ -217,9 +355,13 @@
           <td><b>${o.name}</b>${o.contactName ? '<div style="color:var(--muted);font-size:12px;">' + o.contactName + (o.contactPhone ? ' · ' + o.contactPhone : '') + '</div>' : ''}</td>
           <td style="font-size:13px;">${(o.admins || []).join('<br>') || '—'}</td>
           <td>${o.docCount}</td>
-          <td><button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button></td>
+          <td style="white-space:nowrap;">
+            <button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button>
+            <button class="custManage" data-id="${o.id}" data-name="${o.name.replace(/"/g,'&quot;')}" style="padding:6px 10px;font-size:12px;">Manage</button>
+          </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
+      box.querySelectorAll('.custManage').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
     } catch (e) { $('custList').innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
   $('ncToggle').onclick = () => { $('ncForm').classList.toggle('hide'); if (!$('ncForm').classList.contains('hide')) $('ncName').focus(); };

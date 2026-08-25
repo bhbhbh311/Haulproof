@@ -74,6 +74,20 @@ CREATE INDEX IF NOT EXISTS idx_pods_po        ON pods(poNumber);
 CREATE INDEX IF NOT EXISTS idx_pods_load      ON pods(loadNumber);
 CREATE INDEX IF NOT EXISTS idx_pods_consignee ON pods(consignee);
 
+-- A named driver on a customer's roster. Drivers don't log into the portal; each gets a personal
+-- token baked into their driver-app link, so signing is attributed to them and they can be revoked alone.
+CREATE TABLE IF NOT EXISTS drivers (
+  id         TEXT PRIMARY KEY,
+  orgId      TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  phone      TEXT,
+  token      TEXT UNIQUE NOT NULL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  createdAt  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_drivers_org   ON drivers(orgId);
+CREATE INDEX IF NOT EXISTS idx_drivers_token ON drivers(token);
+
 -- Reusable signature-box layouts a customer approves for a standard form (Phase 2: auto-apply).
 CREATE TABLE IF NOT EXISTS templates (
   id         TEXT PRIMARY KEY,
