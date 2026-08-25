@@ -108,6 +108,17 @@
       </table>
     </div>
 
+    <!-- DRIVER LINK (admin only) -->
+    <div class="card hide" id="driverCard">
+      <h1>Driver link</h1><p class="sub">Send this one link to a driver. They open it on their phone and the app is ready — no setup, no device key to type. Then they pull a load by PO # or Load # and sign.</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <input id="dlLink" readonly style="flex:1;min-width:260px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;">
+        <button id="dlCopy" type="button">Copy link</button>
+        <span id="dlMsg" style="font-size:13px;font-weight:600;"></span>
+      </div>
+      <p class="sub" style="margin:12px 0 0;">Keep this link private — anyone who has it can pull and sign your documents. If you ever need to invalidate it, rotate <b>INGEST_API_KEY</b> in Render.</p>
+    </div>
+
     <!-- TEAM LOGINS (admin only) -->
     <div class="card hide" id="teamCard">
       <h1>Team logins</h1><p class="sub">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p>
@@ -143,8 +154,21 @@
     $('who').innerHTML = `${user.name||user.email} <span style="opacity:.7">(${user.role})</span> <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
-    if (u.role === 'admin') { $('teamCard').classList.remove('hide'); loadUsers(); }
+    if (u.role === 'admin') { $('driverCard').classList.remove('hide'); loadDriverLink(); $('teamCard').classList.remove('hide'); loadUsers(); }
   }
+
+  // --- Driver link (admin only) ---
+  async function loadDriverLink() {
+    try { const r = await api('/api/driver-link'); $('dlLink').value = r.link || ''; }
+    catch (e) { $('dlLink').value = ''; $('dlMsg').textContent = e.message; $('dlMsg').className = 'umsg-err'; }
+  }
+  $('dlCopy').onclick = async () => {
+    const el = $('dlLink'); if (!el.value) return;
+    try { await navigator.clipboard.writeText(el.value); }
+    catch (_) { el.select(); try { document.execCommand('copy'); } catch (e) {} }
+    $('dlMsg').textContent = 'Copied ✓'; $('dlMsg').className = 'umsg-ok';
+    setTimeout(() => { $('dlMsg').textContent = ''; }, 1800);
+  };
 
   // --- Team logins (admin only) ---
   const myId = () => (user && (user.sub || user.id)) || null;

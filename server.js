@@ -50,6 +50,15 @@ app.use('/api/loads', loadsRouter);
 app.use('/api/pods', podsRouter);
 app.use('/api/users', usersRouter);
 
+// Admin-only: the ready-to-share driver link with the device key baked in.
+// Drivers open this once on their phone and the app auto-configures itself (no Outbox setup).
+app.get('/api/driver-link', requireAuth, (req, res) => {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+  const key = process.env.INGEST_API_KEY || '';
+  const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+  res.json({ key, driverUrl: origin + '/driver', link: origin + '/driver?k=' + encodeURIComponent(key) });
+});
+
 // Auto-create the admin from env on first boot (so a managed host needs no manual seed step).
 try {
   const em = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
