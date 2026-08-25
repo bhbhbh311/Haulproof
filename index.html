@@ -107,6 +107,26 @@
         <tbody id="rows"><tr><td colspan="7" class="empty">Search to see documents.</td></tr></tbody>
       </table>
     </div>
+
+    <!-- TEAM LOGINS (admin only) -->
+    <div class="card hide" id="teamCard">
+      <h1>Team logins</h1><p class="sub">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p>
+      <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;align-items:end;">
+        <div><label>Email</label><input id="nuEmail" type="email" placeholder="person@callahantrans.com"></div>
+        <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
+        <div><label>Role</label><select id="nuRole"><option value="dispatcher">Dispatcher</option><option value="admin">Admin</option></select></div>
+        <div><label>Temp password</label><input id="nuPass" placeholder="at least 6 characters"></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button id="nuBtn" type="button">Create login</button>
+        <button class="ghost" id="nuGen" type="button">Suggest password</button>
+        <span id="nuMsg" style="font-size:13px;font-weight:600;"></span>
+      </div>
+      <table style="margin-top:18px;">
+        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
+        <tbody id="userRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 </main>
 <script>
@@ -123,7 +143,52 @@
     $('who').innerHTML = `${user.name||user.email} <span style="opacity:.7">(${user.role})</span> <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
+    if (u.role === 'admin') { $('teamCard').classList.remove('hide'); loadUsers(); }
   }
+
+  // --- Team logins (admin only) ---
+  const myId = () => (user && (user.sub || user.id)) || null;
+  function nuMsg(t, kind) { const el = $('nuMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
+  function randPass() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 10; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+  async function loadUsers() {
+    try {
+      const r = await api('/api/users');
+      const tb = $('userRows');
+      if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; return; }
+      tb.innerHTML = r.users.map(u => `<tr>
+        <td>${u.email}</td><td>${u.name || '—'}</td><td>${u.role}</td>
+        <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="ghost nuReset" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;">Reset password</button>
+          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
+        </td></tr>`).join('');
+    } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
+  }
+  $('nuGen').onclick = () => { $('nuPass').value = randPass(); };
+  $('nuBtn').onclick = async () => {
+    const email = $('nuEmail').value.trim(), name = $('nuName').value.trim(), role = $('nuRole').value, password = $('nuPass').value;
+    if (!email) { nuMsg('Enter an email', 'err'); return; }
+    if (!password || password.length < 6) { nuMsg('Password must be at least 6 characters', 'err'); return; }
+    nuMsg('Creating…');
+    try {
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password }) });
+      nuMsg('Created ✓ — give them this email and password', 'ok');
+      $('nuEmail').value = ''; $('nuName').value = ''; $('nuPass').value = '';
+      loadUsers();
+    } catch (e) { nuMsg(e.message, 'err'); }
+  };
+  $('userRows').addEventListener('click', async (e) => {
+    const rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel');
+    if (rb) {
+      const np = randPass();
+      try { await api('/api/users/' + rb.dataset.id + '/password', { method: 'POST', body: JSON.stringify({ password: np }) }); nuMsg('New password for ' + rb.dataset.email + ':  ' + np + '   (copy it now — it won\'t show again)', 'ok'); }
+      catch (err) { nuMsg(err.message, 'err'); }
+    }
+    if (del) {
+      try { await api('/api/users/' + del.dataset.id, { method: 'DELETE' }); nuMsg('Removed ' + del.dataset.email, 'ok'); loadUsers(); }
+      catch (err) { nuMsg(err.message, 'err'); }
+    }
+  });
   $('loginBtn').onclick = async () => {
     $('loginErr').textContent = '';
     try {

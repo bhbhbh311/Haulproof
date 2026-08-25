@@ -9,6 +9,7 @@ const { db } = require('./db');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
 const loadsRouter = require('./loads');
 const podsRouter = require('./pods');
+const usersRouter = require('./users');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -47,6 +48,7 @@ app.get('/api/me', requireAuth, (req, res) => res.json({ user: req.user }));
 // --- resources ---
 app.use('/api/loads', loadsRouter);
 app.use('/api/pods', podsRouter);
+app.use('/api/users', usersRouter);
 
 // Auto-create the admin from env on first boot (so a managed host needs no manual seed step).
 try {
