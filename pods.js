@@ -7,6 +7,7 @@ const path = require('path');
 const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireApiKey, hasValidApiKey, resolveKey } = require('./auth');
 const { emailPodCopy } = require('./mailer');
+const { logEvent } = require('./events');
 
 const router = express.Router();
 const raw = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '30mb' });
@@ -67,6 +68,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
+    logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf'), actor: req.user.email });
     res.json({ ok: true, id });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
 });
@@ -116,6 +118,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
+    logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
+      detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
     let mail = { sent: false };
     if (meta.recipients.length) {
       mail = await emailPodCopy({ to: meta.recipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });

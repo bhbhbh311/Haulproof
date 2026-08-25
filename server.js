@@ -13,6 +13,7 @@ const podsRouter = require('./pods');
 const usersRouter = require('./users');
 const orgsRouter = require('./orgs');
 const driversRouter = require('./drivers');
+const { router: carriersRouter } = require('./carriers');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -54,6 +55,7 @@ app.use('/api/pods', podsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/orgs', orgsRouter);
 app.use('/api/drivers', driversRouter);
+app.use('/api/carriers', carriersRouter);
 
 // The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
 // Super-admins provision drivers per customer from the Customers screen instead.

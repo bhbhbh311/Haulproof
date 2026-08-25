@@ -23,9 +23,9 @@ function orgOut(req, o) {
   };
 }
 
-// List customers.
+// List customers (carrier orgs are managed under /api/carriers, not here).
 router.get('/', requireAuth, requireSuper, (req, res) => {
-  const rows = db.prepare(`SELECT * FROM orgs ORDER BY createdAt DESC`).all();
+  const rows = db.prepare(`SELECT * FROM orgs WHERE kind='customer' OR kind IS NULL ORDER BY createdAt DESC`).all();
   res.json({ orgs: rows.map(o => orgOut(req, o)) });
 });
 

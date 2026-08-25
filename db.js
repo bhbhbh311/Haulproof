@@ -14,7 +14,12 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS orgs (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
-  deviceKey    TEXT UNIQUE NOT NULL,             -- drivers of this customer authenticate with this key
+  kind         TEXT NOT NULL DEFAULT 'customer',  -- 'customer' | 'carrier'
+  deviceKey    TEXT UNIQUE NOT NULL,             -- drivers of this org authenticate with this key
+  mcNumber     TEXT,                             -- carrier MC/docket number
+  dotNumber    TEXT,                             -- carrier USDOT number
+  fmcsaVerified INTEGER NOT NULL DEFAULT 0,      -- 1 = confirmed against FMCSA, 0 = manual/override
+  allowedToOperate TEXT,                         -- FMCSA "allowed to operate" (Y/N) at time of verification
   contactName  TEXT,
   contactEmail TEXT,
   contactPhone TEXT,
@@ -44,11 +49,31 @@ CREATE TABLE IF NOT EXISTS loads (
   origin      TEXT,
   destination TEXT,
   status      TEXT NOT NULL DEFAULT 'open',
+  carrierId   TEXT,                               -- assigned carrier (orgs.id where kind='carrier')
+  carrierName TEXT,                               -- snapshot of the carrier name at assignment
+  driverName  TEXT,                               -- driver the carrier put on this load
+  truck       TEXT,
+  trailer     TEXT,
   createdBy   TEXT,
   createdAt   INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_loads_po   ON loads(poNumber);
-CREATE INDEX IF NOT EXISTS idx_loads_load ON loads(loadNumber);
+CREATE INDEX IF NOT EXISTS idx_loads_po      ON loads(poNumber);
+CREATE INDEX IF NOT EXISTS idx_loads_load    ON loads(loadNumber);
+CREATE INDEX IF NOT EXISTS idx_loads_carrier ON loads(carrierId);
+
+-- A timeline of everything that happened to a load / PO#, for the admin's recorded history.
+CREATE TABLE IF NOT EXISTS load_events (
+  id         TEXT PRIMARY KEY,
+  orgId      TEXT NOT NULL,                        -- the customer org that owns the load
+  loadId     TEXT,
+  poNumber   TEXT,
+  type       TEXT NOT NULL,                        -- created | document_uploaded | prepared | carrier_assigned | driver_assigned | signed | note
+  detail     TEXT,                                 -- human-readable detail
+  actor      TEXT,                                 -- who did it (email or driver/carrier name)
+  createdAt  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_load ON load_events(loadId);
+CREATE INDEX IF NOT EXISTS idx_events_po   ON load_events(poNumber);
 
 -- A POD is a document uploaded/prepared by dispatch and signed by a driver.
 CREATE TABLE IF NOT EXISTS pods (
@@ -113,11 +138,23 @@ addColumn('users', 'orgId', 'TEXT');
 addColumn('loads', 'orgId', 'TEXT');
 addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column
+// Carrier + assignment columns (added to existing installs).
+addColumn('orgs',  'kind', "TEXT NOT NULL DEFAULT 'customer'");
+addColumn('orgs',  'mcNumber', 'TEXT');
+addColumn('orgs',  'dotNumber', 'TEXT');
+addColumn('orgs',  'fmcsaVerified', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('orgs',  'allowedToOperate', 'TEXT');
+addColumn('loads', 'carrierId', 'TEXT');
+addColumn('loads', 'carrierName', 'TEXT');
+addColumn('loads', 'driverName', 'TEXT');
+addColumn('loads', 'truck', 'TEXT');
+addColumn('loads', 'trailer', 'TEXT');
 
 // Org indexes are created AFTER the columns are guaranteed to exist (legacy DBs add orgId above).
 db.exec(`
-CREATE INDEX IF NOT EXISTS idx_loads_org ON loads(orgId);
-CREATE INDEX IF NOT EXISTS idx_pods_org  ON pods(orgId);
+CREATE INDEX IF NOT EXISTS idx_loads_org     ON loads(orgId);
+CREATE INDEX IF NOT EXISTS idx_pods_org      ON pods(orgId);
+CREATE INDEX IF NOT EXISTS idx_loads_carrier ON loads(carrierId);
 `);
 
 module.exports = { db, DATA_DIR };

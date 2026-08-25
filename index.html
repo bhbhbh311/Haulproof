@@ -134,6 +134,55 @@
       </div>
     </div>
 
+    <!-- LOADS (customer roles) -->
+    <div class="card" id="loadsCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Create a load by PO #, assign an FMCSA-verified carrier, and track its full history.</p></div>
+        <button class="ghost" id="nlToggle" type="button">＋ New load</button>
+      </div>
+      <div id="nlForm" class="hide" style="margin-top:14px;">
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+          <div><label>PO # <span style="color:#c0392b;">*required</span></label><input id="nlPo" placeholder="e.g. 4501-88"></div>
+          <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nlLoad"></div>
+          <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nlCons"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="nlBtn" type="button">Create load</button><span id="nlMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;"><input id="lSearch" placeholder="Search loads by PO #, carrier, consignee"><button class="ghost" id="lSearchBtn" type="button">Search</button></div>
+      <div id="loadList" style="margin-top:12px;"></div>
+    </div>
+
+    <!-- LOAD DETAIL (customer roles) -->
+    <div class="card hide" id="loadDetailCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
+        <button class="ghost" id="ldBack" type="button">← Back to loads</button>
+      </div>
+      <div style="margin-top:18px;">
+        <h1 style="font-size:16px;">Carrier</h1>
+        <div id="ldCarrierNow" class="sub"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px;">
+          <div style="flex:1;min-width:200px;"><label>Find carrier</label><input id="ldCarSearch" placeholder="Carrier name, MC#, or DOT#"></div>
+          <div><label>Search by</label><select id="ldCarBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+          <button id="ldCarLookup" type="button">Look up</button>
+        </div>
+        <div id="ldCarResults" style="margin-top:10px;"></div>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <h1 style="font-size:16px;">Driver &amp; equipment</h1>
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+          <div><label>Driver name</label><input id="ldDrv"></div>
+          <div><label>Truck #</label><input id="ldTruck"></div>
+          <div><label>Trailer # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldTrailer"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver &amp; equipment</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <h1 style="font-size:16px;">History</h1>
+        <div id="ldHistory"></div>
+      </div>
+    </div>
+
     <div class="card" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
@@ -246,10 +295,11 @@
     if (u.role === 'superadmin') {
       // Master admin manages customers only — no single-customer document workflow.
       show('customersCard', true); loadCustomers();
-      ['uploadCard','findCard','resultsCard','driverCard','teamCard','driversCard','custManageCard'].forEach(id => show(id, false));
+      ['uploadCard','findCard','resultsCard','driverCard','teamCard','driversCard','custManageCard','loadsCard','loadDetailCard'].forEach(id => show(id, false));
     } else {
-      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true));
-      ['customersCard','custManageCard'].forEach(id => show(id, false));
+      ['uploadCard','findCard','resultsCard','loadsCard'].forEach(id => show(id, true));
+      ['customersCard','custManageCard','loadDetailCard'].forEach(id => show(id, false));
+      loadLoads();
       if (u.role === 'admin') {
         show('driverCard', true); loadDriverLink();
         show('teamCard', true); loadUsers();
@@ -295,6 +345,133 @@
     } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
   }
   $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndMsg'), $('driverRows'));
+
+  // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
+  const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
+  function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Carrier assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
+  async function loadLoads() {
+    const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
+    try {
+      const r = await api('/api/loads' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
+      if (!r.results.length) { box.innerHTML = '<div class="empty">No loads yet. Create one above.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
+        r.results.map(l => `<tr>
+          <td class="mono">${esc(l.poNumber) || '—'}</td>
+          <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
+          <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
+          <td>${statusChip(l.status)}</td>
+          <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open</button></td>
+        </tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  $('nlToggle').onclick = () => { $('nlForm').classList.toggle('hide'); if (!$('nlForm').classList.contains('hide')) $('nlPo').focus(); };
+  $('nlBtn').onclick = async () => {
+    const poNumber = $('nlPo').value.trim();
+    if (!poNumber) { $('nlMsg').textContent = 'PO # is required'; $('nlMsg').className = 'umsg-err'; return; }
+    $('nlMsg').textContent = 'Creating…'; $('nlMsg').className = '';
+    try {
+      await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber, loadNumber: $('nlLoad').value.trim(), consignee: $('nlCons').value.trim() }) });
+      $('nlMsg').textContent = 'Created ✓'; $('nlMsg').className = 'umsg-ok';
+      $('nlPo').value = ''; $('nlLoad').value = ''; $('nlCons').value = ''; loadLoads();
+    } catch (e) { $('nlMsg').textContent = e.message; $('nlMsg').className = 'umsg-err'; }
+  };
+  $('lSearchBtn').onclick = loadLoads;
+  $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadLoads(); });
+
+  let curLoad = null;
+  async function openLoad(id) {
+    try {
+      const r = await api('/api/loads/' + id);
+      curLoad = r.load;
+      $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide');
+      $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
+      $('ldSummary').textContent = [curLoad.consignee ? 'Consignee: ' + curLoad.consignee : '', 'Status: ' + (curLoad.status || 'open')].filter(Boolean).join('  ·  ');
+      renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
+      $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
+      $('ldDrvMsg').textContent = '';
+      loadHistory(id);
+      window.scrollTo(0, 0);
+    } catch (e) { alert(e.message); }
+  }
+  function renderCarrierNow() {
+    if (curLoad.carrierName) $('ldCarrierNow').innerHTML = 'Assigned: <b>' + esc(curLoad.carrierName) + '</b>';
+    else $('ldCarrierNow').innerHTML = '<span style="color:var(--muted)">No carrier assigned yet.</span>';
+  }
+  $('ldBack').onclick = () => { $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads(); };
+  $('ldCarLookup').onclick = async () => {
+    const val = $('ldCarSearch').value.trim(); const by = $('ldCarBy').value;
+    if (!val) return;
+    const box = $('ldCarResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
+    try {
+      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      let html = '';
+      if (r.fmcsa && r.fmcsa.length) {
+        html += '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed to operate</th><th></th></tr></thead><tbody>' +
+          r.fmcsa.map((c, i) => `<tr>
+            <td><b>${esc(c.name)}</b>${c.address ? '<div style="color:var(--muted);font-size:12px;">' + esc(c.address) + '</div>' : ''}</td>
+            <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || 'Unknown') + '</span>'}</td>
+            <td style="text-align:right;"><button class="carPick" data-i="${i}" style="padding:6px 10px;font-size:12px;">Assign</button></td>
+          </tr>`).join('') + '</tbody></table>';
+        box.innerHTML = html;
+        box.querySelectorAll('.carPick').forEach(b => b.onclick = () => assignFromFmcsa(r.fmcsa[+b.dataset.i]));
+      } else {
+        const why = r.configured === false ? 'FMCSA lookup isn’t switched on yet (needs the FMCSA key).' : 'No FMCSA match for that ' + by.toUpperCase() + '.';
+        html = '<div class="ssoNote warn" style="display:block;">' + why + '</div>';
+        if (isAdmin()) {
+          html += `<div style="margin-top:10px;"><p class="sub">Admin override — add this carrier manually (not FMCSA-verified):</p>
+            <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+              <div><label>Name</label><input id="ovName" value="${by === 'name' ? esc(val) : ''}"></div>
+              <div><label>MC#</label><input id="ovMc" value="${by === 'mc' ? esc(val) : ''}"></div>
+              <div><label>DOT#</label><input id="ovDot" value="${by === 'dot' ? esc(val) : ''}"></div>
+            </div>
+            <div style="margin-top:10px;"><button id="ovBtn" type="button">Add &amp; assign (override)</button> <span id="ovMsg" style="font-size:13px;font-weight:600;"></span></div></div>`;
+        } else {
+          html += '<p class="sub">Ask an admin to override if this carrier should still be used.</p>';
+        }
+        box.innerHTML = html;
+        if (isAdmin() && $('ovBtn')) $('ovBtn').onclick = async () => {
+          const name = $('ovName').value.trim(); if (!name) { $('ovMsg').textContent = 'Name required'; $('ovMsg').className = 'umsg-err'; return; }
+          try {
+            const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('ovMc').value.trim(), dotNumber: $('ovDot').value.trim(), fmcsaVerified: false }) });
+            await assignCarrierId(cr.carrier.id);
+          } catch (e) { $('ovMsg').textContent = e.message; $('ovMsg').className = 'umsg-err'; }
+        };
+      }
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  async function assignFromFmcsa(c) {
+    try {
+      const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) });
+      await assignCarrierId(cr.carrier.id);
+    } catch (e) { alert(e.message); }
+  }
+  async function assignCarrierId(carrierId) {
+    const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
+    curLoad = r.load; renderCarrierNow(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
+  }
+  $('ldDrvBtn').onclick = async () => {
+    const driverName = $('ldDrv').value.trim();
+    if (!driverName) { $('ldDrvMsg').textContent = "Enter the driver's name"; $('ldDrvMsg').className = 'umsg-err'; return; }
+    $('ldDrvMsg').textContent = 'Saving…'; $('ldDrvMsg').className = '';
+    try {
+      const r = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, truck: $('ldTruck').value.trim(), trailer: $('ldTrailer').value.trim() }) });
+      curLoad = r.load; $('ldDrvMsg').textContent = 'Saved ✓'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id);
+    } catch (e) { $('ldDrvMsg').textContent = e.message; $('ldDrvMsg').className = 'umsg-err'; }
+  };
+  async function loadHistory(id) {
+    const box = $('ldHistory');
+    try {
+      const r = await api('/api/loads/' + id + '/history');
+      if (!r.events.length) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
+      box.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
+        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:130px;">${new Date(e.createdAt).toLocaleString()}</div>
+        <div><div>${esc(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(e.actor || '')}</div></div>
+      </div>`).join('');
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
 
   // --- Super-admin: manage one customer's users + drivers ---
   let cmOrgId = null;
