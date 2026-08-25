@@ -60,8 +60,9 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
   const po = (req.query.po || '').trim(), load = (req.query.load || '').trim();
   if (!po && !load) return res.status(400).json({ error: 'Provide a PO # or Load #' });
   const where = [], args = [];
-  if (po) { where.push(`poNumber = ?`); args.push(po); }
-  if (load) { where.push(`loadNumber = ?`); args.push(load); }
+  // Case- and whitespace-insensitive so a phone keyboard's capitalization never blocks a pull.
+  if (po) { where.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
+  if (load) { where.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
   // Prefer a prepared doc (has a signature template) over a plain filed one.
   const rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' OR ')} ORDER BY (status='prepared') DESC, uploadedAt DESC LIMIT 1`).all(...args);
   if (!rows.length) return res.status(404).json({ error: 'No document found for that PO # / Load #' });
