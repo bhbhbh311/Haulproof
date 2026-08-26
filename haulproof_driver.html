@@ -511,11 +511,18 @@ window.__startApp=function(){
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(p.gps&&p.gps.lat!=null) hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
-          var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)}); if(!res.ok) throw new Error("HTTP "+res.status);
+          var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
+          if(!res.ok){
+            var body=await res.json().catch(function(){return {};});
+            p.error = body.error || ("Upload failed ("+res.status+")");
+            p.errorAt = Date.now(); changed=true;
+            if(res.status>=500) break;   // server trouble — stop and retry everything later
+            continue;                     // this one document has its own problem — keep trying the rest
+          }
         }
         else { await new Promise(function(r){setTimeout(r,500);}); } // simulated upload
-        p.status="uploaded"; p.uploadedAt=Date.now(); changed=true;
-      }catch(e){ break; } // stop on first failure; retry later
+        p.status="uploaded"; p.uploadedAt=Date.now(); p.error=null; p.pinNeeded=false; changed=true;
+      }catch(e){ break; } // network error (offline / unreachable) — not a document problem; leave it waiting
     }
     if(changed) savePods(pods);
     renderOutbox(); renderCloud();
@@ -640,7 +647,6 @@ window.__startApp=function(){
     toast("Looking up…");
     try{
       var r=await fetch(base+"/lookup?"+q,{headers:hdr});
-      if(r.status===401){ var pe=await r.json().catch(function(){return {};}); if(pe&&pe.pin){ toast("Enter your PIN to unlock"); showPinGate(true); return; } }
       if(!r.ok){ var e=await r.json().catch(function(){return {};}); toast(e.error||"No document found"); return; }
       var d=await r.json();
       var fr=await fetch(base+"/"+d.id+"/file",{headers:hdr});
@@ -1080,7 +1086,12 @@ window.__startApp=function(){
     pods.forEach(function(p){ var c=document.createElement("div"); c.className="podcard";
       var reci=(p.recipients&&p.recipients.length)?' · ✉ '+p.recipients.length+' copy'+(p.recipients.length>1?"ies":""):'';
       var po=p.poNumber?('<span class="pochip">PO '+esc(p.poNumber)+'</span> '):'';
-      c.innerHTML='<div class="pi"><div class="pn">'+po+esc(p.consignee||p.name)+'</div><div class="pm">'+timeStr(new Date(p.createdAt))+' · '+Math.round(p.size/1024)+' KB'+reci+'</div></div><span class="schip '+p.status+'">'+(p.status==="uploaded"?"Uploaded":"Pending")+'</span>';
+      var chip, note='';
+      if(p.status==="uploaded"){ chip='<span class="schip uploaded">Uploaded</span>'; }
+      else if(p.error){ chip='<span class="schip" style="background:#fdecea;color:var(--danger);">⚠ Stuck</span>'; note='<div class="pm" style="color:var(--danger);margin-top:2px;">'+esc(p.error)+'</div>'; }
+      else if(!online()){ chip='<span class="schip pending">Waiting</span>'; note='<div class="pm" style="margin-top:2px;">Waiting for signal — uploads when you’re back online.</div>'; }
+      else { chip='<span class="schip pending">Uploading…</span>'; }
+      c.innerHTML='<div class="pi"><div class="pn">'+po+esc(p.consignee||p.name)+'</div><div class="pm">'+timeStr(new Date(p.createdAt))+' · '+Math.round(p.size/1024)+' KB'+reci+'</div>'+note+'</div>'+chip;
       var dbtn=mkBtn("PDF","ghost",function(){ downloadPod(p); }); dbtn.style.marginLeft="10px"; c.appendChild(dbtn); list.appendChild(c); });
   }
   function persistCfg(){ saveCfg({endpoint:$("endpoint")?$("endpoint").value.trim():"", apikey:$("apikey")?$("apikey").value.trim():""}); var s=$("cfgSaved"); if(s){ s.textContent="Saved ✓"; clearTimeout(persistCfg._t); persistCfg._t=setTimeout(function(){s.textContent="";},1600);} }
