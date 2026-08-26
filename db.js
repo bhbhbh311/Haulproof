@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS loads (
 );
 CREATE INDEX IF NOT EXISTS idx_loads_po      ON loads(poNumber);
 CREATE INDEX IF NOT EXISTS idx_loads_load    ON loads(loadNumber);
-CREATE INDEX IF NOT EXISTS idx_loads_carrier ON loads(carrierId);
+-- (idx_loads_carrier is created after migrations, once the carrierId column is guaranteed to exist)
 
 -- A timeline of everything that happened to a load / PO#, for the admin's recorded history.
 CREATE TABLE IF NOT EXISTS load_events (
