@@ -403,7 +403,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26b · sharper signing view</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26c · sharper scan preview</div>
   </section>
 </main>
 
@@ -886,8 +886,9 @@ window.__startApp=function(){
     $("scFilters").classList.add("hide");
     $("scNext").textContent="Next ›";
     $("scCancel").textContent = scan.editIndex>=0 ? "Cancel" : "Retake";
-    var c=$("scCanvas"); c.width=scan.dW; c.height=scan.dH; c.style.width=scan.dW+"px"; c.style.height=scan.dH+"px";
-    c.getContext("2d").drawImage(scan.work,0,0,scan.dW,scan.dH);
+    var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+    var c=$("scCanvas"); c.width=Math.round(scan.dW*dpr); c.height=Math.round(scan.dH*dpr); c.style.width=scan.dW+"px"; c.style.height=scan.dH+"px";
+    c.getContext("2d").drawImage(scan.work,0,0,scan.dW*dpr,scan.dH*dpr);
     buildHandles(); updateQuad();
   }
   function buildHandles(){
@@ -936,8 +937,9 @@ window.__startApp=function(){
     var availW=Math.min(window.innerWidth-24,760), availH=Math.max(200,window.innerHeight-250);
     var ds=Math.min(availW/out.width, availH/out.height, 1);
     var dw=Math.max(1,Math.round(out.width*ds)), dh=Math.max(1,Math.round(out.height*ds));
-    var c=$("scCanvas"); c.width=dw; c.height=dh; c.style.width=dw+"px"; c.style.height=dh+"px";
-    c.getContext("2d").drawImage(out,0,0,dw,dh);
+    var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+    var c=$("scCanvas"); c.width=Math.round(dw*dpr); c.height=Math.round(dh*dpr); c.style.width=dw+"px"; c.style.height=dh+"px";
+    c.getContext("2d").drawImage(out,0,0,dw*dpr,dh*dpr);
   }
   function finalizeScan(){
     var out=applyFilter(scan.flat, scan.mode);
