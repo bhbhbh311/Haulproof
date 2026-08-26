@@ -42,6 +42,25 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
 
+// Edit a login's email / name / role (fix input mistakes). Same customer only.
+router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  const b = req.body || {};
+  const email = (b.email || '').toLowerCase().trim();
+  if (email && !EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (email && email !== target.email) {
+    if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) return res.status(409).json({ error: 'That email already has a login' });
+  }
+  const isSelf = target.id === (req.user.sub || req.user.id);
+  // Never allow superadmin here; don't let someone demote their own login and lock themselves out.
+  let role = target.role;
+  if (!isSelf && (b.role === 'admin' || b.role === 'sales' || b.role === 'dispatcher')) role = b.role;
+  const name = b.name !== undefined ? String(b.name) : target.name;
+  db.prepare('UPDATE users SET email = ?, name = ?, role = ? WHERE id = ?').run(email || target.email, name || '', role, target.id);
+  res.json({ user: { id: target.id, email: email || target.email, name: name || '', role } });
+});
+
 // Reset a login's password (same customer only).
 router.post('/:id/password', requireAuth, requireAdmin, (req, res) => {
   const { password } = req.body || {};

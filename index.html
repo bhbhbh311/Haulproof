@@ -317,6 +317,22 @@
     </div>
   </div>
 </main>
+
+<!-- EDIT LOGIN modal -->
+<div id="euModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:420px;width:100%;margin:0;">
+    <h1 style="font-size:18px;margin-bottom:2px;">Edit login</h1>
+    <p class="sub">Fix the email, name, or role. Use “Reset password” in the list to change the password.</p>
+    <label>Email</label><input id="euEmail" type="email" style="margin-bottom:10px;">
+    <label>Name</label><input id="euName" style="margin-bottom:10px;">
+    <label>Role</label><select id="euRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="euSave" type="button">Save changes</button>
+      <button class="ghost" id="euCancel" type="button">Cancel</button>
+      <span id="euMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
 <script>
   let token = null, user = null;
   const $ = id => document.getElementById(id);
@@ -599,9 +615,10 @@
   function cmMsg(el, t, kind) { el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
   function cmUserRowsHtml(users) {
     if (!users || !users.length) return '<tr><td colspan="4" class="empty">No logins yet.</td></tr>';
-    return users.map(u => `<tr><td>${u.email}</td><td>${u.name || '—'}</td><td>${u.role}</td>
+    return users.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="ghost cmuReset" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;">Reset pw</button>
+        <button class="ghost cmuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
+        <button class="ghost cmuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset pw</button>
         <button class="ghost cmuDel" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
       </td></tr>`).join('');
   }
@@ -633,7 +650,8 @@
     } catch (e) { cmMsg($('cmuMsg'), e.message, 'err'); }
   };
   $('cmUserRows').addEventListener('click', async (e) => {
-    const r = e.target.closest('.cmuReset'), d = e.target.closest('.cmuDel');
+    const ed = e.target.closest('.cmuEdit'), r = e.target.closest('.cmuReset'), d = e.target.closest('.cmuDel');
+    if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role }, cmOrgId, cmLoadUsers); return; }
     if (r) { const np = randPw(); try { await api('/api/users/' + r.dataset.id + '/password?orgId=' + encodeURIComponent(cmOrgId), { method: 'POST', body: JSON.stringify({ password: np }) }); cmMsg($('cmuMsg'), 'New password for ' + r.dataset.email + ': ' + np + ' (copy now)', 'ok'); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
     if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
   });
@@ -717,11 +735,12 @@
       const tb = $('userRows');
       if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; return; }
       tb.innerHTML = r.users.map(u => `<tr>
-        <td>${u.email}</td><td>${u.name || '—'}</td><td>${u.role}</td>
+        <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
         <td style="text-align:right;white-space:nowrap;">
-          <button class="ghost nuReset" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;">Reset password</button>
-          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${u.email}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
+          <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
+          <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
+          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
         </td></tr>`).join('');
     } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
   }
@@ -739,7 +758,8 @@
     } catch (e) { nuMsg(e.message, 'err'); }
   };
   $('userRows').addEventListener('click', async (e) => {
-    const rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel');
+    const ed = e.target.closest('.nuEdit'), rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel');
+    if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role }, '', loadUsers); return; }
     if (rb) {
       const np = randPass();
       try { await api('/api/users/' + rb.dataset.id + '/password', { method: 'POST', body: JSON.stringify({ password: np }) }); nuMsg('New password for ' + rb.dataset.email + ':  ' + np + '   (copy it now — it won\'t show again)', 'ok'); }
@@ -750,6 +770,29 @@
       catch (err) { nuMsg(err.message, 'err'); }
     }
   });
+
+  // --- Edit login modal (shared by Team logins and super-admin manage) ---
+  let euState = null;
+  function openEditUser(u, orgId, reload) {
+    euState = { id: u.id, orgId: orgId || '', reload: reload };
+    $('euEmail').value = u.email || ''; $('euName').value = (u.name && u.name !== '—') ? u.name : '';
+    $('euRole').value = (u.role === 'admin' || u.role === 'sales') ? u.role : 'dispatcher';
+    $('euMsg').textContent = ''; $('euMsg').className = ''; $('euModal').classList.remove('hide');
+  }
+  $('euCancel').onclick = () => { $('euModal').classList.add('hide'); euState = null; };
+  $('euModal').addEventListener('click', (e) => { if (e.target === $('euModal')) { $('euModal').classList.add('hide'); euState = null; } });
+  $('euSave').onclick = async () => {
+    if (!euState) return;
+    const body = { email: $('euEmail').value.trim(), name: $('euName').value.trim(), role: $('euRole').value };
+    if (euState.orgId) body.orgId = euState.orgId;
+    if (!body.email) { $('euMsg').textContent = 'Email is required'; $('euMsg').className = 'umsg-err'; return; }
+    $('euMsg').textContent = 'Saving…'; $('euMsg').className = '';
+    try {
+      await api('/api/users/' + euState.id, { method: 'PUT', body: JSON.stringify(body) });
+      $('euModal').classList.add('hide'); const rl = euState.reload; euState = null; if (rl) rl();
+    } catch (e) { $('euMsg').textContent = e.message; $('euMsg').className = 'umsg-err'; }
+  };
+
   $('loginBtn').onclick = async () => {
     $('loginErr').textContent = '';
     try {
