@@ -1110,7 +1110,13 @@
     if (!cmIsBroker) { cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); }
     window.scrollTo(0, 0);
   }
-  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $(cmBackTo).classList.remove('hide'); if (cmBackTo === 'carriersCard') loadCarriers(); else if (cmBackTo === 'brokersCard') loadBrokers(); else loadCustomers(); };
+  $('cmBack').onclick = () => {
+    // Manage is super-admin only, and opening it hid all three super cards — so Back must restore all three.
+    $('custManageCard').classList.add('hide');
+    ['customersCard', 'carriersCard', 'brokersCard'].forEach(id => $(id).classList.remove('hide'));
+    loadCustomers(); loadCarriers(); loadBrokers();
+    const anchor = $(cmBackTo); if (anchor) anchor.scrollIntoView({ block: 'start' });
+  };
 
   // Documents inside the manage view (view + upload for this org).
   function cmDocReset() { $('cmDocUpForm').classList.add('hide'); $('cmDocUpAfter').classList.add('hide'); $('cmDocUpMsg').textContent = ''; ['cmDocPo', 'cmDocLoad', 'cmDocCons', 'cmDocSearch'].forEach(id => { if ($(id)) $(id).value = ''; }); if ($('cmDocFile')) $('cmDocFile').value = ''; }

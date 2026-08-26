@@ -248,6 +248,30 @@
   .capthumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .capthumb .pg{position:absolute;left:4px;bottom:4px;background:rgba(18,56,110,.85);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;}
   .capthumb .del{position:absolute;top:3px;right:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(200,32,42,.92);color:#fff;font-size:13px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
+  .capthumb .redo{position:absolute;top:3px;left:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(18,56,110,.85);color:#fff;font-size:11px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
+  .capthumb .scanned{position:absolute;right:4px;bottom:4px;background:rgba(18,120,74,.92);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;letter-spacing:.02em;}
+  /* Scan editor (deskew + enhance) */
+  #scanEditor{position:fixed;inset:0;z-index:80;display:none;flex-direction:column;background:#0b1017;color:#eaf0f8;}
+  #scanEditor.on{display:flex;}
+  #scanEditor .sc-head{display:flex;align-items:center;gap:10px;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;flex:none;}
+  #scanEditor .sc-head b{font-family:"Archivo",sans-serif;font-size:16px;}
+  #scanEditor .sc-head .sc-step{font-size:12px;color:#9fb2cc;margin-left:auto;}
+  #scanEditor .sc-stage{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:6px 12px;}
+  #scanEditor .sc-canvas-wrap{position:relative;max-width:100%;max-height:100%;}
+  #scanEditor canvas{display:block;max-width:100%;max-height:calc(100vh - 230px);border-radius:6px;touch-action:none;}
+  #scanEditor svg.sc-quad{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
+  #scanEditor svg.sc-quad polygon{fill:rgba(46,131,255,.14);stroke:#4c9dff;stroke-width:2;vector-effect:non-scaling-stroke;}
+  #scanEditor .sc-handle{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:rgba(76,157,255,.28);border:2.5px solid #7fb6ff;box-shadow:0 0 0 1px rgba(0,0,0,.35);touch-action:none;cursor:grab;z-index:2;}
+  #scanEditor .sc-handle::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#eaf0f8;}
+  #scanEditor .sc-hint{text-align:center;font-size:12.5px;color:#9fb2cc;padding:0 16px 4px;flex:none;}
+  #scanEditor .sc-filters{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:10px 12px 4px;flex:none;}
+  #scanEditor .sc-chip{font-family:inherit;font-weight:600;font-size:13px;padding:8px 14px;border-radius:20px;border:1.5px solid #2b3a4d;background:#16202c;color:#c3d2e6;cursor:pointer;}
+  #scanEditor .sc-chip.on{border-color:#4c9dff;color:#eaf0f8;background:rgba(46,131,255,.18);}
+  #scanEditor .sc-foot{display:flex;gap:10px;padding:12px 16px calc(16px + env(safe-area-inset-bottom));flex:none;}
+  #scanEditor .sc-foot .btn{flex:1;}
+  #scanEditor .btn{font-family:inherit;font-weight:600;font-size:15px;padding:13px 16px;border-radius:11px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
+  #scanEditor .btn.primary{background:var(--btn-grad);color:#fff;box-shadow:var(--btn-shadow);}
+  #scanEditor .btn.ghost{background:#16202c;color:#dbe6f4;border-color:#2b3a4d;}
 </style>
 </head>
 <body>
@@ -379,6 +403,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26 · document scan enabled</div>
   </section>
 </main>
 
@@ -398,6 +423,27 @@
     </div>
     <div class="loc" id="locNote">📍 Location: not requested</div>
     <div class="actions"><button class="btn ghost" id="modalCancel" type="button">Cancel</button><button class="btn primary" id="adoptBtn" type="button">Adopt &amp; place</button></div>
+  </div>
+</div>
+<!-- Scan editor: deskew a photographed document and clean it up -->
+<div id="scanEditor" aria-hidden="true">
+  <div class="sc-head"><b id="scTitle">Line up the document</b><span class="sc-step" id="scStep">Step 1 of 2</span></div>
+  <div class="sc-stage">
+    <div class="sc-canvas-wrap" id="scWrap">
+      <canvas id="scCanvas"></canvas>
+      <svg class="sc-quad" id="scQuad" preserveAspectRatio="none"><polygon points="0,0 0,0 0,0 0,0"></polygon></svg>
+    </div>
+  </div>
+  <div class="sc-hint" id="scHint">Drag the four dots onto the corners of the document.</div>
+  <div class="sc-filters hide" id="scFilters">
+    <button class="sc-chip on" type="button" data-mode="auto">Auto</button>
+    <button class="sc-chip" type="button" data-mode="color">Color</button>
+    <button class="sc-chip" type="button" data-mode="gray">Grayscale</button>
+    <button class="sc-chip" type="button" data-mode="bw">B&amp;W</button>
+  </div>
+  <div class="sc-foot">
+    <button class="btn ghost" id="scCancel" type="button">Retake</button>
+    <button class="btn primary" id="scNext" type="button">Next ›</button>
   </div>
 </div>
 <div id="dropOverlay"><div class="inner"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><b>Drop to upload &amp; sign</b><span>PDF or a photo of the BOL</span></div></div>
@@ -739,7 +785,7 @@ window.__startApp=function(){
     $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
     $("drop").classList.remove("hide"); $("sampleDocBtn").parentElement.classList.remove("hide");
     if($("uploadTools")) $("uploadTools").classList.remove("hide");
-    capturedPages=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
+    capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
     if($("poNum")){ $("poNum").value=""; $("poNum").parentElement.classList.remove("missing"); }
     if($("consName")) $("consName").value = stop ? (stop.name||"") : "";
@@ -753,7 +799,8 @@ window.__startApp=function(){
   function unsigned(r){ return roleSigs(r).filter(function(f){return !f.signed;}); }
 
   // ---- Uploading / photographing a document ----
-  var capturedPages = [];           // data URLs of photographed pages, in order
+  var capturedPages = [];           // final (scanned) data URLs of each page, in order
+  var capturedMeta = [];            // parallel: { orig, corners, mode } so a page can be re-scanned
 
   $("fileBtn").addEventListener("click", function(){ $("file").click(); });
   $("file").addEventListener("change", function(e){ var fs=Array.prototype.slice.call(e.target.files||[]); if(fs.length) readFiles(fs); });
@@ -763,7 +810,12 @@ window.__startApp=function(){
   $("capMore").addEventListener("click", function(){ $("camInput").value=""; $("camInput").click(); });
   $("camInput").addEventListener("change", function(e){
     var f=(e.target.files||[])[0]; if(!f) return;
-    fileToDataUrl(f).then(function(u){ capturedPages.push(u); renderCapTray(); });
+    fileToDataUrl(f).then(function(u){
+      // Send every photo through the scan editor (deskew + clean up) before it becomes a page.
+      openScanEditor(u, -1, null, null, function(finalUrl, meta){
+        capturedPages.push(finalUrl); capturedMeta.push(meta); renderCapTray();
+      }, true);
+    });
   });
   $("capDone").addEventListener("click", async function(){
     if(!capturedPages.length){ toast("Take at least one photo"); return; }
@@ -779,12 +831,274 @@ window.__startApp=function(){
     box.innerHTML="";
     capturedPages.forEach(function(u,i){
       var d=document.createElement("div"); d.className="capthumb";
-      d.innerHTML='<img src="'+u+'" alt="page '+(i+1)+'"><span class="pg">'+(i+1)+'</span><button class="del" type="button" aria-label="Remove page">×</button>';
-      d.querySelector(".del").addEventListener("click", function(){ capturedPages.splice(i,1); renderCapTray(); });
+      var m=capturedMeta[i];
+      d.innerHTML='<img src="'+u+'" alt="page '+(i+1)+'"><span class="pg">'+(i+1)+'</span>'+
+        (m&&m.orig?'<button class="redo" type="button" aria-label="Re-scan page" title="Re-scan">⟳</button>':'')+
+        '<button class="del" type="button" aria-label="Remove page">×</button>'+
+        (m&&m.scanned?'<span class="scanned">SCAN</span>':'');
+      d.querySelector(".del").addEventListener("click", function(){ capturedPages.splice(i,1); capturedMeta.splice(i,1); renderCapTray(); });
+      var rd=d.querySelector(".redo");
+      if(rd) rd.addEventListener("click", function(){
+        openScanEditor(m.orig, i, m.corners, m.mode, function(finalUrl, meta){
+          capturedPages[i]=finalUrl; capturedMeta[i]=meta; renderCapTray();
+        });
+      });
       box.appendChild(d);
     });
   }
   function hideCapTray(){ $("capTray").classList.add("hide"); $("capThumbs").innerHTML=""; }
+
+  // ================= Scan editor: deskew a photo + clean it up (CamScanner-style) =================
+  var scan = null;   // active scan session
+
+  // Open the editor for one photo. done(finalDataUrl, meta) is called if the user keeps the scan.
+  function openScanEditor(url, editIndex, priorCorners, priorMode, done, reopen){
+    var img = new Image();
+    img.onload = function(){
+      var maxWork = 1600;
+      var nW = img.naturalWidth||img.width, nH = img.naturalHeight||img.height;
+      var ws = Math.min(1, maxWork/Math.max(nW,nH));
+      var wW = Math.max(1,Math.round(nW*ws)), wH = Math.max(1,Math.round(nH*ws));
+      var work = document.createElement("canvas"); work.width=wW; work.height=wH;
+      var wg = work.getContext("2d"); wg.drawImage(img,0,0,wW,wH);
+      var workData; try{ workData = wg.getImageData(0,0,wW,wH); }catch(e){ toast("Couldn't read that photo"); return; }
+      var availW = Math.min(window.innerWidth-24, 760);
+      var availH = Math.max(200, window.innerHeight-250);
+      var ds = Math.min(availW/wW, availH/wH, 1);
+      var dW = Math.max(1,Math.round(wW*ds)), dH = Math.max(1,Math.round(wH*ds));
+      scan = { url:url, editIndex:(editIndex==null?-1:editIndex), done:done, reopen:!!reopen,
+        work:work, workData:workData, wW:wW, wH:wH, dW:dW, dH:dH, disp:ds,
+        corners: (priorCorners && priorCorners.length===4) ? priorCorners.map(function(c){return {x:c.x,y:c.y};}) : detectQuad(workData,wW,wH),
+        mode: priorMode || "auto", stage:1, flat:null };
+      showScanStage1();
+      $("scanEditor").classList.add("on"); $("scanEditor").setAttribute("aria-hidden","false");
+    };
+    img.onerror = function(){ toast("Couldn't open that photo"); };
+    img.src = url;
+  }
+
+  function showScanStage1(){
+    scan.stage=1;
+    $("scTitle").textContent="Line up the document";
+    $("scStep").textContent="Step 1 of 2";
+    $("scHint").textContent="Drag the four dots onto the corners of the document.";
+    $("scFilters").classList.add("hide");
+    $("scNext").textContent="Next ›";
+    $("scCancel").textContent = scan.editIndex>=0 ? "Cancel" : "Retake";
+    var c=$("scCanvas"); c.width=scan.dW; c.height=scan.dH; c.style.width=scan.dW+"px"; c.style.height=scan.dH+"px";
+    c.getContext("2d").drawImage(scan.work,0,0,scan.dW,scan.dH);
+    buildHandles(); updateQuad();
+  }
+  function buildHandles(){
+    var wrap=$("scWrap");
+    Array.prototype.slice.call(wrap.querySelectorAll(".sc-handle")).forEach(function(h){h.remove();});
+    var svg=$("scQuad"); svg.setAttribute("viewBox","0 0 "+scan.dW+" "+scan.dH); svg.style.width=scan.dW+"px"; svg.style.height=scan.dH+"px";
+    scan.corners.forEach(function(c,idx){
+      var h=document.createElement("div"); h.className="sc-handle"; h.dataset.idx=idx;
+      positionHandle(h,c); addDrag(h,idx); wrap.appendChild(h);
+    });
+  }
+  function positionHandle(h,c){ h.style.left=(c.x*scan.disp)+"px"; h.style.top=(c.y*scan.disp)+"px"; }
+  function updateQuad(){
+    var poly=$("scQuad").querySelector("polygon");
+    poly.setAttribute("points", scan.corners.map(function(c){return (c.x*scan.disp)+","+(c.y*scan.disp);}).join(" "));
+  }
+  function addDrag(h,idx){
+    function move(ev){
+      ev.preventDefault();
+      var r=$("scWrap").getBoundingClientRect();
+      var pt = (ev.touches&&ev.touches[0]) ? ev.touches[0] : ev;
+      var wx=Math.max(0,Math.min(scan.wW,(pt.clientX-r.left)/scan.disp));
+      var wy=Math.max(0,Math.min(scan.wH,(pt.clientY-r.top)/scan.disp));
+      scan.corners[idx].x=wx; scan.corners[idx].y=wy; positionHandle(h,scan.corners[idx]); updateQuad();
+    }
+    function up(){ document.removeEventListener("pointermove",move); document.removeEventListener("pointerup",up); }
+    h.addEventListener("pointerdown", function(ev){ ev.preventDefault(); document.addEventListener("pointermove",move); document.addEventListener("pointerup",up); });
+  }
+
+  function goStage2(){
+    scan.stage=2;
+    scan.flat = flattenQuad(scan.workData, scan.wW, scan.wH, scan.corners);
+    $("scTitle").textContent="Clean it up";
+    $("scStep").textContent="Step 2 of 2";
+    $("scHint").textContent="Pick how the scan should look, then use it.";
+    $("scFilters").classList.remove("hide");
+    $("scNext").textContent="✓ Use this scan";
+    $("scCancel").textContent="‹ Back";
+    Array.prototype.slice.call($("scWrap").querySelectorAll(".sc-handle")).forEach(function(h){h.style.display="none";});
+    $("scQuad").querySelector("polygon").setAttribute("points","0,0 0,0 0,0 0,0");
+    syncChips(); renderFilterPreview();
+  }
+  function syncChips(){ Array.prototype.slice.call($("scFilters").querySelectorAll(".sc-chip")).forEach(function(b){ b.classList.toggle("on", b.dataset.mode===scan.mode); }); }
+  function renderFilterPreview(){
+    var out=applyFilter(scan.flat, scan.mode);
+    var availW=Math.min(window.innerWidth-24,760), availH=Math.max(200,window.innerHeight-250);
+    var ds=Math.min(availW/out.width, availH/out.height, 1);
+    var dw=Math.max(1,Math.round(out.width*ds)), dh=Math.max(1,Math.round(out.height*ds));
+    var c=$("scCanvas"); c.width=dw; c.height=dh; c.style.width=dw+"px"; c.style.height=dh+"px";
+    c.getContext("2d").drawImage(out,0,0,dw,dh);
+  }
+  function finalizeScan(){
+    var out=applyFilter(scan.flat, scan.mode);
+    var url=out.toDataURL("image/jpeg",0.9);
+    var meta={ orig:scan.url, corners:scan.corners.map(function(c){return {x:c.x,y:c.y};}), mode:scan.mode, scanned:true };
+    var cb=scan.done; closeScan(); if(cb) cb(url, meta);
+  }
+  function closeScan(){
+    $("scanEditor").classList.remove("on"); $("scanEditor").setAttribute("aria-hidden","true");
+    Array.prototype.slice.call($("scWrap").querySelectorAll(".sc-handle")).forEach(function(h){h.remove();});
+    scan=null;
+  }
+
+  // --- editor controls (wired once) ---
+  $("scNext").addEventListener("click", function(){
+    if(!scan) return;
+    if(scan.stage===1){
+      if(quadArea(scan.corners) < scan.wW*scan.wH*0.03){ toast("Move the dots so they frame the document"); return; }
+      toast("Scanning…"); setTimeout(goStage2, 20);
+    } else finalizeScan();
+  });
+  $("scCancel").addEventListener("click", function(){
+    if(!scan) return;
+    if(scan.stage===2){ scan.flat=null; showScanStage1(); }
+    else { var re=scan.reopen; closeScan(); if(re){ $("camInput").value=""; $("camInput").click(); } }
+  });
+  $("scFilters").addEventListener("click", function(e){
+    var b=e.target.closest ? e.target.closest(".sc-chip") : null; if(!b||!scan) return;
+    scan.mode=b.dataset.mode; syncChips(); renderFilterPreview();
+  });
+
+  // --- geometry + imaging helpers ---
+  function distPt(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+  function quadArea(c){ var a=0; for(var i=0;i<4;i++){ var j=(i+1)%4; a+=c[i].x*c[j].y - c[j].x*c[i].y; } return Math.abs(a/2); }
+  function insetRect(W,H,f){ var ix=W*f, iy=H*f; return [{x:ix,y:iy},{x:W-ix,y:iy},{x:W-ix,y:H-iy},{x:ix,y:H-iy}]; }
+
+  // Best-effort document corner detection: brightest connected region, then its extreme points.
+  function detectQuad(imgData,W,H){
+    try{
+      var data=imgData.data;
+      var gw=Math.min(200,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
+      var gray=new Float32Array(gw*gh);
+      for(var y=0;y<gh;y++){ var sy=Math.min(H-1,Math.floor(y/scl));
+        for(var x=0;x<gw;x++){ var sx=Math.min(W-1,Math.floor(x/scl)); var o=(sy*W+sx)*4;
+          gray[y*gw+x]=0.299*data[o]+0.587*data[o+1]+0.114*data[o+2]; } }
+      var thr=otsu(gray);
+      var mask=new Uint8Array(gw*gh); for(var i=0;i<gray.length;i++) mask[i]=gray[i]>=thr?1:0;
+      var labels=new Int32Array(gw*gh), stack=new Int32Array(gw*gh), lab=0, best=null;
+      for(var start=0;start<mask.length;start++){
+        if(mask[start] && !labels[start]){
+          lab++; var sp=0; stack[sp++]=start; labels[start]=lab;
+          var count=0,sMin=1e9,sMax=-1e9,dMin=1e9,dMax=-1e9,TL,TR,BR,BL;
+          while(sp>0){ var idx=stack[--sp]; count++;
+            var x=idx%gw, y=(idx-x)/gw, s=x+y, dd=x-y;
+            if(s<sMin){sMin=s;TL=[x,y];} if(s>sMax){sMax=s;BR=[x,y];}
+            if(dd>dMax){dMax=dd;TR=[x,y];} if(dd<dMin){dMin=dd;BL=[x,y];}
+            if(x>0){var n=idx-1; if(mask[n]&&!labels[n]){labels[n]=lab;stack[sp++]=n;}}
+            if(x<gw-1){var n2=idx+1; if(mask[n2]&&!labels[n2]){labels[n2]=lab;stack[sp++]=n2;}}
+            if(y>0){var n3=idx-gw; if(mask[n3]&&!labels[n3]){labels[n3]=lab;stack[sp++]=n3;}}
+            if(y<gh-1){var n4=idx+gw; if(mask[n4]&&!labels[n4]){labels[n4]=lab;stack[sp++]=n4;}}
+          }
+          if(!best||count>best.count) best={count:count,TL:TL,TR:TR,BR:BR,BL:BL};
+        }
+      }
+      if(!best || best.count < gw*gh*0.12) throw 0;
+      var corners=[best.TL,best.TR,best.BR,best.BL].map(function(p){return {x:p[0]/scl,y:p[1]/scl};});
+      var a=quadArea(corners);
+      if(a < W*H*0.10 || a > W*H*0.999) throw 0;
+      return corners;
+    }catch(e){ return insetRect(W,H,0.06); }
+  }
+  function otsu(gray){
+    var hist=new Uint32Array(256), n=gray.length;
+    for(var i=0;i<n;i++){ hist[gray[i]|0]++; }
+    var sum=0; for(var t=0;t<256;t++) sum+=t*hist[t];
+    var sumB=0,wB=0,mx=0,thr=127;
+    for(var t=0;t<256;t++){ wB+=hist[t]; if(!wB) continue; var wF=n-wB; if(!wF) break;
+      sumB+=t*hist[t]; var mB=sumB/wB, mF=(sum-sumB)/wF, bt=wB*wF*(mB-mF)*(mB-mF);
+      if(bt>mx){mx=bt;thr=t;} }
+    return thr;
+  }
+
+  // Perspective-flatten the quad into an upright rectangle (color, no enhancement yet).
+  function flattenQuad(imgData,W,H,corners){
+    var TL=corners[0],TR=corners[1],BR=corners[2],BL=corners[3];
+    var outW=Math.max(1,Math.round(Math.max(distPt(TL,TR),distPt(BL,BR))));
+    var outH=Math.max(1,Math.round(Math.max(distPt(TL,BL),distPt(TR,BR))));
+    var sc=Math.min(1, 1700/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
+    var Hm=computeH([{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}], [TL,TR,BR,BL]);
+    var src=imgData.data, out=new Uint8ClampedArray(outW*outH*4);
+    for(var y=0;y<outH;y++){
+      for(var x=0;x<outW;x++){
+        var d=Hm[6]*x+Hm[7]*y+Hm[8];
+        var sx=(Hm[0]*x+Hm[1]*y+Hm[2])/d, sy=(Hm[3]*x+Hm[4]*y+Hm[5])/d;
+        var o=(y*outW+x)*4;
+        if(sx>=0&&sx<W-1&&sy>=0&&sy<H-1){
+          var x0=sx|0,y0=sy|0,fx=sx-x0,fy=sy-y0;
+          var i00=(y0*W+x0)*4,i10=i00+4,i01=i00+W*4,i11=i01+4;
+          for(var ch=0;ch<3;ch++){ var aa=src[i00+ch]*(1-fx)+src[i10+ch]*fx, bb=src[i01+ch]*(1-fx)+src[i11+ch]*fx; out[o+ch]=aa*(1-fy)+bb*fy; }
+          out[o+3]=255;
+        } else { out[o]=255;out[o+1]=255;out[o+2]=255;out[o+3]=255; }
+      }
+    }
+    return {data:out,w:outW,h:outH};
+  }
+  function computeH(A,B){
+    var M=[],v=[];
+    for(var i=0;i<4;i++){ var Ax=A[i].x,Ay=A[i].y,Bx=B[i].x,By=B[i].y;
+      M.push([Ax,Ay,1,0,0,0,-Ax*Bx,-Ay*Bx]); v.push(Bx);
+      M.push([0,0,0,Ax,Ay,1,-Ax*By,-Ay*By]); v.push(By); }
+    var h=solve8(M,v);
+    return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+  }
+  function solve8(M,v){
+    var n=8, A=[]; for(var i=0;i<n;i++){ A.push(M[i].slice()); A[i].push(v[i]); }
+    for(var col=0;col<n;col++){
+      var piv=col, mx=Math.abs(A[col][col]);
+      for(var r=col+1;r<n;r++){ if(Math.abs(A[r][col])>mx){mx=Math.abs(A[r][col]);piv=r;} }
+      if(mx<1e-12) continue;
+      var tmp=A[col];A[col]=A[piv];A[piv]=tmp; var pv=A[col][col];
+      for(var r=0;r<n;r++){ if(r===col) continue; var f=A[r][col]/pv; if(!f) continue; for(var c=col;c<=n;c++){ A[r][c]-=f*A[col][c]; } }
+    }
+    var x=new Array(n); for(var i=0;i<n;i++){ var dd=A[i][i]; x[i]=Math.abs(dd)<1e-12?0:A[i][n]/dd; } return x;
+  }
+
+  function applyFilter(flat, mode){
+    var w=flat.w,h=flat.h,src=flat.data;
+    var c=document.createElement("canvas"); c.width=w; c.height=h;
+    var g=c.getContext("2d"); var out=g.createImageData(w,h), d=out.data;
+    if(mode==="color"){ d.set(src); }
+    else if(mode==="gray"){ for(var i=0;i<src.length;i+=4){ var vv=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2]; d[i]=d[i+1]=d[i+2]=vv; d[i+3]=255; } }
+    else if(mode==="bw"){ adaptiveThreshold(src,d,w,h); }
+    else { autoEnhance(src,d,w,h); }
+    g.putImageData(out,0,0); return c;
+  }
+  function percentileFromHist(hist,n,p){ var t=n*p, acc=0; for(var i=0;i<256;i++){ acc+=hist[i]; if(acc>=t) return i; } return 255; }
+  function autoEnhance(src,d,w,h){
+    var n=w*h, hist=new Uint32Array(256);
+    for(var i=0;i<n;i++){ var o=i*4; hist[(0.299*src[o]+0.587*src[o+1]+0.114*src[o+2])|0]++; }
+    var lo=percentileFromHist(hist,n,0.02), hi=percentileFromHist(hist,n,0.985);
+    if(hi<=lo){ lo=0; hi=255; } var range=hi-lo;
+    for(var i=0;i<n;i++){ var o=i*4;
+      for(var ch=0;ch<3;ch++){ var val=(src[o+ch]-lo)*255/range; val=Math.min(1,Math.max(0,val/255)); d[o+ch]=255*Math.pow(val,0.85); }
+      d[o+3]=255;
+    }
+  }
+  function adaptiveThreshold(src,d,w,h){
+    var n=w*h, gray=new Float32Array(n);
+    for(var i=0;i<n;i++){ var o=i*4; gray[i]=0.299*src[o]+0.587*src[o+1]+0.114*src[o+2]; }
+    var W1=w+1, integ=new Float64Array((w+1)*(h+1));
+    for(var y=0;y<h;y++){ var rs=0; for(var x=0;x<w;x++){ rs+=gray[y*w+x]; integ[(y+1)*W1+(x+1)] = integ[y*W1+(x+1)] + rs; } }
+    var rad=Math.max(8, Math.round(Math.min(w,h)/24)), Tf=0.90;
+    for(var y=0;y<h;y++){ var y0=Math.max(0,y-rad), y1=Math.min(h-1,y+rad);
+      for(var x=0;x<w;x++){ var x0=Math.max(0,x-rad), x1=Math.min(w-1,x+rad);
+        var area=(x1-x0+1)*(y1-y0+1);
+        var sum=integ[(y1+1)*W1+(x1+1)] - integ[(y0)*W1+(x1+1)] - integ[(y1+1)*W1+(x0)] + integ[(y0)*W1+(x0)];
+        var mean=sum/area, o=(y*w+x)*4, val=gray[y*w+x] < mean*Tf ? 0 : 255;
+        d[o]=d[o+1]=d[o+2]=val; d[o+3]=255;
+      }
+    }
+  }
+  // ================= end scan editor =================
 
   function fileToDataUrl(f){ return new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){res(r.result);}; r.onerror=rej; r.readAsDataURL(f); }); }
   function fileToBytes(f){ return new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){res(new Uint8Array(r.result));}; r.onerror=rej; r.readAsArrayBuffer(f); }); }
@@ -795,11 +1109,17 @@ window.__startApp=function(){
     if(pdf){ startDoc(await fileToBytes(pdf)); return; }
     var imgs=fs.filter(function(f){return /^image\//.test(f.type);});
     if(!imgs.length){ toast("Choose a PDF or photos"); return; }
-    toast("Building document…");
-    try{
-      var urls=[]; for(var i=0;i<imgs.length;i++){ urls.push(await fileToDataUrl(imgs[i])); }
-      startDoc(await imagesToPdf(urls));
-    }catch(e){ console.error(e); toast("Couldn't read those images"); }
+    // Photos go through the scan editor one at a time, then land in the page tray to review.
+    var urls=[]; for(var i=0;i<imgs.length;i++){ urls.push(await fileToDataUrl(imgs[i])); }
+    scanQueue(urls, 0);
+  }
+  // Walk a list of photos through the scan editor, appending each result to the capture tray.
+  function scanQueue(urls, i){
+    if(i>=urls.length){ if(capturedPages.length){ renderCapTray(); toast("Review your pages, then tap “Use these pages”"); } return; }
+    openScanEditor(urls[i], -1, null, null, function(finalUrl, meta){
+      capturedPages.push(finalUrl); capturedMeta.push(meta); renderCapTray();
+      scanQueue(urls, i+1);
+    });
   }
   // Back-compat single-file entry (used by drag-and-drop).
   function readFile(f){ readFiles([f]); }

@@ -114,11 +114,14 @@ app.get('/prepare', (_req, res) => res.sendFile(path.join(__dirname, 'prepare.ht
 // --- driver app served at /driver so phones just open a URL ---
 // Auto-points at this server's origin. Device key is NOT embedded; pass it once via ?k=KEY
 // (share that link privately) or drivers set it in the app's Outbox.
-let DRIVER_HTML = null;
+let DRIVER_HTML = null, DRIVER_MTIME = 0;
 function driverHtml() {
-  if (DRIVER_HTML) return DRIVER_HTML;
   try {
-    let html = fs.readFileSync(path.join(__dirname, 'haulproof_driver.html'), 'utf8');
+    const p = path.join(__dirname, 'haulproof_driver.html');
+    const mt = fs.statSync(p).mtimeMs;
+    // Re-read whenever the file changes on disk, so dropping in a new build takes effect without a restart.
+    if (DRIVER_HTML && mt === DRIVER_MTIME) return DRIVER_HTML;
+    let html = fs.readFileSync(p, 'utf8');
     // Installable-app (Add to Home Screen) tags.
     const headTags = '<link rel="manifest" href="/manifest.webmanifest">'
       + '<meta name="theme-color" content="#1655d1">'
@@ -129,10 +132,16 @@ function driverHtml() {
       + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">';
     const boot = '<script>try{var k=new URL(location.href).searchParams.get("k");var cur=JSON.parse(localStorage.getItem("hp_cfg")||"{}");localStorage.setItem("hp_cfg",JSON.stringify({endpoint:location.origin+"/api/pods/ingest",apikey:k||cur.apikey||""}));}catch(e){}</script>';
     DRIVER_HTML = html.replace('</head>', headTags + '</head>').replace('<body>', '<body>' + boot);
+    DRIVER_MTIME = mt;
   } catch { DRIVER_HTML = null; }
   return DRIVER_HTML;
 }
-app.get('/driver', (_req, res) => { const h = driverHtml(); if (!h) return res.status(404).send('driver app not installed'); res.type('html').send(h); });
+app.get('/driver', (_req, res) => {
+  const h = driverHtml(); if (!h) return res.status(404).send('driver app not installed');
+  // Ask the phone to revalidate every open so a new build is picked up instead of a stale cached copy.
+  res.set('Cache-Control', 'no-cache, must-revalidate');
+  res.type('html').send(h);
+});
 function pdfjsFile(name) {
   const roots = [path.join(__dirname, 'node_modules', 'pdfjs-dist', 'build'), path.join(__dirname, 'node_modules', 'pdfjs-dist', 'legacy', 'build')];
   for (const r of roots) { const f = path.join(r, name); if (fs.existsSync(f)) return f; }
