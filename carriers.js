@@ -29,6 +29,24 @@ function normalize(c, mcHint) {
     verified: true,
   };
 }
+// A carrier's MC (docket) number lives on a SEPARATE FMCSA sub-record, not on the
+// snapshot returned by name/DOT lookups — so fetch it by DOT# and pull the MC docket.
+async function fetchMcByDot(dot) {
+  const d = String(dot || '').replace(/\D/g, '');
+  if (!WEBKEY || !d) return '';
+  const url = FMCSA_BASE + 'carriers/' + encodeURIComponent(d) + '/docket-numbers?webKey=' + encodeURIComponent(WEBKEY);
+  try {
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return '';
+    const json = await r.json();
+    const arr = Array.isArray(json.content) ? json.content : (json.content ? [json.content] : []);
+    // Prefer an actual "MC" prefix; otherwise take the first docket on file.
+    const pick = arr.find(x => x && String(x.prefix || '').toUpperCase() === 'MC') || arr[0];
+    if (!pick) return '';
+    return pick.docketNumber != null ? String(pick.docketNumber).replace(/\D/g, '') : '';
+  } catch (e) { return ''; }
+}
+
 // Call FMCSA QCMobile. Returns { configured, results, error }.
 async function fmcsaLookup({ mc, dot, name }) {
   if (!WEBKEY) return { configured: false, results: [] };
@@ -42,7 +60,12 @@ async function fmcsaLookup({ mc, dot, name }) {
     const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!r.ok) return { configured: true, results: [], error: 'FMCSA returned ' + r.status };
     const json = await r.json();
-    const carriers = pickCarriers(json).slice(0, 25).map(c => normalize(c, mc));
+    // Keep the list short so the follow-up MC# lookups stay quick.
+    const carriers = pickCarriers(json).slice(0, 15).map(c => normalize(c, mc));
+    // Fill in the MC# from the docket sub-record wherever we don't already have one.
+    await Promise.all(carriers.map(async (c) => {
+      if (!c.mcNumber && c.dotNumber) { c.mcNumber = await fetchMcByDot(c.dotNumber); }
+    }));
     return { configured: true, results: carriers };
   } catch (e) {
     return { configured: true, results: [], error: 'Could not reach FMCSA' };
