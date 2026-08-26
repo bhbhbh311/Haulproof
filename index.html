@@ -333,6 +333,27 @@
     </div>
   </div>
 </div>
+
+<!-- EDIT COMPANY (customer / carrier) modal -->
+<div id="eoModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:480px;width:100%;margin:0;">
+    <h1 id="eoTitle" style="font-size:18px;margin-bottom:2px;">Edit company</h1>
+    <p class="sub">Correct the details below.</p>
+    <label>Name</label><input id="eoName" style="margin-bottom:10px;">
+    <div id="eoCarrierFields" class="hide">
+      <div class="row" style="grid-template-columns:1fr 1fr;"><div><label>MC #</label><input id="eoMc"></div><div><label>DOT #</label><input id="eoDot"></div></div>
+    </div>
+    <div id="eoCustomerFields">
+      <div class="row" style="grid-template-columns:1fr 1fr;"><div><label>Contact name</label><input id="eoContactName"></div><div><label>Contact email</label><input id="eoContactEmail"></div></div>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;"><div><label>Contact phone</label><input id="eoPhone"></div><div><label>Address</label><input id="eoAddr"></div></div>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="eoSave" type="button">Save changes</button>
+      <button class="ghost" id="eoCancel" type="button">Cancel</button>
+      <span id="eoMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
 <script>
   let token = null, user = null;
   const $ = id => document.getElementById(id);
@@ -384,6 +405,7 @@
     const inc = $('carShowInactive') && $('carShowInactive').checked;
     try {
       const r = await api('/api/carriers' + (inc ? '?includeInactive=1' : ''));
+      carrierCache = r.carriers || [];
       if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
@@ -392,11 +414,13 @@
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
           <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
           <td style="text-align:right;white-space:nowrap;">
+            <button class="ghost carEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
             <button class="carMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
             <button class="ghost carActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.carMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.carEdit').forEach(b => b.onclick = () => { const c = carrierCache.find(x => x.id === b.dataset.id); if (c) openEditOrg(c, 'carrier', loadCarriers); });
       box.querySelectorAll('.carActive').forEach(b => b.onclick = async () => {
         try { await api('/api/carriers/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCarriers(); }
         catch (e) { alert(e.message); }
@@ -665,6 +689,7 @@
     const inc = $('custShowInactive') && $('custShowInactive').checked;
     try {
       const r = await api('/api/orgs' + (inc ? '?includeInactive=1' : ''));
+      custCache = r.orgs || [];
       const box = $('custList');
       if (!r.orgs || !r.orgs.length) { box.innerHTML = '<div class="empty">No customers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Customer</th><th>Admin(s)</th><th>Docs</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -675,12 +700,14 @@
           <td>${o.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
           <td style="white-space:nowrap;text-align:right;">
             <button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button>
+            <button class="ghost custEdit" data-id="${o.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
             <button class="custManage" data-id="${o.id}" data-name="${esc(o.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
             <button class="ghost custActive" data-id="${o.id}" data-active="${o.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${o.active ? 'color:#c0392b;' : ''}">${o.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
       box.querySelectorAll('.custManage').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.custEdit').forEach(b => b.onclick = () => { const o = custCache.find(x => x.id === b.dataset.id); if (o) openEditOrg(o, 'customer', loadCustomers); });
       box.querySelectorAll('.custActive').forEach(b => b.onclick = async () => {
         try { await api('/api/orgs/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCustomers(); }
         catch (e) { alert(e.message); }
@@ -791,6 +818,35 @@
       await api('/api/users/' + euState.id, { method: 'PUT', body: JSON.stringify(body) });
       $('euModal').classList.add('hide'); const rl = euState.reload; euState = null; if (rl) rl();
     } catch (e) { $('euMsg').textContent = e.message; $('euMsg').className = 'umsg-err'; }
+  };
+
+  // --- Edit company info (customer / carrier) ---
+  let custCache = [], carrierCache = [], eoState = null;
+  function openEditOrg(o, type, reload) {
+    eoState = { id: o.id, type: type, reload: reload };
+    $('eoTitle').textContent = type === 'carrier' ? 'Edit carrier' : 'Edit customer';
+    $('eoName').value = o.name || '';
+    $('eoCarrierFields').classList.toggle('hide', type !== 'carrier');
+    $('eoCustomerFields').classList.toggle('hide', type !== 'customer');
+    if (type === 'carrier') { $('eoMc').value = o.mcNumber || ''; $('eoDot').value = o.dotNumber || ''; }
+    else { $('eoContactName').value = o.contactName || ''; $('eoContactEmail').value = o.contactEmail || ''; }
+    $('eoPhone').value = o.contactPhone || ''; $('eoAddr').value = o.address || '';
+    $('eoMsg').textContent = ''; $('eoMsg').className = ''; $('eoModal').classList.remove('hide');
+  }
+  $('eoCancel').onclick = () => { $('eoModal').classList.add('hide'); eoState = null; };
+  $('eoModal').addEventListener('click', (e) => { if (e.target === $('eoModal')) { $('eoModal').classList.add('hide'); eoState = null; } });
+  $('eoSave').onclick = async () => {
+    if (!eoState) return;
+    const name = $('eoName').value.trim();
+    if (!name) { $('eoMsg').textContent = 'Name is required'; $('eoMsg').className = 'umsg-err'; return; }
+    let url, body;
+    if (eoState.type === 'carrier') { url = '/api/carriers/' + eoState.id; body = { name, mcNumber: $('eoMc').value.trim(), dotNumber: $('eoDot').value.trim(), contactPhone: $('eoPhone').value.trim(), address: $('eoAddr').value.trim() }; }
+    else { url = '/api/orgs/' + eoState.id; body = { name, contactName: $('eoContactName').value.trim(), contactEmail: $('eoContactEmail').value.trim(), contactPhone: $('eoPhone').value.trim(), address: $('eoAddr').value.trim() }; }
+    $('eoMsg').textContent = 'Saving…'; $('eoMsg').className = '';
+    try {
+      await api(url, { method: 'PUT', body: JSON.stringify(body) });
+      $('eoModal').classList.add('hide'); const rl = eoState.reload; eoState = null; if (rl) rl();
+    } catch (e) { $('eoMsg').textContent = e.message; $('eoMsg').className = 'umsg-err'; }
   };
 
   $('loginBtn').onclick = async () => {

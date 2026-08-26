@@ -67,6 +67,23 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ carriers: rows.map(carrierOut) });
 });
 
+// Edit a carrier's company info (fix mistakes). Admin/super.
+router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+  const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Carrier not found' });
+  const b = req.body || {};
+  const name = (b.name !== undefined ? String(b.name) : o.name).trim();
+  if (!name) return res.status(400).json({ error: 'Carrier name is required' });
+  const mcNumber = (b.mcNumber !== undefined ? String(b.mcNumber) : (o.mcNumber || '')).trim();
+  const dotNumber = (b.dotNumber !== undefined ? String(b.dotNumber) : (o.dotNumber || '')).trim();
+  // Don't let two carriers collide on the same DOT# / MC#.
+  if (dotNumber) { const dup = db.prepare(`SELECT id FROM orgs WHERE kind='carrier' AND dotNumber = ? AND id != ?`).get(dotNumber, o.id); if (dup) return res.status(409).json({ error: 'Another carrier already uses that DOT #' }); }
+  if (mcNumber) { const dup = db.prepare(`SELECT id FROM orgs WHERE kind='carrier' AND mcNumber = ? AND id != ?`).get(mcNumber, o.id); if (dup) return res.status(409).json({ error: 'Another carrier already uses that MC #' }); }
+  db.prepare(`UPDATE orgs SET name = ?, mcNumber = ?, dotNumber = ?, contactPhone = ?, address = ? WHERE id = ?`)
+    .run(name, mcNumber || null, dotNumber || null, (b.contactPhone !== undefined ? String(b.contactPhone).trim() : o.contactPhone) || null, (b.address !== undefined ? String(b.address).trim() : o.address) || null, o.id);
+  res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
+});
+
 // Activate / deactivate a carrier (admin/super).
 router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(req.params.id);
