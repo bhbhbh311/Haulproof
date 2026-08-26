@@ -207,6 +207,15 @@
   #dropOverlay .inner span{color:var(--muted);font-size:14px;}
   .hide{display:none !important;}
   .note{font-size:11.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;margin-top:6px;}
+  /* Location consent banner */
+  #locBar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:var(--surface,#fff);border-top:1px solid #d9e2f0;box-shadow:0 -8px 24px rgba(16,42,82,.14);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));transform:translateY(120%);transition:transform .28s ease;}
+  #locBar.on{transform:translateY(0);}
+  #locBar .locbar-in{display:flex;gap:12px;align-items:flex-start;max-width:640px;margin:0 auto;}
+  #locBar .locbar-ico{font-size:26px;line-height:1;flex:0 0 auto;margin-top:1px;}
+  #locBar .locbar-txt b{font-family:"Archivo",sans-serif;font-size:15px;display:block;margin-bottom:3px;color:var(--ink,#12386e);}
+  #locBar .locbar-txt span{font-size:12.5px;color:var(--muted);line-height:1.45;}
+  #locBar .locbar-btns{display:flex;gap:10px;max-width:640px;margin:12px auto 0;}
+  #locBar .locbar-btns .btn{flex:1;}
 </style>
 </head>
 <body>
@@ -307,6 +316,19 @@
   </div>
 </div>
 <div id="dropOverlay"><div class="inner"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><b>Drop to upload &amp; sign</b><span>PDF or a photo of the BOL</span></div></div>
+<div class="locbar" id="locBar">
+  <div class="locbar-in">
+    <div class="locbar-ico">📍</div>
+    <div class="locbar-txt">
+      <b>Turn on location for delivery proof</b>
+      <span>HaulProof stamps each signed delivery with where it happened — your proof the load reached the right place. It's only read at the moment a signature is captured. Choose <b>Always allow</b> and you won't be asked again on this phone.</span>
+    </div>
+  </div>
+  <div class="locbar-btns">
+    <button class="btn primary sm" id="locAllow" type="button">Always allow</button>
+    <button class="btn ghost sm" id="locLater" type="button">Not now</button>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script id="lib-data">
@@ -695,6 +717,26 @@ window.__startApp=function(){
         {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
     }catch(e){}
   }
+  // --- Location consent banner: explain WHY, and remember an "always allow" choice so we don't ask again. ---
+  function locConsentGet(){ try{ return localStorage.getItem("hp_loc_consent")||""; }catch(e){ return ""; } }
+  function locConsentSet(v){ try{ localStorage.setItem("hp_loc_consent",v); }catch(e){} }
+  function showLocBar(){ var el=$("locBar"); if(el){ el.style.display=""; setTimeout(function(){ el.classList.add("on"); },30); } }
+  function hideLocBar(){ var el=$("locBar"); if(el){ el.classList.remove("on"); setTimeout(function(){ el.style.display="none"; },300); } }
+  function initLocationConsent(){
+    var allowBtn=$("locAllow"), laterBtn=$("locLater");
+    if(allowBtn) allowBtn.addEventListener("click", function(){ locConsentSet("always"); hideLocBar(); warmLocation(); });
+    if(laterBtn) laterBtn.addEventListener("click", function(){ hideLocBar(); });
+    if(!navigator.geolocation) return;                 // nothing to ask for
+    // If they already chose "Always allow", the browser remembers the grant — warm it silently, never nag.
+    if(locConsentGet()==="always"){ warmLocation(); return; }
+    // If the browser already reports permission granted, treat that as consent and skip the banner.
+    if(navigator.permissions && navigator.permissions.query){
+      navigator.permissions.query({name:"geolocation"}).then(function(st){
+        if(st.state==="granted"){ locConsentSet("always"); warmLocation(); }
+        else { showLocBar(); }
+      }).catch(function(){ showLocBar(); });
+    } else { showLocBar(); }
+  }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
     navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").textContent="📍 Captured: "+lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });
@@ -856,9 +898,7 @@ window.__startApp=function(){
 
   /* boot */
   renderCloud(); renderRoute(); showView("route");
-  warmLocation();               // prompt for location permission as soon as the app opens
-  // Fallback for phones that only allow the prompt inside a user gesture: request on first tap.
-  document.addEventListener("pointerdown", function _lw(){ document.removeEventListener("pointerdown", _lw); warmLocation(); }, {passive:true});
+  initLocationConsent();        // show the "why we need location" banner (or warm silently if already allowed)
   if(online()) syncOutbox();
 };
 if(window.__LIBS) window.__startApp();
