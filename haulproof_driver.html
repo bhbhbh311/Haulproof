@@ -403,7 +403,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26 · document scan enabled</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26b · sharper signing view</div>
   </section>
 </main>
 
@@ -726,11 +726,12 @@ window.__startApp=function(){
     for(var n=1;n<=doc.numPages;n++){
       var page=await doc.getPage(n), base=page.getViewport({scale:1});
       var scale=Math.min(2,wrapW/base.width), vp=page.getViewport({scale:scale});
+      var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1)), rvp=page.getViewport({scale:scale*dpr});
       var pd=document.createElement("div"); pd.className="page"; pd.style.width=vp.width+"px";
-      var cv=document.createElement("canvas"); cv.width=Math.floor(vp.width); cv.height=Math.floor(vp.height); pd.appendChild(cv);
+      var cv=document.createElement("canvas"); cv.width=Math.floor(rvp.width); cv.height=Math.floor(rvp.height); pd.appendChild(cv);
       var lb=document.createElement("div"); lb.className="plabel"; lb.textContent="Page "+n+" / "+doc.numPages; pd.appendChild(lb);
       $("pages").appendChild(pd);
-      await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+      await page.render({canvasContext:cv.getContext("2d"),viewport:rvp}).promise;
       var rec={vp:vp,scale:scale,div:pd,idx:n-1,baseW:base.width,baseH:base.height}; pageRecs.push(rec);
     }
     (tpl||[]).forEach(function(f){
@@ -1024,7 +1025,7 @@ window.__startApp=function(){
     var TL=corners[0],TR=corners[1],BR=corners[2],BL=corners[3];
     var outW=Math.max(1,Math.round(Math.max(distPt(TL,TR),distPt(BL,BR))));
     var outH=Math.max(1,Math.round(Math.max(distPt(TL,BL),distPt(TR,BR))));
-    var sc=Math.min(1, 1700/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
+    var sc=Math.min(1, 2200/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
     var Hm=computeH([{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}], [TL,TR,BR,BL]);
     var src=imgData.data, out=new Uint8ClampedArray(outW*outH*4);
     for(var y=0;y<outH;y++){
@@ -1130,11 +1131,11 @@ window.__startApp=function(){
     return new Promise(function(res,rej){
       var im=new Image();
       im.onload=function(){
-        var maxD=1700, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
+        var maxD=2200, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
         var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
         var c=document.createElement("canvas"); c.width=cw; c.height=ch;
         var g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,cw,ch); g.drawImage(im,0,0,cw,ch);
-        res({dataUrl:c.toDataURL("image/jpeg",0.85), w:cw, h:ch});
+        res({dataUrl:c.toDataURL("image/jpeg",0.9), w:cw, h:ch});
       };
       im.onerror=function(){ rej(new Error("decode failed")); };
       im.src=dataUrl;
@@ -1169,11 +1170,13 @@ window.__startApp=function(){
     for(var n=1;n<=doc.numPages;n++){
       var page=await doc.getPage(n), base=page.getViewport({scale:1});
       var scale=Math.min(2,wrapW/base.width), vp=page.getViewport({scale:scale});
+      // Draw the backing canvas at the screen's pixel density so the page is crisp, not upscaled/blurry.
+      var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1)), rvp=page.getViewport({scale:scale*dpr});
       var pd=document.createElement("div"); pd.className="page"; pd.style.width=vp.width+"px";
-      var cv=document.createElement("canvas"); cv.width=Math.floor(vp.width); cv.height=Math.floor(vp.height); pd.appendChild(cv);
+      var cv=document.createElement("canvas"); cv.width=Math.floor(rvp.width); cv.height=Math.floor(rvp.height); pd.appendChild(cv);
       var lb=document.createElement("div"); lb.className="plabel"; lb.textContent="Page "+n+" / "+doc.numPages; pd.appendChild(lb);
       $("pages").appendChild(pd);
-      await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+      await page.render({canvasContext:cv.getContext("2d"),viewport:rvp}).promise;
       var rec={vp:vp,scale:scale,div:pd,idx:n-1,baseW:base.width,baseH:base.height}; pageRecs.push(rec);
       var startX=(base.width-250)/2;
       placeGroup(rec,"Consignee",startX,base.height*0.50);
