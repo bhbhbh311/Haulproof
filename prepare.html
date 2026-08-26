@@ -38,10 +38,8 @@
 <div class="bar">
   <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
   <span class="ctx" id="ctx"></span>
-  <button class="tool cons on" data-role="Consignee" data-kind="sig"><span class="dot"></span>Consignee sign</button>
-  <button class="tool cons" data-role="Consignee" data-kind="date"><span class="dot"></span>Consignee date</button>
-  <button class="tool driver" data-role="Driver" data-kind="sig"><span class="dot"></span>Driver sign</button>
-  <button class="tool driver" data-role="Driver" data-kind="date"><span class="dot"></span>Driver date</button>
+  <button class="tool cons on" data-role="Consignee" data-kind="sigdate"><span class="dot"></span>Consignee sign + date</button>
+  <button class="tool driver" data-role="Driver" data-kind="sigdate"><span class="dot"></span>Driver sign + date</button>
   <button class="btn ok" id="saveBtn" type="button">Save setup</button>
   <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
 </div>
@@ -56,9 +54,9 @@
   var params=new URLSearchParams(location.search);
   var DOC_ID=params.get('id');
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
-  var activeTool={role:'Consignee',kind:'sig'};
+  var activeTool={role:'Consignee',kind:'sigdate'};
   var pageRecs=[]; var fields=[]; // {pageIdx,kind,role,el,xPdf,yPdf,wPdf,hPdf,baseW,baseH}
-  var DEFAULT={sig:{w:190,h:46},date:{w:120,h:34}};
+  var DEFAULT={sigdate:{w:200,h:58},sig:{w:190,h:46},date:{w:120,h:34}};
 
   // toolbar
   Array.prototype.forEach.call(document.querySelectorAll('.tool'),function(b){
@@ -104,7 +102,7 @@
     chain.then(function(){ loadExisting(); });
   }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
 
-  function labelText(role,kind){ return role+'\n'+(kind==='sig'?'signature':'date'); }
+  function labelText(role,kind){ return role+'\n'+(kind==='sigdate'?'signature + date':(kind==='sig'?'signature':'date')); }
 
   function addField(rec,e){
     var r=rec.div.getBoundingClientRect();
