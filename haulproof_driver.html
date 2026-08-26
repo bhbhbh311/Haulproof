@@ -51,6 +51,13 @@
   .pill.off{border-color:var(--warn); color:var(--warn); background:var(--warn-soft);}
   .pill.on{border-color:var(--success); color:var(--success); background:var(--success-soft);}
   .dot{width:8px;height:8px;border-radius:50%;background:currentColor;}
+  .drvbadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;font-weight:600;border:1px solid var(--driver-line);background:var(--primary-soft);color:var(--primary);padding:5px 11px;border-radius:20px;cursor:pointer;max-width:42vw;}
+  .drvbadge svg{width:13px;height:13px;flex:none;}
+  .drvbadge span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .signon{max-width:420px;margin:5vh auto 0;text-align:center;}
+  .signon .mark{width:54px;height:54px;border-radius:15px;margin:0 auto 16px;}
+  .signon .mark svg{width:30px;height:30px;}
+  .signon .fields{text-align:left;margin-top:14px;}
   main{max-width:820px;margin:0 auto;padding:20px 16px 60px;}
   .view.hide{display:none;}
   h1{font-family:"Archivo",sans-serif;font-weight:800;font-size:23px;letter-spacing:-.02em;margin:2px 0 4px;text-wrap:balance;}
@@ -240,10 +247,30 @@
 <header class="bar">
   <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13.5 9 18.5 20 6.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
   <span class="wordmark">Haul<b>Proof</b></span>
+  <button class="drvbadge hide" id="drvBadge" type="button" title="Signed-on driver — tap to sign off">
+    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+    <span id="drvName"></span>
+  </button>
   <button class="pill" id="cloudPill" type="button"><span class="dot"></span><span id="cloudTxt">…</span></button>
 </header>
 
 <main>
+  <!-- SIGN ON -->
+  <section class="view hide" id="viewSignon">
+    <div class="signon">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13.5 9 18.5 20 6.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <h1 id="soTitle">Who's driving today?</h1>
+      <p class="sub" id="soSub">Sign on so every delivery you capture is recorded under your name.</p>
+      <div class="fields">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px;">Your name</label>
+        <input class="ti" id="soName" placeholder="e.g. Mike Reynolds" autocomplete="name" style="margin-bottom:14px;">
+      </div>
+      <button class="btn primary block" id="soBtn" type="button">Sign on</button>
+      <button class="btn ghost block hide" id="soOff" type="button" style="margin-top:10px;">Sign off</button>
+      <button class="btn ghost block hide" id="soBack" type="button" style="margin-top:10px;">Back to route</button>
+    </div>
+  </section>
+
   <!-- ROUTE -->
   <section class="view" id="viewRoute">
     <h1>Today's route</h1>
@@ -476,14 +503,50 @@ window.__startApp=function(){
 
   /* ============ views ============ */
   function showView(v){
-    ["Route","Sign","Outbox"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
+    ["Route","Sign","Outbox","Signon"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
+    if(v==="signon"){ renderSignon(); }
     window.scrollTo(0,0);
   }
   $("cloudPill").addEventListener("click", function(){ showView("outbox"); });
   $("obBack").addEventListener("click", function(){ showView("route"); });
   $("signBack").addEventListener("click", function(){ showView("route"); });
+
+  /* ============ driver sign on / off ============ */
+  function driverName(){ try{ return (localStorage.getItem("hp_driver")||"").trim(); }catch(e){ return ""; } }
+  function setDriver(n){ try{ if(n){ localStorage.setItem("hp_driver", n); } else { localStorage.removeItem("hp_driver"); } }catch(e){} }
+  function renderDrvBadge(){
+    var n=driverName(), b=$("drvBadge");
+    if(n){ $("drvName").textContent=n; b.classList.remove("hide"); }
+    else { b.classList.add("hide"); }
+  }
+  function renderSignon(){
+    var n=driverName();
+    $("soName").value = n || "";
+    if(n){
+      $("soTitle").textContent = "You're signed on";
+      $("soSub").textContent = "Signed on as " + n + ". Update your name, sign off to switch drivers, or head back to your route.";
+      $("soBtn").textContent = "Update name";
+      $("soOff").classList.remove("hide"); $("soBack").classList.remove("hide");
+    } else {
+      $("soTitle").textContent = "Who's driving today?";
+      $("soSub").textContent = "Sign on so every delivery you capture is recorded under your name.";
+      $("soBtn").textContent = "Sign on";
+      $("soOff").classList.add("hide"); $("soBack").classList.add("hide");
+    }
+    setTimeout(function(){ try{ $("soName").focus(); }catch(e){} },30);
+  }
+  $("drvBadge").addEventListener("click", function(){ showView("signon"); });
+  $("soBtn").addEventListener("click", function(){
+    var n=$("soName").value.trim();
+    if(!n){ $("soName").focus(); toast("Enter your name to sign on"); return; }
+    var was=driverName(); setDriver(n); renderDrvBadge();
+    showView("route"); toast(was ? ("Updated to "+n) : ("Signed on as "+n));
+  });
+  $("soName").addEventListener("keydown", function(e){ if(e.key==="Enter"){ $("soBtn").click(); } });
+  $("soOff").addEventListener("click", function(){ setDriver(""); renderDrvBadge(); renderSignon(); toast("Signed off"); });
+  $("soBack").addEventListener("click", function(){ showView("route"); });
 
   /* ============ route / stops ============ */
   var SAMPLE=[
@@ -802,7 +865,11 @@ window.__startApp=function(){
   function allDone(){ updateProgress(); toast("All signed — tap Finish"); }
 
   /* adopt modal */
-  function openModal(){ $("modalTitle").textContent=role()+" — adopt signature"; setMode("type"); $("signerName").value=""; $("sigOpts").innerHTML='<div class="opthint">Type a name to see signature styles</div>'; selected=null; $("locNote").textContent="📍 Location: requesting…"; requestLoc(); $("modal").classList.add("on"); setTimeout(fitPad,30); }
+  function openModal(){ $("modalTitle").textContent=role()+" — adopt signature"; setMode("type");
+    var pre = (role()==="Driver") ? driverName() : "";   // pre-fill the signed-on driver's name
+    $("signerName").value = pre;
+    if(pre){ buildSigOptions(); } else { $("sigOpts").innerHTML='<div class="opthint">Type a name to see signature styles</div>'; selected=null; }
+    $("locNote").textContent="📍 Location: requesting…"; requestLoc(); $("modal").classList.add("on"); setTimeout(fitPad,30); }
   function closeModal(){ $("modal").classList.remove("on"); }
   $("modalCancel").addEventListener("click", closeModal);
   $("tabType").addEventListener("click", function(){ setMode("type"); });
@@ -998,7 +1065,8 @@ window.__startApp=function(){
   }
 
   /* boot */
-  renderCloud(); renderRoute(); showView("route");
+  renderCloud(); renderRoute(); renderDrvBadge();
+  if(driverName()){ showView("route"); } else { showView("signon"); }   // must sign on first
   initLocationConsent();        // show the "why we need location" banner (or warm silently if already allowed)
   if(online()) syncOutbox();
 };
