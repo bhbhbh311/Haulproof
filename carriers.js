@@ -2,7 +2,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
-const { requireAuth, requireAdmin } = require('./auth');
+const { requireAuth, requireAdmin, createUser } = require('./auth');
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const router = express.Router();
 const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services/';
@@ -95,6 +96,15 @@ router.post('/', requireAuth, (req, res) => {
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
               VALUES (?,?, 'carrier', ?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
+  // Optionally create the carrier's first admin login (master/customer admin only).
+  const adminEmail = (b.adminEmail || '').toLowerCase().trim();
+  if (adminEmail) {
+    if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Only an admin can create a carrier login' });
+    if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid carrier admin email is required' });
+    if (!b.adminPassword || String(b.adminPassword).length < 6) return res.status(400).json({ error: 'Carrier admin password must be at least 6 characters' });
+    if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That admin email already has a login' });
+    createUser({ email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', password: String(b.adminPassword), orgId: id });
+  }
   res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)) });
 });
 

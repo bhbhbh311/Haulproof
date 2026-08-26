@@ -18,16 +18,22 @@ function createUser({ email, name, role, password, orgId }) {
   return { id, email: email.toLowerCase().trim(), name: name || '', role: role || 'dispatcher', orgId: orgId || null };
 }
 
-// Sign a 12h session token. Carries the user's role AND which customer (org) they belong to.
+// What kind of org a user belongs to ('customer' | 'carrier' | null for super-admin).
+function orgKindOf(orgId) {
+  if (!orgId) return null;
+  const o = db.prepare(`SELECT kind FROM orgs WHERE id = ?`).get(orgId);
+  return o ? (o.kind || 'customer') : null;
+}
+// Sign a 12h session token. Carries the user's role, which org they belong to, and that org's kind.
 function signToken(u) {
-  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null }, JWT_SECRET, { expiresIn: '12h' });
+  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: orgKindOf(u.orgId) }, JWT_SECRET, { expiresIn: '12h' });
 }
 
 function login(email, password) {
   const u = db.prepare(`SELECT * FROM users WHERE email = ?`).get((email || '').toLowerCase().trim());
   if (!u || !u.passHash || !bcrypt.compareSync(password || '', u.passHash)) return null;
   const token = signToken(u);
-  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null } };
+  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: orgKindOf(u.orgId) } };
 }
 
 // Provision (or refresh) a user who signed in through Microsoft SSO. No password is set.

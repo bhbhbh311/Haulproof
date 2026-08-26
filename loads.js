@@ -8,11 +8,21 @@ const { logEvent } = require('./events');
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
 function actorOf(req) { return req.user.email || req.user.name || 'admin'; }
-// A load the caller's customer org owns (super sees any).
+function isCarrier(req) { return req.user.orgKind === 'carrier'; }
+// A load the caller's customer org OWNS (super sees any). Carriers never "own" loads.
 function ownedLoad(req, id) {
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   if (!load) return null;
   if (req.user.role === 'superadmin') return load;
+  if (isCarrier(req)) return null;
+  return (load.orgId || null) === (req.user.orgId || null) ? load : null;
+}
+// A load the caller can VIEW/act on: the owning customer, super, OR the assigned carrier.
+function accessibleLoad(req, id) {
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
+  if (!load) return null;
+  if (req.user.role === 'superadmin') return load;
+  if (isCarrier(req)) return (load.carrierId || null) === (req.user.orgId || null) ? load : null;
   return (load.orgId || null) === (req.user.orgId || null) ? load : null;
 }
 function loadOut(l) { return l; }
@@ -35,11 +45,12 @@ router.post('/', requireAuth, (req, res) => {
   res.json({ load: loadOut(load), existed: false });
 });
 
-// Search loads within this customer.
+// Search loads. Customers see their own; a carrier sees loads assigned to it.
 router.get('/', requireAuth, (req, res) => {
-  const orgId = myOrg(req);
   const { q, po, load } = req.query;
-  const where = [`orgId IS ?`], args = [orgId];
+  const where = [], args = [];
+  if (isCarrier(req)) { where.push(`carrierId = ?`); args.push(req.user.orgId || ''); }
+  else { where.push(`orgId IS ?`); args.push(myOrg(req)); }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
@@ -49,7 +60,7 @@ router.get('/', requireAuth, (req, res) => {
 
 // One load plus its documents.
 router.get('/:id', requireAuth, (req, res) => {
-  const load = ownedLoad(req, req.params.id);
+  const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const pods = db.prepare(`SELECT id, docType, filename, consignee, signedAt, uploadedAt, status FROM pods WHERE loadId = ? ORDER BY uploadedAt DESC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
@@ -70,9 +81,9 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
 });
 
-// Record the driver + truck + trailer on a load. Customer org or super (carrier self-service comes later).
+// Record the driver + truck + trailer on a load. The assigned carrier, the owning customer, or super.
 router.post('/:id/assign-driver', requireAuth, (req, res) => {
-  const load = ownedLoad(req, req.params.id);
+  const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const driverName = (req.body && req.body.driverName || '').trim();
   const truck = (req.body && req.body.truck || '').trim();
@@ -86,7 +97,7 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
 
 // The recorded history of a load / PO#.
 router.get('/:id/history', requireAuth, (req, res) => {
-  const load = ownedLoad(req, req.params.id);
+  const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const events = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt ASC`).all(load.id);
   res.json({ load: loadOut(load), events });

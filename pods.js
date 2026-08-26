@@ -25,10 +25,24 @@ function requireAuthOrKey(req, res, next) {
 // The customer this request acts within.
 function reqOrgId(req) { return req.viaKey ? req.org.id : (req.user ? req.user.orgId || null : null); }
 function isSuperReq(req) { return !req.viaKey && req.user && req.user.role === 'superadmin'; }
+// Is this a carrier's device key/driver token? (carrier drivers sign documents that belong to a customer)
+function isCarrierKey(req) { return req.viaKey && req.org && req.org.kind === 'carrier'; }
+// The carrier org this request belongs to, whether via device key or a logged-in carrier session.
+function carrierOrgId(req) {
+  if (isCarrierKey(req)) return req.org.id;
+  if (!req.viaKey && req.user && req.user.orgKind === 'carrier') return req.user.orgId || null;
+  return null;
+}
 // Can this request touch this document?
 function canAccess(req, doc) {
   if (!doc) return false;
   if (isSuperReq(req)) return true;
+  const cOrg = carrierOrgId(req);
+  if (cOrg) { // a carrier reaches a doc only through a load assigned to it
+    if (!doc.loadId) return false;
+    const l = db.prepare(`SELECT carrierId FROM loads WHERE id = ?`).get(doc.loadId);
+    return !!l && l.carrierId === cOrg;
+  }
   return (doc.orgId || null) === reqOrgId(req);
 }
 
@@ -75,15 +89,27 @@ router.post('/upload', requireAuth, raw, (req, res) => {
 
 // ---- LOOKUP a prepared doc by PO# or Load# (driver pull). Device key OR session; scoped to that customer. ----
 router.get('/lookup', requireAuthOrKey, (req, res) => {
-  const orgId = reqOrgId(req);
   const po = (req.query.po || '').trim(), load = (req.query.load || '').trim();
   if (!po && !load) return res.status(400).json({ error: 'Provide a PO # or Load #' });
-  const where = [`orgId IS ?`], args = [orgId];
-  const or = [];
-  if (po) { or.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
-  if (load) { or.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
-  where.push('(' + or.join(' OR ') + ')');
-  const rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} ORDER BY (status='prepared') DESC, uploadedAt DESC LIMIT 1`).all(...args);
+  let rows;
+  if (isCarrierKey(req)) {
+    // A carrier's driver pulls documents on loads the customer assigned to that carrier.
+    const where = [`loads.carrierId = ?`], args = [req.org.id];
+    const or = [];
+    if (po) { or.push(`TRIM(pods.poNumber) = ? COLLATE NOCASE`); args.push(po); }
+    if (load) { or.push(`TRIM(pods.loadNumber) = ? COLLATE NOCASE`); args.push(load); }
+    where.push('(' + or.join(' OR ') + ')');
+    rows = db.prepare(`SELECT pods.* FROM pods JOIN loads ON loads.id = pods.loadId
+      WHERE ${where.join(' AND ')} ORDER BY (pods.status='prepared') DESC, pods.uploadedAt DESC LIMIT 1`).all(...args);
+  } else {
+    const orgId = reqOrgId(req);
+    const where = [`orgId IS ?`], args = [orgId];
+    const or = [];
+    if (po) { or.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
+    if (load) { or.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
+    where.push('(' + or.join(' OR ') + ')');
+    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} ORDER BY (status='prepared') DESC, uploadedAt DESC LIMIT 1`).all(...args);
+  }
   if (!rows.length) return res.status(404).json({ error: 'No document found for that PO # / Load #' });
   const r = rowOut(rows[0]);
   res.json({ id: r.id, poNumber: r.poNumber, loadNumber: r.loadNumber, consignee: r.consignee, filename: r.filename, status: r.status, fields: r.fields, fileUrl: r.fileUrl });
@@ -92,7 +118,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
 // ---- INGEST (signed POD back from the driver app). Device key; stored under that customer. ----
 router.post('/ingest', requireApiKey, raw, async (req, res) => {
   try {
-    const orgId = req.org.id;
+    let orgId = req.org.id;
     const h = req.headers, dec = decoder(h);
     const meta = {
       loadNumber: dec(h['x-pod-load']) || null,
@@ -109,10 +135,18 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (req.driver && req.driver.name) meta.driver = req.driver.name;
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
+    // A carrier's driver files the signed POD back to the CUSTOMER that owns the assigned load.
+    let load;
+    if (req.org.kind === 'carrier') {
+      if (meta.poNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(poNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.poNumber);
+      if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
+      if (!load) return res.status(403).json({ error: 'This carrier is not assigned to that PO # / Load #' });
+      orgId = load.orgId; // file under the customer that owns the load
+    }
     const id = crypto.randomUUID();
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
-    const load = findOrCreateLoad({ orgId, ...meta });
+    if (!load) load = findOrCreateLoad({ orgId, ...meta });
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,'signed',@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
