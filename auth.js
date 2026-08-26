@@ -32,6 +32,8 @@ function signToken(u) {
 function login(email, password) {
   const u = db.prepare(`SELECT * FROM users WHERE email = ?`).get((email || '').toLowerCase().trim());
   if (!u || !u.passHash || !bcrypt.compareSync(password || '', u.passHash)) return null;
+  // A deactivated customer/carrier can't sign in (super-admins have no org and are unaffected).
+  if (u.orgId) { const o = db.prepare(`SELECT active FROM orgs WHERE id = ?`).get(u.orgId); if (o && !o.active) return null; }
   const token = signToken(u);
   return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: orgKindOf(u.orgId) } };
 }

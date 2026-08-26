@@ -69,7 +69,10 @@
     <div class="card hide" id="customersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Customers</h1><p class="sub" style="margin-bottom:0;">Each customer is a private, walled-off account. Add one, and it gets its own admin login and its own driver link.</p></div>
-        <button class="ghost" id="ncToggle" type="button">＋ Add customer</button>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;margin:0;"><input type="checkbox" id="custShowInactive" style="width:auto;margin:0;"> Show inactive</label>
+          <button class="ghost" id="ncToggle" type="button">＋ Add customer</button>
+        </div>
       </div>
       <div id="ncForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
@@ -103,7 +106,10 @@
     <div class="card hide" id="carriersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Carriers</h1><p class="sub" style="margin-bottom:0;">Carriers get their own walled-off space to manage drivers and act on assigned loads. Add one and give it an admin login.</p></div>
-        <button class="ghost" id="acToggle" type="button">＋ Add carrier</button>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;margin:0;"><input type="checkbox" id="carShowInactive" style="width:auto;margin:0;"> Show inactive</label>
+          <button class="ghost" id="acToggle" type="button">＋ Add carrier</button>
+        </div>
       </div>
       <div id="acForm" class="hide" style="margin-top:16px;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
@@ -359,19 +365,29 @@
   // --- Carriers (super-admin): FMCSA lookup, add carrier + login, manage ---
   async function loadCarriers() {
     const box = $('carrierList');
+    const inc = $('carShowInactive') && $('carShowInactive').checked;
     try {
-      const r = await api('/api/carriers');
-      if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers yet. Add one above.</div>'; return; }
-      box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
-        r.carriers.map(c => `<tr>
+      const r = await api('/api/carriers' + (inc ? '?includeInactive=1' : ''));
+      if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers to show.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
+        r.carriers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
           <td><b>${esc(c.name)}</b></td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
-          <td style="text-align:right;"><button class="carMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button></td>
+          <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="carMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
+            <button class="ghost carActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
+          </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.carMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.carActive').forEach(b => b.onclick = async () => {
+        try { await api('/api/carriers/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCarriers(); }
+        catch (e) { alert(e.message); }
+      });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
+  if ($('carShowInactive')) $('carShowInactive').onchange = loadCarriers;
   $('acToggle').onclick = () => { $('acForm').classList.toggle('hide'); if (!$('acForm').classList.contains('hide')) $('acSearch').focus(); };
   $('acGen').onclick = () => { $('acAdminPass').value = randPw(); };
   let acVerified = false, acAllowed = '';
@@ -628,24 +644,32 @@
   function randPw() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 10; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
   async function copyText(t) { try { await navigator.clipboard.writeText(t); return true; } catch (_) { return false; } }
   async function loadCustomers() {
+    const inc = $('custShowInactive') && $('custShowInactive').checked;
     try {
-      const r = await api('/api/orgs');
+      const r = await api('/api/orgs' + (inc ? '?includeInactive=1' : ''));
       const box = $('custList');
-      if (!r.orgs || !r.orgs.length) { box.innerHTML = '<div class="empty">No customers yet. Add your first one above.</div>'; return; }
-      box.innerHTML = '<table><thead><tr><th>Customer</th><th>Admin(s)</th><th>Docs</th><th>Driver link</th></tr></thead><tbody>' +
-        r.orgs.map(o => `<tr>
-          <td><b>${o.name}</b>${o.contactName ? '<div style="color:var(--muted);font-size:12px;">' + o.contactName + (o.contactPhone ? ' · ' + o.contactPhone : '') + '</div>' : ''}</td>
-          <td style="font-size:13px;">${(o.admins || []).join('<br>') || '—'}</td>
+      if (!r.orgs || !r.orgs.length) { box.innerHTML = '<div class="empty">No customers to show.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Customer</th><th>Admin(s)</th><th>Docs</th><th>Status</th><th></th></tr></thead><tbody>' +
+        r.orgs.map(o => `<tr style="${o.active ? '' : 'opacity:.6;'}">
+          <td><b>${esc(o.name)}</b>${o.contactName ? '<div style="color:var(--muted);font-size:12px;">' + esc(o.contactName) + (o.contactPhone ? ' · ' + esc(o.contactPhone) : '') + '</div>' : ''}</td>
+          <td style="font-size:13px;">${(o.admins || []).map(esc).join('<br>') || '—'}</td>
           <td>${o.docCount}</td>
-          <td style="white-space:nowrap;">
+          <td>${o.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
+          <td style="white-space:nowrap;text-align:right;">
             <button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button>
-            <button class="custManage" data-id="${o.id}" data-name="${o.name.replace(/"/g,'&quot;')}" style="padding:6px 10px;font-size:12px;">Manage</button>
+            <button class="custManage" data-id="${o.id}" data-name="${esc(o.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
+            <button class="ghost custActive" data-id="${o.id}" data-active="${o.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${o.active ? 'color:#c0392b;' : ''}">${o.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
       box.querySelectorAll('.custManage').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.custActive').forEach(b => b.onclick = async () => {
+        try { await api('/api/orgs/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCustomers(); }
+        catch (e) { alert(e.message); }
+      });
     } catch (e) { $('custList').innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
+  if ($('custShowInactive')) $('custShowInactive').onchange = loadCustomers;
   $('ncToggle').onclick = () => { $('ncForm').classList.toggle('hide'); if (!$('ncForm').classList.contains('hide')) $('ncName').focus(); };
   $('ncCancel').onclick = () => { $('ncForm').classList.add('hide'); $('ncAfter').classList.add('hide'); ncMsg(''); };
   $('ncGen').onclick = () => { $('ncAdminPass').value = randPw(); };

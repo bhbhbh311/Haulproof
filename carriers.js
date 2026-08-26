@@ -57,13 +57,22 @@ router.get('/lookup', requireAuth, async (req, res) => {
   res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null });
 });
 
-// List saved carrier orgs (optionally filtered by q on name/MC/DOT).
+// List saved carrier orgs (optionally filtered by q). Active only unless ?includeInactive=1.
 router.get('/', requireAuth, (req, res) => {
   const q = (req.query.q || '').trim();
+  const act = req.query.includeInactive === '1' ? '' : 'AND active = 1';
   let rows;
-  if (q) rows = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND (name LIKE ? OR mcNumber LIKE ? OR dotNumber LIKE ?) ORDER BY name`).all('%' + q + '%', '%' + q + '%', '%' + q + '%');
-  else rows = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' ORDER BY name`).all();
+  if (q) rows = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' ${act} AND (name LIKE ? OR mcNumber LIKE ? OR dotNumber LIKE ?) ORDER BY active DESC, name`).all('%' + q + '%', '%' + q + '%', '%' + q + '%');
+  else rows = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' ${act} ORDER BY active DESC, name`).all();
   res.json({ carriers: rows.map(carrierOut) });
+});
+
+// Activate / deactivate a carrier (admin/super).
+router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
+  const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Carrier not found' });
+  db.prepare(`UPDATE orgs SET active = ? WHERE id = ?`).run(req.body && req.body.active ? 1 : 0, o.id);
+  res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 function carrierOut(o) {
   return { id: o.id, name: o.name, mcNumber: o.mcNumber, dotNumber: o.dotNumber, fmcsaVerified: !!o.fmcsaVerified,

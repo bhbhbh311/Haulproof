@@ -24,9 +24,19 @@ function orgOut(req, o) {
 }
 
 // List customers (carrier orgs are managed under /api/carriers, not here).
+// Active only by default; ?includeInactive=1 shows deactivated ones too.
 router.get('/', requireAuth, requireSuper, (req, res) => {
-  const rows = db.prepare(`SELECT * FROM orgs WHERE kind='customer' OR kind IS NULL ORDER BY createdAt DESC`).all();
+  const all = req.query.includeInactive === '1';
+  const rows = db.prepare(`SELECT * FROM orgs WHERE (kind='customer' OR kind IS NULL) ${all ? '' : 'AND active = 1'} ORDER BY active DESC, createdAt DESC`).all();
   res.json({ orgs: rows.map(o => orgOut(req, o)) });
+});
+
+// Activate / deactivate a customer. Deactivating cuts off its logins and driver links.
+router.post('/:id/active', requireAuth, requireSuper, (req, res) => {
+  const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND (kind='customer' OR kind IS NULL)`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Customer not found' });
+  db.prepare(`UPDATE orgs SET active = ? WHERE id = ?`).run(req.body && req.body.active ? 1 : 0, o.id);
+  res.json({ org: orgOut(req, db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 
 // Create a customer + its first admin login.
