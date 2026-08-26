@@ -54,6 +54,20 @@ router.get('/my-loads', (req, res) => {
   res.json({ loads });
 });
 
+// This driver's own recent signed documents (for the "Recent documents" list in their app).
+router.get('/my-documents', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.json({ docs: [] });
+  const rows = db.prepare(`SELECT id, poNumber, loadNumber, consignee, filename, docType, status, uploadedAt, signedAt
+      FROM pods
+      WHERE status IN ('signed','emailed')
+        AND (signedByDriverId = ? OR (driver = ? AND orgId IS ?))
+      ORDER BY uploadedAt DESC LIMIT 15`).all(r.driver.id, r.driver.name || '', r.driver.orgId || null);
+  const docs = rows.map(p => ({ id: p.id, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+    filename: p.filename, when: p.uploadedAt || p.signedAt, fileUrl: '/api/pods/' + p.id + '/file' }));
+  res.json({ docs });
+});
+
 // List a customer's drivers.
 router.get('/', requireAuth, requireAdmin, (req, res) => {
   const orgId = scopeOrgId(req);

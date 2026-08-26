@@ -15,6 +15,7 @@ const orgsRouter = require('./orgs');
 const driversRouter = require('./drivers');
 const { router: carriersRouter } = require('./carriers');
 const { router: brokersRouter } = require('./brokers');
+const requestsRouter = require('./requests');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -58,6 +59,7 @@ app.use('/api/orgs', orgsRouter);
 app.use('/api/drivers', driversRouter);
 app.use('/api/carriers', carriersRouter);
 app.use('/api/brokers', brokersRouter);
+app.use('/api/requests', requestsRouter);
 
 // The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
 // Super-admins provision drivers per customer from the Customers screen instead.
@@ -110,6 +112,7 @@ try {
 
 // --- signature setup screen + its pdf.js engine ---
 app.get('/prepare', (_req, res) => res.sendFile(path.join(__dirname, 'prepare.html')));
+app.get('/request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'request.html')); });
 
 // --- driver app served at /driver so phones just open a URL ---
 // Auto-points at this server's origin. Device key is NOT embedded; pass it once via ?k=KEY

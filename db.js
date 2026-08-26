@@ -157,6 +157,7 @@ addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) tha
 addColumn('pods', 'assignedDriverId', 'TEXT');   // a prepared doc can be assigned to a specific driver
 addColumn('pods', 'assignedDriverName', 'TEXT');
 addColumn('pods', 'assignedFulfilledAt', 'INTEGER');   // set when the assigned prepared doc gets signed → drops off "Your loads"
+addColumn('pods', 'signedByDriverId', 'TEXT');   // which driver (personal token) signed this → powers "your recent documents"
 addColumn('pods', 'offeredToOrgId', 'TEXT');
 addColumn('pods', 'claimStatus', 'TEXT');   // null/'none' | 'offered' | 'accepted' | 'declined'
 addColumn('pods', 'offeredFromOrgId', 'TEXT'); // on the customer's accepted copy: which carrier sent it
@@ -173,6 +174,28 @@ CREATE TABLE IF NOT EXISTS broker_carriers (
   createdAt INTEGER NOT NULL,
   PRIMARY KEY (brokerId, carrierId)
 );
+CREATE TABLE IF NOT EXISTS access_requests (
+  id TEXT PRIMARY KEY,
+  code TEXT,
+  kind TEXT,            -- 'company' | 'driver'
+  orgType TEXT,         -- 'customer' | 'carrier' | 'broker' (company requests)
+  contactName TEXT,
+  email TEXT,
+  phone TEXT,
+  company TEXT,
+  mcNumber TEXT,
+  dotNumber TEXT,
+  targetCompany TEXT,   -- driver requests: which company they want to join (free text)
+  note TEXT,
+  status TEXT DEFAULT 'pending',   -- pending | granted | denied
+  thread TEXT DEFAULT '[]',
+  createdOrgId TEXT,
+  createdDriverId TEXT,
+  createdAt INTEGER,
+  decidedAt INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_reqs_status ON access_requests(status);
+CREATE INDEX IF NOT EXISTS idx_reqs_code   ON access_requests(code);
 `);
 
 module.exports = { db, DATA_DIR };

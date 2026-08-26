@@ -126,6 +126,28 @@
   <!-- SEARCH -->
   <div id="appView" class="hide">
 
+    <!-- INVITE / SHARE (any logged-in user) -->
+    <div class="card hide" id="inviteCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Invite to HaulProof</h1><p class="sub" style="margin-bottom:0;">Share this link — a company or driver fills in their details and requests access. Requests come to the Master Admin to grant, deny, or ask a question.</p></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input id="inviteLink" readonly style="min-width:240px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;">
+          <button id="inviteCopy" type="button">Copy link</button>
+          <a id="inviteOpen" href="/request" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;padding:8px 12px;border-radius:8px;">Open</a>
+          <span id="inviteMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACCESS REQUESTS (super-admin only) -->
+    <div class="card hide" id="requestsCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Access requests <span id="reqCount" class="chip received" style="display:none;"></span></h1><p class="sub" style="margin-bottom:0;">People asking to join. Grant to create their account or driver link, deny, or reply with a question.</p></div>
+        <button class="ghost" id="reqRefresh" type="button">Refresh</button>
+      </div>
+      <div id="reqList" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- CUSTOMERS (super-admin only) -->
     <div class="card hide" id="customersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -610,8 +632,10 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['customersCard','carriersCard','brokersCard','custManageCard'];
+    const SUPER_CARDS = ['customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
+    show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     if (u.role === 'superadmin') {
+      show('requestsCard', true); loadRequests();
       show('customersCard', true); loadCustomers();
       show('carriersCard', true); loadCarriers();
       show('brokersCard', true); loadBrokers();
@@ -649,6 +673,81 @@
       } else { show('driverCard', false); show('teamCard', false); show('driversCard', false); }
     }
   }
+  // --- Invite link (all users) + access-request inbox (super-admin) ---
+  function loadInviteLink(){ var el=$('inviteLink'); if(el) el.value = location.origin + '/request'; }
+  if ($('inviteCopy')) $('inviteCopy').onclick = async () => { const ok = await copyText($('inviteLink').value); const m=$('inviteMsg'); m.textContent = ok?'Copied ✓':'Copy failed'; setTimeout(()=>m.textContent='',1600); };
+
+  let reqOrgsCache = null;
+  async function allOrgsForPicker(){
+    if (reqOrgsCache) return reqOrgsCache;
+    const out = [];
+    try { const r = await api('/api/orgs'); (r.orgs||[]).forEach(o=>out.push({id:o.id,name:o.name,kind:'customer'})); } catch(e){}
+    try { const r = await api('/api/carriers'); (r.carriers||[]).forEach(o=>out.push({id:o.id,name:o.name,kind:'carrier'})); } catch(e){}
+    try { const r = await api('/api/brokers'); (r.brokers||[]).forEach(o=>out.push({id:o.id,name:o.name,kind:'broker'})); } catch(e){}
+    reqOrgsCache = out; return out;
+  }
+  async function loadRequests(){
+    const box = $('reqList'); if(!box) return;
+    try {
+      const r = await api('/api/requests');
+      const cnt = $('reqCount'); if (r.pending>0){ cnt.style.display=''; cnt.textContent = r.pending+' new'; } else cnt.style.display='none';
+      if (!r.requests.length){ box.innerHTML = '<div class="empty">No requests yet. Share your invite link above.</div>'; return; }
+      const orgs = await allOrgsForPicker();
+      box.innerHTML = r.requests.map(x => reqRowHtml(x, orgs)).join('');
+      wireReqRows(box);
+    } catch(e){ box.innerHTML = '<div class="empty">'+e.message+'</div>'; }
+  }
+  function reqRowHtml(x, orgs){
+    const when = x.createdAt ? new Date(x.createdAt).toLocaleString() : '';
+    const statusChip = '<span class="chip '+(x.status==='granted'?'signed':x.status==='denied'?'received':'prepared')+'">'+(x.status==='granted'?'Approved':x.status==='denied'?'Denied':'Pending')+'</span>';
+    const what = x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
+    const thread = (x.thread||[]).map(m=>'<div style="font-size:12px;margin:2px 0;color:var(--muted);"><b>'+(m.from==='admin'?'You':'Them')+':</b> '+esc(m.text)+'</div>').join('');
+    let actions = '';
+    if (x.status==='pending'){
+      let grant;
+      if (x.kind==='driver'){
+        grant = '<select class="reqOrg" data-id="'+x.id+'" style="font-size:12px;padding:4px 6px;"><option value="">— company —</option>'+orgs.map(o=>'<option value="'+o.id+'">'+esc(o.name)+' ('+o.kind+')</option>').join('')+'</select> <button class="reqGrant" data-id="'+x.id+'" data-kind="driver" style="padding:5px 11px;font-size:12px;">Grant</button>';
+      } else {
+        grant = '<button class="reqGrant" data-id="'+x.id+'" data-kind="company" style="padding:5px 11px;font-size:12px;">Grant</button>';
+      }
+      actions = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'+grant+
+        '<button class="ghost reqReply" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;">Reply</button>'+
+        '<button class="ghost reqDeny" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;color:#c0392b;">Deny</button>'+
+        '<span class="reqMsg" data-id="'+x.id+'" style="font-size:12px;font-weight:600;"></span></div>';
+    }
+    return '<div style="border:1px solid var(--line-strong);border-radius:12px;padding:12px;margin-bottom:10px;">'+
+      '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><b>'+esc(x.contactName)+'</b> · '+what+'</div>'+statusChip+'</div>'+
+      '<div style="font-size:13px;color:var(--muted);margin-top:2px;">'+esc(x.email)+(x.phone?' · '+esc(x.phone):'')+(x.mcNumber?' · MC '+esc(x.mcNumber):'')+(x.dotNumber?' · DOT '+esc(x.dotNumber):'')+' · '+when+'</div>'+
+      (x.note?'<div style="font-size:13px;margin-top:6px;">“'+esc(x.note)+'”</div>':'')+
+      (thread?'<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px;">'+thread+'</div>':'')+
+      actions+'</div>';
+  }
+  function wireReqRows(box){
+    box.querySelectorAll('.reqGrant').forEach(b => b.onclick = async () => {
+      const id=b.dataset.id, msg=box.querySelector('.reqMsg[data-id="'+id+'"]');
+      const body = {};
+      if (b.dataset.kind==='driver'){ const sel=box.querySelector('.reqOrg[data-id="'+id+'"]'); if(!sel.value){ msg.style.color='var(--danger)'; msg.textContent='Pick a company first'; return; } body.targetOrgId=sel.value; }
+      msg.style.color='var(--muted)'; msg.textContent='Granting…';
+      try { const r = await api('/api/requests/'+id+'/grant', {method:'POST', body: JSON.stringify(body)});
+        if (r.kind==='company') alert('Account created.\n\nLogin: '+r.adminEmail+'\nTemporary password: '+r.adminPassword+'\n\n(Also emailed to them.)');
+        else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\nPIN: '+r.pin+'\n\n(Also emailed to them.)');
+        loadRequests();
+      } catch(e){ msg.style.color='var(--danger)'; msg.textContent=e.message; }
+    });
+    box.querySelectorAll('.reqReply').forEach(b => b.onclick = async () => {
+      const id=b.dataset.id, msg=box.querySelector('.reqMsg[data-id="'+id+'"]');
+      const text = prompt('Ask a question or send a note to the requester:'); if(!text) return;
+      try { await api('/api/requests/'+id+'/reply', {method:'POST', body: JSON.stringify({text})}); loadRequests(); } catch(e){ if(msg){ msg.style.color='var(--danger)'; msg.textContent=e.message; } }
+    });
+    box.querySelectorAll('.reqDeny').forEach(b => b.onclick = async () => {
+      const id=b.dataset.id, msg=box.querySelector('.reqMsg[data-id="'+id+'"]');
+      if(!confirm('Deny this request?')) return;
+      const reason = prompt('Optional reason (sent to them):')||'';
+      try { await api('/api/requests/'+id+'/deny', {method:'POST', body: JSON.stringify({reason})}); loadRequests(); } catch(e){ if(msg){ msg.style.color='var(--danger)'; msg.textContent=e.message; } }
+    });
+  }
+  if ($('reqRefresh')) $('reqRefresh').onclick = loadRequests;
+
   const isCarrierUser = () => user && user.orgKind === 'carrier';
   const isBrokerUser = () => user && user.orgKind === 'broker';
 

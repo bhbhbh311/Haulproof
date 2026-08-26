@@ -186,6 +186,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
+    // Remember which driver signed this, so their app can list their own recent documents.
+    if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
     try { db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL`).run(Date.now(), load.id); } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',

@@ -36,4 +36,16 @@ async function emailPodCopy({ to, pod, filePath }) {
   return { sent: true, messageId: info.messageId };
 }
 
-module.exports = { emailPodCopy };
+// Generic transactional email (access requests, approvals, questions). Fails soft if SMTP isn't set.
+async function sendMail({ to, subject, text, html }) {
+  const list = (Array.isArray(to) ? to : [to]).map(s => String(s || '').trim()).filter(Boolean);
+  if (!list.length) return { sent: false, reason: 'no recipients' };
+  const from = process.env.MAIL_FROM || 'documents@callahantrans.com';
+  try {
+    const info = await getTransport().sendMail({ from, to: list.join(', '), subject: subject || 'HaulProof', text, html });
+    if (!process.env.SMTP_HOST) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}`); return { sent: false, simulated: true }; }
+    return { sent: true, messageId: info.messageId };
+  } catch (e) { console.error('sendMail', e.message); return { sent: false, error: e.message }; }
+}
+
+module.exports = { emailPodCopy, sendMail };
