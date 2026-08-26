@@ -14,6 +14,7 @@ const usersRouter = require('./users');
 const orgsRouter = require('./orgs');
 const driversRouter = require('./drivers');
 const { router: carriersRouter } = require('./carriers');
+const { router: brokersRouter } = require('./brokers');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -56,6 +57,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/orgs', orgsRouter);
 app.use('/api/drivers', driversRouter);
 app.use('/api/carriers', carriersRouter);
+app.use('/api/brokers', brokersRouter);
 
 // The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
 // Super-admins provision drivers per customer from the Customers screen instead.

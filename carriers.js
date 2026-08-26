@@ -11,6 +11,25 @@ const WEBKEY = (process.env.FMCSA_WEBKEY || '').trim();
 
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 
+// Create or refresh a carrier org from FMCSA data (shared by the carriers routes and broker approvals).
+// De-dupes on DOT# (preferred) then MC#. Returns the carrier org row.
+function upsertCarrierOrg({ name, mcNumber, dotNumber, verified, allowedToOperate, address, contactPhone }) {
+  name = String(name || '').trim(); mcNumber = String(mcNumber || '').trim(); dotNumber = String(dotNumber || '').trim();
+  let existing = null;
+  if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND dotNumber = ?`).get(dotNumber);
+  if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND mcNumber = ?`).get(mcNumber);
+  if (existing) {
+    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
+      .run(allowedToOperate || existing.allowedToOperate, name || existing.name, (address || existing.address) || null, existing.id);
+    return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id);
+  }
+  const id = crypto.randomUUID();
+  db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
+              VALUES (?,?, 'carrier', ?,?,?,?,?,?,?,1,?)`)
+    .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified ? 1 : 0, allowedToOperate || null, String(contactPhone || '').trim() || null, String(address || '').trim() || null, Date.now());
+  return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id);
+}
+
 // Pull a carrier object out of QCMobile's response (content is an object for id lookups, array for name).
 function pickCarriers(json) {
   if (!json || !json.content) return [];
@@ -78,6 +97,15 @@ router.get('/lookup', requireAuth, async (req, res) => {
   if (!mc && !dot && !name) return res.status(400).json({ error: 'Search by name, MC#, or DOT#' });
   const fm = await fmcsaLookup({ mc, dot, name });
   res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null });
+});
+
+// Customers this carrier has hauled for (used for the "offer a document to a customer" picker).
+router.get('/my-customers', requireAuth, (req, res) => {
+  const carrierOrg = req.user.role === 'superadmin' ? (req.query.carrierId || '').trim() : (req.user.orgId || null);
+  if (!carrierOrg) return res.json({ customers: [] });
+  const rows = db.prepare(`SELECT DISTINCT orgs.id, orgs.name FROM loads JOIN orgs ON orgs.id = loads.orgId
+    WHERE loads.carrierId = ? AND (orgs.kind IS NULL OR orgs.kind != 'carrier') ORDER BY orgs.name`).all(carrierOrg);
+  res.json({ customers: rows });
 });
 
 // List saved carrier orgs (optionally filtered by q). Active only unless ?includeInactive=1.
@@ -157,4 +185,4 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)) });
 });
 
-module.exports = { router, fmcsaLookup };
+module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut };

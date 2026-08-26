@@ -149,14 +149,27 @@ addColumn('loads', 'carrierName', 'TEXT');
 addColumn('loads', 'driverName', 'TEXT');
 addColumn('loads', 'truck', 'TEXT');
 addColumn('loads', 'trailer', 'TEXT');
+addColumn('loads', 'brokerId', 'TEXT');    // a customer can hand a load to a broker, who then assigns the carrier
+addColumn('loads', 'brokerName', 'TEXT');
 addColumn('drivers', 'email', 'TEXT');   // optional driver email (for sending their link)
 addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) that gates their link
+// Carrier → customer document hand-off: a carrier-owned doc can be offered to a customer who then accepts it.
+addColumn('pods', 'offeredToOrgId', 'TEXT');
+addColumn('pods', 'claimStatus', 'TEXT');   // null/'none' | 'offered' | 'accepted' | 'declined'
+addColumn('pods', 'offeredFromOrgId', 'TEXT'); // on the customer's accepted copy: which carrier sent it
 
 // Org indexes are created AFTER the columns are guaranteed to exist (legacy DBs add orgId above).
 db.exec(`
 CREATE INDEX IF NOT EXISTS idx_loads_org     ON loads(orgId);
 CREATE INDEX IF NOT EXISTS idx_pods_org      ON pods(orgId);
 CREATE INDEX IF NOT EXISTS idx_loads_carrier ON loads(carrierId);
+CREATE INDEX IF NOT EXISTS idx_loads_broker  ON loads(brokerId);
+CREATE TABLE IF NOT EXISTS broker_carriers (
+  brokerId  TEXT NOT NULL,
+  carrierId TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (brokerId, carrierId)
+);
 `);
 
 module.exports = { db, DATA_DIR };

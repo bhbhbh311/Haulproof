@@ -4,11 +4,13 @@ const crypto = require('crypto');
 const { db } = require('./db');
 const { requireAuth } = require('./auth');
 const { logEvent } = require('./events');
+const { brokerApproved } = require('./brokers');
 
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
 function actorOf(req) { return req.user.email || req.user.name || 'admin'; }
 function isCarrier(req) { return req.user.orgKind === 'carrier'; }
+function isBroker(req) { return req.user.orgKind === 'broker'; }
 // A load the caller's org OWNS (super sees any). A carrier owns loads it created for itself.
 function ownedLoad(req, id) {
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
@@ -22,6 +24,7 @@ function accessibleLoad(req, id) {
   if (!load) return null;
   if (req.user.role === 'superadmin') return load;
   if (isCarrier(req)) return ((load.carrierId || null) === (req.user.orgId || null) || (load.orgId || null) === (req.user.orgId || null)) ? load : null;
+  if (isBroker(req)) return ((load.brokerId || null) === (req.user.orgId || null) || (load.orgId || null) === (req.user.orgId || null)) ? load : null;
   return (load.orgId || null) === (req.user.orgId || null) ? load : null;
 }
 function loadOut(l) { return l; }
@@ -48,8 +51,10 @@ router.post('/', requireAuth, (req, res) => {
 router.get('/', requireAuth, (req, res) => {
   const { q, po, load } = req.query;
   const where = [], args = [];
-  // Carriers see loads they OWN (self-service) plus loads a customer ASSIGNED to them.
+  // Carriers see loads they OWN (self-service) plus loads assigned to them.
   if (isCarrier(req)) { where.push(`(orgId IS ? OR carrierId = ?)`); args.push(req.user.orgId || null, req.user.orgId || ''); }
+  // Brokers see loads a customer handed to them.
+  else if (isBroker(req)) { where.push(`(orgId IS ? OR brokerId = ?)`); args.push(req.user.orgId || null, req.user.orgId || ''); }
   else { where.push(`orgId IS ?`); args.push(myOrg(req)); }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
@@ -67,17 +72,36 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ load: loadOut(load), pods });
 });
 
-// Assign a carrier (from the registry) to a load. The customer that owns the load (or super) does this.
-router.post('/:id/assign-carrier', requireAuth, (req, res) => {
+// Hand a load to a broker. Only the owning customer (or super) does this.
+router.post('/:id/assign-broker', requireAuth, (req, res) => {
   const load = ownedLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const brokerId = (req.body && req.body.brokerId || '').trim();
+  const broker = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='broker'`).get(brokerId);
+  if (!broker) return res.status(400).json({ error: 'Pick a broker from the list' });
+  db.prepare(`UPDATE loads SET brokerId = ?, brokerName = ?, status = 'assigned' WHERE id = ?`).run(broker.id, broker.name, load.id);
+  const tag = broker.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
+    detail: 'Handed to broker ' + broker.name + (broker.mcNumber ? ' (MC ' + broker.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+});
+
+// Assign a carrier to a load. The owning customer, super, OR the broker the load was handed to.
+// A broker may only assign carriers on its approved roster.
+router.post('/:id/assign-carrier', requireAuth, (req, res) => {
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const carrierId = (req.body && req.body.carrierId || '').trim();
   const carrier = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(carrierId);
   if (!carrier) return res.status(400).json({ error: 'Pick a carrier from the list' });
+  const isOwner = req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null);
+  const isAssignedBroker = isBroker(req) && (load.brokerId || null) === (req.user.orgId || null);
+  if (!isOwner && !isAssignedBroker) return res.status(404).json({ error: 'Load not found' });
+  if (isAssignedBroker && !brokerApproved(req.user.orgId, carrier.id)) return res.status(403).json({ error: 'Approve this carrier before assigning it a load' });
   db.prepare(`UPDATE loads SET carrierId = ?, carrierName = ?, status = 'assigned' WHERE id = ?`).run(carrier.id, carrier.name, load.id);
   const tag = carrier.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
-    detail: 'Assigned to ' + carrier.name + (carrier.mcNumber ? ' (MC ' + carrier.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
+    detail: (isAssignedBroker ? 'Broker assigned ' : 'Assigned to ') + carrier.name + (carrier.mcNumber ? ' (MC ' + carrier.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
 });
 

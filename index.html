@@ -201,6 +201,44 @@
       <div id="carrierList" style="margin-top:16px;"></div>
     </div>
 
+    <!-- BROKERS (super-admin) -->
+    <div class="card hide" id="brokersCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Brokers</h1><p class="sub" style="margin-bottom:0;">A broker takes a customer's load and assigns it to a carrier. Add one, verify its broker authority on FMCSA, and give it a login.</p></div>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;margin:0;"><input type="checkbox" id="brShowInactive" style="width:auto;margin:0;"> Show inactive</label>
+          <button class="ghost" id="abToggle" type="button">＋ Add broker</button>
+        </div>
+      </div>
+      <div id="abForm" class="hide" style="margin-top:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+          <div style="flex:1;min-width:180px;"><label>Find on FMCSA</label><input id="abSearch" placeholder="Broker name, MC#, or DOT#"></div>
+          <div><label>By</label><select id="abBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+          <button id="abLookup" type="button">Look up</button>
+        </div>
+        <div id="abResults" style="margin-top:10px;"></div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+          <p class="sub" style="margin:0 0 10px;">Broker details (auto-filled from FMCSA, or type them in):</p>
+          <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+            <div><label>Broker name <span style="color:#c0392b;">*required</span></label><input id="abName"></div>
+            <div><label>MC#</label><input id="abMc"></div>
+            <div><label>DOT#</label><input id="abDot"></div>
+          </div>
+          <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+            <div><label>Broker admin email <span style="color:#c0392b;">*required</span></label><input id="abAdminEmail" type="email" placeholder="admin@broker.com"></div>
+            <div><label>Admin password <span style="color:#c0392b;">*required</span></label><input id="abAdminPass" placeholder="at least 6 characters"></div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button id="abBtn" type="button">Create broker</button>
+            <button class="ghost" id="abGen" type="button">Suggest password</button>
+            <span id="abMsg" style="font-size:13px;font-weight:600;"></span>
+          </div>
+          <div id="abVerified" class="sub" style="margin-top:8px;"></div>
+        </div>
+      </div>
+      <div id="brokerList" style="margin-top:16px;"></div>
+    </div>
+
     <!-- MANAGE ONE CUSTOMER (super-admin) -->
     <div class="card hide" id="custManageCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -222,7 +260,7 @@
         </div>
         <table style="margin-top:14px;"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th></th></tr></thead><tbody id="cmUserRows"></tbody></table>
       </div>
-      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);" id="cmDriversSection">
         <h1 style="font-size:16px;">Drivers</h1>
         <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
           <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
@@ -236,7 +274,7 @@
         </div>
         <table style="margin-top:14px;"><thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead><tbody id="cmDriverRows"></tbody></table>
       </div>
-      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);" id="cmDocsSection">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <h1 style="font-size:16px;margin:0;">Documents</h1>
           <button class="ghost" id="cmDocUpToggle" type="button">＋ Upload a document</button>
@@ -289,14 +327,30 @@
         <button class="ghost" id="ldBack" type="button">← Back to loads</button>
       </div>
       <div style="margin-top:18px;" id="ldCarrierSection">
-        <h1 style="font-size:16px;">Carrier</h1>
+        <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px;">
-          <div style="flex:1;min-width:200px;"><label>Find carrier</label><input id="ldCarSearch" placeholder="Carrier name, MC#, or DOT#"></div>
-          <div><label>Search by</label><select id="ldCarBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
-          <button id="ldCarLookup" type="button">Look up</button>
+        <!-- customer/super: choose whether to hand the load to a carrier directly, or to a broker -->
+        <div id="ldAssignToggle" style="display:flex;gap:8px;margin:10px 0;">
+          <button class="ghost sm" id="ldModeCarrier" type="button" style="padding:6px 12px;font-size:13px;">Assign a carrier</button>
+          <button class="ghost sm" id="ldModeBroker" type="button" style="padding:6px 12px;font-size:13px;">Hand to a broker</button>
         </div>
-        <div id="ldCarResults" style="margin-top:10px;"></div>
+        <!-- broker user: pick a carrier from the approved roster -->
+        <div id="ldBrokerAssign" class="hide" style="margin-top:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div style="flex:1;min-width:220px;"><label>Assign one of your approved carriers</label><select id="ldApprovedSel"></select></div>
+            <button id="ldApprovedBtn" type="button">Assign carrier</button>
+          </div>
+          <p class="sub" style="margin-top:8px;">Need a carrier that isn't listed? Approve it first under “Approved carriers.”</p>
+        </div>
+        <!-- FMCSA lookup (carrier or broker, depending on chosen mode) -->
+        <div id="ldLookupWrap">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px;">
+            <div style="flex:1;min-width:200px;"><label id="ldCarSearchLbl">Find carrier on FMCSA</label><input id="ldCarSearch" placeholder="Name, MC#, or DOT#"></div>
+            <div><label>Search by</label><select id="ldCarBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+            <button id="ldCarLookup" type="button">Look up</button>
+          </div>
+          <div id="ldCarResults" style="margin-top:10px;"></div>
+        </div>
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;">Driver &amp; equipment</h1>
@@ -311,6 +365,23 @@
         <h1 style="font-size:16px;">History</h1>
         <div id="ldHistory"></div>
       </div>
+    </div>
+
+    <!-- APPROVED CARRIERS (broker) -->
+    <div class="card hide" id="brokerCarriersCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Approved carriers</h1><p class="sub" style="margin-bottom:0;">Approve the carriers you work with — verified on FMCSA. You can assign loads only to carriers on this list.</p></div>
+        <button class="ghost" id="bcToggle" type="button">＋ Approve a carrier</button>
+      </div>
+      <div id="bcForm" class="hide" style="margin-top:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+          <div style="flex:1;min-width:180px;"><label>Find on FMCSA</label><input id="bcSearch" placeholder="Carrier name, MC#, or DOT#"></div>
+          <div><label>By</label><select id="bcBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+          <button id="bcLookup" type="button">Look up</button>
+        </div>
+        <div id="bcResults" style="margin-top:10px;"></div>
+      </div>
+      <div id="bcList" style="margin-top:16px;"></div>
     </div>
 
     <!-- OFFERED DOCUMENTS (customer inbox) -->
@@ -538,12 +609,21 @@
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
-    const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard'];
-    const SUPER_CARDS = ['customersCard','carriersCard','custManageCard'];
+    const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
+    const SUPER_CARDS = ['customersCard','carriersCard','brokersCard','custManageCard'];
     if (u.role === 'superadmin') {
       show('customersCard', true); loadCustomers();
       show('carriersCard', true); loadCarriers();
+      show('brokersCard', true); loadBrokers();
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
+    } else if (u.orgKind === 'broker') {
+      // Broker's walled-off space: loads customers handed them, their approved-carrier roster, logins.
+      SUPER_CARDS.forEach(id => show(id, false));
+      CUSTOMER_CARDS.forEach(id => show(id, false));
+      if ($('nlToggle')) $('nlToggle').classList.add('hide');       // brokers don't create loads
+      show('loadsCard', true); loadLoads();
+      show('brokerCarriersCard', true); loadApprovedCarriers();
+      if (u.role === 'admin') { show('teamCard', true); loadUsers(); }
     } else if (u.orgKind === 'carrier') {
       // Carrier's walled-off space: their own + assigned loads, their own documents, drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
@@ -568,6 +648,7 @@
     }
   }
   const isCarrierUser = () => user && user.orgKind === 'carrier';
+  const isBrokerUser = () => user && user.orgKind === 'broker';
 
   // --- Carriers (super-admin): FMCSA lookup, add carrier + login, manage ---
   async function loadCarriers() {
@@ -634,6 +715,112 @@
       ['acSearch','acName','acMc','acDot','acAdminEmail','acAdminPass'].forEach(id => $(id).value = ''); $('acResults').innerHTML = ''; $('acVerified').innerHTML = ''; acVerified = false;
       loadCarriers();
     } catch (e) { $('acMsg').textContent = e.message; $('acMsg').className = 'umsg-err'; }
+  };
+
+  // --- Brokers (super-admin): FMCSA lookup, add broker + login, manage ---
+  let brokerCache = [];
+  async function loadBrokers() {
+    const box = $('brokerList');
+    const inc = $('brShowInactive') && $('brShowInactive').checked;
+    try {
+      const r = await api('/api/brokers' + (inc ? '?includeInactive=1' : ''));
+      brokerCache = r.brokers || [];
+      if (!r.brokers || !r.brokers.length) { box.innerHTML = '<div class="empty">No brokers to show.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
+        r.brokers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
+          <td><b>${esc(c.name)}</b></td>
+          <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="ghost brEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
+            <button class="brMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
+            <button class="ghost brActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
+          </td></tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.brMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name, 'brokersCard'));
+      box.querySelectorAll('.brEdit').forEach(b => b.onclick = () => { const c = brokerCache.find(x => x.id === b.dataset.id); if (c) openEditOrg(c, 'broker', loadBrokers); });
+      box.querySelectorAll('.brActive').forEach(b => b.onclick = async () => {
+        try { await api('/api/brokers/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadBrokers(); }
+        catch (e) { alert(e.message); }
+      });
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  if ($('brShowInactive')) $('brShowInactive').onchange = loadBrokers;
+  $('abToggle').onclick = () => { $('abForm').classList.toggle('hide'); if (!$('abForm').classList.contains('hide')) $('abSearch').focus(); };
+  $('abGen').onclick = () => { $('abAdminPass').value = randPw(); };
+  let abVerified = false, abAllowed = '';
+  $('abLookup').onclick = async () => {
+    const val = $('abSearch').value.trim(), by = $('abBy').value; if (!val) return;
+    const box = $('abResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
+    try {
+      const r = await api('/api/brokers/lookup?' + by + '=' + encodeURIComponent(val));
+      if (r.fmcsa && r.fmcsa.length) {
+        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+          r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
+            <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="abUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.abUse').forEach(b => b.onclick = () => {
+          const c = r.fmcsa[+b.dataset.i]; $('abName').value = c.name; $('abMc').value = c.mcNumber || ''; $('abDot').value = c.dotNumber || '';
+          abVerified = true; abAllowed = c.allowedToOperate || ''; $('abVerified').innerHTML = '<span style="color:var(--ok);font-weight:600;">✓ FMCSA-verified</span>' + (c.allowedToOperate === 'Y' ? ' · authority active' : ' · check authority status');
+        });
+      } else {
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY). You can still type the broker in below as an override.' : 'No FMCSA match — type details below to add as an admin override.') + '</div>';
+        abVerified = false; abAllowed = ''; $('abVerified').innerHTML = '<span style="color:var(--warn)">Will be saved as an admin override (not FMCSA-verified).</span>';
+      }
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  };
+  $('abBtn').onclick = async () => {
+    const name = $('abName').value.trim(), adminEmail = $('abAdminEmail').value.trim(), adminPassword = $('abAdminPass').value;
+    if (!name) { $('abMsg').textContent = 'Broker name required'; $('abMsg').className = 'umsg-err'; return; }
+    if (!adminEmail) { $('abMsg').textContent = 'Broker admin email required'; $('abMsg').className = 'umsg-err'; return; }
+    if (!adminPassword || adminPassword.length < 6) { $('abMsg').textContent = 'Admin password must be at least 6 characters'; $('abMsg').className = 'umsg-err'; return; }
+    $('abMsg').textContent = 'Creating…'; $('abMsg').className = '';
+    try {
+      await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('abMc').value.trim(), dotNumber: $('abDot').value.trim(), fmcsaVerified: abVerified, allowedToOperate: abAllowed, adminEmail, adminPassword }) });
+      $('abMsg').textContent = 'Broker created ✓ — give them the admin login'; $('abMsg').className = 'umsg-ok';
+      ['abSearch','abName','abMc','abDot','abAdminEmail','abAdminPass'].forEach(id => $(id).value = ''); $('abResults').innerHTML = ''; $('abVerified').innerHTML = ''; abVerified = false;
+      loadBrokers();
+    } catch (e) { $('abMsg').textContent = e.message; $('abMsg').className = 'umsg-err'; }
+  };
+
+  // --- Broker portal: approved-carrier roster ---
+  async function loadApprovedCarriers() {
+    const box = $('bcList');
+    try {
+      const r = await api('/api/brokers/my-carriers');
+      if (!r.carriers.length) { box.innerHTML = '<div class="empty">No approved carriers yet. Approve one above to assign it loads.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
+        r.carriers.map(c => `<tr>
+          <td><b>${esc(c.name)}</b></td>
+          <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button></td>
+        </tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.bcRemove').forEach(b => b.onclick = async () => { try { await api('/api/brokers/my-carriers/' + b.dataset.id, { method: 'DELETE' }); loadApprovedCarriers(); } catch (e) { alert(e.message); } });
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  $('bcToggle').onclick = () => { $('bcForm').classList.toggle('hide'); if (!$('bcForm').classList.contains('hide')) $('bcSearch').focus(); };
+  $('bcLookup').onclick = async () => {
+    const val = $('bcSearch').value.trim(), by = $('bcBy').value; if (!val) return;
+    const box = $('bcResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
+    try {
+      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      if (r.fmcsa && r.fmcsa.length) {
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+          r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
+            <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
+          const c = r.fmcsa[+b.dataset.i];
+          try { await api('/api/brokers/my-carriers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) }); $('bcResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier approved ✓</div>'; $('bcSearch').value = ''; loadApprovedCarriers(); }
+          catch (e) { alert(e.message); }
+        });
+      } else {
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY).' : 'No FMCSA match for that carrier.') + '</div>';
+      }
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
 
   // --- Drivers (shared: customer admin uses own org; super passes an orgId) ---
@@ -713,7 +900,7 @@
   // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
   const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
-  function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Carrier assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
+  function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
   async function loadLoads() {
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
@@ -756,9 +943,14 @@
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide');
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
       $('ldSummary').textContent = [curLoad.consignee ? 'Consignee: ' + curLoad.consignee : '', 'Status: ' + (curLoad.status || 'open')].filter(Boolean).join('  ·  ');
-      // Carriers don't assign carriers — hide that section for them; they just see who they are and set the driver.
-      const carrierUser = user && user.orgKind === 'carrier';
+      // Carriers just view + set the driver — hide the assign section entirely.
+      const carrierUser = isCarrierUser(), brokerUser = isBrokerUser();
       $('ldCarrierSection').classList.toggle('hide', carrierUser);
+      // Broker assigns from its approved roster; customer/super use FMCSA lookup with a carrier/broker toggle.
+      $('ldAssignToggle').classList.toggle('hide', brokerUser);
+      $('ldLookupWrap').classList.toggle('hide', brokerUser);
+      $('ldBrokerAssign').classList.toggle('hide', !brokerUser);
+      if (brokerUser) await fillApprovedSelect(); else setAssignMode('carrier');
       renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
       $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
       $('ldDrvMsg').textContent = '';
@@ -767,32 +959,70 @@
     } catch (e) { alert(e.message); }
   }
   function renderCarrierNow() {
-    if (curLoad.carrierName) $('ldCarrierNow').innerHTML = 'Assigned: <b>' + esc(curLoad.carrierName) + '</b>';
-    else $('ldCarrierNow').innerHTML = '<span style="color:var(--muted)">No carrier assigned yet.</span>';
+    const parts = [];
+    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>');
+    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>');
+    $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span style="color:var(--muted)">Not assigned yet.</span>';
+  }
+  // Customer/super: toggle between assigning a carrier directly or handing to a broker.
+  let ldMode = 'carrier';
+  function setAssignMode(mode) {
+    ldMode = mode;
+    $('ldModeCarrier').classList.toggle('ghost', mode !== 'carrier');
+    $('ldModeBroker').classList.toggle('ghost', mode !== 'broker');
+    $('ldCarSearchLbl').textContent = mode === 'broker' ? 'Find broker on FMCSA' : 'Find carrier on FMCSA';
+    $('ldCarSearch').placeholder = mode === 'broker' ? 'Broker name, MC#, or DOT#' : 'Carrier name, MC#, or DOT#';
+    $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
+  }
+  $('ldModeCarrier').onclick = () => setAssignMode('carrier');
+  $('ldModeBroker').onclick = () => setAssignMode('broker');
+  // Broker: assign a carrier from the approved roster.
+  async function fillApprovedSelect() {
+    try {
+      const r = await api('/api/brokers/my-carriers');
+      if (!r.carriers.length) $('ldApprovedSel').innerHTML = '<option value="">— approve a carrier first —</option>';
+      else $('ldApprovedSel').innerHTML = r.carriers.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
+    } catch (e) { $('ldApprovedSel').innerHTML = '<option value="">' + e.message + '</option>'; }
+  }
+  $('ldApprovedBtn').onclick = async () => {
+    const carrierId = $('ldApprovedSel').value;
+    if (!carrierId) { alert('Approve a carrier under “Approved carriers” first, then assign it.'); return; }
+    try { await assignCarrierId(carrierId); } catch (e) { alert(e.message); }
+  };
+  async function assignBrokerId(brokerId) {
+    const r = await api('/api/loads/' + curLoad.id + '/assign-broker', { method: 'POST', body: JSON.stringify({ brokerId }) });
+    curLoad = r.load; renderCarrierNow(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Handed to broker ✓ — they’ll assign the carrier.</div>'; loadHistory(curLoad.id);
+  }
+  async function assignBrokerFromFmcsa(c) {
+    try {
+      const br = await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) });
+      await assignBrokerId(br.broker.id);
+    } catch (e) { alert(e.message); }
   }
   $('ldBack').onclick = () => { $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads(); };
   $('ldCarLookup').onclick = async () => {
     const val = $('ldCarSearch').value.trim(); const by = $('ldCarBy').value;
     if (!val) return;
+    const broker = ldMode === 'broker', noun = broker ? 'broker' : 'carrier', Noun = broker ? 'Broker' : 'Carrier';
     const box = $('ldCarResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
     try {
-      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      const r = await api('/api/' + (broker ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
       let html = '';
       if (r.fmcsa && r.fmcsa.length) {
-        html += '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed to operate</th><th></th></tr></thead><tbody>' +
+        html += `<table><thead><tr><th>${Noun}</th><th>MC / DOT</th><th>Allowed to operate</th><th></th></tr></thead><tbody>` +
           r.fmcsa.map((c, i) => `<tr>
             <td><b>${esc(c.name)}</b>${c.address ? '<div style="color:var(--muted);font-size:12px;">' + esc(c.address) + '</div>' : ''}</td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || 'Unknown') + '</span>'}</td>
-            <td style="text-align:right;"><button class="carPick" data-i="${i}" style="padding:6px 10px;font-size:12px;">Assign</button></td>
+            <td style="text-align:right;"><button class="carPick" data-i="${i}" style="padding:6px 10px;font-size:12px;">${broker ? 'Hand to broker' : 'Assign'}</button></td>
           </tr>`).join('') + '</tbody></table>';
         box.innerHTML = html;
-        box.querySelectorAll('.carPick').forEach(b => b.onclick = () => assignFromFmcsa(r.fmcsa[+b.dataset.i]));
+        box.querySelectorAll('.carPick').forEach(b => b.onclick = () => broker ? assignBrokerFromFmcsa(r.fmcsa[+b.dataset.i]) : assignFromFmcsa(r.fmcsa[+b.dataset.i]));
       } else {
         const why = r.configured === false ? 'FMCSA lookup isn’t switched on yet (needs the FMCSA key).' : 'No FMCSA match for that ' + by.toUpperCase() + '.';
         html = '<div class="ssoNote warn" style="display:block;">' + why + '</div>';
         if (isAdmin()) {
-          html += `<div style="margin-top:10px;"><p class="sub">Admin override — add this carrier manually (not FMCSA-verified):</p>
+          html += `<div style="margin-top:10px;"><p class="sub">Admin override — add this ${noun} manually (not FMCSA-verified):</p>
             <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
               <div><label>Name</label><input id="ovName" value="${by === 'name' ? esc(val) : ''}"></div>
               <div><label>MC#</label><input id="ovMc" value="${by === 'mc' ? esc(val) : ''}"></div>
@@ -800,14 +1030,19 @@
             </div>
             <div style="margin-top:10px;"><button id="ovBtn" type="button">Add &amp; assign (override)</button> <span id="ovMsg" style="font-size:13px;font-weight:600;"></span></div></div>`;
         } else {
-          html += '<p class="sub">Ask an admin to override if this carrier should still be used.</p>';
+          html += `<p class="sub">Ask an admin to override if this ${noun} should still be used.</p>`;
         }
         box.innerHTML = html;
         if (isAdmin() && $('ovBtn')) $('ovBtn').onclick = async () => {
           const name = $('ovName').value.trim(); if (!name) { $('ovMsg').textContent = 'Name required'; $('ovMsg').className = 'umsg-err'; return; }
           try {
-            const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('ovMc').value.trim(), dotNumber: $('ovDot').value.trim(), fmcsaVerified: false }) });
-            await assignCarrierId(cr.carrier.id);
+            if (broker) {
+              const br = await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('ovMc').value.trim(), dotNumber: $('ovDot').value.trim(), fmcsaVerified: false }) });
+              await assignBrokerId(br.broker.id);
+            } else {
+              const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('ovMc').value.trim(), dotNumber: $('ovDot').value.trim(), fmcsaVerified: false }) });
+              await assignCarrierId(cr.carrier.id);
+            }
           } catch (e) { $('ovMsg').textContent = e.message; $('ovMsg').className = 'umsg-err'; }
         };
       }
@@ -860,19 +1095,21 @@
     try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users); }
     catch (e) { $('cmUserRows').innerHTML = '<tr><td colspan="4" class="empty">' + e.message + '</td></tr>'; }
   }
-  let cmBackTo = 'customersCard', cmIsCarrier = false;
+  let cmBackTo = 'customersCard', cmIsCarrier = false, cmIsBroker = false;
   async function openCustManage(orgId, name, backTo) {
-    cmOrgId = orgId; cmBackTo = backTo || 'customersCard'; cmIsCarrier = (backTo === 'carriersCard');
+    cmOrgId = orgId; cmBackTo = backTo || 'customersCard'; cmIsCarrier = (backTo === 'carriersCard'); cmIsBroker = (backTo === 'brokersCard');
     $('cmTitle').textContent = 'Manage ' + name;
-    ['customersCard', 'carriersCard'].forEach(id => $(id).classList.add('hide'));
+    ['customersCard', 'carriersCard', 'brokersCard'].forEach(id => $(id).classList.add('hide'));
     $('custManageCard').classList.remove('hide');
-    cmMsg($('cmuMsg'), ''); cmMsg($('cmdMsg'), '');
+    cmMsg($('cmuMsg'), '');
     cmLoadUsers();
-    loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId);
-    cmDocReset(); cmLoadDocs('');
+    // Brokers have no drivers of their own and no document store — hide those sections for them.
+    $('cmDriversSection').classList.toggle('hide', cmIsBroker);
+    $('cmDocsSection').classList.toggle('hide', cmIsBroker);
+    if (!cmIsBroker) { cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); }
     window.scrollTo(0, 0);
   }
-  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $(cmBackTo).classList.remove('hide'); if (cmBackTo === 'carriersCard') loadCarriers(); else loadCustomers(); };
+  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $(cmBackTo).classList.remove('hide'); if (cmBackTo === 'carriersCard') loadCarriers(); else if (cmBackTo === 'brokersCard') loadBrokers(); else loadCustomers(); };
 
   // Documents inside the manage view (view + upload for this org).
   function cmDocReset() { $('cmDocUpForm').classList.add('hide'); $('cmDocUpAfter').classList.add('hide'); $('cmDocUpMsg').textContent = ''; ['cmDocPo', 'cmDocLoad', 'cmDocCons', 'cmDocSearch'].forEach(id => { if ($(id)) $(id).value = ''; }); if ($('cmDocFile')) $('cmDocFile').value = ''; }
@@ -1086,11 +1323,12 @@
   let custCache = [], carrierCache = [], eoState = null;
   function openEditOrg(o, type, reload) {
     eoState = { id: o.id, type: type, reload: reload };
-    $('eoTitle').textContent = type === 'carrier' ? 'Edit carrier' : 'Edit customer';
+    const hasMcDot = (type === 'carrier' || type === 'broker');
+    $('eoTitle').textContent = type === 'carrier' ? 'Edit carrier' : type === 'broker' ? 'Edit broker' : 'Edit customer';
     $('eoName').value = o.name || '';
-    $('eoCarrierFields').classList.toggle('hide', type !== 'carrier');
+    $('eoCarrierFields').classList.toggle('hide', !hasMcDot);
     $('eoCustomerFields').classList.toggle('hide', type !== 'customer');
-    if (type === 'carrier') { $('eoMc').value = o.mcNumber || ''; $('eoDot').value = o.dotNumber || ''; }
+    if (hasMcDot) { $('eoMc').value = o.mcNumber || ''; $('eoDot').value = o.dotNumber || ''; }
     else { $('eoContactName').value = o.contactName || ''; $('eoContactEmail').value = o.contactEmail || ''; }
     $('eoPhone').value = formatUSPhone(o.contactPhone || ''); $('eoAddr').value = o.address || '';
     $('eoMsg').textContent = ''; $('eoMsg').className = ''; $('eoModal').classList.remove('hide');
@@ -1102,7 +1340,7 @@
     const name = $('eoName').value.trim();
     if (!name) { $('eoMsg').textContent = 'Name is required'; $('eoMsg').className = 'umsg-err'; return; }
     let url, body;
-    if (eoState.type === 'carrier') { url = '/api/carriers/' + eoState.id; body = { name, mcNumber: $('eoMc').value.trim(), dotNumber: $('eoDot').value.trim(), contactPhone: $('eoPhone').value.trim(), address: $('eoAddr').value.trim() }; }
+    if (eoState.type === 'carrier' || eoState.type === 'broker') { url = '/api/' + (eoState.type === 'broker' ? 'brokers' : 'carriers') + '/' + eoState.id; body = { name, mcNumber: $('eoMc').value.trim(), dotNumber: $('eoDot').value.trim(), contactPhone: $('eoPhone').value.trim(), address: $('eoAddr').value.trim() }; }
     else { url = '/api/orgs/' + eoState.id; body = { name, contactName: $('eoContactName').value.trim(), contactEmail: $('eoContactEmail').value.trim(), contactPhone: $('eoPhone').value.trim(), address: $('eoAddr').value.trim() }; }
     $('eoMsg').textContent = 'Saving…'; $('eoMsg').className = '';
     try {
