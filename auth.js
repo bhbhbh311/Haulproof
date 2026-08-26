@@ -98,9 +98,18 @@ function requireApiKey(req, res, next) {
 }
 function hasValidApiKey(req) { return !!resolveKey(req); }
 
+// The per-driver "unlock" value a phone earns by entering the correct PIN. It's an HMAC of the
+// driver's token + PIN hash, so only someone who knew the PIN can present it — and changing the
+// PIN (or the link) invalidates every device's stored unlock. Empty when the driver has no PIN.
+function driverUnlockValue(driver) {
+  if (!driver || !driver.pinHash) return '';
+  return crypto.createHmac('sha256', JWT_SECRET).update(String(driver.token) + ':' + String(driver.pinHash)).digest('hex');
+}
+
 module.exports = {
   createUser, login, signToken, upsertSsoUser,
   requireAuth, requireApiKey, hasValidApiKey, orgForApiKey, resolveKey,
+  driverUnlockValue,
   isSuper, requireSuper, requireAdmin,
   JWT_SECRET, LEGACY_INGEST_KEY,
 };

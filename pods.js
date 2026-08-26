@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
-const { requireAuth, requireApiKey, hasValidApiKey, resolveKey } = require('./auth');
+const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 
@@ -21,6 +21,16 @@ function requireAuthOrKey(req, res, next) {
   const r = resolveKey(req);
   if (r) { req.org = r.org; req.driver = r.driver; req.viaKey = true; return next(); }
   return requireAuth(req, res, next);
+}
+// If this request came in on a PIN-protected driver token, it must carry the matching unlock value.
+function enforceDriverPin(req, res, next) {
+  if (req.viaKey && req.driver && req.driver.pinHash) {
+    const supplied = (req.headers['x-driver-unlock'] || '').trim();
+    if (!supplied || supplied !== driverUnlockValue(req.driver)) {
+      return res.status(401).json({ error: 'Enter your driver PIN to continue', pin: true });
+    }
+  }
+  next();
 }
 // The customer this request acts within.
 function reqOrgId(req) { return req.viaKey ? req.org.id : (req.user ? req.user.orgId || null : null); }
@@ -64,9 +74,11 @@ function rowOut(r) {
 // ---- UPLOAD (dispatcher files a document). Session auth; scoped to caller's customer. ----
 router.post('/upload', requireAuth, raw, (req, res) => {
   try {
-    const orgId = req.user.orgId || null;
-    if (!orgId && req.user.role !== 'superadmin') return res.status(400).json({ error: 'Your login is not attached to a customer' });
     const dec = decoder(req.headers), h = req.headers;
+    // Super-admin files on behalf of a customer/carrier via X-Org; everyone else files under their own org.
+    let orgId = req.user.orgId || null;
+    if (req.user.role === 'superadmin') orgId = (dec(h['x-org']) || '').trim() || null;
+    if (!orgId) return res.status(400).json({ error: 'Choose a customer to file this document under' });
     const poNumber = (dec(h['x-po']) || '').trim();
     const loadNumber = (dec(h['x-load']) || '').trim();
     const consignee = (dec(h['x-consignee']) || '').trim();
@@ -88,7 +100,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
 });
 
 // ---- LOOKUP a prepared doc by PO# or Load# (driver pull). Device key OR session; scoped to that customer. ----
-router.get('/lookup', requireAuthOrKey, (req, res) => {
+router.get('/lookup', requireAuthOrKey, enforceDriverPin, (req, res) => {
   const po = (req.query.po || '').trim(), load = (req.query.load || '').trim();
   if (!po && !load) return res.status(400).json({ error: 'Provide a PO # or Load #' });
   let rows;
@@ -116,7 +128,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
 });
 
 // ---- INGEST (signed POD back from the driver app). Device key; stored under that customer. ----
-router.post('/ingest', requireApiKey, raw, async (req, res) => {
+router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) => {
   try {
     let orgId = req.org.id;
     const h = req.headers, dec = decoder(h);
@@ -198,7 +210,7 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
 });
 
 // ---- DOWNLOAD the PDF. Session OR device key; same customer only. ----
-router.get('/:id/file', requireAuthOrKey, (req, res) => {
+router.get('/:id/file', requireAuthOrKey, enforceDriverPin, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row) || !row || !fs.existsSync(row.filepath)) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Content-Type', 'application/pdf');

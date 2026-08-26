@@ -204,7 +204,7 @@
     <!-- MANAGE ONE CUSTOMER (super-admin) -->
     <div class="card hide" id="custManageCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;" id="cmTitle">Manage customer</h1><p class="sub" style="margin-bottom:0;">Add logins and drivers for this customer.</p></div>
+        <div><h1 style="margin-bottom:0;" id="cmTitle">Manage customer</h1><p class="sub" style="margin-bottom:0;">Add logins and drivers, and view or upload documents for this account.</p></div>
         <button class="ghost" id="cmBack" type="button">← Back to customers</button>
       </div>
       <div style="margin-top:18px;">
@@ -224,16 +224,43 @@
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;">Drivers</h1>
-        <div class="row" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
+        <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
           <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
           <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPhone" placeholder="(555) 555-5555"></div>
           <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdEmail" type="email" placeholder="driver@email.com"></div>
+          <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmdBtn" type="button">Add driver</button>
           <span id="cmdMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
         <table style="margin-top:14px;"><thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead><tbody id="cmDriverRows"></tbody></table>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <h1 style="font-size:16px;margin:0;">Documents</h1>
+          <button class="ghost" id="cmDocUpToggle" type="button">＋ Upload a document</button>
+        </div>
+        <div id="cmDocUpForm" class="hide" style="margin-top:14px;">
+          <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+            <div><label>Customer PO # <span style="color:#c0392b;">*required</span></label><input id="cmDocPo" placeholder="e.g. 4501-88"></div>
+            <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocLoad"></div>
+            <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocCons"></div>
+            <div><label>Type</label><select id="cmDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+          </div>
+          <div class="row" style="grid-template-columns:1fr;margin-top:12px;"><div><label>PDF file</label><input id="cmDocFile" type="file" accept="application/pdf"></div></div>
+          <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button id="cmDocUpBtn" type="button">Upload</button>
+            <button class="ghost" id="cmDocUpCancel" type="button">Cancel</button>
+            <span id="cmDocUpMsg" style="font-size:13px;font-weight:600;"></span>
+          </div>
+          <div id="cmDocUpAfter" class="hide" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Uploaded. Place the signature &amp; date boxes so the driver's copy is ready to sign:</div>
+            <a id="cmDocPrep" class="msbtn" style="max-width:320px;justify-content:center;font-weight:700;color:#fff;background:var(--primary);border:none;" href="#" target="_blank" rel="noopener">✍ Set up signatures for the driver →</a>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;"><input id="cmDocSearch" placeholder="Search documents by PO #"><button class="ghost" id="cmDocSearchBtn" type="button">Search</button></div>
+        <div id="cmDocList" style="margin-top:12px;"></div>
       </div>
     </div>
 
@@ -364,10 +391,11 @@
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
       <h1>Drivers</h1><p class="sub">Add each driver once. They get their own link to open on their phone — their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
-      <div class="row" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
+      <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
         <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
         <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
         <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndEmail" type="email" placeholder="driver@email.com"></div>
+        <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="ndBtn" type="button">Add driver</button>
@@ -404,7 +432,10 @@
     <p class="sub">Fix the name, phone, or email. Their personal link stays the same.</p>
     <label>Driver name</label><input id="edName" style="margin-bottom:10px;">
     <label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edPhone" placeholder="(555) 555-5555" style="margin-bottom:10px;">
-    <label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edEmail" type="email" placeholder="driver@email.com">
+    <label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edEmail" type="email" placeholder="driver@email.com" style="margin-bottom:10px;">
+    <label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — locks their link</span></label>
+    <input id="edPin" inputmode="numeric" maxlength="6" placeholder="Enter a PIN to set">
+    <label id="edPinRemoveWrap" class="hide" style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" id="edPinRemove" style="width:auto;margin:0;"> Remove the PIN on this driver</label>
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
       <button id="edSave" type="button">Save changes</button>
       <button class="ghost" id="edCancel" type="button">Cancel</button>
@@ -458,6 +489,8 @@
     if (el.value) el.value = formatUSPhone(el.value);
   }
   ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone'].forEach(attachPhoneFormat);
+  // PIN inputs: digits only, max 6.
+  ['ndPin', 'cmdPin', 'edPin'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, '').slice(0, 6); }); });
   // Build a pre-filled text / email so dispatch can send a driver their personal link in one tap.
   function driverSmsHref(phone, link) {
     let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
@@ -532,7 +565,7 @@
             <button class="ghost carActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
-      box.querySelectorAll('.carMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.carMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name, 'carriersCard'));
       box.querySelectorAll('.carEdit').forEach(b => b.onclick = () => { const c = carrierCache.find(x => x.id === b.dataset.id); if (c) openEditOrg(c, 'carrier', loadCarriers); });
       box.querySelectorAll('.carActive').forEach(b => b.onclick = async () => {
         try { await api('/api/carriers/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCarriers(); }
@@ -583,7 +616,7 @@
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
     return drivers.map(d => `<tr>
-      <td><b>${esc(d.name)}</b>${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
+      <td><b>${esc(d.name)}</b>${d.hasPin ? ' <span class="chip" style="background:var(--warn-soft);color:var(--warn);font-size:10px;" title="Link locked with a PIN">🔒 PIN</span>' : ''}${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
       <td>${esc(d.phone) || '—'}</td>
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -592,7 +625,7 @@
         <button class="ghost drvCopy" data-link="${esc(d.link)}" style="padding:6px 10px;font-size:12px;">Copy link</button>
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" style="padding:6px 10px;font-size:12px;">Edit</button>
+        <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
         <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
       </td></tr>`).join('');
@@ -604,7 +637,7 @@
   function wireDriverTable(tbody, orgId) {
     tbody.onclick = async (e) => {
       const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit');
-      if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email }, orgId, () => loadDrivers(orgId, tbody)); return; }
+      if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email, hasPin: ed.dataset.haspin === '1' }, orgId, () => loadDrivers(orgId, tbody)); return; }
       if (c) { const ok = await copyText(c.dataset.link); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
       if (t) { try { await api('/api/drivers/' + t.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: t.dataset.active !== '1' }) }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
       if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
@@ -615,6 +648,9 @@
   function openEditDriver(d, orgId, reload) {
     edState = { id: d.id, orgId: orgId || '', reload: reload };
     $('edName').value = d.name || ''; $('edPhone').value = formatUSPhone(d.phone || ''); $('edEmail').value = d.email || '';
+    $('edPin').value = ''; $('edPinRemove').checked = false;
+    if (d.hasPin) { $('edPin').placeholder = 'Enter a new PIN (leave blank to keep)'; $('edPinRemoveWrap').classList.remove('hide'); }
+    else { $('edPin').placeholder = 'Enter a PIN to set (optional)'; $('edPinRemoveWrap').classList.add('hide'); }
     $('edMsg').textContent = ''; $('edMsg').className = ''; $('edModal').classList.remove('hide');
     setTimeout(() => { try { $('edName').focus(); } catch (e) {} }, 30);
   }
@@ -625,6 +661,9 @@
     const name = $('edName').value.trim();
     if (!name) { $('edMsg').textContent = "Enter the driver's name"; $('edMsg').className = 'umsg-err'; return; }
     const body = { name, phone: $('edPhone').value.trim(), email: $('edEmail').value.trim() };
+    // PIN: remove-checkbox wins; else a typed PIN sets a new one; else leave unchanged (don't send).
+    if (!$('edPinRemoveWrap').classList.contains('hide') && $('edPinRemove').checked) { body.pin = ''; }
+    else { const pv = $('edPin').value.trim(); if (pv) { if (!/^\d{4,6}$/.test(pv)) { $('edMsg').textContent = 'PIN must be 4 to 6 digits'; $('edMsg').className = 'umsg-err'; return; } body.pin = pv; } }
     if (edState.orgId) body.orgId = edState.orgId;
     $('edMsg').textContent = 'Saving…'; $('edMsg').className = '';
     try {
@@ -633,18 +672,19 @@
     } catch (e) { $('edMsg').textContent = e.message; $('edMsg').className = 'umsg-err'; }
   };
   attachPhoneFormat('edPhone');
-  async function addDriver(orgId, nameEl, phoneEl, emailEl, msgEl, tbody) {
-    const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '';
+  async function addDriver(orgId, nameEl, phoneEl, emailEl, pinEl, msgEl, tbody) {
+    const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '', pin = pinEl ? pinEl.value.trim() : '';
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
+    if (pin && !/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'PIN must be 4 to 6 digits'; msgEl.className = 'umsg-err'; return; }
     msgEl.textContent = 'Adding…'; msgEl.className = '';
     try {
-      const body = { name, phone, email }; if (orgId) body.orgId = orgId;
+      const body = { name, phone, email, pin }; if (orgId) body.orgId = orgId;
       await api('/api/drivers', { method: 'POST', body: JSON.stringify(body) });
       msgEl.textContent = 'Added ✓ — send them their link from the table'; msgEl.className = 'umsg-ok';
-      nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; loadDrivers(orgId, tbody);
+      nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; if (pinEl) pinEl.value = ''; loadDrivers(orgId, tbody);
     } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
   }
-  $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndEmail'), $('ndMsg'), $('driverRows'));
+  $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndEmail'), $('ndPin'), $('ndMsg'), $('driverRows'));
 
   // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
   const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -654,9 +694,13 @@
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
       const r = await api('/api/loads' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
-      if (!r.results.length) { box.innerHTML = '<div class="empty">No loads yet. Create one above.</div>'; return; }
-      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
-        r.results.map(l => `<tr>
+      if (!r.results.length) { box.innerHTML = '<div class="empty">' + (q ? 'No loads match that search.' : 'No loads yet. Create one above.') + '</div>'; return; }
+      const all = r.results, showing = q ? all : all.slice(0, 15);
+      const heading = q
+        ? `<div class="sub" style="margin:0 0 8px;">${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"</div>`
+        : `<div class="sub" style="margin:0 0 8px;">Latest ${showing.length} load${showing.length === 1 ? '' : 's'}${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
+      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
+        showing.map(l => `<tr>
           <td class="mono">${esc(l.poNumber) || '—'}</td>
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
@@ -792,17 +836,69 @@
     try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users); }
     catch (e) { $('cmUserRows').innerHTML = '<tr><td colspan="4" class="empty">' + e.message + '</td></tr>'; }
   }
-  async function openCustManage(orgId, name) {
-    cmOrgId = orgId;
+  let cmBackTo = 'customersCard';
+  async function openCustManage(orgId, name, backTo) {
+    cmOrgId = orgId; cmBackTo = backTo || 'customersCard';
     $('cmTitle').textContent = 'Manage ' + name;
-    ['customersCard'].forEach(id => $(id).classList.add('hide'));
+    ['customersCard', 'carriersCard'].forEach(id => $(id).classList.add('hide'));
     $('custManageCard').classList.remove('hide');
     cmMsg($('cmuMsg'), ''); cmMsg($('cmdMsg'), '');
     cmLoadUsers();
     loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId);
+    cmDocReset(); cmLoadDocs('');
     window.scrollTo(0, 0);
   }
-  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $('customersCard').classList.remove('hide'); loadCustomers(); };
+  $('cmBack').onclick = () => { $('custManageCard').classList.add('hide'); $(cmBackTo).classList.remove('hide'); if (cmBackTo === 'carriersCard') loadCarriers(); else loadCustomers(); };
+
+  // Documents inside the manage view (view + upload for this org).
+  function cmDocReset() { $('cmDocUpForm').classList.add('hide'); $('cmDocUpAfter').classList.add('hide'); $('cmDocUpMsg').textContent = ''; ['cmDocPo', 'cmDocLoad', 'cmDocCons', 'cmDocSearch'].forEach(id => { if ($(id)) $(id).value = ''; }); if ($('cmDocFile')) $('cmDocFile').value = ''; }
+  async function cmLoadDocs(po) {
+    const box = $('cmDocList');
+    try {
+      const p = new URLSearchParams(); p.set('orgId', cmOrgId); if (po) p.set('po', po);
+      const r = await api('/api/pods?' + p.toString());
+      if (!r.results.length) { box.innerHTML = '<div class="empty">' + (po ? 'No documents match that PO #.' : 'No documents filed yet.') + '</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' +
+        r.results.map(x => `<tr>
+          <td class="mono">${esc(x.poNumber) || '—'}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
+          <td>${esc(x.consignee) || '—'}</td><td>${esc(x.docType) || 'POD'}</td>
+          <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
+          <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
+          <td style="white-space:nowrap;text-align:right;">
+            <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
+            <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>
+          </td></tr>`).join('') + '</tbody></table>';
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  $('cmDocSearchBtn').onclick = () => cmLoadDocs($('cmDocSearch').value.trim());
+  $('cmDocSearch').addEventListener('keydown', e => { if (e.key === 'Enter') cmLoadDocs($('cmDocSearch').value.trim()); });
+  $('cmDocUpToggle').onclick = () => { $('cmDocUpForm').classList.toggle('hide'); if (!$('cmDocUpForm').classList.contains('hide')) $('cmDocPo').focus(); };
+  $('cmDocUpCancel').onclick = () => { $('cmDocUpForm').classList.add('hide'); $('cmDocUpAfter').classList.add('hide'); $('cmDocUpMsg').textContent = ''; };
+  $('cmDocUpBtn').onclick = async () => {
+    const msg = $('cmDocUpMsg'), po = $('cmDocPo').value.trim(), f = $('cmDocFile').files[0];
+    if (!po) { msg.textContent = 'Customer PO # is required'; msg.className = 'umsg-err'; $('cmDocPo').focus(); return; }
+    if (!f) { msg.textContent = 'Choose a PDF file'; msg.className = 'umsg-err'; return; }
+    if (f.type && f.type !== 'application/pdf') { msg.textContent = 'Please choose a PDF file'; msg.className = 'umsg-err'; return; }
+    msg.textContent = 'Uploading…'; msg.className = ''; $('cmDocUpAfter').classList.add('hide');
+    try {
+      const buf = await f.arrayBuffer();
+      const res = await fetch('/api/pods/upload', {
+        method: 'POST', credentials: 'include',
+        headers: Object.assign({
+          'Content-Type': 'application/pdf', 'X-Enc': 'uri', 'X-Org': encodeURIComponent(cmOrgId),
+          'X-PO': encodeURIComponent(po), 'X-Load': encodeURIComponent($('cmDocLoad').value.trim()),
+          'X-Consignee': encodeURIComponent($('cmDocCons').value.trim()), 'X-DocType': encodeURIComponent($('cmDocType').value),
+          'X-Filename': encodeURIComponent(f.name)
+        }, token ? { 'Authorization': 'Bearer ' + token } : {}), body: buf
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); msg.textContent = e.error || 'Upload failed'; msg.className = 'umsg-err'; return; }
+      const r = await res.json();
+      msg.textContent = 'Uploaded ✓'; msg.className = 'umsg-ok';
+      $('cmDocPrep').href = '/prepare?id=' + encodeURIComponent(r.id); $('cmDocUpAfter').classList.remove('hide');
+      $('cmDocPo').value = ''; $('cmDocLoad').value = ''; $('cmDocCons').value = ''; $('cmDocFile').value = '';
+      cmLoadDocs('');
+    } catch (e) { msg.textContent = 'Upload failed: ' + e.message; msg.className = 'umsg-err'; }
+  };
   $('cmuGen').onclick = () => { $('cmuPass').value = randPw(); };
   $('cmuBtn').onclick = async () => {
     const email = $('cmuEmail').value.trim(), name = $('cmuName').value.trim(), role = $('cmuRole').value, password = $('cmuPass').value;
@@ -821,7 +917,7 @@
     if (r) { const np = randPw(); try { await api('/api/users/' + r.dataset.id + '/password?orgId=' + encodeURIComponent(cmOrgId), { method: 'POST', body: JSON.stringify({ password: np }) }); cmMsg($('cmuMsg'), 'New password for ' + r.dataset.email + ': ' + np + ' (copy now)', 'ok'); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
     if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
   });
-  $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdEmail'), $('cmdMsg'), $('cmDriverRows'));
+  $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdEmail'), $('cmdPin'), $('cmdMsg'), $('cmDriverRows'));
 
   // --- Customers (super-admin only) ---
   function ncMsg(t, kind) { const el = $('ncMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
@@ -848,7 +944,7 @@
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
-      box.querySelectorAll('.custManage').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name));
+      box.querySelectorAll('.custManage').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name, 'customersCard'));
       box.querySelectorAll('.custEdit').forEach(b => b.onclick = () => { const o = custCache.find(x => x.id === b.dataset.id); if (o) openEditOrg(o, 'customer', loadCustomers); });
       box.querySelectorAll('.custActive').forEach(b => b.onclick = async () => {
         try { await api('/api/orgs/' + b.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: b.dataset.active !== '1' }) }); loadCustomers(); }

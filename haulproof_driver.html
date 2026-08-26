@@ -255,6 +255,20 @@
 </header>
 
 <main>
+  <!-- PIN LOCK -->
+  <section class="view hide" id="viewPin">
+    <div class="signon">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
+      <h1>Enter your PIN</h1>
+      <p class="sub" id="pinSub">This driver link is protected. Enter your PIN to unlock it on this phone — you'll only need to do this once.</p>
+      <div class="fields">
+        <input class="ti" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••" style="text-align:center;letter-spacing:.45em;font-size:22px;">
+      </div>
+      <button class="btn primary block" id="pinBtn" type="button">Unlock</button>
+      <p class="note" id="pinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
+    </div>
+  </section>
+
   <!-- SIGN ON -->
   <section class="view hide" id="viewSignon">
     <div class="signon">
@@ -424,6 +438,13 @@ window.__startApp=function(){
   function savePods(a){ lsSet("hp_pods",a); }
   function loadCfg(){ return lsGet("hp_cfg",{endpoint:"",apikey:""}); }
   function saveCfg(c){ lsSet("hp_cfg",c); }
+  // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
+  function currentKey(){ return (loadCfg().apikey||"").trim(); }
+  function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
+  function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
+  function clearUnlock(){ try{ localStorage.removeItem("hp_unlock"); }catch(e){} }
+  function serverOrigin(){ var ep=(loadCfg().endpoint||"").trim(); return ep ? ep.replace(/\/api\/pods\/ingest\/?$/,"") : ""; }
+  function driverApi(path){ var o=serverOrigin(); return o ? (o+"/api/drivers"+path) : ""; }
   function genId(){ return Date.now().toString(36)+Math.floor(Math.random()*1e5).toString(36); }
   function u8ToB64(u8){ var CH=0x8000,s=""; for(var i=0;i<u8.length;i+=CH){ s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH)); } return btoa(s); }
   function b64ToBlob(b64,type){ var bin=atob(b64),u8=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i); return new Blob([u8],{type:type||"application/pdf"}); }
@@ -488,6 +509,7 @@ window.__startApp=function(){
             "X-POD-SignedAt":String(p.signedAt||p.createdAt||Date.now())
           };
           if(key) hdrs["X-Api-Key"]=key;
+          var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(p.gps&&p.gps.lat!=null) hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)}); if(!res.ok) throw new Error("HTTP "+res.status);
         }
@@ -503,7 +525,7 @@ window.__startApp=function(){
 
   /* ============ views ============ */
   function showView(v){
-    ["Route","Sign","Outbox","Signon"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
+    ["Route","Sign","Outbox","Signon","Pin"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
     if(v==="signon"){ renderSignon(); }
@@ -548,6 +570,39 @@ window.__startApp=function(){
   $("soOff").addEventListener("click", function(){ setDriver(""); renderDrvBadge(); renderSignon(); toast("Signed off"); });
   $("soBack").addEventListener("click", function(){ showView("route"); });
 
+  /* ============ PIN lock (optional, per driver) ============ */
+  function proceedAfterUnlock(){ if(driverName()){ showView("route"); } else { showView("signon"); } }
+  function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
+  async function verifyPin(){
+    var pin=$("pinInput").value.trim();
+    if(!/^\d{4,6}$/.test(pin)){ $("pinErr").textContent="Enter your 4–6 digit PIN"; return; }
+    var url=driverApi("/verify-pin");
+    if(!url){ $("pinErr").textContent="No connection — try again when you're online"; return; }
+    $("pinBtn").disabled=true; $("pinErr").textContent="Checking…";
+    try{
+      var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({pin:pin})});
+      $("pinBtn").disabled=false;
+      if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
+      if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
+      var d=await r.json(); saveUnlock(d.unlock||""); $("pinErr").textContent=""; toast("Unlocked"); proceedAfterUnlock(); if(online()) syncOutbox();
+    }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
+  }
+  $("pinBtn").addEventListener("click", verifyPin);
+  $("pinInput").addEventListener("keydown", function(e){ if(e.key==="Enter"){ verifyPin(); } });
+  $("pinInput").addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); });
+  // On open: if this link needs a PIN and we haven't unlocked it on this phone, show the lock screen first.
+  async function gateThenStart(){
+    var key=currentKey();
+    if(!key || !serverOrigin()){ proceedAfterUnlock(); return; }   // local / no server → nothing to gate
+    if(loadUnlock()){ proceedAfterUnlock(); return; }              // already unlocked on this phone
+    if(!online()){ proceedAfterUnlock(); return; }                 // can't verify offline; server still blocks doc ops
+    try{
+      var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}});
+      if(r.ok){ var info=await r.json(); if(info.requiresPin){ showPinGate(); return; } }
+    }catch(e){}
+    proceedAfterUnlock();
+  }
+
   /* ============ route / stops ============ */
   var SAMPLE=[
     {name:"Nebraska Furniture Mart", addr:"Omaha, NE"},
@@ -581,9 +636,11 @@ window.__startApp=function(){
     var base=podsBase(ep);
     var q = po ? ("po="+encodeURIComponent(po)) : ("load="+encodeURIComponent(load));
     var hdr = key ? {"X-Api-Key":key} : {};
+    var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
     toast("Looking up…");
     try{
       var r=await fetch(base+"/lookup?"+q,{headers:hdr});
+      if(r.status===401){ var pe=await r.json().catch(function(){return {};}); if(pe&&pe.pin){ toast("Enter your PIN to unlock"); showPinGate(true); return; } }
       if(!r.ok){ var e=await r.json().catch(function(){return {};}); toast(e.error||"No document found"); return; }
       var d=await r.json();
       var fr=await fetch(base+"/"+d.id+"/file",{headers:hdr});
@@ -1066,7 +1123,7 @@ window.__startApp=function(){
 
   /* boot */
   renderCloud(); renderRoute(); renderDrvBadge();
-  if(driverName()){ showView("route"); } else { showView("signon"); }   // must sign on first
+  gateThenStart();              // PIN lock (if this link needs one) → then sign-on / route
   initLocationConsent();        // show the "why we need location" banner (or warm silently if already allowed)
   if(online()) syncOutbox();
 };
