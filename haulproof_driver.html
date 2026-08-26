@@ -408,7 +408,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26d · driver load assignment</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26e · signer name required + capitalized</div>
   </section>
 </main>
 
@@ -416,13 +416,14 @@
 <div class="modal" id="modal">
   <div class="sheet">
     <h2 id="modalTitle">Adopt signature</h2>
-    <p id="modalSub">Type a name to pick a legible signature, or draw your own.</p>
+    <p id="modalSub">Type the signer's full name, then pick a legible style — or draw it yourself.</p>
+    <label class="f"><span>Full name <em style="color:var(--danger);font-style:normal;">required</em></span><input type="text" id="signerName" placeholder="Name of person signing" autocomplete="off" autocapitalize="words" autocorrect="off"></label>
     <div class="segtabs"><button class="segtab on" id="tabType" type="button">Type</button><button class="segtab" id="tabDraw" type="button">Draw</button></div>
     <div id="typePane">
-      <label class="f"><span>Full name</span><input type="text" id="signerName" placeholder="Name of person signing" autocomplete="off"></label>
       <div class="sigopts" id="sigOpts"><div class="opthint">Type a name to see signature styles</div></div>
     </div>
     <div id="drawPane" class="hide">
+      <div class="note" style="font-size:12.5px;color:var(--muted);margin:0 0 8px;">Draw your signature below. The printed name above is recorded too, so it's always clear who signed.</div>
       <div class="padwrap"><canvas id="pad"></canvas></div>
       <div class="padtools"><span style="font-size:12.5px;color:var(--muted);">Finger or stylus</span><button class="clear" id="padClear" type="button">Clear</button></div>
     </div>
@@ -1339,8 +1340,11 @@ window.__startApp=function(){
   }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
     navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").textContent="📍 Captured: "+lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
+  // Capitalize the first letter of each name part (first, last, hyphenated) without touching the rest.
+  function titleCaseName(s){ return String(s==null?"":s).replace(/(^|[\s\-'.])([a-z])/g, function(m,p,c){ return p+c.toUpperCase(); }); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });
-  function buildSigOptions(){ var name=$("signerName").value.trim(), box=$("sigOpts"); box.innerHTML=""; selected=null;
+  $("signerName").addEventListener("blur", function(){ var v=titleCaseName(this.value); if(v!==this.value){ this.value=v; buildSigOptions(); } });
+  function buildSigOptions(){ var name=titleCaseName($("signerName").value.trim()), box=$("sigOpts"); box.innerHTML=""; selected=null;
     if(!name){ box.innerHTML='<div class="opthint">Type a name to see signature styles</div>'; return; }
     SIG_FONTS.forEach(function(f,i){ var png=renderName(name,f); var el=document.createElement("button"); el.type="button"; el.className="sigopt";
       el.innerHTML='<img src="'+png+'" alt="style"><span>'+f+'</span>'; el.addEventListener("click",function(){pick(png,f,el);}); box.appendChild(el); if(i===0) pick(png,f,el); }); }
@@ -1350,10 +1354,13 @@ window.__startApp=function(){
     for(var y=0;y<h;y++)for(var x=0;x<w;x++){ if(d[(y*w+x)*4+3]>10){f=true;if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;} }
     if(!f) return c.toDataURL("image/png"); var pd=10; minX=Math.max(0,minX-pd);minY=Math.max(0,minY-pd);maxX=Math.min(w,maxX+pd);maxY=Math.min(h,maxY+pd);
     var oc=document.createElement("canvas"); oc.width=maxX-minX; oc.height=maxY-minY; oc.getContext("2d").drawImage(c,minX,minY,maxX-minX,maxY-minY,0,0,maxX-minX,maxY-minY); return oc.toDataURL("image/png"); }
-  $("adoptBtn").addEventListener("click", function(){ var name=$("signerName").value.trim(),png,style;
-    if(mode==="draw"){ if(!padHasInk()){toast("Draw a signature first");return;} png=trimPad(); style="Drawn"; }
-    else { if(!name){toast("Type a name first");return;} if(!selected) buildSigOptions(); if(!selected){toast("Pick a style");return;} png=selected.png; style=selected.style; }
-    adoptedByRole[role()]={png:png,name:name||role(),style:style,gps:lastGps}; closeModal(); if(curField) applyTo(curField); });
+  $("adoptBtn").addEventListener("click", function(){ var name=titleCaseName($("signerName").value.trim()),png,style;
+    // The signer's typed name is required in BOTH modes — so it's always legible who signed, even when drawing.
+    if(!name){ toast("Type the signer's name first"); if(mode!=="type") setMode("type"); $("signerName").focus(); return; }
+    $("signerName").value=name;
+    if(mode==="draw"){ if(!padHasInk()){toast("Now draw the signature");return;} png=trimPad(); style="Drawn"; }
+    else { if(!selected) buildSigOptions(); if(!selected){toast("Pick a style");return;} png=selected.png; style=selected.style; }
+    adoptedByRole[role()]={png:png,name:name,style:style,gps:lastGps}; closeModal(); if(curField) applyTo(curField); });
 
   /* finish → build pdf → save to outbox → mark stop delivered */
   async function finish(){
@@ -1378,10 +1385,12 @@ window.__startApp=function(){
           var h=Math.max(12,t.hPdf-6),w=h*asp; if(w>sigW){w=sigW;h=w/asp;}
           pg.drawImage(png,{x:t.xPdf+Math.max(0,(sigW-w)/2),y:t.yPdf+((t.hPdf-h)/2),width:w,height:h});
           pg.drawText(dstr,{x:t.xPdf+sigW+4+Math.max(0,(dateW-dtw)/2),y:t.yPdf+((t.hPdf-dsz)/2),size:dsz,font:font,color:PDFLib.rgb(.07,.22,.43)});
+          // Printed name below, so it's always legible who signed — especially for drawn signatures.
+          if(t.name) pg.drawText(t.name,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)});
         } else {
           var h2=Math.max(14,t.hPdf-6),w2=h2*asp; if(w2>t.wPdf){w2=t.wPdf;h2=w2/asp;}
           pg.drawImage(png,{x:t.xPdf+(t.wPdf-w2)/2,y:t.yPdf+(t.hPdf-h2)/2,width:w2,height:h2});
-          var cap=timeStr(t.when)+(t.gps?"  "+t.gps.lat.toFixed(3)+","+t.gps.lng.toFixed(3):""); pg.drawText(cap,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6,font:font,color:PDFLib.rgb(.42,.47,.53)});
+          var cap=(t.name?t.name+"  ·  ":"")+timeStr(t.when)+(t.gps?"  "+t.gps.lat.toFixed(3)+","+t.gps.lng.toFixed(3):""); pg.drawText(cap,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)});
         } }
       dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=Math.min(12,Math.max(9,df.hPdf*0.4)),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // audit page
