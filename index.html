@@ -266,7 +266,7 @@
           <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
           <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPhone" placeholder="(555) 555-5555"></div>
           <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdEmail" type="email" placeholder="driver@email.com"></div>
-          <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
+          <div><label>PIN <span style="color:#c0392b;">*required</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmdBtn" type="button">Add driver</button>
@@ -468,12 +468,12 @@
 
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
-      <h1>Drivers</h1><p class="sub">Add each driver once. They get their own link to open on their phone — their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
+      <h1>Drivers</h1><p class="sub">Add each driver once with a PIN. They get their own link to open on their phone — the PIN locks it to them, their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
       <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
         <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
         <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
         <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndEmail" type="email" placeholder="driver@email.com"></div>
-        <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
+        <div><label>PIN <span style="color:#c0392b;">*required</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="ndBtn" type="button">Add driver</button>
@@ -526,9 +526,9 @@
     <label>Driver name</label><input id="edName" style="margin-bottom:10px;">
     <label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edPhone" placeholder="(555) 555-5555" style="margin-bottom:10px;">
     <label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edEmail" type="email" placeholder="driver@email.com" style="margin-bottom:10px;">
-    <label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — locks their link</span></label>
+    <label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">locks their link to them</span></label>
     <input id="edPin" inputmode="numeric" maxlength="6" placeholder="Enter a PIN to set">
-    <label id="edPinRemoveWrap" class="hide" style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" id="edPinRemove" style="width:auto;margin:0;"> Remove the PIN on this driver</label>
+    <div id="edPinNote" class="hide" style="margin-top:6px;font-size:12.5px;color:var(--warn);">This driver has no PIN yet — set one to lock their link.</div>
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
       <button id="edSave" type="button">Save changes</button>
       <button class="ghost" id="edCancel" type="button">Cancel</button>
@@ -827,7 +827,7 @@
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
     return drivers.map(d => `<tr>
-      <td><b>${esc(d.name)}</b>${d.hasPin ? ' <span class="chip" style="background:var(--warn-soft);color:var(--warn);font-size:10px;" title="Link locked with a PIN">🔒 PIN</span>' : ''}${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
+      <td><b>${esc(d.name)}</b>${d.hasPin ? ' <span class="chip signed" style="font-size:10px;" title="Link locked with a PIN">🔒 PIN</span>' : ' <span class="chip received" style="font-size:10px;" title="No PIN yet — click Edit to set one">⚠ Needs PIN</span>'}${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
       <td>${esc(d.phone) || '—'}</td>
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -857,11 +857,11 @@
   // Edit-driver modal
   let edState = null;
   function openEditDriver(d, orgId, reload) {
-    edState = { id: d.id, orgId: orgId || '', reload: reload };
+    edState = { id: d.id, orgId: orgId || '', reload: reload, hasPin: !!d.hasPin };
     $('edName').value = d.name || ''; $('edPhone').value = formatUSPhone(d.phone || ''); $('edEmail').value = d.email || '';
-    $('edPin').value = ''; $('edPinRemove').checked = false;
-    if (d.hasPin) { $('edPin').placeholder = 'Enter a new PIN (leave blank to keep)'; $('edPinRemoveWrap').classList.remove('hide'); }
-    else { $('edPin').placeholder = 'Enter a PIN to set (optional)'; $('edPinRemoveWrap').classList.add('hide'); }
+    $('edPin').value = '';
+    if (d.hasPin) { $('edPin').placeholder = 'Enter a new PIN (leave blank to keep)'; $('edPinNote').classList.add('hide'); }
+    else { $('edPin').placeholder = 'Set a 4–6 digit PIN'; $('edPinNote').classList.remove('hide'); }
     $('edMsg').textContent = ''; $('edMsg').className = ''; $('edModal').classList.remove('hide');
     setTimeout(() => { try { $('edName').focus(); } catch (e) {} }, 30);
   }
@@ -872,9 +872,10 @@
     const name = $('edName').value.trim();
     if (!name) { $('edMsg').textContent = "Enter the driver's name"; $('edMsg').className = 'umsg-err'; return; }
     const body = { name, phone: $('edPhone').value.trim(), email: $('edEmail').value.trim() };
-    // PIN: remove-checkbox wins; else a typed PIN sets a new one; else leave unchanged (don't send).
-    if (!$('edPinRemoveWrap').classList.contains('hide') && $('edPinRemove').checked) { body.pin = ''; }
-    else { const pv = $('edPin').value.trim(); if (pv) { if (!/^\d{4,6}$/.test(pv)) { $('edMsg').textContent = 'PIN must be 4 to 6 digits'; $('edMsg').className = 'umsg-err'; return; } body.pin = pv; } }
+    // PIN is required. A typed PIN changes it; blank keeps the existing one; a driver with no PIN must set one now.
+    const pv = $('edPin').value.trim();
+    if (pv) { if (!/^\d{4,6}$/.test(pv)) { $('edMsg').textContent = 'PIN must be 4 to 6 digits'; $('edMsg').className = 'umsg-err'; return; } body.pin = pv; }
+    else if (!edState.hasPin) { $('edMsg').textContent = 'Set a 4–6 digit PIN for this driver'; $('edMsg').className = 'umsg-err'; $('edPin').focus(); return; }
     if (edState.orgId) body.orgId = edState.orgId;
     $('edMsg').textContent = 'Saving…'; $('edMsg').className = '';
     try {
@@ -886,7 +887,7 @@
   async function addDriver(orgId, nameEl, phoneEl, emailEl, pinEl, msgEl, tbody) {
     const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '', pin = pinEl ? pinEl.value.trim() : '';
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
-    if (pin && !/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'PIN must be 4 to 6 digits'; msgEl.className = 'umsg-err'; return; }
+    if (!/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'Set a 4–6 digit PIN for this driver'; msgEl.className = 'umsg-err'; if (pinEl) pinEl.focus(); return; }
     msgEl.textContent = 'Adding…'; msgEl.className = '';
     try {
       const body = { name, phone, email, pin }; if (orgId) body.orgId = orgId;
