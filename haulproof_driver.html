@@ -685,6 +685,16 @@ window.__startApp=function(){
   $("tabType").addEventListener("click", function(){ setMode("type"); });
   $("tabDraw").addEventListener("click", function(){ setMode("draw"); setTimeout(fitPad,20); });
   function setMode(m){ mode=m; $("tabType").classList.toggle("on",m==="type"); $("tabDraw").classList.toggle("on",m==="draw"); $("typePane").classList.toggle("hide",m!=="type"); $("drawPane").classList.toggle("hide",m!=="draw"); }
+  // Ask for location permission up front (on app open) so the phone shows its Allow-location prompt.
+  function warmLocation(){
+    try{
+      if(!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; },
+        function(){},
+        {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
+    }catch(e){}
+  }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
     navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").textContent="📍 Captured: "+lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });
@@ -846,6 +856,9 @@ window.__startApp=function(){
 
   /* boot */
   renderCloud(); renderRoute(); showView("route");
+  warmLocation();               // prompt for location permission as soon as the app opens
+  // Fallback for phones that only allow the prompt inside a user gesture: request on first tap.
+  document.addEventListener("pointerdown", function _lw(){ document.removeEventListener("pointerdown", _lw); warmLocation(); }, {passive:true});
   if(online()) syncOutbox();
 };
 if(window.__LIBS) window.__startApp();
