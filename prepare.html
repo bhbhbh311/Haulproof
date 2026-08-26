@@ -56,7 +56,7 @@
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   var activeTool={role:'Consignee',kind:'sigdate'};
   var pageRecs=[]; var fields=[]; // {pageIdx,kind,role,el,xPdf,yPdf,wPdf,hPdf,baseW,baseH}
-  var DEFAULT={sigdate:{w:200,h:58},sig:{w:190,h:46},date:{w:120,h:34}};
+  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},date:{w:120,h:34}};
 
   // toolbar
   Array.prototype.forEach.call(document.querySelectorAll('.tool'),function(b){
