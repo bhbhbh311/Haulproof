@@ -34,10 +34,10 @@ router.post('/verify-pin', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const d = r.driver;
-  if (!d.pinHash) return res.json({ ok: true, unlock: '' });         // no PIN set — nothing to check
+  if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '' });   // no PIN set — nothing to check
   const pin = String((req.body && req.body.pin) || '');
   if (!bcrypt.compareSync(pin, d.pinHash)) return res.status(401).json({ error: 'That PIN is not correct' });
-  res.json({ ok: true, unlock: driverUnlockValue(d) });
+  res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '' });
 });
 
 // List a customer's drivers.

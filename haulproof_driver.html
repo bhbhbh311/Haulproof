@@ -54,6 +54,13 @@
   .drvbadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;font-weight:600;border:1px solid var(--driver-line);background:var(--primary-soft);color:var(--primary);padding:5px 11px;border-radius:20px;cursor:pointer;max-width:42vw;}
   .drvbadge svg{width:13px;height:13px;flex:none;}
   .drvbadge span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .welcome{margin:0 0 16px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,var(--primary),#3f7ae8);color:#fff;box-shadow:var(--btn-shadow);}
+  .welcome-in{display:flex;align-items:flex-start;gap:10px;padding:14px 14px 15px;}
+  .welcome-txt{flex:1;}
+  .wgreet{font-family:"Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;}
+  .wmsg{font-size:13.5px;opacity:.92;margin-top:3px;line-height:1.4;}
+  .wclose{flex:none;background:rgba(255,255,255,.18);border:none;color:#fff;width:26px;height:26px;border-radius:8px;font-size:17px;line-height:1;cursor:pointer;padding:0;}
+  .wclose:hover{background:rgba(255,255,255,.28);}
   .signon{max-width:420px;margin:5vh auto 0;text-align:center;}
   .signon .mark{width:54px;height:54px;border-radius:15px;margin:0 auto 16px;}
   .signon .mark svg{width:30px;height:30px;}
@@ -287,6 +294,12 @@
 
   <!-- ROUTE -->
   <section class="view" id="viewRoute">
+    <div class="welcome hide" id="welcomeCard">
+      <div class="welcome-in">
+        <div class="welcome-txt"><div class="wgreet" id="welcomeGreet"></div><div class="wmsg" id="welcomeMsg"></div></div>
+        <button class="wclose" id="welcomeClose" type="button" aria-label="Dismiss">×</button>
+      </div>
+    </div>
     <h1>Today's route</h1>
     <p class="sub">Work stop by stop, or upload a document to sign right now. Everything runs offline and saves on the phone.</p>
     <button class="btn primary block" id="oneoffBtn" type="button" style="margin-bottom:12px;">＋ Upload &amp; sign a document</button>
@@ -535,7 +548,6 @@ window.__startApp=function(){
     ["Route","Sign","Outbox","Signon","Pin"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
-    if(v==="signon"){ renderSignon(); }
     window.scrollTo(0,0);
   }
   $("cloudPill").addEventListener("click", function(){ showView("outbox"); });
@@ -550,35 +562,30 @@ window.__startApp=function(){
     if(n){ $("drvName").textContent=n; b.classList.remove("hide"); }
     else { b.classList.add("hide"); }
   }
-  function renderSignon(){
-    var n=driverName();
-    $("soName").value = n || "";
-    if(n){
-      $("soTitle").textContent = "You're signed on";
-      $("soSub").textContent = "Signed on as " + n + ". Update your name, sign off to switch drivers, or head back to your route.";
-      $("soBtn").textContent = "Update name";
-      $("soOff").classList.remove("hide"); $("soBack").classList.remove("hide");
-    } else {
-      $("soTitle").textContent = "Who's driving today?";
-      $("soSub").textContent = "Sign on so every delivery you capture is recorded under your name.";
-      $("soBtn").textContent = "Sign on";
-      $("soOff").classList.add("hide"); $("soBack").classList.add("hide");
-    }
-    setTimeout(function(){ try{ $("soName").focus(); }catch(e){} },30);
+  // The driver's name comes from their personal link — no sign-on needed. A friendly daily welcome instead.
+  var WELCOME_LINES=[
+    "Drive safe out there today.","Thanks for keeping the freight moving.","Every delivery counts — you've got this.",
+    "Smooth roads and green lights ahead.","Steady hands, safe miles.","Buckle up and have a great haul.",
+    "You're the reason it gets there on time.","Take your time, stay sharp, get home safe.","Thanks for all you do out there.",
+    "Wishing you light traffic and easy docks.","Proof of a job well done starts with you.","Safe travels — we've got your back.",
+    "Here's to a smooth day on the road.","Rain or shine, you deliver. Thank you.","One stop at a time — you've got this.",
+    "May your dock times be short today.","Grateful to have you driving with us.","Eyes up, mirrors checked — let's roll.",
+    "Keep it between the lines and enjoy the ride.","Stay hydrated and keep on truckin'.","Another load handled right — nice work.",
+    "Short lines and open lanes to you today.","Appreciate you being on the road today.","Have a safe and productive day."
+  ];
+  function dayIndex(){ try{ return Math.floor(Date.now()/86400000); }catch(e){ return 0; } }
+  function greetWord(){ var h=new Date().getHours(); return h<12?"Good morning":h<18?"Good afternoon":"Good evening"; }
+  function showWelcome(){
+    var n=driverName(), first=n?n.split(/\s+/)[0]:"";
+    $("welcomeGreet").textContent = greetWord() + (first?(", "+first):"") + " 👋";
+    $("welcomeMsg").textContent = WELCOME_LINES[dayIndex()%WELCOME_LINES.length];
+    $("welcomeCard").classList.remove("hide");
   }
-  $("drvBadge").addEventListener("click", function(){ showView("signon"); });
-  $("soBtn").addEventListener("click", function(){
-    var n=$("soName").value.trim();
-    if(!n){ $("soName").focus(); toast("Enter your name to sign on"); return; }
-    var was=driverName(); setDriver(n); renderDrvBadge();
-    showView("route"); toast(was ? ("Updated to "+n) : ("Signed on as "+n));
-  });
-  $("soName").addEventListener("keydown", function(e){ if(e.key==="Enter"){ $("soBtn").click(); } });
-  $("soOff").addEventListener("click", function(){ setDriver(""); renderDrvBadge(); renderSignon(); toast("Signed off"); });
-  $("soBack").addEventListener("click", function(){ showView("route"); });
+  $("welcomeClose").addEventListener("click", function(){ $("welcomeCard").classList.add("hide"); });
+  $("drvBadge").addEventListener("click", function(){ showView("route"); showWelcome(); });
 
-  /* ============ PIN lock (optional, per driver) ============ */
-  function proceedAfterUnlock(){ if(driverName()){ showView("route"); } else { showView("signon"); } }
+  /* ============ start-up: identity + optional PIN ============ */
+  function finishStart(){ renderDrvBadge(); showView("route"); showWelcome(); if(online()) syncOutbox(); }
   function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
   async function verifyPin(){
     var pin=$("pinInput").value.trim();
@@ -591,23 +598,21 @@ window.__startApp=function(){
       $("pinBtn").disabled=false;
       if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
       if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
-      var d=await r.json(); saveUnlock(d.unlock||""); $("pinErr").textContent=""; toast("Unlocked"); proceedAfterUnlock(); if(online()) syncOutbox();
+      var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); $("pinErr").textContent=""; finishStart();
     }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
   }
   $("pinBtn").addEventListener("click", verifyPin);
   $("pinInput").addEventListener("keydown", function(e){ if(e.key==="Enter"){ verifyPin(); } });
   $("pinInput").addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); });
-  // On open: if this link needs a PIN and we haven't unlocked it on this phone, show the lock screen first.
-  async function gateThenStart(){
-    var key=currentKey();
-    if(!key || !serverOrigin()){ proceedAfterUnlock(); return; }   // local / no server → nothing to gate
-    if(loadUnlock()){ proceedAfterUnlock(); return; }              // already unlocked on this phone
-    if(!online()){ proceedAfterUnlock(); return; }                 // can't verify offline; server still blocks doc ops
-    try{
-      var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}});
-      if(r.ok){ var info=await r.json(); if(info.requiresPin){ showPinGate(); return; } }
-    }catch(e){}
-    proceedAfterUnlock();
+  // On open: pull the driver's name from their link, gate on PIN if needed, then show route + a daily welcome.
+  async function initDriver(){
+    var key=currentKey(), info=null;
+    if(key && serverOrigin() && online()){
+      try{ var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}}); if(r.ok) info=await r.json(); }catch(e){}
+    }
+    if(info && info.name){ setDriver(info.name); }          // remember the driver's real name for offline opens
+    if(info && info.requiresPin && !loadUnlock()){ showPinGate(); return; }
+    finishStart();
   }
 
   /* ============ route / stops ============ */
@@ -1134,9 +1139,8 @@ window.__startApp=function(){
 
   /* boot */
   renderCloud(); renderRoute(); renderDrvBadge();
-  gateThenStart();              // PIN lock (if this link needs one) → then sign-on / route
+  initDriver();                 // auto-load the driver's name from their link → PIN (if needed) → route + welcome
   initLocationConsent();        // show the "why we need location" banner (or warm silently if already allowed)
-  if(online()) syncOutbox();
 };
 if(window.__LIBS) window.__startApp();
 </script>
