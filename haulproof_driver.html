@@ -216,6 +216,17 @@
   #locBar .locbar-txt span{font-size:12.5px;color:var(--muted);line-height:1.45;}
   #locBar .locbar-btns{display:flex;gap:10px;max-width:640px;margin:12px auto 0;}
   #locBar .locbar-btns .btn{flex:1;}
+  /* Camera capture tray */
+  #uploadTools{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:10px;}
+  #capTray{margin-top:14px;border:1px solid #d9e2f0;background:var(--surface,#fff);border-radius:14px;padding:14px;box-shadow:var(--shadow);}
+  #capTray .captray-h{margin-bottom:10px;}
+  #capTray .captray-h b{font-family:"Archivo",sans-serif;font-size:15px;color:var(--ink,#12386e);display:block;}
+  #capTray .captray-h span{font-size:12px;color:var(--muted);}
+  #capThumbs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .capthumb{position:relative;width:76px;height:100px;border-radius:8px;overflow:hidden;border:1px solid #cdd8ea;background:#f4f7fc;box-shadow:0 1px 4px rgba(16,42,82,.12);}
+  .capthumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .capthumb .pg{position:absolute;left:4px;bottom:4px;background:rgba(18,56,110,.85);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;}
+  .capthumb .del{position:absolute;top:3px;right:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(200,32,42,.92);color:#fff;font-size:13px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
 </style>
 </head>
 <body>
@@ -268,7 +279,20 @@
       <div class="big">Upload or photograph the BOL</div>
       <div class="sm">Multi-page PDF supported · works offline</div>
     </label>
-    <input type="file" id="file" accept="application/pdf,image/*" hidden>
+    <input type="file" id="file" accept="application/pdf,image/*" multiple hidden>
+    <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
+    <div class="rowbtns" id="uploadTools">
+      <button class="btn primary sm" id="camBtn" type="button">📷 Take photo of document</button>
+      <button class="btn ghost sm" id="fileBtn" type="button">📄 Choose PDF / photos</button>
+    </div>
+    <div class="captray hide" id="capTray">
+      <div class="captray-h"><b id="capCount">0 pages</b><span>Snap each page, then tap “Use these pages” to place your signatures.</span></div>
+      <div id="capThumbs"></div>
+      <div class="rowbtns" style="justify-content:center;">
+        <button class="btn ghost sm" id="capMore" type="button">＋ Add another page</button>
+        <button class="btn primary sm" id="capDone" type="button">✓ Use these pages</button>
+      </div>
+    </div>
     <div class="rowbtns" style="justify-content:center;"><button class="btn ghost sm" id="sampleDocBtn" type="button">Load a sample packet</button></div>
 
     <div class="banner" id="banner">
@@ -507,7 +531,7 @@ window.__startApp=function(){
   async function startDocTemplate(bytes, tpl){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
-    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPagesTemplate(bytes, tpl); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     if(!sigs().length){ toast("No signature spots were set up on this document"); }
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
@@ -576,6 +600,8 @@ window.__startApp=function(){
     origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
     $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
     $("drop").classList.remove("hide"); $("sampleDocBtn").parentElement.classList.remove("hide");
+    if($("uploadTools")) $("uploadTools").classList.remove("hide");
+    capturedPages=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
     if($("poNum")){ $("poNum").value=""; $("poNum").parentElement.classList.remove("missing"); }
     if($("consName")) $("consName").value = stop ? (stop.name||"") : "";
@@ -588,26 +614,94 @@ window.__startApp=function(){
   function roleSigs(r){ return sigs().filter(function(f){return f.role===r;}); }
   function unsigned(r){ return roleSigs(r).filter(function(f){return !f.signed;}); }
 
-  $("file").addEventListener("change", function(e){ var f=e.target.files[0]; if(f) readFile(f); });
-  function readFile(f){
-    if(f.type==="application/pdf"){ var r=new FileReader(); r.onload=function(){ startDoc(new Uint8Array(r.result)); }; r.readAsArrayBuffer(f); }
-    else if(/^image\//.test(f.type)){ var r2=new FileReader(); r2.onload=function(){ imageToPdf(r2.result).then(startDoc); }; r2.readAsDataURL(f); }
+  // ---- Uploading / photographing a document ----
+  var capturedPages = [];           // data URLs of photographed pages, in order
+
+  $("fileBtn").addEventListener("click", function(){ $("file").click(); });
+  $("file").addEventListener("change", function(e){ var fs=Array.prototype.slice.call(e.target.files||[]); if(fs.length) readFiles(fs); });
+
+  // Camera flow: one page per shot, accumulate, then build a multi-page PDF.
+  $("camBtn").addEventListener("click", function(){ $("camInput").value=""; $("camInput").click(); });
+  $("capMore").addEventListener("click", function(){ $("camInput").value=""; $("camInput").click(); });
+  $("camInput").addEventListener("change", function(e){
+    var f=(e.target.files||[])[0]; if(!f) return;
+    fileToDataUrl(f).then(function(u){ capturedPages.push(u); renderCapTray(); });
+  });
+  $("capDone").addEventListener("click", async function(){
+    if(!capturedPages.length){ toast("Take at least one photo"); return; }
+    if(!ready){ toast("Engine not loaded"); return; }
+    toast("Building document…");
+    try{ var bytes=await imagesToPdf(capturedPages); capturedPages=[]; hideCapTray(); await startDoc(bytes); }
+    catch(err){ console.error(err); toast("Couldn't build the document"); }
+  });
+
+  function renderCapTray(){
+    var tray=$("capTray"), box=$("capThumbs"); tray.classList.remove("hide");
+    $("capCount").textContent = capturedPages.length + (capturedPages.length===1?" page":" pages");
+    box.innerHTML="";
+    capturedPages.forEach(function(u,i){
+      var d=document.createElement("div"); d.className="capthumb";
+      d.innerHTML='<img src="'+u+'" alt="page '+(i+1)+'"><span class="pg">'+(i+1)+'</span><button class="del" type="button" aria-label="Remove page">×</button>';
+      d.querySelector(".del").addEventListener("click", function(){ capturedPages.splice(i,1); renderCapTray(); });
+      box.appendChild(d);
+    });
   }
+  function hideCapTray(){ $("capTray").classList.add("hide"); $("capThumbs").innerHTML=""; }
+
+  function fileToDataUrl(f){ return new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){res(r.result);}; r.onerror=rej; r.readAsDataURL(f); }); }
+  function fileToBytes(f){ return new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){res(new Uint8Array(r.result));}; r.onerror=rej; r.readAsArrayBuffer(f); }); }
+
+  // Handle whatever the file picker returned. A PDF wins; otherwise combine every image into one multi-page PDF.
+  async function readFiles(fs){
+    var pdf=fs.filter(function(f){return f.type==="application/pdf";})[0];
+    if(pdf){ startDoc(await fileToBytes(pdf)); return; }
+    var imgs=fs.filter(function(f){return /^image\//.test(f.type);});
+    if(!imgs.length){ toast("Choose a PDF or photos"); return; }
+    toast("Building document…");
+    try{
+      var urls=[]; for(var i=0;i<imgs.length;i++){ urls.push(await fileToDataUrl(imgs[i])); }
+      startDoc(await imagesToPdf(urls));
+    }catch(e){ console.error(e); toast("Couldn't read those images"); }
+  }
+  // Back-compat single-file entry (used by drag-and-drop).
+  function readFile(f){ readFiles([f]); }
   $("sampleDocBtn").addEventListener("click", function(){ makeSample().then(startDoc).catch(function(e){console.error(e);toast("Sample failed");}); });
 
-  async function imageToPdf(dataUrl){
+  // Shrink a phone photo and re-encode as JPEG so the PDF stays small and uploads offline-friendly.
+  function normalizeImage(dataUrl){
+    return new Promise(function(res,rej){
+      var im=new Image();
+      im.onload=function(){
+        var maxD=1700, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
+        var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
+        var c=document.createElement("canvas"); c.width=cw; c.height=ch;
+        var g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,cw,ch); g.drawImage(im,0,0,cw,ch);
+        res({dataUrl:c.toDataURL("image/jpeg",0.85), w:cw, h:ch});
+      };
+      im.onerror=function(){ rej(new Error("decode failed")); };
+      im.src=dataUrl;
+    });
+  }
+  // Build a multi-page PDF where each page matches its photo (full-bleed, no big margins).
+  async function imagesToPdf(dataUrls){
     var doc=await PDFLib.PDFDocument.create();
-    var bytes=await (await fetch(dataUrl)).arrayBuffer();
-    var img = dataUrl.indexOf("image/png")>=0 ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-    var pw=612, ph=792, scale=Math.min(pw/img.width, ph/img.height);
-    var pg=doc.addPage([pw,ph]); pg.drawImage(img,{x:(pw-img.width*scale)/2,y:(ph-img.height*scale)/2,width:img.width*scale,height:img.height*scale});
+    for(var i=0;i<dataUrls.length;i++){
+      var norm; try{ norm=await normalizeImage(dataUrls[i]); }catch(e){ continue; }
+      var bytes=await (await fetch(norm.dataUrl)).arrayBuffer();
+      var img=await doc.embedJpg(bytes);
+      var pg=doc.addPage([img.width,img.height]);
+      pg.drawImage(img,{x:0,y:0,width:img.width,height:img.height});
+    }
+    if(doc.getPageCount()===0) throw new Error("no pages");
     return new Uint8Array(await doc.save());
   }
+  // Kept for compatibility: single image → single-page PDF.
+  async function imageToPdf(dataUrl){ return imagesToPdf([dataUrl]); }
 
   async function startDoc(bytes){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
-    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
   }
