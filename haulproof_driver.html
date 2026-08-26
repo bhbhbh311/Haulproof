@@ -327,6 +327,11 @@
     <h1>Today's route</h1>
     <p class="sub">Work stop by stop, or upload a document to sign right now. Everything runs offline and saves on the phone.</p>
     <button class="btn primary block" id="oneoffBtn" type="button" style="margin-bottom:12px;">＋ Upload &amp; sign a document</button>
+    <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,#3f74e0);">
+      <div class="pulltitle">📋 Your loads <span id="myLoadsCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></div>
+      <div id="myLoadsList"></div>
+      <div class="pullnote">Loads dispatch assigned to you — tap one to open it and sign.</div>
+    </div>
     <div class="pullcard">
       <div class="pulltitle">Pull a prepared BOL from dispatch</div>
       <div class="pullrow">
@@ -403,7 +408,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26c · sharper scan preview</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26d · driver load assignment</div>
   </section>
 </main>
 
@@ -592,7 +597,7 @@ window.__startApp=function(){
   /* ============ views ============ */
   function showView(v){
     ["Route","Sign","Outbox","Signon","Pin"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
-    if(v==="route"){ renderRoute(); }
+    if(v==="route"){ renderRoute(); if(online()) loadMyLoads(); }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
     window.scrollTo(0,0);
   }
@@ -631,7 +636,7 @@ window.__startApp=function(){
   $("drvBadge").addEventListener("click", function(){ showView("route"); showWelcome(); });
 
   /* ============ start-up: identity + optional PIN ============ */
-  function finishStart(){ renderDrvBadge(); showView("route"); showWelcome(); if(online()) syncOutbox(); }
+  function finishStart(){ renderDrvBadge(); showView("route"); showWelcome(); if(online()){ syncOutbox(); loadMyLoads(); } }
   function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
   async function verifyPin(){
     var pin=$("pinInput").value.trim();
@@ -700,17 +705,51 @@ window.__startApp=function(){
       var r=await fetch(base+"/lookup?"+q,{headers:hdr});
       if(!r.ok){ var e=await r.json().catch(function(){return {};}); toast(e.error||"No document found"); return; }
       var d=await r.json();
+      $("pullPo").value=""; $("pullLoad").value="";
+      await openPreparedDoc(d);
+    }catch(err){ console.error(err); toast("Lookup failed — check signal & Outbox settings"); }
+  }
+  // Open a prepared document (from a pull OR an assigned load) into the sign view.
+  async function openPreparedDoc(d){
+    var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
+    var hdr = key ? {"X-Api-Key":key} : {}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+    toast("Opening…");
+    try{
       var fr=await fetch(base+"/"+d.id+"/file",{headers:hdr});
       if(!fr.ok){ toast("Couldn't download the document"); return; }
       var bytes=new Uint8Array(await fr.arrayBuffer());
       pulledMeta=d;
       enterSign(null);
-      $("signCtx").textContent = "Prepared by dispatch · PO "+(d.poNumber||po||"")+(d.loadNumber?(" · Load "+d.loadNumber):"");
-      if($("poNum")) $("poNum").value=d.poNumber||po||"";
+      $("signCtx").textContent = "Prepared by dispatch · PO "+(d.poNumber||"")+(d.loadNumber?(" · Load "+d.loadNumber):"");
+      if($("poNum")) $("poNum").value=d.poNumber||"";
       if($("consName")) $("consName").value=d.consignee||"";
-      $("pullPo").value=""; $("pullLoad").value="";
       await startDocTemplate(bytes, d.fields||[]);
-    }catch(err){ console.error(err); toast("Lookup failed — check signal & Outbox settings"); }
+    }catch(err){ console.error(err); toast("Couldn't open that load"); }
+  }
+  // Fetch loads dispatch assigned to THIS driver and show them at the top of the route.
+  async function loadMyLoads(){
+    var card=$("myLoadsCard"); if(!card) return;
+    var key=currentKey(), o=serverOrigin();
+    if(!key || !o || !online()){ card.classList.add("hide"); return; }
+    try{
+      var hdr={"X-Api-Key":key}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads"),{headers:hdr});
+      if(!r.ok){ card.classList.add("hide"); return; }
+      var loads=((await r.json())||{}).loads||[];
+      if(!loads.length){ card.classList.add("hide"); return; }
+      card.classList.remove("hide");
+      $("myLoadsCount").textContent="("+loads.length+")";
+      var box=$("myLoadsList"); box.innerHTML="";
+      loads.forEach(function(ld){
+        var row=document.createElement("div");
+        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
+        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(ld.poNumber||"—")+(ld.loadNumber?(" · Load "+esc(ld.loadNumber)):"")+'</div>'+
+          (ld.consignee?'<div style="color:var(--muted);font-size:13px;">'+esc(ld.consignee)+'</div>':'')+'</div>'+
+          '<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
+        row.querySelector(".myLoadOpen").addEventListener("click", function(){ openPreparedDoc(ld); });
+        box.appendChild(row);
+      });
+    }catch(e){ card.classList.add("hide"); }
   }
   async function startDocTemplate(bytes, tpl){
     if(!ready){ toast("Engine not loaded"); return; }

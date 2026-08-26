@@ -40,6 +40,21 @@ router.post('/verify-pin', (req, res) => {
   res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '' });
 });
 
+// Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
+// Only a personal driver token carries assignments; the shared org key returns nothing.
+router.get('/my-loads', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.json({ loads: [] });
+  const rows = db.prepare(`SELECT p.* FROM pods p
+      WHERE p.assignedDriverId = ? AND p.status = 'prepared'
+        AND NOT EXISTS (SELECT 1 FROM pods s WHERE s.loadId = p.loadId AND s.status = 'signed')
+      ORDER BY p.uploadedAt DESC`).all(r.driver.id);
+  const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
+  const loads = rows.map(p => ({ id: p.id, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+    filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
+  res.json({ loads });
+});
+
 // List a customer's drivers.
 router.get('/', requireAuth, requireAdmin, (req, res) => {
   const orgId = scopeOrgId(req);

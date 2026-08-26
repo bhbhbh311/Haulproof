@@ -1403,6 +1403,11 @@
     const tb = $('rows');
     if (!r.results.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No documents match.</td></tr>'; return; }
     const carrier = isCarrierUser();
+    // Load this account's drivers so a "Ready to sign" doc can be handed to one.
+    const canAssign = !carrier && user.role === 'admin';
+    let drivers = [];
+    if (canAssign) { try { const dr = await api('/api/drivers'); drivers = dr.drivers || []; } catch (e) {} }
+    const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
     tb.innerHTML = r.results.map(x => {
       // A carrier can offer its OWN documents (not ones signed on a customer's assigned load, not already accepted).
       const ownByCarrier = carrier && x.orgId === user.orgId;
@@ -1412,6 +1417,15 @@
         else if (x.claimStatus === 'offered') action += ` <span class="chip prepared" style="margin-left:8px;">Offered</span> <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:6px;">Resend</button>`;
         else action += ` <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:8px;">Send to customer</button>`;
       }
+      // Assign a "Ready to sign" doc to a driver → it shows up as a load in that driver's app.
+      if (canAssign && x.status === 'prepared') {
+        action += `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--muted);">Driver:</span>
+          <select class="asgSel" data-id="${x.id}" style="font-size:12px;padding:4px 6px;">${driverOpts(x.assignedDriverId||'')}</select>
+          <button class="ghost asgBtn" data-id="${x.id}" style="padding:4px 9px;font-size:12px;">Assign</button>
+          <span class="asgMsg" data-id="${x.id}" style="font-size:12px;color:var(--ok);font-weight:600;">${x.assignedDriverName?('→ '+esc(x.assignedDriverName)):''}</span>
+        </div>`;
+      }
       return `<tr>
       <td class="mono">${x.poNumber||'—'}</td><td class="mono">${x.loadNumber||'—'}</td>
       <td>${x.consignee||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.docType||'POD'}</td>
@@ -1420,6 +1434,14 @@
       <td style="white-space:nowrap;">${action}</td>
     </tr>`; }).join('');
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
+    tb.querySelectorAll('.asgBtn').forEach(b => b.onclick = async () => {
+      const id = b.dataset.id, sel = tb.querySelector('.asgSel[data-id="'+id+'"]'), msg = tb.querySelector('.asgMsg[data-id="'+id+'"]');
+      msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
+      try {
+        const rr = await api('/api/pods/'+id+'/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: sel.value }) });
+        msg.style.color = 'var(--ok)'; msg.textContent = rr.assignedDriverName ? ('→ '+rr.assignedDriverName+' ✓') : 'Unassigned ✓';
+      } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = e.message; }
+    });
   }
 
   // --- Carrier offers a document to a customer; customer accepts/declines from their inbox ---

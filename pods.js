@@ -193,7 +193,7 @@ router.get('/', requireAuth, (req, res) => {
     const where = [`(pods.orgId IS ? OR loads.carrierId = ?)`], args = [carrierId, carrierId];
     if (req.query.po) { where.push(`pods.poNumber LIKE ?`); args.push(`%${req.query.po}%`); }
     if (req.query.q) { where.push(`(pods.poNumber LIKE ? OR pods.loadNumber LIKE ? OR pods.consignee LIKE ? OR pods.filename LIKE ?)`); args.push(`%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`); }
-    const rows = db.prepare(`SELECT pods.id, pods.orgId, pods.loadId, pods.loadNumber, pods.poNumber, pods.consignee, pods.docType, pods.filename, pods.sizeBytes, pods.gps, pods.signedAt, pods.recipients, pods.driver, pods.status, pods.claimStatus, pods.offeredToOrgId, pods.uploadedAt
+    const rows = db.prepare(`SELECT pods.id, pods.orgId, pods.loadId, pods.loadNumber, pods.poNumber, pods.consignee, pods.docType, pods.filename, pods.sizeBytes, pods.gps, pods.signedAt, pods.recipients, pods.driver, pods.status, pods.claimStatus, pods.offeredToOrgId, pods.assignedDriverId, pods.assignedDriverName, pods.uploadedAt
       FROM pods LEFT JOIN loads ON loads.id = pods.loadId
       WHERE ${where.join(' AND ')} ORDER BY pods.uploadedAt DESC LIMIT 200`).all(...args).map(rowOut);
     return res.json({ count: rows.length, results: rows });
@@ -207,7 +207,7 @@ router.get('/', requireAuth, (req, res) => {
   if (from) { where.push(`uploadedAt >= ?`); args.push(Number(from)); }
   if (to) { where.push(`uploadedAt <= ?`); args.push(Number(to)); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR consignee LIKE ? OR filename LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, sizeBytes, gps, signedAt, recipients, driver, status, uploadedAt
+  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, sizeBytes, gps, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt
                FROM pods WHERE ${where.join(' AND ')} ORDER BY uploadedAt DESC LIMIT 200`;
   const rows = db.prepare(sql).all(...args).map(rowOut);
   res.json({ count: rows.length, results: rows });
@@ -299,6 +299,23 @@ router.get('/:id/file', requireAuthOrKey, (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'POD').replace(/[^\w.\- ]+/g, '_')}.pdf"`);
   fs.createReadStream(row.filepath).pipe(res);
+});
+
+// ---- ASSIGN a prepared document to a specific driver → it appears as a load in that driver's app. Admin/super. ----
+router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
+  if (req.user.role !== 'superadmin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  const driverId = (req.body && req.body.driverId || '').trim();
+  if (!driverId) {   // clear assignment
+    db.prepare(`UPDATE pods SET assignedDriverId = NULL, assignedDriverName = NULL WHERE id = ?`).run(pod.id);
+    return res.json({ ok: true, assignedDriverId: null, assignedDriverName: null });
+  }
+  const drv = db.prepare(`SELECT * FROM drivers WHERE id = ? AND active = 1`).get(driverId);
+  if (!drv || (drv.orgId || null) !== (pod.orgId || null)) return res.status(400).json({ error: 'That driver is not on this account' });
+  db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE id = ?`).run(drv.id, drv.name, pod.id);
+  logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'assigned_driver', detail: 'Assigned to driver ' + drv.name, actor: req.user.email });
+  res.json({ ok: true, assignedDriverId: drv.id, assignedDriverName: drv.name });
 });
 
 module.exports = router;
