@@ -397,6 +397,22 @@
   </div>
 </div>
 
+<!-- EDIT DRIVER modal -->
+<div id="edModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:440px;width:100%;margin:0;">
+    <h1 style="font-size:18px;margin-bottom:2px;">Edit driver</h1>
+    <p class="sub">Fix the name, phone, or email. Their personal link stays the same.</p>
+    <label>Driver name</label><input id="edName" style="margin-bottom:10px;">
+    <label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edPhone" placeholder="(555) 555-5555" style="margin-bottom:10px;">
+    <label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="edEmail" type="email" placeholder="driver@email.com">
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="edSave" type="button">Save changes</button>
+      <button class="ghost" id="edCancel" type="button">Cancel</button>
+      <span id="edMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT COMPANY (customer / carrier) modal -->
 <div id="eoModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
   <div class="card" style="max-width:480px;width:100%;margin:0;">
@@ -576,6 +592,7 @@
         <button class="ghost drvCopy" data-link="${esc(d.link)}" style="padding:6px 10px;font-size:12px;">Copy link</button>
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
+        <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
         <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
       </td></tr>`).join('');
@@ -586,12 +603,36 @@
   }
   function wireDriverTable(tbody, orgId) {
     tbody.onclick = async (e) => {
-      const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel');
+      const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit');
+      if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email }, orgId, () => loadDrivers(orgId, tbody)); return; }
       if (c) { const ok = await copyText(c.dataset.link); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
       if (t) { try { await api('/api/drivers/' + t.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: t.dataset.active !== '1' }) }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
       if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
     };
   }
+  // Edit-driver modal
+  let edState = null;
+  function openEditDriver(d, orgId, reload) {
+    edState = { id: d.id, orgId: orgId || '', reload: reload };
+    $('edName').value = d.name || ''; $('edPhone').value = formatUSPhone(d.phone || ''); $('edEmail').value = d.email || '';
+    $('edMsg').textContent = ''; $('edMsg').className = ''; $('edModal').classList.remove('hide');
+    setTimeout(() => { try { $('edName').focus(); } catch (e) {} }, 30);
+  }
+  $('edCancel').onclick = () => { $('edModal').classList.add('hide'); edState = null; };
+  $('edModal').addEventListener('click', (e) => { if (e.target === $('edModal')) { $('edModal').classList.add('hide'); edState = null; } });
+  $('edSave').onclick = async () => {
+    if (!edState) return;
+    const name = $('edName').value.trim();
+    if (!name) { $('edMsg').textContent = "Enter the driver's name"; $('edMsg').className = 'umsg-err'; return; }
+    const body = { name, phone: $('edPhone').value.trim(), email: $('edEmail').value.trim() };
+    if (edState.orgId) body.orgId = edState.orgId;
+    $('edMsg').textContent = 'Saving…'; $('edMsg').className = '';
+    try {
+      await api('/api/drivers/' + edState.id, { method: 'PUT', body: JSON.stringify(body) });
+      $('edModal').classList.add('hide'); const rl = edState.reload; edState = null; if (rl) rl();
+    } catch (e) { $('edMsg').textContent = e.message; $('edMsg').className = 'umsg-err'; }
+  };
+  attachPhoneFormat('edPhone');
   async function addDriver(orgId, nameEl, phoneEl, emailEl, msgEl, tbody) {
     const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '';
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }

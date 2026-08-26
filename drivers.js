@@ -43,6 +43,20 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });
 });
 
+// Edit a driver's details (fix input mistakes). Same org only.
+router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
+  if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
+  const b = req.body || {};
+  const name = (b.name !== undefined ? String(b.name) : d.name).trim();
+  if (!name) return res.status(400).json({ error: "Enter the driver's name" });
+  const phone = (b.phone !== undefined ? String(b.phone) : (d.phone || '')).trim();
+  const email = (b.email !== undefined ? String(b.email) : (d.email || '')).trim();
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+  db.prepare(`UPDATE drivers SET name = ?, phone = ?, email = ? WHERE id = ?`).run(name, phone || null, email || null, d.id);
+  res.json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id)) });
+});
+
 // Turn a driver on/off (deactivating instantly revokes their personal link).
 router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
