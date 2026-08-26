@@ -45,6 +45,8 @@
   button:active{transform:translateY(0);box-shadow:0 2px 6px rgba(22,85,209,.26);}
   button.ghost{background:#fff;color:var(--ink);border:1px solid #cdd7e3;box-shadow:none;}
   button.ghost:hover{background:#f4f7fc;border-color:#b7c3d4;box-shadow:0 2px 7px rgba(20,40,80,.07);}
+  a.linkbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;font-size:12px;font-weight:600;border:1px solid var(--primary);border-radius:var(--radius-sm);background:var(--primary-soft);color:var(--primary);text-decoration:none;cursor:pointer;transition:background .12s,box-shadow .12s;}
+  a.linkbtn:hover{background:#dbe6fb;box-shadow:0 2px 7px rgba(22,85,209,.18);}
   /* tables */
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);}
@@ -222,9 +224,10 @@
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;">Drivers</h1>
-        <div class="row" style="grid-template-columns:1fr 1fr;align-items:end;">
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
           <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
           <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPhone" placeholder="(555) 555-5555"></div>
+          <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdEmail" type="email" placeholder="driver@email.com"></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmdBtn" type="button">Add driver</button>
@@ -361,9 +364,10 @@
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
       <h1>Drivers</h1><p class="sub">Add each driver once. They get their own link to open on their phone — their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
-      <div class="row" style="grid-template-columns:1fr 1fr;align-items:end;">
+      <div class="row" style="grid-template-columns:1fr 1fr 1fr;align-items:end;">
         <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
         <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
+        <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndEmail" type="email" placeholder="driver@email.com"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="ndBtn" type="button">Add driver</button>
@@ -416,6 +420,40 @@
 <script>
   let token = null, user = null;
   const $ = id => document.getElementById(id);
+  // Pretty US phone formatting as you type: 5555551234 -> (555) 555-1234
+  function formatUSPhone(raw) {
+    let d = String(raw == null ? '' : raw).replace(/\D/g, '');
+    if (d.length > 10 && d.charAt(0) === '1') d = d.slice(1); // drop a leading country "1"
+    d = d.slice(0, 10);
+    const a = d.slice(0, 3), b = d.slice(3, 6), c = d.slice(6, 10);
+    if (d.length > 6) return '(' + a + ') ' + b + '-' + c;
+    if (d.length > 3) return '(' + a + ') ' + b;
+    if (d.length > 0) return '(' + a;
+    return '';
+  }
+  function attachPhoneFormat(id) {
+    const el = $(id); if (!el) return;
+    el.setAttribute('inputmode', 'tel'); el.setAttribute('autocomplete', 'tel');
+    el.addEventListener('input', () => {
+      const atEnd = el.selectionStart === el.value.length;
+      el.value = formatUSPhone(el.value);
+      if (atEnd) { try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} }
+    });
+    if (el.value) el.value = formatUSPhone(el.value);
+  }
+  ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone'].forEach(attachPhoneFormat);
+  // Build a pre-filled text / email so dispatch can send a driver their personal link in one tap.
+  function driverSmsHref(phone, link) {
+    let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '1' + d;
+    const num = d ? '+' + d : '';
+    const body = encodeURIComponent('Here is your HaulProof driver link — open it on your phone to sign deliveries: ' + link);
+    return 'sms:' + num + '?&body=' + body;
+  }
+  function driverMailHref(email, link) {
+    const s = encodeURIComponent('Your HaulProof driver link');
+    const b = encodeURIComponent('Open this link on your phone to sign deliveries:\n\n' + link + '\n\nTip: add it to your home screen so it is one tap away.');
+    return 'mailto:' + encodeURIComponent(email) + '?subject=' + s + '&body=' + b;
+  }
   async function api(path, opts={}) {
     // credentials:'include' so the httpOnly session cookie (set by Microsoft SSO or password login) is sent.
     const res = await fetch(path, { credentials:'include', ...opts, headers: { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) , ...(opts.headers||{}) } });
@@ -529,10 +567,14 @@
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
     return drivers.map(d => `<tr>
-      <td><b>${d.name}</b></td>
-      <td>${d.phone || '—'}</td>
+      <td><b>${esc(d.name)}</b>${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
+      <td>${esc(d.phone) || '—'}</td>
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
-      <td><button class="ghost drvCopy" data-link="${d.link}" style="padding:6px 10px;font-size:12px;">Copy link</button></td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${d.phone ? `<a class="linkbtn" href="${driverSmsHref(d.phone, d.link)}" title="Text this link to ${esc(d.phone)}">Text</a>` : ''}
+        ${d.email ? `<a class="linkbtn" href="${driverMailHref(d.email, d.link)}" title="Email this link to ${esc(d.email)}">Email</a>` : ''}
+        <button class="ghost drvCopy" data-link="${esc(d.link)}" style="padding:6px 10px;font-size:12px;">Copy link</button>
+      </div></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
         <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
@@ -550,18 +592,18 @@
       if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
     };
   }
-  async function addDriver(orgId, nameEl, phoneEl, msgEl, tbody) {
-    const name = nameEl.value.trim(), phone = phoneEl.value.trim();
+  async function addDriver(orgId, nameEl, phoneEl, emailEl, msgEl, tbody) {
+    const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '';
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
     msgEl.textContent = 'Adding…'; msgEl.className = '';
     try {
-      const body = { name, phone }; if (orgId) body.orgId = orgId;
+      const body = { name, phone, email }; if (orgId) body.orgId = orgId;
       await api('/api/drivers', { method: 'POST', body: JSON.stringify(body) });
-      msgEl.textContent = 'Added ✓ — copy their link from the table'; msgEl.className = 'umsg-ok';
-      nameEl.value = ''; phoneEl.value = ''; loadDrivers(orgId, tbody);
+      msgEl.textContent = 'Added ✓ — send them their link from the table'; msgEl.className = 'umsg-ok';
+      nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; loadDrivers(orgId, tbody);
     } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
   }
-  $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndMsg'), $('driverRows'));
+  $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndEmail'), $('ndMsg'), $('driverRows'));
 
   // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
   const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -738,7 +780,7 @@
     if (r) { const np = randPw(); try { await api('/api/users/' + r.dataset.id + '/password?orgId=' + encodeURIComponent(cmOrgId), { method: 'POST', body: JSON.stringify({ password: np }) }); cmMsg($('cmuMsg'), 'New password for ' + r.dataset.email + ': ' + np + ' (copy now)', 'ok'); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
     if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
   });
-  $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdMsg'), $('cmDriverRows'));
+  $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdEmail'), $('cmdMsg'), $('cmDriverRows'));
 
   // --- Customers (super-admin only) ---
   function ncMsg(t, kind) { const el = $('ncMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
@@ -889,7 +931,7 @@
     $('eoCustomerFields').classList.toggle('hide', type !== 'customer');
     if (type === 'carrier') { $('eoMc').value = o.mcNumber || ''; $('eoDot').value = o.dotNumber || ''; }
     else { $('eoContactName').value = o.contactName || ''; $('eoContactEmail').value = o.contactEmail || ''; }
-    $('eoPhone').value = o.contactPhone || ''; $('eoAddr').value = o.address || '';
+    $('eoPhone').value = formatUSPhone(o.contactPhone || ''); $('eoAddr').value = o.address || '';
     $('eoMsg').textContent = ''; $('eoMsg').className = ''; $('eoModal').classList.remove('hide');
   }
   $('eoCancel').onclick = () => { $('eoModal').classList.add('hide'); eoState = null; };

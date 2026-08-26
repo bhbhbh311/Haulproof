@@ -16,7 +16,7 @@ function scopeOrgId(req) {
 }
 function sameOrg(req, orgId) { return req.user.role === 'superadmin' ? true : (orgId || null) === (req.user.orgId || null); }
 function driverOut(req, d) {
-  return { id: d.id, name: d.name, phone: d.phone, active: !!d.active, createdAt: d.createdAt,
+  return { id: d.id, name: d.name, phone: d.phone, email: d.email || '', active: !!d.active, createdAt: d.createdAt,
     link: originOf(req) + '/driver?k=' + encodeURIComponent(d.token) };
 }
 
@@ -34,10 +34,12 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
   if (!orgId) return res.status(400).json({ error: 'No customer specified' });
   const name = (req.body && req.body.name || '').trim();
   const phone = (req.body && req.body.phone || '').trim();
+  const email = (req.body && req.body.email || '').trim();
   if (!name) return res.status(400).json({ error: "Enter the driver's name" });
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
   const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO drivers (id, orgId, name, phone, token, active, createdAt) VALUES (?,?,?,?,?,1,?)`)
-    .run(id, orgId, name, phone || null, newToken(), Date.now());
+  db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, token, active, createdAt) VALUES (?,?,?,?,?,?,1,?)`)
+    .run(id, orgId, name, phone || null, email || null, newToken(), Date.now());
   res.status(201).json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });
 });
 

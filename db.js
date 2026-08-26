@@ -149,6 +149,7 @@ addColumn('loads', 'carrierName', 'TEXT');
 addColumn('loads', 'driverName', 'TEXT');
 addColumn('loads', 'truck', 'TEXT');
 addColumn('loads', 'trailer', 'TEXT');
+addColumn('drivers', 'email', 'TEXT');   // optional driver email (for sending their link)
 
 // Org indexes are created AFTER the columns are guaranteed to exist (legacy DBs add orgId above).
 db.exec(`
