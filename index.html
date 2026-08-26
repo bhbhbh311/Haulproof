@@ -617,12 +617,14 @@
       show('brokersCard', true); loadBrokers();
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
     } else if (u.orgKind === 'broker') {
-      // Broker's walled-off space: loads customers handed them, their approved-carrier roster, logins.
+      // Broker's space: loads customers handed them, their approved-carrier roster, their own documents + drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
-      CUSTOMER_CARDS.forEach(id => show(id, false));
+      show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.add('hide');       // brokers don't create loads
       show('loadsCard', true); loadLoads();
       show('brokerCarriersCard', true); loadApprovedCarriers();
+      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
+      show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
       if (u.role === 'admin') { show('teamCard', true); loadUsers(); }
     } else if (u.orgKind === 'carrier') {
       // Carrier's walled-off space: their own + assigned loads, their own documents, drivers, logins.
@@ -1104,10 +1106,10 @@
     $('custManageCard').classList.remove('hide');
     cmMsg($('cmuMsg'), '');
     cmLoadUsers();
-    // Brokers have no drivers of their own and no document store — hide those sections for them.
-    $('cmDriversSection').classList.toggle('hide', cmIsBroker);
-    $('cmDocsSection').classList.toggle('hide', cmIsBroker);
-    if (!cmIsBroker) { cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); }
+    // Every org type (customer, carrier, broker) manages its own drivers + documents and can assign loads.
+    $('cmDriversSection').classList.remove('hide');
+    $('cmDocsSection').classList.remove('hide');
+    cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs('');
     window.scrollTo(0, 0);
   }
   $('cmBack').onclick = () => {
@@ -1126,16 +1128,34 @@
       const p = new URLSearchParams(); p.set(cmIsCarrier ? 'carrierId' : 'orgId', cmOrgId); if (po) p.set('po', po);
       const r = await api('/api/pods?' + p.toString());
       if (!r.results.length) { box.innerHTML = '<div class="empty">' + (po ? 'No documents match that PO #.' : (cmIsCarrier ? 'No documents yet — signed PODs from this carrier\'s drivers will appear here.' : 'No documents filed yet.')) + '</div>'; return; }
+      // This org's drivers, so a "Ready to sign" doc can be assigned to one.
+      let drivers = [];
+      try { const dr = await api('/api/drivers?orgId=' + encodeURIComponent(cmOrgId)); drivers = dr.drivers || []; } catch (e) {}
+      const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
       box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' +
-        r.results.map(x => `<tr>
+        r.results.map(x => {
+          const assign = x.status === 'prepared' ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--muted);">Driver:</span>
+            <select class="cmAsgSel" data-id="${x.id}" style="font-size:12px;padding:3px 5px;">${driverOpts(x.assignedDriverId||'')}</select>
+            <button class="ghost cmAsgBtn" data-id="${x.id}" style="padding:3px 8px;font-size:12px;">Assign</button>
+            <span class="cmAsgMsg" data-id="${x.id}" style="font-size:12px;color:var(--ok);font-weight:600;">${x.assignedDriverName?('→ '+esc(x.assignedDriverName)):''}</span>
+          </div>` : '';
+          return `<tr>
           <td class="mono">${esc(x.poNumber) || '—'}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
           <td>${esc(x.consignee) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${esc(x.docType) || 'POD'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
             <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
-            <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>
-          </td></tr>`).join('') + '</tbody></table>';
+            <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>${assign}
+          </td></tr>`; }).join('') + '</tbody></table>';
+      box.querySelectorAll('.cmAsgBtn').forEach(b => b.onclick = async () => {
+        const id = b.dataset.id, sel = box.querySelector('.cmAsgSel[data-id="'+id+'"]'), msg = box.querySelector('.cmAsgMsg[data-id="'+id+'"]');
+        msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
+        try { const rr = await api('/api/pods/'+id+'/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: sel.value }) });
+          msg.style.color = 'var(--ok)'; msg.textContent = rr.assignedDriverName ? ('→ '+rr.assignedDriverName+' ✓') : 'Unassigned ✓';
+        } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = e.message; }
+      });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
   $('cmDocSearchBtn').onclick = () => cmLoadDocs($('cmDocSearch').value.trim());
@@ -1403,8 +1423,8 @@
     const tb = $('rows');
     if (!r.results.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No documents match.</td></tr>'; return; }
     const carrier = isCarrierUser();
-    // Load this account's drivers so a "Ready to sign" doc can be handed to one.
-    const canAssign = !carrier && user.role === 'admin';
+    // Load this account's drivers so a "Ready to sign" doc can be handed to one (customer, carrier, or broker admin).
+    const canAssign = user.role === 'admin';
     let drivers = [];
     if (canAssign) { try { const dr = await api('/api/drivers'); drivers = dr.drivers || []; } catch (e) {} }
     const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
