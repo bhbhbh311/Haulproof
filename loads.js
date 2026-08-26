@@ -9,20 +9,19 @@ const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
 function actorOf(req) { return req.user.email || req.user.name || 'admin'; }
 function isCarrier(req) { return req.user.orgKind === 'carrier'; }
-// A load the caller's customer org OWNS (super sees any). Carriers never "own" loads.
+// A load the caller's org OWNS (super sees any). A carrier owns loads it created for itself.
 function ownedLoad(req, id) {
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   if (!load) return null;
   if (req.user.role === 'superadmin') return load;
-  if (isCarrier(req)) return null;
   return (load.orgId || null) === (req.user.orgId || null) ? load : null;
 }
-// A load the caller can VIEW/act on: the owning customer, super, OR the assigned carrier.
+// A load the caller can VIEW/act on: the owning org, super, OR the assigned carrier.
 function accessibleLoad(req, id) {
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   if (!load) return null;
   if (req.user.role === 'superadmin') return load;
-  if (isCarrier(req)) return (load.carrierId || null) === (req.user.orgId || null) ? load : null;
+  if (isCarrier(req)) return ((load.carrierId || null) === (req.user.orgId || null) || (load.orgId || null) === (req.user.orgId || null)) ? load : null;
   return (load.orgId || null) === (req.user.orgId || null) ? load : null;
 }
 function loadOut(l) { return l; }
@@ -49,7 +48,8 @@ router.post('/', requireAuth, (req, res) => {
 router.get('/', requireAuth, (req, res) => {
   const { q, po, load } = req.query;
   const where = [], args = [];
-  if (isCarrier(req)) { where.push(`carrierId = ?`); args.push(req.user.orgId || ''); }
+  // Carriers see loads they OWN (self-service) plus loads a customer ASSIGNED to them.
+  if (isCarrier(req)) { where.push(`(orgId IS ? OR carrierId = ?)`); args.push(req.user.orgId || null, req.user.orgId || ''); }
   else { where.push(`orgId IS ?`); args.push(myOrg(req)); }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }

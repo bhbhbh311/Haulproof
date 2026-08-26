@@ -313,6 +313,13 @@
       </div>
     </div>
 
+    <!-- OFFERED DOCUMENTS (customer inbox) -->
+    <div class="card hide" id="offeredCard">
+      <h1>Documents offered to you</h1>
+      <p class="sub">A carrier can send you a signed document for a load you didn't set up (for example, a driver signed one on their own). Accept to file it under your account, or decline to leave it with the carrier.</p>
+      <div id="offeredList"><div class="empty">No documents waiting.</div></div>
+    </div>
+
     <div class="card" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
@@ -425,6 +432,21 @@
   </div>
 </div>
 
+<!-- OFFER DOCUMENT TO CUSTOMER modal (carrier) -->
+<div id="offerModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:420px;width:100%;margin:0;">
+    <h1 style="font-size:18px;margin-bottom:2px;">Send document to a customer</h1>
+    <p class="sub" id="offerSub">Pick a customer you've hauled for. They'll get it in their inbox and can accept it into their records.</p>
+    <label>Customer</label>
+    <select id="offerCust"></select>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="offerSend" type="button">Send</button>
+      <button class="ghost" id="offerCancel" type="button">Cancel</button>
+      <span id="offerMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT DRIVER modal -->
 <div id="edModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
   <div class="card" style="max-width:440px;width:100%;margin:0;">
@@ -523,12 +545,12 @@
       show('carriersCard', true); loadCarriers();
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
     } else if (u.orgKind === 'carrier') {
-      // Carrier's walled-off space: loads assigned to them, plus their own drivers/logins.
+      // Carrier's walled-off space: their own + assigned loads, their own documents, drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
-      ['uploadCard','findCard','resultsCard','driverCard','loadDetailCard'].forEach(id => show(id, false));
-      if ($('nlToggle')) $('nlToggle').classList.add('hide');
-      if ($('nlForm')) $('nlForm').classList.add('hide');
+      show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
+      if ($('nlToggle')) $('nlToggle').classList.remove('hide');   // carriers can create their own loads now
       show('loadsCard', true); loadLoads();
+      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
       if (u.role === 'admin') { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
     } else {
@@ -537,6 +559,7 @@
       show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.remove('hide');
       loadLoads();
+      show('offeredCard', true); loadOffered();   // carrier-offered documents inbox
       if (u.role === 'admin') {
         show('driverCard', true); loadDriverLink();
         show('teamCard', true); loadUsers();
@@ -544,6 +567,7 @@
       } else { show('driverCard', false); show('teamCard', false); show('driversCard', false); }
     }
   }
+  const isCarrierUser = () => user && user.orgKind === 'carrier';
 
   // --- Carriers (super-admin): FMCSA lookup, add carrier + login, manage ---
   async function loadCarriers() {
@@ -836,9 +860,9 @@
     try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users); }
     catch (e) { $('cmUserRows').innerHTML = '<tr><td colspan="4" class="empty">' + e.message + '</td></tr>'; }
   }
-  let cmBackTo = 'customersCard';
+  let cmBackTo = 'customersCard', cmIsCarrier = false;
   async function openCustManage(orgId, name, backTo) {
-    cmOrgId = orgId; cmBackTo = backTo || 'customersCard';
+    cmOrgId = orgId; cmBackTo = backTo || 'customersCard'; cmIsCarrier = (backTo === 'carriersCard');
     $('cmTitle').textContent = 'Manage ' + name;
     ['customersCard', 'carriersCard'].forEach(id => $(id).classList.add('hide'));
     $('custManageCard').classList.remove('hide');
@@ -855,13 +879,13 @@
   async function cmLoadDocs(po) {
     const box = $('cmDocList');
     try {
-      const p = new URLSearchParams(); p.set('orgId', cmOrgId); if (po) p.set('po', po);
+      const p = new URLSearchParams(); p.set(cmIsCarrier ? 'carrierId' : 'orgId', cmOrgId); if (po) p.set('po', po);
       const r = await api('/api/pods?' + p.toString());
-      if (!r.results.length) { box.innerHTML = '<div class="empty">' + (po ? 'No documents match that PO #.' : 'No documents filed yet.') + '</div>'; return; }
+      if (!r.results.length) { box.innerHTML = '<div class="empty">' + (po ? 'No documents match that PO #.' : (cmIsCarrier ? 'No documents yet — signed PODs from this carrier\'s drivers will appear here.' : 'No documents filed yet.')) + '</div>'; return; }
       box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' +
         r.results.map(x => `<tr>
           <td class="mono">${esc(x.poNumber) || '—'}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
-          <td>${esc(x.consignee) || '—'}</td><td>${esc(x.docType) || 'POD'}</td>
+          <td>${esc(x.consignee) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${esc(x.docType) || 'POD'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
@@ -1133,13 +1157,69 @@
     const r = await api('/api/pods?'+p.toString());
     const tb = $('rows');
     if (!r.results.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No documents match.</td></tr>'; return; }
-    tb.innerHTML = r.results.map(x => `<tr>
+    const carrier = isCarrierUser();
+    tb.innerHTML = r.results.map(x => {
+      // A carrier can offer its OWN documents (not ones signed on a customer's assigned load, not already accepted).
+      const ownByCarrier = carrier && x.orgId === user.orgId;
+      let action = `<a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>`;
+      if (ownByCarrier) {
+        if (x.claimStatus === 'accepted') action += ` <span class="chip signed" style="margin-left:8px;">✓ Sent</span>`;
+        else if (x.claimStatus === 'offered') action += ` <span class="chip prepared" style="margin-left:8px;">Offered</span> <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:6px;">Resend</button>`;
+        else action += ` <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:8px;">Send to customer</button>`;
+      }
+      return `<tr>
       <td class="mono">${x.poNumber||'—'}</td><td class="mono">${x.loadNumber||'—'}</td>
-      <td>${x.consignee||'—'}</td><td>${x.docType||'POD'}</td>
+      <td>${x.consignee||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.docType||'POD'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}</td>
       <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
-      <td><a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a></td>
-    </tr>`).join('');
+      <td style="white-space:nowrap;">${action}</td>
+    </tr>`; }).join('');
+    tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
+  }
+
+  // --- Carrier offers a document to a customer; customer accepts/declines from their inbox ---
+  let offerPodId = null;
+  async function openOfferModal(podId) {
+    offerPodId = podId;
+    $('offerMsg').textContent = ''; $('offerMsg').className = '';
+    $('offerSub').textContent = "Pick a customer you've hauled for. They'll get it in their inbox and can accept it into their records.";
+    $('offerCust').innerHTML = '<option>Loading…</option>';
+    $('offerModal').classList.remove('hide');
+    try {
+      const r = await api('/api/carriers/my-customers');
+      if (!r.customers.length) { $('offerCust').innerHTML = '<option value="">— no customers yet —</option>'; $('offerSub').textContent = 'You can only send to a customer you have hauled a load for. Once a customer assigns you a load, they will show up here.'; }
+      else $('offerCust').innerHTML = r.customers.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    } catch (e) { $('offerCust').innerHTML = '<option value="">' + e.message + '</option>'; }
+  }
+  $('offerCancel').onclick = () => { $('offerModal').classList.add('hide'); offerPodId = null; };
+  $('offerModal').addEventListener('click', e => { if (e.target === $('offerModal')) { $('offerModal').classList.add('hide'); offerPodId = null; } });
+  $('offerSend').onclick = async () => {
+    const toOrgId = $('offerCust').value;
+    if (!toOrgId) { $('offerMsg').textContent = 'Pick a customer'; $('offerMsg').className = 'umsg-err'; return; }
+    $('offerMsg').textContent = 'Sending…'; $('offerMsg').className = '';
+    try { await api('/api/pods/' + offerPodId + '/offer', { method: 'POST', body: JSON.stringify({ toOrgId }) }); $('offerModal').classList.add('hide'); offerPodId = null; search(); }
+    catch (e) { $('offerMsg').textContent = e.message; $('offerMsg').className = 'umsg-err'; }
+  };
+  async function loadOffered() {
+    const box = $('offeredList'), card = $('offeredCard');
+    try {
+      const r = await api('/api/pods/offered');
+      if (!r.results.length) { if (card) card.classList.add('hide'); box.innerHTML = '<div class="empty">No documents waiting.</div>'; return; }
+      if (card) card.classList.remove('hide');
+      box.innerHTML = '<table><thead><tr><th>From carrier</th><th class="mono">PO #</th><th>Signed by</th><th>Date</th><th></th></tr></thead><tbody>' +
+        r.results.map(x => `<tr>
+          <td><b>${esc(x.fromCarrier) || 'A carrier'}</b></td>
+          <td class="mono">${esc(x.poNumber) || '—'}</td>
+          <td>${esc(x.driver) || '—'}</td>
+          <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
+          <td style="white-space:nowrap;text-align:right;">
+            <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
+            <button class="podAccept" data-id="${x.id}" style="padding:6px 10px;font-size:12px;margin-left:10px;">Accept</button>
+            <button class="ghost podDecline" data-id="${x.id}" style="padding:6px 10px;font-size:12px;">Decline</button>
+          </td></tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.podAccept').forEach(b => b.onclick = async () => { try { await api('/api/pods/' + b.dataset.id + '/accept', { method: 'POST' }); loadOffered(); } catch (e) { alert(e.message); } });
+      box.querySelectorAll('.podDecline').forEach(b => b.onclick = async () => { try { await api('/api/pods/' + b.dataset.id + '/decline', { method: 'POST' }); loadOffered(); } catch (e) { alert(e.message); } });
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
 
   // --- Upload & file a document ---

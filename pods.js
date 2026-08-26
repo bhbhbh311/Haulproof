@@ -48,12 +48,16 @@ function canAccess(req, doc) {
   if (!doc) return false;
   if (isSuperReq(req)) return true;
   const cOrg = carrierOrgId(req);
-  if (cOrg) { // a carrier reaches a doc only through a load assigned to it
+  if (cOrg) {
+    if ((doc.orgId || null) === cOrg) return true;               // the carrier's own document
     if (!doc.loadId) return false;
     const l = db.prepare(`SELECT carrierId FROM loads WHERE id = ?`).get(doc.loadId);
-    return !!l && l.carrierId === cOrg;
+    return !!l && l.carrierId === cOrg;                          // signed on a load assigned to the carrier
   }
-  return (doc.orgId || null) === reqOrgId(req);
+  const my = reqOrgId(req);
+  if ((doc.orgId || null) === my) return true;                  // the customer's own document
+  if (doc.offeredToOrgId === my && doc.claimStatus === 'offered') return true; // offered to this customer (preview before accepting)
+  return false;
 }
 
 function findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy }) {
@@ -148,12 +152,13 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
     // A carrier's driver files the signed POD back to the CUSTOMER that owns the assigned load.
+    // If the carrier ISN'T assigned that PO, the driver is filing it on their own — keep it under the
+    // carrier so they can view it and later offer it to a customer. (No more silent rejection.)
     let load;
     if (req.org.kind === 'carrier') {
       if (meta.poNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(poNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.poNumber);
       if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
-      if (!load) return res.status(403).json({ error: 'This carrier is not assigned to that PO # / Load #' });
-      orgId = load.orgId; // file under the customer that owns the load
+      orgId = load ? load.orgId : req.org.id; // assigned → customer; otherwise → the carrier itself
     }
     const id = crypto.randomUUID();
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
@@ -177,6 +182,20 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
 router.get('/', requireAuth, (req, res) => {
+  // Carrier view: every document tied to this carrier — filed directly under it OR signed on a load assigned to it.
+  // A logged-in carrier always gets this union of their own account; super-admin can request any via ?carrierId.
+  let carrierId = (req.query.carrierId || '').trim();
+  if (!carrierId && req.user.orgKind === 'carrier') carrierId = req.user.orgId || '';
+  if (carrierId) {
+    if (req.user.role !== 'superadmin' && (req.user.orgId || null) !== carrierId) return res.status(403).json({ error: 'Not allowed' });
+    const where = [`(pods.orgId IS ? OR loads.carrierId = ?)`], args = [carrierId, carrierId];
+    if (req.query.po) { where.push(`pods.poNumber LIKE ?`); args.push(`%${req.query.po}%`); }
+    if (req.query.q) { where.push(`(pods.poNumber LIKE ? OR pods.loadNumber LIKE ? OR pods.consignee LIKE ? OR pods.filename LIKE ?)`); args.push(`%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`); }
+    const rows = db.prepare(`SELECT pods.id, pods.orgId, pods.loadId, pods.loadNumber, pods.poNumber, pods.consignee, pods.docType, pods.filename, pods.sizeBytes, pods.gps, pods.signedAt, pods.recipients, pods.driver, pods.status, pods.claimStatus, pods.offeredToOrgId, pods.uploadedAt
+      FROM pods LEFT JOIN loads ON loads.id = pods.loadId
+      WHERE ${where.join(' AND ')} ORDER BY pods.uploadedAt DESC LIMIT 200`).all(...args).map(rowOut);
+    return res.json({ count: rows.length, results: rows });
+  }
   const orgId = req.user.role === 'superadmin' ? ((req.query.orgId || '').trim() || null) : (req.user.orgId || null);
   const { q, po, load, consignee, from, to } = req.query;
   const where = [`orgId IS ?`], args = [orgId];
@@ -190,6 +209,68 @@ router.get('/', requireAuth, (req, res) => {
                FROM pods WHERE ${where.join(' AND ')} ORDER BY uploadedAt DESC LIMIT 200`;
   const rows = db.prepare(sql).all(...args).map(rowOut);
   res.json({ count: rows.length, results: rows });
+});
+
+// ---- Carrier → customer hand-off ----
+// Documents a carrier has offered to THIS customer, waiting to be accepted.
+router.get('/offered', requireAuth, (req, res) => {
+  const orgId = req.user.role === 'superadmin' ? ((req.query.orgId || '').trim() || null) : (req.user.orgId || null);
+  if (!orgId) return res.json({ count: 0, results: [] });
+  const rows = db.prepare(`SELECT pods.id, pods.poNumber, pods.loadNumber, pods.consignee, pods.docType, pods.filename, pods.driver, pods.signedAt, pods.uploadedAt, orgs.name AS fromCarrier
+    FROM pods LEFT JOIN orgs ON orgs.id = pods.orgId
+    WHERE pods.offeredToOrgId = ? AND pods.claimStatus = 'offered' ORDER BY pods.uploadedAt DESC`).all(orgId)
+    .map(r => ({ ...r, fileUrl: `/api/pods/${r.id}/file` }));
+  res.json({ count: rows.length, results: rows });
+});
+// A carrier offers one of its own documents to a customer it has worked with.
+router.post('/:id/offer', requireAuth, express.json(), (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!pod) return res.status(404).json({ error: 'Document not found' });
+  const isSuper = req.user.role === 'superadmin';
+  const carrierOrg = isSuper ? pod.orgId : (req.user.orgId || null);
+  // The document must be owned by the carrier making the offer.
+  if (!isSuper && pod.orgId !== carrierOrg) return res.status(403).json({ error: 'You can only send your own documents' });
+  const toOrgId = (req.body && req.body.toOrgId || '').trim();
+  if (!toOrgId) return res.status(400).json({ error: 'Choose a customer to send it to' });
+  const cust = db.prepare(`SELECT id, kind FROM orgs WHERE id = ? AND active = 1`).get(toOrgId);
+  if (!cust || cust.kind === 'carrier') return res.status(400).json({ error: 'That is not a valid customer' });
+  // Privacy: a carrier may only offer to a customer it has an existing load relationship with.
+  if (!isSuper) {
+    const rel = db.prepare(`SELECT 1 FROM loads WHERE carrierId = ? AND orgId IS ? LIMIT 1`).get(carrierOrg, toOrgId);
+    if (!rel) return res.status(403).json({ error: 'You can only send to customers you have hauled a load for' });
+  }
+  db.prepare(`UPDATE pods SET claimStatus = 'offered', offeredToOrgId = ? WHERE id = ?`).run(toOrgId, pod.id);
+  logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'offered', detail: 'Document offered to customer', actor: req.user.email });
+  res.json({ ok: true });
+});
+// A customer accepts an offered document — a copy is filed under the customer, linked to the PO.
+router.post('/:id/accept', requireAuth, (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!pod || pod.claimStatus !== 'offered') return res.status(404).json({ error: 'That document is no longer waiting' });
+  const custOrg = req.user.role === 'superadmin' ? pod.offeredToOrgId : (req.user.orgId || null);
+  if (pod.offeredToOrgId !== custOrg) return res.status(403).json({ error: 'This document was not offered to you' });
+  // Copy the PDF into a fresh document owned by the customer, linked to a load by PO.
+  const newId = crypto.randomUUID();
+  const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
+  try { fs.copyFileSync(pod.filepath, newPath); } catch (e) { return res.status(500).json({ error: 'Could not file the document' }); }
+  const load = findOrCreateLoad({ orgId: custOrg, loadNumber: pod.loadNumber, poNumber: pod.poNumber, consignee: pod.consignee, createdBy: req.user.email });
+  db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, offeredFromOrgId, status, uploadedAt)
+     VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@from,'signed',@uploadedAt)`)
+    .run({ id: newId, orgId: custOrg, loadId: load.id, loadNumber: pod.loadNumber, poNumber: pod.poNumber, consignee: pod.consignee,
+      docType: pod.docType, filename: pod.filename, filepath: newPath, sizeBytes: pod.sizeBytes, gps: pod.gps, signedAt: pod.signedAt,
+      recipients: pod.recipients || '[]', driver: pod.driver, from: pod.orgId, uploadedAt: Date.now() });
+  db.prepare(`UPDATE pods SET claimStatus = 'accepted' WHERE id = ?`).run(pod.id);
+  logEvent({ orgId: custOrg, loadId: load.id, poNumber: pod.poNumber, type: 'accepted', detail: 'Accepted a document offered by a carrier', actor: req.user.email });
+  res.json({ ok: true, podId: newId });
+});
+// A customer declines an offered document (it stays with the carrier).
+router.post('/:id/decline', requireAuth, (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!pod || pod.claimStatus !== 'offered') return res.status(404).json({ error: 'That document is no longer waiting' });
+  const custOrg = req.user.role === 'superadmin' ? pod.offeredToOrgId : (req.user.orgId || null);
+  if (pod.offeredToOrgId !== custOrg) return res.status(403).json({ error: 'This document was not offered to you' });
+  db.prepare(`UPDATE pods SET claimStatus = 'declined' WHERE id = ?`).run(pod.id);
+  res.json({ ok: true });
 });
 
 // ---- GET one doc + its signature template. Session; same customer only. ----
