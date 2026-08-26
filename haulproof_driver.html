@@ -272,6 +272,17 @@
   #scanEditor .btn{font-family:inherit;font-weight:600;font-size:15px;padding:13px 16px;border-radius:11px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
   #scanEditor .btn.primary{background:var(--btn-grad);color:#fff;box-shadow:var(--btn-shadow);}
   #scanEditor .btn.ghost{background:#16202c;color:#dbe6f4;border-color:#2b3a4d;}
+  /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
+  #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,#eceff3);}
+  #pdfViewer.on{display:flex;}
+  #pdfViewer .pv-bar{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#dde4ec);flex:none;box-shadow:0 2px 8px rgba(20,40,80,.06);}
+  #pdfViewer .pv-title{font-family:"Archivo",sans-serif;font-weight:700;font-size:15px;color:var(--ink,#16202b);flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #pdfViewer .pv-close,#pdfViewer .pv-dl{font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:9px;padding:10px 15px;cursor:pointer;flex:none;}
+  #pdfViewer .pv-close{background:var(--btn-grad,linear-gradient(180deg,#2f6ae4,#1655d1));color:#fff;box-shadow:var(--btn-shadow);}
+  #pdfViewer .pv-dl{background:var(--surface-2,#f5f7fa);color:var(--ink,#16202b);border:1px solid var(--line-strong,#c6d0db);}
+  #pdfViewer .pv-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;display:flex;flex-direction:column;align-items:center;gap:14px;}
+  #pdfViewer .pv-page{background:#fff;box-shadow:var(--shadow);border-radius:6px;overflow:hidden;max-width:100%;}
+  #pdfViewer .pv-page canvas{display:block;width:100%;height:auto;}
 </style>
 </head>
 <body>
@@ -408,7 +419,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26e · signer name required + capitalized</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26f · in-app document viewer</div>
   </section>
 </main>
 
@@ -451,6 +462,15 @@
     <button class="btn ghost" id="scCancel" type="button">Retake</button>
     <button class="btn primary" id="scNext" type="button">Next ›</button>
   </div>
+</div>
+<!-- In-app signed-document viewer -->
+<div id="pdfViewer" aria-hidden="true">
+  <div class="pv-bar">
+    <button class="pv-close" id="pvClose" type="button">✕ Close</button>
+    <span class="pv-title" id="pvTitle">Signed document</span>
+    <button class="pv-dl" id="pvDownload" type="button">⬇ Save</button>
+  </div>
+  <div class="pv-body" id="pvBody"></div>
 </div>
 <div id="dropOverlay"><div class="inner"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><b>Drop to upload &amp; sign</b><span>PDF or a photo of the BOL</span></div></div>
 <div class="locbar" id="locBar">
@@ -1420,7 +1440,7 @@ window.__startApp=function(){
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
     sb.textContent=online()?"✓ Saved on device · uploading…":"✓ Saved on device · will upload when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
-    var b1=mkBtn("Download signed PDF","primary",function(){ downloadPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
+    var b1=mkBtn("View signed PDF","primary",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
     var b2=mkBtn(currentStop?"Back to route":"View outbox","ghost",function(){ if(online()) syncOutbox(); showView(currentStop?"route":"outbox"); }); b2.classList.remove("sm"); b2.classList.add("block");
     da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
   }
@@ -1452,6 +1472,32 @@ window.__startApp=function(){
   function renderSuggest(){ if(!compBox||!compBox._sug)return; var s=compBox._sug; s.innerHTML=""; (compBox._match.emails||[]).forEach(function(e){ if(compRecips.indexOf(e)>=0) return; var b=document.createElement("button"); b.type="button"; b.className="s"; b.textContent="＋ "+e; b.addEventListener("click",function(){ tryAddRecip(e); }); s.appendChild(b); }); }
   function renderNote(){ if(!compBox)return; var n=compBox._note; n.textContent = compRecips.length ? ("A copy will be emailed to "+compRecips.length+" recipient"+(compRecips.length>1?"s":"")+" when this POD uploads.") : "Add an email to send the consignee a copy (optional)."; }
   function downloadPod(pod){ var url=URL.createObjectURL(b64ToBlob(pod.b64)); var a=document.createElement("a"); a.href=url; a.download=(pod.name.replace(/[^\w]+/g,"_"))+".pdf"; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(url);},1000); }
+  // In-app viewer: render the signed PDF inside the app so there's always a Close button back to HaulProof.
+  var pvPod=null;
+  async function viewPod(pod){
+    pvPod=pod;
+    $("pvTitle").textContent = pod.poNumber ? ("PO "+pod.poNumber) : (pod.name||"Signed document");
+    var body=$("pvBody"); body.innerHTML='<div style="color:var(--muted);padding:30px;">Loading…</div>';
+    $("pdfViewer").classList.add("on"); $("pdfViewer").setAttribute("aria-hidden","false");
+    try{
+      var bytes=new Uint8Array(await b64ToBlob(pod.b64).arrayBuffer());
+      var doc=await pdfjsLib.getDocument({data:bytes}).promise;
+      body.innerHTML="";
+      var wrapW=Math.min(760,(body.clientWidth||window.innerWidth)-28);
+      var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+      for(var n=1;n<=doc.numPages;n++){
+        var page=await doc.getPage(n), base=page.getViewport({scale:1});
+        var scale=Math.min(2,wrapW/base.width), rvp=page.getViewport({scale:scale*dpr});
+        var pd=document.createElement("div"); pd.className="pv-page"; pd.style.width=(base.width*scale)+"px";
+        var cv=document.createElement("canvas"); cv.width=Math.floor(rvp.width); cv.height=Math.floor(rvp.height); pd.appendChild(cv);
+        body.appendChild(pd);
+        await page.render({canvasContext:cv.getContext("2d"),viewport:rvp}).promise;
+      }
+    }catch(e){ console.error(e); body.innerHTML='<div style="color:var(--danger);padding:30px;text-align:center;">Couldn\'t preview this document. Tap <b>Save</b> to open it in your files.</div>'; }
+  }
+  function closePv(){ $("pdfViewer").classList.remove("on"); $("pdfViewer").setAttribute("aria-hidden","true"); $("pvBody").innerHTML=""; pvPod=null; }
+  $("pvClose").addEventListener("click", closePv);
+  $("pvDownload").addEventListener("click", function(){ if(pvPod) downloadPod(pvPod); });
 
   /* outbox render */
   $("syncBtn").addEventListener("click", function(){ persistCfg(); if(!online()){ toast("Still offline — will auto-upload when connected"); return; } toast("Uploading…"); syncOutbox(); });
@@ -1470,7 +1516,7 @@ window.__startApp=function(){
       else if(!online()){ chip='<span class="schip pending">Waiting</span>'; note='<div class="pm" style="margin-top:2px;">Waiting for signal — uploads when you’re back online.</div>'; }
       else { chip='<span class="schip pending">Uploading…</span>'; }
       c.innerHTML='<div class="pi"><div class="pn">'+po+esc(p.consignee||p.name)+'</div><div class="pm">'+timeStr(new Date(p.createdAt))+' · '+Math.round(p.size/1024)+' KB'+reci+'</div>'+note+'</div>'+chip;
-      var dbtn=mkBtn("PDF","ghost",function(){ downloadPod(p); }); dbtn.style.marginLeft="10px"; c.appendChild(dbtn); list.appendChild(c); });
+      var dbtn=mkBtn("View","ghost",function(){ viewPod(p); }); dbtn.style.marginLeft="10px"; c.appendChild(dbtn); list.appendChild(c); });
   }
   function persistCfg(){ saveCfg({endpoint:$("endpoint")?$("endpoint").value.trim():"", apikey:$("apikey")?$("apikey").value.trim():""}); var s=$("cfgSaved"); if(s){ s.textContent="Saved ✓"; clearTimeout(persistCfg._t); persistCfg._t=setTimeout(function(){s.textContent="";},1600);} }
 
