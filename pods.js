@@ -73,6 +73,19 @@ function findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy })
   return db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
 }
 
+// Keep document PO #s distinct within an org: if a document with this exact PO already exists,
+// append -2, -3, … so a newly filed document never collides with a prior one (in the same customer/
+// carrier/broker realm). Keys on existing documents, so the first doc for a pre-created load keeps its PO.
+function uniquePoForOrg(orgId, po) {
+  po = (po || '').trim();
+  if (!po) return po;
+  const taken = (cand) => !!db.prepare(`SELECT 1 FROM pods WHERE orgId IS ? AND TRIM(poNumber) = ? COLLATE NOCASE LIMIT 1`).get(orgId || null, cand);
+  if (!taken(po)) return po;
+  let n = 2, cand;
+  do { cand = po + '-' + n; n++; } while (taken(cand) && n < 100000);
+  return cand;
+}
+
 function rowOut(r) {
   return { ...r, gps: r.gps ? safeJson(r.gps) : null, recipients: r.recipients ? safeJson(r.recipients) : [], fields: r.fields ? (safeJson(r.fields) || []) : [], fileUrl: `/api/pods/${r.id}/file` };
 }
@@ -85,7 +98,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     let orgId = req.user.orgId || null;
     if (req.user.role === 'superadmin') orgId = (dec(h['x-org']) || '').trim() || null;
     if (!orgId) return res.status(400).json({ error: 'Choose a customer to file this document under' });
-    const poNumber = (dec(h['x-po']) || '').trim();
+    let poNumber = (dec(h['x-po']) || '').trim();
     const loadNumber = (dec(h['x-load']) || '').trim();
     const consignee = (dec(h['x-consignee']) || '').trim();
     const docType = (dec(h['x-doctype']) || 'POD').trim();
@@ -93,6 +106,8 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     if (!poNumber) return res.status(422).json({ error: 'Customer PO # is required for every document' });
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
+    // Never create an exact duplicate PO # within this org — auto-suffix (-2, -3, …).
+    poNumber = uniquePoForOrg(orgId, poNumber);
     const id = crypto.randomUUID();
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
@@ -101,7 +116,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
     logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf'), actor: req.user.email });
-    res.json({ ok: true, id });
+    res.json({ ok: true, id, poNumber });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
 });
 
@@ -171,6 +186,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
+    // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
+    try { db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL`).run(Date.now(), load.id); } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
       detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
     let mail = { sent: false };
@@ -313,7 +330,8 @@ router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
   }
   const drv = db.prepare(`SELECT * FROM drivers WHERE id = ? AND active = 1`).get(driverId);
   if (!drv || (drv.orgId || null) !== (pod.orgId || null)) return res.status(400).json({ error: 'That driver is not on this account' });
-  db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE id = ?`).run(drv.id, drv.name, pod.id);
+  // Re-assigning makes it active again on the new driver's list.
+  db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ?, assignedFulfilledAt = NULL WHERE id = ?`).run(drv.id, drv.name, pod.id);
   logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'assigned_driver', detail: 'Assigned to driver ' + drv.name, actor: req.user.email });
   res.json({ ok: true, assignedDriverId: drv.id, assignedDriverName: drv.name });
 });

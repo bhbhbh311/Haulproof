@@ -46,8 +46,7 @@ router.get('/my-loads', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ loads: [] });
   const rows = db.prepare(`SELECT p.* FROM pods p
-      WHERE p.assignedDriverId = ? AND p.status = 'prepared'
-        AND NOT EXISTS (SELECT 1 FROM pods s WHERE s.loadId = p.loadId AND s.status = 'signed')
+      WHERE p.assignedDriverId = ? AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id);
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
   const loads = rows.map(p => ({ id: p.id, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,

@@ -156,6 +156,7 @@ addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) tha
 // Carrier → customer document hand-off: a carrier-owned doc can be offered to a customer who then accepts it.
 addColumn('pods', 'assignedDriverId', 'TEXT');   // a prepared doc can be assigned to a specific driver
 addColumn('pods', 'assignedDriverName', 'TEXT');
+addColumn('pods', 'assignedFulfilledAt', 'INTEGER');   // set when the assigned prepared doc gets signed → drops off "Your loads"
 addColumn('pods', 'offeredToOrgId', 'TEXT');
 addColumn('pods', 'claimStatus', 'TEXT');   // null/'none' | 'offered' | 'accepted' | 'declined'
 addColumn('pods', 'offeredFromOrgId', 'TEXT'); // on the customer's accepted copy: which carrier sent it
