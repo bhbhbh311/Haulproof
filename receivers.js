@@ -118,6 +118,46 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id)), linked: !!ownerOrg, created: true });
 });
 
+// ---- BULK IMPORT (master admin). Create/refresh many global receivers at once, deduping on
+//      externalId (e.g. "hubspot:12345") so re-running never duplicates. customerId optional:
+//      omit/blank => receivers land UNLINKED in the global registry (each customer claims their own);
+//      set => also link every imported receiver to that customer. ----
+router.post('/import', requireAuth, requireSuper, (req, res) => {
+  const b = req.body || {};
+  const records = Array.isArray(b.records) ? b.records : [];
+  if (!records.length) return res.status(400).json({ error: 'No records to import' });
+  const customerId = (b.customerId || '').trim() || null;
+  if (customerId && !db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(customerId)) {
+    return res.status(400).json({ error: 'customerId not found' });
+  }
+  const byExt = db.prepare(`SELECT * FROM orgs WHERE externalId = ?`);
+  const insert = db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, contactPhone, address, city, state, zip, externalId, active, createdAt)
+                             VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`);
+  const update = db.prepare(`UPDATE orgs SET name = ?, address = ?, city = ?, state = ?, zip = ?, contactPhone = ? WHERE id = ?`);
+  let created = 0, updated = 0, linked = 0, skipped = 0; const errors = [];
+  const run = db.transaction((rows) => {
+    for (const r of rows) {
+      try {
+        const name = String(r && r.name || '').trim();
+        if (!name) { skipped++; continue; }
+        const ext = String(r && r.externalId || '').trim() || null;
+        const address = String(r && r.address || '').trim() || null;
+        const city = String(r && r.city || '').trim() || null;
+        const state = String(r && r.state || '').trim() || null;
+        const zip = String(r && r.zip || '').trim() || null;
+        const phone = String(r && (r.phone || r.contactPhone) || '').trim() || null;
+        let existing = ext ? byExt.get(ext) : null;
+        let id;
+        if (existing) { id = existing.id; update.run(name, address, city, state, zip, phone, id); updated++; }
+        else { id = crypto.randomUUID(); insert.run(id, name, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), phone, address, city, state, zip, ext, Date.now()); created++; }
+        if (customerId) { linkReceiver(customerId, id); linked++; }
+      } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
+    }
+  });
+  run(records);
+  res.json({ ok: true, total: records.length, created, updated, linked, skipped, unlinked: !customerId, errors });
+});
+
 // ---- Unlink a receiver from a customer (does NOT delete the global record). ----
 router.post('/:id/unlink', requireAuth, (req, res) => {
   const ownerOrg = ownerOrgOf(req, req.body || {});

@@ -182,6 +182,31 @@
       </div>
     </div>
 
+    <!-- Bulk import receivers (master admin) -->
+    <div id="recvImportModal" class="histOverlay hide">
+      <div class="histBox">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Import receivers</h1><button id="recvImpClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" style="margin-top:6px;">Load a list of receivers (e.g. exported from HubSpot). Records are matched on their unique ID, so re-importing the same list updates existing records instead of creating duplicates.</p>
+        <div style="margin-top:12px;">
+          <label>Link to a customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+          <select id="recvImpCustomer"><option value="">— none: add to the global available list (unlinked) —</option></select>
+          <div style="font-size:11px;color:var(--muted);margin-top:5px;">Leave as “none” to drop them in the shared registry so each customer can claim their own. Pick a customer to link every imported record to them.</div>
+        </div>
+        <div style="margin-top:14px;">
+          <label>Data file (.json)</label>
+          <input id="recvImpFile" type="file" accept=".json,application/json" style="display:block;margin-top:4px;">
+          <div style="font-size:11px;color:var(--muted);margin-top:5px;">…or paste a JSON array below.</div>
+          <textarea id="recvImpText" placeholder='[{"name":"ACME STEEL","address":"1 Main St","city":"Tulsa","state":"OK","zip":"74101","phone":"918-555-1000","externalId":"hubspot:12345"}]' style="width:100%;height:120px;margin-top:6px;font-family:monospace;font-size:12px;"></textarea>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+          <button id="recvImpRun" type="button">Import</button>
+          <span id="recvImpCount" style="font-size:12px;color:var(--muted);"></span>
+          <span id="recvImpMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="recvImpResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
     <!-- Load-history popup (opened by clicking a PO #) -->
     <div id="histModal" class="histOverlay hide">
       <div class="histBox">
@@ -566,8 +591,11 @@
     <div class="card hide" id="receiversCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Receivers</h1><p class="sub" style="margin-bottom:0;">Consignees your loads are delivered to. Tag a document with a receiver so they can look it up. Give a receiver a parent company to roll its locations up.</p></div>
-        <button class="ghost" id="nrToggle" type="button">＋ Add receiver</button>
-        <button class="ghost hide" id="recvAddFind" type="button">＋ Add / find receiver</button>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost" id="recvImportBtn" type="button">⇪ Import</button>
+          <button class="ghost" id="nrToggle" type="button">＋ Add receiver</button>
+          <button class="ghost hide" id="recvAddFind" type="button">＋ Add / find receiver</button>
+        </div>
       </div>
       <div id="nrForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
@@ -1921,6 +1949,54 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
   }
   if ($('recvAddFind')) $('recvAddFind').onclick = () => openRecvModal({ onDone: () => loadMyReceivers() });
+
+  // ---- Bulk import receivers (master admin) ----
+  let recvImpParsed = null;
+  function recvImpClose(){ $('recvImportModal').classList.add('hide'); }
+  async function openRecvImport(){
+    recvImpParsed = null;
+    $('recvImpText').value = ''; if ($('recvImpFile')) $('recvImpFile').value = '';
+    $('recvImpMsg').textContent = ''; $('recvImpCount').textContent = ''; $('recvImpResult').innerHTML = '';
+    // customer dropdown
+    const sel = $('recvImpCustomer'); sel.innerHTML = '<option value="">— none: add to the global available list (unlinked) —</option>';
+    try { const r = await api('/api/orgs'); (r.orgs||[]).forEach(o => { const opt = document.createElement('option'); opt.value = o.id; opt.textContent = o.name; sel.appendChild(opt); }); } catch(e){}
+    $('recvImportModal').classList.remove('hide');
+  }
+  function recvImpShowCount(){
+    try {
+      const txt = $('recvImpText').value.trim(); if (!txt){ recvImpParsed = null; $('recvImpCount').textContent = ''; return; }
+      const arr = JSON.parse(txt);
+      recvImpParsed = Array.isArray(arr) ? arr : null;
+      $('recvImpCount').textContent = recvImpParsed ? (recvImpParsed.length + ' record' + (recvImpParsed.length===1?'':'s') + ' ready') : '';
+      $('recvImpMsg').textContent = recvImpParsed ? '' : 'JSON must be an array'; $('recvImpMsg').className = recvImpParsed ? '' : 'umsg-err';
+    } catch(e){ recvImpParsed = null; $('recvImpCount').textContent = ''; $('recvImpMsg').textContent = 'Invalid JSON'; $('recvImpMsg').className = 'umsg-err'; }
+  }
+  if ($('recvImportBtn')) $('recvImportBtn').onclick = openRecvImport;
+  if ($('recvImpClose')) $('recvImpClose').onclick = recvImpClose;
+  if ($('recvImportModal')) $('recvImportModal').addEventListener('click', e => { if (e.target === $('recvImportModal')) recvImpClose(); });
+  if ($('recvImpText')) $('recvImpText').addEventListener('input', recvImpShowCount);
+  if ($('recvImpFile')) $('recvImpFile').addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const rd = new FileReader(); rd.onload = () => { $('recvImpText').value = rd.result; recvImpShowCount(); }; rd.readAsText(f);
+  });
+  if ($('recvImpRun')) $('recvImpRun').onclick = async () => {
+    recvImpShowCount();
+    if (!recvImpParsed || !recvImpParsed.length){ $('recvImpMsg').textContent = 'Load a JSON array first'; $('recvImpMsg').className = 'umsg-err'; return; }
+    const customerId = $('recvImpCustomer').value;
+    $('recvImpMsg').textContent = 'Importing ' + recvImpParsed.length + '…'; $('recvImpMsg').className = '';
+    try {
+      const r = await api('/api/receivers/import', { method: 'POST', body: JSON.stringify({ records: recvImpParsed, customerId }) });
+      $('recvImpMsg').textContent = 'Done ✓'; $('recvImpMsg').className = 'umsg-ok';
+      $('recvImpResult').innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;">'
+        + '<b>' + r.created + '</b> new · <b>' + r.updated + '</b> updated'
+        + (r.linked ? ' · <b>' + r.linked + '</b> linked' : (r.unlinked ? ' · added to global list (unlinked)' : ''))
+        + (r.skipped ? ' · ' + r.skipped + ' skipped (no name)' : '')
+        + (r.errors && r.errors.length ? '<div style="color:#c0392b;margin-top:6px;">' + r.errors.map(esc).join('<br>') + '</div>' : '')
+        + '</div>';
+      loadReceivers();
+    } catch(e){ $('recvImpMsg').textContent = e.message; $('recvImpMsg').className = 'umsg-err'; }
+  };
+
   if ($('nrToggle')) $('nrToggle').onclick = () => $('nrForm').classList.toggle('hide');
   if ($('nrCancel')) $('nrCancel').onclick = () => $('nrForm').classList.add('hide');
   if ($('nrCreate')) $('nrCreate').onclick = async () => {
