@@ -131,9 +131,9 @@ router.post('/import', requireAuth, requireSuper, (req, res) => {
     return res.status(400).json({ error: 'customerId not found' });
   }
   const byExt = db.prepare(`SELECT * FROM orgs WHERE externalId = ?`);
-  const insert = db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, contactPhone, address, city, state, zip, externalId, active, createdAt)
-                             VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`);
-  const update = db.prepare(`UPDATE orgs SET name = ?, address = ?, city = ?, state = ?, zip = ?, contactPhone = ? WHERE id = ?`);
+  const insert = db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, contactName, contactPhone, address, city, state, zip, externalId, active, createdAt)
+                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)`);
+  const update = db.prepare(`UPDATE orgs SET name = ?, address = ?, city = ?, state = ?, zip = ?, contactName = ?, contactPhone = ? WHERE id = ?`);
   let created = 0, updated = 0, linked = 0, skipped = 0; const errors = [];
   const run = db.transaction((rows) => {
     for (const r of rows) {
@@ -146,10 +146,11 @@ router.post('/import', requireAuth, requireSuper, (req, res) => {
         const state = String(r && r.state || '').trim() || null;
         const zip = String(r && r.zip || '').trim() || null;
         const phone = String(r && (r.phone || r.contactPhone) || '').trim() || null;
+        const cName = String(r && (r.contactName || r.contact) || '').trim() || null;
         let existing = ext ? byExt.get(ext) : null;
         let id;
-        if (existing) { id = existing.id; update.run(name, address, city, state, zip, phone, id); updated++; }
-        else { id = crypto.randomUUID(); insert.run(id, name, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), phone, address, city, state, zip, ext, Date.now()); created++; }
+        if (existing) { id = existing.id; update.run(name, address, city, state, zip, (cName || existing.contactName || null), phone, id); updated++; }
+        else { id = crypto.randomUUID(); insert.run(id, name, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), cName, phone, address, city, state, zip, ext, Date.now()); created++; }
         if (customerId) { linkReceiver(customerId, id); linked++; }
       } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
     }

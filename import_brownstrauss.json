@@ -1,0 +1,42 @@
+[
+{
+"name": "Crane 1 (Beggs Location)",
+"address": "6615 Alt Hwy 75",
+"city": "Beggs",
+"state": "OK",
+"zip": "74421",
+"phone": "918-321-3953",
+"contactName": "Lea",
+"externalId": "emailloc:crane1-beggs"
+},
+{
+"name": "K and E Fabrication, LLC",
+"address": "6401 SE 74th St",
+"city": "Oklahoma City",
+"state": "OK",
+"zip": "73135",
+"phone": "405-635-8552",
+"contactName": "",
+"externalId": "emailloc:k-and-e-fabrication"
+},
+{
+"name": "W&W AFCO Steel",
+"address": "1730 W Reno Ave",
+"city": "Oklahoma City",
+"state": "OK",
+"zip": "73106",
+"phone": "405-235-3621",
+"contactName": "",
+"externalId": "emailloc:ww-afco-steel"
+},
+{
+"name": "Accufab of Oklahoma",
+"address": "1023 SW Gin Rd",
+"city": "Minco",
+"state": "OK",
+"zip": "73059",
+"phone": "405-352-4120",
+"contactName": "Jackie",
+"externalId": "emailloc:accufab-oklahoma"
+}
+]
