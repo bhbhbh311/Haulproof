@@ -213,6 +213,40 @@
       </div>
     </div>
 
+    <!-- Generic confirm dialog -->
+    <div id="confirmModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:420px;">
+        <h1 id="confirmTitle" style="margin:0 0 8px;font-size:18px;">Are you sure?</h1>
+        <p id="confirmMsg" class="sub" style="margin-top:0;"></p>
+        <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end;">
+          <button class="ghost" id="confirmCancel" type="button">Cancel</button>
+          <button id="confirmOk" type="button" style="background:#c0392b;">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit a stop's details -->
+    <div id="stopEditModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:520px;">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Edit stop</h1><button id="stopEditClose" class="ghost" type="button">✕ Close</button></div>
+        <div class="row" style="grid-template-columns:0.6fr 1fr;margin-top:10px;">
+          <div><label>Stop #</label><input id="seStop" type="number" min="1" step="1"></div>
+          <div><label>Document type</label><select id="seDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
+          <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="seReceiver"><option value="">— none —</option></select></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
+          <div><label>Sales rep <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — notified when this stop completes</span></label><select id="seSalesRep"><option value="">— none —</option></select></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+          <button id="seSave" type="button">Save changes</button>
+          <button class="ghost" id="seCancel" type="button">Cancel</button>
+          <span id="seMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Load-history popup (opened by clicking a PO #) -->
     <div id="histModal" class="histOverlay hide">
       <div class="histBox">
@@ -1415,15 +1449,61 @@
         <td style="text-align:right;white-space:nowrap;">
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
+          &nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>
           &nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>
         </td></tr>`).join('') +
       '</tbody></table>';
-    box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = async () => {
-      if (!confirm('Remove ' + (b.dataset.name || 'this document') + '? You can then upload a corrected file to this stop.')) return;
-      try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); }
-      catch (e) { alert(e.message); }
-    });
+    const byId = {}; pods.forEach(p => byId[p.id] = p);
+    box.querySelectorAll('.ldDocEdit').forEach(b => b.onclick = () => openStopEdit(byId[b.dataset.id]));
+    box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
+      title: 'Delete this document?',
+      message: 'Remove “' + (b.dataset.name || 'this document') + '”? This can’t be undone — you can upload a corrected file to this stop afterward.',
+      okLabel: 'Yes, delete',
+      onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); } catch (e) { alert(e.message); } }
+    }));
   }
+  // ---- Reusable confirm dialog ----
+  let _confirmOnOk = null;
+  function confirmDialog(opts) {
+    opts = opts || {};
+    $('confirmTitle').textContent = opts.title || 'Are you sure?';
+    $('confirmMsg').textContent = opts.message || '';
+    $('confirmOk').textContent = opts.okLabel || 'Delete';
+    _confirmOnOk = opts.onOk || null;
+    $('confirmModal').classList.remove('hide');
+  }
+  function closeConfirm() { $('confirmModal').classList.add('hide'); _confirmOnOk = null; }
+  if ($('confirmCancel')) $('confirmCancel').onclick = closeConfirm;
+  if ($('confirmModal')) $('confirmModal').addEventListener('click', e => { if (e.target === $('confirmModal')) closeConfirm(); });
+  if ($('confirmOk')) $('confirmOk').onclick = () => { const fn = _confirmOnOk; closeConfirm(); if (fn) fn(); };
+  // ---- Edit a stop's details ----
+  let _stopEditId = null;
+  async function openStopEdit(p) {
+    if (!p) return;
+    _stopEditId = p.id;
+    $('seStop').value = p.stopNumber || '';
+    $('seDocType').value = p.docType || 'POD';
+    $('seMsg').textContent = '';
+    // populate receiver + sales rep options, then select current
+    const users = await getTeamUsers();
+    $('seSalesRep').innerHTML = '<option value="">— none —</option>' + users.map(u => `<option value="${u.id}"${u.id === p.salesRepUserId ? ' selected' : ''}>${esc(u.name || u.email)}</option>`).join('');
+    let recvs = [];
+    try { const d = await api('/api/receivers'); recvs = d.receivers || []; } catch (e) {}
+    $('seReceiver').innerHTML = '<option value="">— none —</option>' + recvs.map(r => `<option value="${r.id}"${r.id === p.receiverId ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
+    $('stopEditModal').classList.remove('hide');
+  }
+  function closeStopEdit() { $('stopEditModal').classList.add('hide'); _stopEditId = null; }
+  if ($('stopEditClose')) $('stopEditClose').onclick = closeStopEdit;
+  if ($('seCancel')) $('seCancel').onclick = closeStopEdit;
+  if ($('stopEditModal')) $('stopEditModal').addEventListener('click', e => { if (e.target === $('stopEditModal')) closeStopEdit(); });
+  if ($('seSave')) $('seSave').onclick = async () => {
+    if (!_stopEditId) return;
+    $('seMsg').textContent = 'Saving…'; $('seMsg').className = '';
+    try {
+      await api('/api/pods/' + _stopEditId, { method: 'PUT', body: JSON.stringify({ stopNumber: $('seStop').value.trim(), docType: $('seDocType').value, receiverId: $('seReceiver').value, salesRepUserId: $('seSalesRep').value }) });
+      closeStopEdit(); openLoad(curLoad.id);
+    } catch (e) { $('seMsg').textContent = e.message; $('seMsg').className = 'umsg-err'; }
+  };
   // Driver & equipment: collapsible section.
   if ($('ldDrvToggle')) $('ldDrvToggle').onclick = () => { const b = $('ldDrvBody'); b.classList.toggle('hide'); $('ldDrvCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; };
 

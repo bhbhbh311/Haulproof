@@ -387,6 +387,29 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
   res.json({ ok: true, count: fields.length, status });
 });
 
+// ---- EDIT a stop's details (stop #, doc type, receiver, sales rep) without re-uploading the file. ----
+router.put('/:id', requireAuth, express.json(), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  const b = req.body || {};
+  let stopNumber = row.stopNumber;
+  if (b.stopNumber !== undefined) { const n = parseInt(b.stopNumber, 10); stopNumber = (Number.isFinite(n) && n > 0) ? n : null; }
+  const docType = (b.docType !== undefined) ? (String(b.docType || '').trim() || 'POD') : row.docType;
+  let receiverId = row.receiverId, receiverName = row.receiverName;
+  if (b.receiverId !== undefined) {
+    receiverId = (b.receiverId || '').trim() || null;
+    receiverName = receiverId ? ((db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(receiverId) || {}).name || null) : null;
+  }
+  let salesRepUserId = row.salesRepUserId;
+  if (b.salesRepUserId !== undefined) {
+    const rid = (b.salesRepUserId || '').trim() || null;
+    salesRepUserId = (rid && db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(rid, row.orgId)) ? rid : null;
+  }
+  db.prepare(`UPDATE pods SET stopNumber = ?, docType = ?, receiverId = ?, receiverName = ?, salesRepUserId = ? WHERE id = ?`)
+    .run(stopNumber, docType, receiverId, receiverName, salesRepUserId, row.id);
+  res.json({ ok: true });
+});
+
 // ---- DELETE a document (remove a wrong/duplicate upload so a corrected one can be filed). ----
 router.delete('/:id', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
