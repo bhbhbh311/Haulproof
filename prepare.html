@@ -26,9 +26,12 @@
   .fld.driver{border-color:var(--driver);background:rgba(181,115,26,.10);}
   .fld .lab{font-size:11px;font-weight:700;color:var(--cons);pointer-events:none;text-align:center;line-height:1.15;padding:2px;}
   .fld.driver .lab{color:var(--driver);}
-  .fld .rsz{position:absolute;right:-7px;bottom:-7px;width:15px;height:15px;border-radius:50%;background:var(--primary);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .fld .rsz{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;background:var(--primary);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
   .fld.driver .rsz{background:var(--driver);}
-  .fld .del{position:absolute;right:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .fld .del{position:absolute;right:-14px;top:-14px;width:28px;height:28px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:18px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.4);}
+  .fld .del:hover{background:#e0432f;transform:scale(1.08);}
+  .fld.sel{border-style:solid;box-shadow:0 0 0 3px rgba(22,85,209,.30);}
+  .fld.driver.sel{box-shadow:0 0 0 3px rgba(181,115,26,.30);}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#16202b;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:80;}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
   .load{max-width:960px;margin:40px auto;text-align:center;color:var(--muted);}
@@ -43,7 +46,7 @@
   <button class="btn ok" id="saveBtn" type="button">Save setup</button>
   <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
 </div>
-<div class="hint" id="hint">Pick a field type above, then <b>click on the document</b> where it should go. Drag to move, pull the corner to resize, × to remove. Save when the layout looks right.</div>
+<div class="hint" id="hint">Pick a field type above, then <b>click on the document</b> where it should go. Drag to move, pull the corner to resize. To delete: click the red <b>×</b>, or click a field to select it (it gets a blue ring) and press <b>Delete</b>. Save when the layout looks right.</div>
 <div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
 <div class="toast" id="toast"></div>
 
@@ -55,7 +58,16 @@
   var DOC_ID=params.get('id');
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   var activeTool={role:'Consignee',kind:'sigdate'};
-  var pageRecs=[]; var fields=[]; // {pageIdx,kind,role,el,xPdf,yPdf,wPdf,hPdf,baseW,baseH}
+  var pageRecs=[]; var fields=[]; var selected=null; // {pageIdx,kind,role,el,xPdf,yPdf,wPdf,hPdf,baseW,baseH}
+  function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); }
+  function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f) selected=null; }
+  // Delete/Backspace removes the currently-selected field (unless you're typing in a field).
+  document.addEventListener('keydown',function(e){
+    if((e.key==='Delete'||e.key==='Backspace') && selected){
+      var t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+      e.preventDefault(); removeField(selected);
+    }
+  });
   var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},date:{w:120,h:34}};
 
   // toolbar
@@ -65,7 +77,8 @@
       b.classList.add('on'); activeTool={role:b.dataset.role,kind:b.dataset.kind};
     });
   });
-  $('#backBtn').addEventListener('click',function(){ location.href='/'; });
+  var backTo='/';
+  $('#backBtn').addEventListener('click',function(){ location.href=backTo; });
 
   if(!DOC_ID){ $('#loadMsg').textContent='No document id — open this from the portal.'; return; }
   if(!window.pdfjsLib){ $('#loadMsg').textContent='PDF engine failed to load (needs internet for this preview).'; return; }
@@ -75,6 +88,7 @@
   fetch('/api/pods/'+DOC_ID,{credentials:'include'}).then(function(r){return r.json();}).then(function(m){
     if(m.error){ $('#loadMsg').textContent=m.error; return; }
     meta=m; $('#ctx').textContent='PO '+(m.poNumber||'—')+(m.loadNumber?(' · Load '+m.loadNumber):'')+(m.consignee?(' · '+m.consignee):'');
+    if(m.loadId){ backTo='/?load='+encodeURIComponent(m.loadId); $('#backBtn').textContent='← Back to load'; }
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
     if(!buf) return;
@@ -115,7 +129,9 @@
     el.innerHTML='<div class="lab">'+labelText(f.role,f.kind).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
     rec.div.appendChild(el); f.el=el; fields.push(f);
     wireDrag(f); wireResize(f); recompute(f);
-    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); rec.div.removeChild(el); fields=fields.filter(function(x){return x!==f;}); });
+    el.addEventListener('pointerdown',function(){ selectField(f); });
+    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
+    selectField(f);
   }
 
   function wireDrag(f){
@@ -160,7 +176,8 @@
     el.innerHTML='<div class="lab">'+labelText(f.role,f.kind).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
     rec.div.appendChild(el); f.el=el; fields.push(f);
     wireDrag(f); wireResize(f); recompute(f);
-    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); rec.div.removeChild(el); fields=fields.filter(function(x){return x!==f;}); });
+    el.addEventListener('pointerdown',function(){ selectField(f); });
+    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
   }
   function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); }
 
