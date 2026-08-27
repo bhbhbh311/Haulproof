@@ -2147,8 +2147,9 @@
     let drivers = [];
     if (canAssign) { try { const dr = await api('/api/drivers'); drivers = dr.drivers || []; } catch (e) {} }
     const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
-    tb.innerHTML = r.results.map(x => {
-      // A carrier can offer its OWN documents (not ones signed on a customer's assigned load, not already accepted).
+    // Build the action cell + one document row. childCls (set for grouped rows) hides the row until the
+    // PO# section is expanded and blanks the repeated PO cell.
+    function docRowHtml(x, childCls) {
       const ownByCarrier = carrier && x.orgId === user.orgId;
       let action = `<a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>`;
       if (ownByCarrier) {
@@ -2156,7 +2157,6 @@
         else if (x.claimStatus === 'offered') action += ` <span class="chip prepared" style="margin-left:8px;">Offered</span> <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:6px;">Resend</button>`;
         else action += ` <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:8px;">Send to customer</button>`;
       }
-      // Assign a "Ready to sign" doc to a driver → it shows up as a load in that driver's app.
       if (canAssign && x.status === 'prepared') {
         action += `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span style="font-size:11px;color:var(--muted);">Driver:</span>
@@ -2165,13 +2165,41 @@
           <span class="asgMsg" data-id="${x.id}" style="font-size:12px;color:var(--ok);font-weight:600;">${x.assignedDriverName?('→ '+esc(x.assignedDriverName)):''}</span>
         </div>`;
       }
-      return `<tr>
-      <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—')}</td><td class="mono">${x.loadNumber||'—'}</td>
+      const poCell = childCls
+        ? '<span style="color:var(--muted);">↳</span>'
+        : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—'));
+      return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
+      <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
       <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${x.docType||'POD'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
       <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
-    </tr>`; }).join('');
+    </tr>`;
+    }
+    // Group by load (PO#): a multi-document PO shows as one clickable section that expands to its stops.
+    const groups = [], gmap = {};
+    r.results.forEach(x => { const key = x.loadId || ('po:' + (x.poNumber||'')); let g = gmap[key]; if (!g) { g = gmap[key] = { key, loadId: x.loadId, poNumber: x.poNumber, loadNumber: x.loadNumber, docs: [] }; groups.push(g); } g.docs.push(x); });
+    let html = '';
+    groups.forEach((g, gi) => {
+      if (g.docs.length === 1) { html += docRowHtml(g.docs[0], null); return; }
+      const cls = 'grp_' + gi;
+      const names = Array.from(new Set(g.docs.map(d => d.consignee || d.receiverName).filter(Boolean)));
+      const summary = g.docs.length + ' documents' + (names.length ? (' — ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')) : '');
+      html += `<tr class="grpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
+        <td class="mono"><span class="grpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
+        <td class="mono">${esc(g.loadNumber)||'—'}</td>
+        <td colspan="3" style="color:var(--muted);">${esc(summary)}</td>
+        <td><span class="chip prepared">${g.docs.length} stops</span></td>
+        <td></td>
+      </tr>`;
+      g.docs.forEach(d => html += docRowHtml(d, cls));
+    });
+    tb.innerHTML = html;
+    tb.querySelectorAll('.grpHead').forEach(h => h.onclick = () => {
+      const cls = h.dataset.cls, rows = tb.querySelectorAll('tr.' + cls), caret = h.querySelector('.grpCaret');
+      const willShow = rows.length && rows[0].classList.contains('hide');
+      rows.forEach(rw => rw.classList.toggle('hide', !willShow)); if (caret) caret.textContent = willShow ? '▾' : '▸';
+    });
     tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
     tb.querySelectorAll('.asgBtn').forEach(b => b.onclick = async () => {
