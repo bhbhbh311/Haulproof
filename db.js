@@ -187,6 +187,24 @@ CREATE TABLE IF NOT EXISTS broker_carriers (
   createdAt INTEGER NOT NULL,
   PRIMARY KEY (brokerId, carrierId)
 );
+-- Which receivers a given customer/carrier/broker works with. The receiver record itself is
+-- global (shared, deduped), but a customer only sees the receivers they have linked here.
+CREATE TABLE IF NOT EXISTS customer_receivers (
+  orgId      TEXT NOT NULL,
+  receiverId TEXT NOT NULL,
+  createdAt  INTEGER NOT NULL,
+  PRIMARY KEY (orgId, receiverId)
+);
+CREATE INDEX IF NOT EXISTS idx_custrecv_org ON customer_receivers(orgId);
+-- A customer's saved roster of approved carriers / brokers (partnerKind = 'carrier' | 'broker').
+CREATE TABLE IF NOT EXISTS approved_partners (
+  ownerOrgId   TEXT NOT NULL,
+  partnerOrgId TEXT NOT NULL,
+  partnerKind  TEXT NOT NULL,
+  createdAt    INTEGER NOT NULL,
+  PRIMARY KEY (ownerOrgId, partnerOrgId)
+);
+CREATE INDEX IF NOT EXISTS idx_approved_owner ON approved_partners(ownerOrgId);
 CREATE TABLE IF NOT EXISTS access_requests (
   id TEXT PRIMARY KEY,
   code TEXT,

@@ -145,6 +145,20 @@
   <!-- SEARCH -->
   <div id="appView" class="hide">
 
+    <!-- Add / find receiver popup (dedupe against the global registry) -->
+    <div id="recvModal" class="histOverlay hide">
+      <div class="histBox">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Add a receiver</h1><button id="recvMClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" id="recvMSub" style="margin-top:6px;">Type the receiver's name and city — we'll check whether they're already in the system before adding a new one.</p>
+        <div class="row" style="grid-template-columns:2fr 1fr;">
+          <div><label>Receiver name</label><input id="recvMName" placeholder="e.g. Home Depot DC #4512"></div>
+          <div><label>City <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="recvMCity" placeholder="City"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:10px;align-items:center;"><button id="recvMCheck" type="button">Check</button><span id="recvMMsg" style="font-size:13px;font-weight:600;"></span></div>
+        <div id="recvMResults" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
     <!-- Load-history popup (opened by clicking a PO #) -->
     <div id="histModal" class="histOverlay hide">
       <div class="histBox">
@@ -351,6 +365,30 @@
         <div style="margin-top:12px;display:flex;gap:10px;"><input id="cmDocSearch" placeholder="Search documents by PO #"><button class="ghost" id="cmDocSearchBtn" type="button">Search</button></div>
         <div id="cmDocList" style="margin-top:12px;"></div>
       </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);" id="cmReceiversSection">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <h1 style="font-size:16px;margin:0;">Receivers</h1>
+          <button class="ghost" id="cmRecvAdd" type="button">＋ Add / find receiver</button>
+        </div>
+        <p class="sub" style="margin-top:6px;">Delivery locations this customer ships to. Tag a document with one so that receiver can look it up. Only this customer's receivers show here.</p>
+        <div id="cmRecvList" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);" id="cmPartnersSection">
+        <h1 style="font-size:16px;margin:0;">Approved carriers &amp; brokers</h1>
+        <p class="sub" style="margin-top:6px;">A saved roster for this customer. Look one up on FMCSA (or add manually) so it's pre-approved for their loads.</p>
+        <div style="display:flex;gap:8px;margin:12px 0;">
+          <button type="button" id="cmpTypeCarrier">Carrier</button>
+          <button type="button" id="cmpTypeBroker" class="ghost">Broker</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+          <div style="flex:1;min-width:200px;"><label id="cmpSearchLbl">Find carrier on FMCSA</label><input id="cmpSearch" placeholder="Name, MC#, or DOT#"></div>
+          <div style="max-width:120px;"><label>Search by</label><select id="cmpBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+          <button id="cmpLookup" type="button">Search</button>
+        </div>
+        <div id="cmpResults" style="margin-top:12px;"></div>
+        <div style="margin-top:16px;"><h1 style="font-size:14px;margin:0 0 6px;">Approved carriers</h1><div id="cmpCarrierList"><div class="empty">None yet.</div></div></div>
+        <div style="margin-top:14px;"><h1 style="font-size:14px;margin:0 0 6px;">Approved brokers</h1><div id="cmpBrokerList"><div class="empty">None yet.</div></div></div>
+      </div>
     </div>
 
     <!-- LOADS (customer roles) -->
@@ -457,7 +495,8 @@
           <div><label>Document type</label>
             <select id="uType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
           <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
-            <select id="uReceiver"><option value="">— none —</option></select></div>
+            <select id="uReceiver"><option value="">— none —</option></select>
+            <button type="button" id="uReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
           <div><label>PDF file</label><input id="uFile" type="file" accept="application/pdf"></div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
@@ -1360,7 +1399,7 @@
     // Every org type (customer, carrier, broker) manages its own drivers + documents and can assign loads.
     $('cmDriversSection').classList.remove('hide');
     $('cmDocsSection').classList.remove('hide');
-    cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs('');
+    cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); loadCmReceivers(); cmpSetKind('carrier'); loadCmPartners();
     window.scrollTo(0, 0);
   }
   $('cmBack').onclick = () => {
@@ -1848,6 +1887,122 @@
   }
   if ($('recvRefresh')) $('recvRefresh').onclick = loadReceived;
   if ($('recvSearch')) $('recvSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadReceived(); });
+
+  // ---- Add / find receiver (dedupe against the global registry, then link to this customer) ----
+  let recvCtx = null;
+  function openRecvModal(ctx) {
+    recvCtx = ctx || {};
+    $('recvMName').value = (ctx && ctx.presetName) || '';
+    $('recvMCity').value = ''; $('recvMResults').innerHTML = ''; $('recvMMsg').textContent = '';
+    $('recvModal').classList.remove('hide'); setTimeout(() => $('recvMName').focus(), 50);
+  }
+  function closeRecvModal() { $('recvModal').classList.add('hide'); }
+  if ($('recvMClose')) $('recvMClose').onclick = closeRecvModal;
+  if ($('recvModal')) $('recvModal').addEventListener('click', e => { if (e.target === $('recvModal')) closeRecvModal(); });
+  async function recvLink(receiverId) {
+    const body = { receiverId }; if (recvCtx.customerId) body.customerId = recvCtx.customerId;
+    await api('/api/receivers', { method: 'POST', body: JSON.stringify(body) });
+    closeRecvModal(); if (recvCtx.onDone) recvCtx.onDone(receiverId);
+  }
+  async function recvCreate() {
+    const name = $('recvMName').value.trim(); if (!name) { $('recvMMsg').textContent = 'Enter a name'; $('recvMMsg').className = 'umsg-err'; return; }
+    const body = { name, city: $('recvMCity').value.trim() }; if (recvCtx.customerId) body.customerId = recvCtx.customerId;
+    const r = await api('/api/receivers', { method: 'POST', body: JSON.stringify(body) });
+    closeRecvModal(); if (recvCtx.onDone) recvCtx.onDone(r.receiver && r.receiver.id);
+  }
+  if ($('recvMCheck')) $('recvMCheck').onclick = async () => {
+    const name = $('recvMName').value.trim(), city = $('recvMCity').value.trim();
+    if (name.length < 2) { $('recvMMsg').textContent = 'Type at least 2 letters'; $('recvMMsg').className = 'umsg-err'; return; }
+    $('recvMMsg').textContent = 'Checking…'; $('recvMMsg').className = ''; const box = $('recvMResults');
+    try {
+      const r = await api('/api/receivers/match?name=' + encodeURIComponent(name) + (city ? ('&city=' + encodeURIComponent(city)) : ''));
+      $('recvMMsg').textContent = '';
+      if (r.matches && r.matches.length) {
+        box.innerHTML = '<div class="sub" style="margin-bottom:8px;">Is this your customer &amp; delivery location?</div>' +
+          r.matches.map(m => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);">
+            <div><b>${esc(m.name)}</b>${m.address ? `<div style="color:var(--muted);font-size:12px;">${esc(m.address)}</div>` : ''}${m.parentName ? `<div style="color:var(--muted);font-size:12px;">under ${esc(m.parentName)}</div>` : ''}</div>
+            <button class="recvUse" data-id="${m.id}" style="padding:5px 10px;font-size:12px;">Yes, use this</button>
+          </div>`).join('') +
+          `<div style="margin-top:12px;"><button class="ghost recvNew" type="button">None of these — add “${esc(name)}” as new</button></div>`;
+      } else {
+        box.innerHTML = `<div class="sub" style="margin-bottom:8px;">No match found — this will be a new receiver.</div><button class="recvNew" type="button">Add “${esc(name)}” as a new receiver</button>`;
+      }
+      box.querySelectorAll('.recvUse').forEach(b => b.onclick = () => recvLink(b.dataset.id).catch(e => { $('recvMMsg').textContent = e.message; $('recvMMsg').className = 'umsg-err'; }));
+      box.querySelectorAll('.recvNew').forEach(b => b.onclick = () => recvCreate().catch(e => { $('recvMMsg').textContent = e.message; $('recvMMsg').className = 'umsg-err'; }));
+    } catch (e) { $('recvMMsg').textContent = e.message; $('recvMMsg').className = 'umsg-err'; }
+  };
+  // Manage-customer receivers (master admin): only receivers linked to this customer.
+  async function loadCmReceivers() {
+    const box = $('cmRecvList'); if (!box) return;
+    try {
+      const d = await api('/api/receivers?linkedTo=' + encodeURIComponent(cmOrgId));
+      const list = d.receivers || [];
+      if (!list.length) { box.innerHTML = '<div class="empty">No receivers linked to this customer yet. Add one above.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Receiver</th><th>Parent</th><th>Documents</th><th></th></tr></thead><tbody>' +
+        list.map(r => `<tr><td><b>${esc(r.name)}</b></td><td>${r.parentName ? esc(r.parentName) : '<span class="empty">—</span>'}</td><td>${r.docCount}</td>
+          <td style="text-align:right;"><button class="ghost cmRecvUnlink" data-id="${r.id}" style="padding:5px 9px;font-size:12px;color:#c0392b;">Unlink</button></td></tr>`).join('') +
+        '</tbody></table>';
+      box.querySelectorAll('.cmRecvUnlink').forEach(b => b.onclick = async () => { try { await api('/api/receivers/' + b.dataset.id + '/unlink', { method: 'POST', body: JSON.stringify({ customerId: cmOrgId }) }); loadCmReceivers(); } catch (e) { alert(e.message); } });
+    } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
+  if ($('cmRecvAdd')) $('cmRecvAdd').onclick = () => openRecvModal({ customerId: cmOrgId, onDone: () => loadCmReceivers() });
+  if ($('uReceiverAdd')) $('uReceiverAdd').onclick = () => openRecvModal({ onDone: (id) => { loadReceiverOptions().then(() => { if (id && $('uReceiver')) $('uReceiver').value = id; }); } });
+
+  // ---- Approved carriers/brokers roster (master admin, inside manage-customer) ----
+  let cmpKind = 'carrier';
+  function cmpSetKind(k) {
+    cmpKind = k;
+    if ($('cmpTypeCarrier')) $('cmpTypeCarrier').classList.toggle('ghost', k !== 'carrier');
+    if ($('cmpTypeBroker')) $('cmpTypeBroker').classList.toggle('ghost', k !== 'broker');
+    if ($('cmpSearchLbl')) $('cmpSearchLbl').textContent = 'Find ' + (k === 'broker' ? 'broker' : 'carrier') + ' on FMCSA';
+    if ($('cmpResults')) $('cmpResults').innerHTML = ''; if ($('cmpSearch')) $('cmpSearch').value = '';
+  }
+  if ($('cmpTypeCarrier')) $('cmpTypeCarrier').onclick = () => cmpSetKind('carrier');
+  if ($('cmpTypeBroker')) $('cmpTypeBroker').onclick = () => cmpSetKind('broker');
+  async function cmpAdd(c, verified) {
+    try {
+      const ep = cmpKind === 'broker' ? '/api/brokers' : '/api/carriers';
+      const created = await api(ep, { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: !!verified, allowedToOperate: c.allowedToOperate || '', address: c.address || '' }) });
+      const partnerId = (created.carrier || created.broker).id;
+      await api('/api/orgs/' + cmOrgId + '/partners', { method: 'POST', body: JSON.stringify({ partnerId }) });
+      if ($('cmpResults')) $('cmpResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Added to roster ✓</div>';
+      if ($('cmpSearch')) $('cmpSearch').value = ''; loadCmPartners();
+    } catch (e) { alert(e.message); }
+  }
+  if ($('cmpLookup')) $('cmpLookup').onclick = async () => {
+    const val = $('cmpSearch').value.trim(), by = $('cmpBy').value; if (!val) return;
+    const box = $('cmpResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
+    try {
+      const r = await api('/api/' + (cmpKind === 'broker' ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
+      if (r.fmcsa && r.fmcsa.length) {
+        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+          r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b>${c.address ? `<div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div>` : ''}</td>
+            <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.cmpAdd').forEach(b => b.onclick = () => cmpAdd(r.fmcsa[+b.dataset.i], true));
+      } else {
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn\'t switched on yet — add manually below.' : 'No FMCSA match — add manually below.') + '</div>' +
+          `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div><label>Name</label><input id="cmpMName" value="${by === 'name' ? esc(val) : ''}"></div>
+            <div style="max-width:110px;"><label>MC#</label><input id="cmpMMc" value="${by === 'mc' ? esc(val) : ''}"></div>
+            <div style="max-width:110px;"><label>DOT#</label><input id="cmpMDot" value="${by === 'dot' ? esc(val) : ''}"></div>
+            <button id="cmpMAdd" type="button">Add to roster</button>
+          </div>`;
+        $('cmpMAdd').onclick = () => { const nm = $('cmpMName').value.trim(); if (!nm) { alert('Name is required'); return; } cmpAdd({ name: nm, mcNumber: $('cmpMMc').value.trim(), dotNumber: $('cmpMDot').value.trim() }, false); };
+      }
+    } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  };
+  async function loadCmPartners() {
+    if (!$('cmpCarrierList')) return;
+    try {
+      const d = await api('/api/orgs/' + cmOrgId + '/partners');
+      const render = (list) => (list && list.length) ? '<table><tbody>' + list.map(x => `<tr><td><b>${esc(x.name)}</b>${x.fmcsaVerified ? ' <span class="chip signed" style="font-size:10px;">FMCSA</span>' : ''}</td><td class="mono" style="color:var(--muted);font-size:12px;">${esc(x.mcNumber) || '—'} / ${esc(x.dotNumber) || '—'}</td><td style="text-align:right;"><button class="cmpRm" data-id="${x.id}" style="padding:4px 9px;font-size:12px;color:#c0392b;">Remove</button></td></tr>`).join('') + '</tbody></table>' : '<div class="empty">None yet.</div>';
+      $('cmpCarrierList').innerHTML = render(d.carriers);
+      $('cmpBrokerList').innerHTML = render(d.brokers);
+      document.querySelectorAll('#cmPartnersSection .cmpRm').forEach(b => b.onclick = async () => { try { await api('/api/orgs/' + cmOrgId + '/partners/' + b.dataset.id + '/remove', { method: 'POST' }); loadCmPartners(); } catch (e) { alert(e.message); } });
+    } catch (e) { $('cmpCarrierList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
 </script>
 </body>
 </html>

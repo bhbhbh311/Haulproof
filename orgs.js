@@ -101,4 +101,32 @@ router.post('/:id/rotate-key', requireAuth, requireSuper, (req, res) => {
   res.json({ org: orgOut(req, db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 
+// ---- A customer's saved approved carrier/broker roster (master admin) ----
+router.get('/:id/partners', requireAuth, requireSuper, (req, res) => {
+  const cust = db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(req.params.id);
+  if (!cust) return res.status(404).json({ error: 'Customer not found' });
+  const rows = db.prepare(`SELECT ap.partnerKind, o.id, o.name, o.mcNumber, o.dotNumber, o.fmcsaVerified, o.allowedToOperate, o.active
+     FROM approved_partners ap JOIN orgs o ON o.id = ap.partnerOrgId
+     WHERE ap.ownerOrgId = ? ORDER BY o.name COLLATE NOCASE`).all(cust.id);
+  const carriers = [], brokers = [];
+  rows.forEach(r => {
+    const item = { id: r.id, name: r.name, mcNumber: r.mcNumber, dotNumber: r.dotNumber, fmcsaVerified: !!r.fmcsaVerified, allowedToOperate: r.allowedToOperate, active: !!r.active };
+    (r.partnerKind === 'broker' ? brokers : carriers).push(item);
+  });
+  res.json({ carriers, brokers });
+});
+router.post('/:id/partners', requireAuth, requireSuper, (req, res) => {
+  const cust = db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(req.params.id);
+  if (!cust) return res.status(404).json({ error: 'Customer not found' });
+  const partnerId = (req.body && req.body.partnerId || '').trim();
+  const partner = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(partnerId);
+  if (!partner || (partner.kind !== 'carrier' && partner.kind !== 'broker')) return res.status(400).json({ error: 'Pick a carrier or broker' });
+  db.prepare(`INSERT OR IGNORE INTO approved_partners (ownerOrgId, partnerOrgId, partnerKind, createdAt) VALUES (?,?,?,?)`).run(cust.id, partner.id, partner.kind, Date.now());
+  res.status(201).json({ ok: true });
+});
+router.post('/:id/partners/:partnerId/remove', requireAuth, requireSuper, (req, res) => {
+  db.prepare(`DELETE FROM approved_partners WHERE ownerOrgId = ? AND partnerOrgId = ?`).run(req.params.id, req.params.partnerId);
+  res.json({ ok: true });
+});
+
 module.exports = router;
