@@ -2157,7 +2157,9 @@
         else if (x.claimStatus === 'offered') action += ` <span class="chip prepared" style="margin-left:8px;">Offered</span> <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:6px;">Resend</button>`;
         else action += ` <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:8px;">Send to customer</button>`;
       }
-      if (canAssign && x.status === 'prepared') {
+      // A driver is assigned once per LOAD, not per document — so the picker lives on single rows and on the
+      // group header (below), never on a grouped child stop row.
+      if (canAssign && x.status === 'prepared' && !childCls) {
         action += `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span style="font-size:11px;color:var(--muted);">Driver:</span>
           <select class="asgSel" data-id="${x.id}" style="font-size:12px;padding:4px 6px;">${driverOpts(x.assignedDriverId||'')}</select>
@@ -2185,20 +2187,42 @@
       const cls = 'grp_' + gi;
       const names = Array.from(new Set(g.docs.map(d => d.consignee || d.receiverName).filter(Boolean)));
       const summary = g.docs.length + ' documents' + (names.length ? (' — ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')) : '');
+      // One driver for the whole load. Pre-select it if every doc already shares the same assigned driver.
+      const dids = Array.from(new Set(g.docs.map(d => d.assignedDriverId).filter(Boolean)));
+      const curDid = dids.length === 1 ? dids[0] : '';
+      const curName = curDid ? ((g.docs.find(d => d.assignedDriverId === curDid) || {}).assignedDriverName || '') : '';
+      const anyOpen = g.docs.some(d => d.status === 'prepared' || d.status === 'received');
+      const headAssign = (canAssign && g.loadId && anyOpen) ? `<div class="lasgWrap" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--muted);">Driver:</span>
+          <select class="lasgSel" data-load="${g.loadId}" style="font-size:12px;padding:4px 6px;">${driverOpts(curDid)}</select>
+          <button class="ghost lasgBtn" data-load="${g.loadId}" style="padding:4px 9px;font-size:12px;">Assign</button>
+          <span class="lasgMsg" data-load="${g.loadId}" style="font-size:12px;color:var(--ok);font-weight:600;">${curName?('→ '+esc(curName)):''}</span>
+        </div>` : '';
       html += `<tr class="grpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
         <td class="mono"><span class="grpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
         <td class="mono">${esc(g.loadNumber)||'—'}</td>
         <td colspan="3" style="color:var(--muted);">${esc(summary)}</td>
         <td><span class="chip prepared">${g.docs.length} stops</span></td>
-        <td></td>
+        <td style="white-space:nowrap;">${headAssign}</td>
       </tr>`;
       g.docs.forEach(d => html += docRowHtml(d, cls));
     });
     tb.innerHTML = html;
-    tb.querySelectorAll('.grpHead').forEach(h => h.onclick = () => {
+    tb.querySelectorAll('.grpHead').forEach(h => h.onclick = (e) => {
+      if (e.target.closest('.lasgWrap')) return;   // clicks on the driver picker shouldn't collapse the section
       const cls = h.dataset.cls, rows = tb.querySelectorAll('tr.' + cls), caret = h.querySelector('.grpCaret');
       const willShow = rows.length && rows[0].classList.contains('hide');
       rows.forEach(rw => rw.classList.toggle('hide', !willShow)); if (caret) caret.textContent = willShow ? '▾' : '▸';
+    });
+    // Assign ONE driver to the whole load (all its stops) from the group header.
+    tb.querySelectorAll('.lasgBtn').forEach(b => b.onclick = async (e) => {
+      e.stopPropagation();
+      const loadId = b.dataset.load, sel = tb.querySelector('.lasgSel[data-load="' + loadId + '"]'), msg = tb.querySelector('.lasgMsg[data-load="' + loadId + '"]');
+      if (!sel.value) { msg.style.color = 'var(--danger)'; msg.textContent = 'Pick a driver'; return; }
+      msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
+      try { const rr = await api('/api/loads/' + loadId + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: sel.value }) });
+        msg.style.color = 'var(--ok)'; msg.textContent = (rr.load && rr.load.driverName) ? ('→ ' + rr.load.driverName + ' ✓') : 'Assigned ✓';
+      } catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = err.message; }
     });
     tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
