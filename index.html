@@ -168,6 +168,10 @@
             <div><label>Zip</label><input id="recvFZip" placeholder="74101"></div>
             <div><label>Company phone</label><input id="recvFPhone" placeholder="(555) 555-5555"></div>
           </div>
+          <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
+            <div><label>Parent company <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — rolls this location up under a company</span></label>
+              <select id="recvFParent"><option value="">— none (top-level) —</option></select></div>
+          </div>
           <div style="margin-top:14px;">
             <label style="margin-bottom:8px;">People &amp; emails</label>
             <div id="recvContacts"></div>
@@ -2037,6 +2041,17 @@
     wrap.querySelector('.rcDel').onclick = () => wrap.remove();
     $('recvContacts').appendChild(wrap);
   }
+  // Fill the parent-company dropdown from the receiver registry (excluding the record being edited).
+  async function populateRecvParent(selectedId, excludeId) {
+    const sel = $('recvFParent'); if (!sel) return;
+    sel.innerHTML = '<option value="">— none (top-level) —</option>';
+    try {
+      const d = await api('/api/receivers');
+      (d.receivers || []).filter(r => r.active !== false && r.id !== excludeId).forEach(r => {
+        const o = document.createElement('option'); o.value = r.id; o.textContent = r.name; if (r.id === selectedId) o.selected = true; sel.appendChild(o);
+      });
+    } catch (e) {}
+  }
   function openRecvModal(ctx) {
     recvCtx = ctx || {};
     // reset to ADD mode chrome
@@ -2047,6 +2062,7 @@
     $('recvMCity').value = ''; $('recvMResults').innerHTML = ''; $('recvMMsg').textContent = '';
     ['recvFAddr','recvFCity','recvFState','recvFZip','recvFPhone'].forEach(id => { if ($(id)) $(id).value = ''; });
     $('recvContacts').innerHTML = ''; addContactRow();
+    populateRecvParent('', null);
     $('recvDetailForm').classList.add('hide'); $('recvCreateMsg').textContent = '';
     $('recvModal').classList.remove('hide'); setTimeout(() => $('recvMName').focus(), 50);
   }
@@ -2064,6 +2080,7 @@
     $('recvFPhone').value = r.contactPhone || '';
     $('recvContacts').innerHTML = '';
     const cs = (r.contacts || []); if (cs.length) cs.forEach(c => addContactRow(c)); else addContactRow();
+    populateRecvParent(r.parentId || '', r.id);
     $('recvDetailForm').classList.remove('hide');
     $('recvModal').classList.remove('hide'); setTimeout(() => $('recvMName').focus(), 50);
   }
@@ -2095,6 +2112,7 @@
     if (!name) { $('recvCreateMsg').textContent = 'Enter a name'; $('recvCreateMsg').className = 'umsg-err'; return; }
     const body = { name, address: $('recvFAddr').value.trim(), city: $('recvFCity').value.trim(),
       state: $('recvFState').value.trim(), zip: $('recvFZip').value.trim(), phone: $('recvFPhone').value.trim(),
+      parentId: ($('recvFParent') ? $('recvFParent').value : ''),
       contacts: recvGatherContacts() };
     if (recvCtx.customerId) body.customerId = recvCtx.customerId;
     $('recvCreateMsg').textContent = 'Saving…'; $('recvCreateMsg').className = '';
