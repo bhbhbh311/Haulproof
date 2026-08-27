@@ -50,7 +50,8 @@ router.get('/my-loads', (req, res) => {
       WHERE p.assignedDriverId = ? AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id);
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
-  const loads = rows.map(p => ({ id: p.id, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+  const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+    receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ loads });
 });

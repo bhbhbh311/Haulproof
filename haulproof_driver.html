@@ -795,15 +795,22 @@ window.__startApp=function(){
       var loads=((await r.json())||{}).loads||[];
       if(!loads.length){ card.classList.add("hide"); return; }
       card.classList.remove("hide");
-      $("myLoadsCount").textContent="("+loads.length+")";
+      // Group by PO#/load so a multi-stop load shows as ONE entry; tapping it lets the driver pick the stop.
+      var groups=[], gmap={};
+      loads.forEach(function(d){ var key=d.loadId||("po:"+(d.poNumber||"")); var g=gmap[key]; if(!g){ g=gmap[key]={key:key,poNumber:d.poNumber,loadNumber:d.loadNumber,consignee:d.consignee,docs:[]}; groups.push(g);} g.docs.push(d); });
+      $("myLoadsCount").textContent="("+groups.length+")";
       var box=$("myLoadsList"); box.innerHTML="";
-      loads.forEach(function(ld){
+      groups.forEach(function(g){
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
-        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(ld.poNumber||"—")+(ld.loadNumber?(" · Load "+esc(ld.loadNumber)):"")+'</div>'+
-          (ld.consignee?'<div style="color:var(--muted);font-size:13px;">'+esc(ld.consignee)+'</div>':'')+'</div>'+
+        var sub = g.docs.length>1 ? (g.docs.length+" stops") : (g.consignee||"");
+        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
+          (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+'</div>'+
           '<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
-        row.querySelector(".myLoadOpen").addEventListener("click", function(){ openPreparedDoc(ld); });
+        row.querySelector(".myLoadOpen").addEventListener("click", async function(){
+          var d = g.docs.length>1 ? await chooseStop(g.docs) : g.docs[0];
+          if(d) openPreparedDoc(d);
+        });
         box.appendChild(row);
       });
     }catch(e){ card.classList.add("hide"); }
