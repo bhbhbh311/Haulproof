@@ -1847,24 +1847,76 @@
       let drivers = [];
       try { const dr = await api('/api/drivers?orgId=' + encodeURIComponent(cmOrgId)); drivers = dr.drivers || []; } catch (e) {}
       const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
-      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' +
-        r.results.map(x => {
-          const assign = x.status === 'prepared' ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
+      // Build one document row. childCls (set for grouped rows) hides the row until the PO# section is
+      // expanded and blanks the repeated PO cell. A driver is assigned once per LOAD, so the per-doc
+      // picker only appears on ungrouped single rows — never on a grouped child stop row.
+      function cmDocRowHtml(x, childCls) {
+        const assign = (!childCls && x.status === 'prepared') ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
             <span style="font-size:11px;color:var(--muted);">Driver:</span>
             <select class="cmAsgSel" data-id="${x.id}" style="font-size:12px;padding:3px 5px;">${driverOpts(x.assignedDriverId||'')}</select>
             <button class="ghost cmAsgBtn" data-id="${x.id}" style="padding:3px 8px;font-size:12px;">Assign</button>
             <span class="cmAsgMsg" data-id="${x.id}" style="font-size:12px;color:var(--ok);font-weight:600;">${x.assignedDriverName?('→ '+esc(x.assignedDriverName)):''}</span>
           </div>` : '';
-          return `<tr>
-          <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—')}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
+        const poCell = childCls
+          ? '<span style="color:var(--muted);">↳</span>'
+          : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—'));
+        return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
+          <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber) || '—')}</td>
           <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${esc(x.docType) || 'POD'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
             <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
             <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>${assign}
-          </td></tr>`; }).join('') + '</tbody></table>';
+          </td></tr>`;
+      }
+      // Group by load (PO#): a multi-document PO shows as one clickable section that expands to its stops.
+      const groups = [], gmap = {};
+      r.results.forEach(x => { const key = x.loadId || ('po:' + (x.poNumber||'')); let g = gmap[key]; if (!g) { g = gmap[key] = { key, loadId: x.loadId, poNumber: x.poNumber, loadNumber: x.loadNumber, docs: [] }; groups.push(g); } g.docs.push(x); });
+      let html = '';
+      groups.forEach((g, gi) => {
+        if (g.docs.length === 1) { html += cmDocRowHtml(g.docs[0], null); return; }
+        const cls = 'cmgrp_' + gi;
+        const names = Array.from(new Set(g.docs.map(d => d.consignee || d.receiverName).filter(Boolean)));
+        const summary = g.docs.length + ' documents' + (names.length ? (' — ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')) : '');
+        // One driver for the whole load. Pre-select it if every doc already shares the same assigned driver.
+        const dids = Array.from(new Set(g.docs.map(d => d.assignedDriverId).filter(Boolean)));
+        const curDid = dids.length === 1 ? dids[0] : '';
+        const curName = curDid ? ((g.docs.find(d => d.assignedDriverId === curDid) || {}).assignedDriverName || '') : '';
+        const anyOpen = g.docs.some(d => d.status === 'prepared' || d.status === 'received');
+        const headAssign = (g.loadId && anyOpen) ? `<div class="cmLasgWrap" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--muted);">Driver:</span>
+            <select class="cmLasgSel" data-load="${g.loadId}" style="font-size:12px;padding:3px 5px;">${driverOpts(curDid)}</select>
+            <button class="ghost cmLasgBtn" data-load="${g.loadId}" style="padding:3px 8px;font-size:12px;">Assign</button>
+            <span class="cmLasgMsg" data-load="${g.loadId}" style="font-size:12px;color:var(--ok);font-weight:600;">${curName?('→ '+esc(curName)):''}</span>
+          </div>` : '';
+        html += `<tr class="cmGrpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
+          <td class="mono"><span class="cmGrpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
+          <td class="mono">${esc(g.loadNumber)||'—'}</td>
+          <td colspan="3" style="color:var(--muted);">${esc(summary)}</td>
+          <td><span class="chip prepared">${g.docs.length} stops</span></td>
+          <td style="white-space:nowrap;text-align:right;">${headAssign}</td>
+        </tr>`;
+        g.docs.forEach(d => html += cmDocRowHtml(d, cls));
+      });
+      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' + html + '</tbody></table>';
+      box.querySelectorAll('.cmGrpHead').forEach(h => h.onclick = (e) => {
+        if (e.target.closest('.cmLasgWrap')) return;   // clicks on the driver picker shouldn't collapse the section
+        const cls = h.dataset.cls, rows = box.querySelectorAll('tr.' + cls), caret = h.querySelector('.cmGrpCaret');
+        const willShow = rows.length && rows[0].classList.contains('hide');
+        rows.forEach(rw => rw.classList.toggle('hide', !willShow)); if (caret) caret.textContent = willShow ? '▾' : '▸';
+      });
       box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
+      // Assign ONE driver to the whole load (all its stops) from the group header.
+      box.querySelectorAll('.cmLasgBtn').forEach(b => b.onclick = async (e) => {
+        e.stopPropagation();
+        const loadId = b.dataset.load, sel = box.querySelector('.cmLasgSel[data-load="'+loadId+'"]'), msg = box.querySelector('.cmLasgMsg[data-load="'+loadId+'"]');
+        if (!sel.value) { msg.style.color = 'var(--danger)'; msg.textContent = 'Pick a driver'; return; }
+        msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
+        try { const rr = await api('/api/loads/'+loadId+'/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: sel.value }) });
+          msg.style.color = 'var(--ok)'; msg.textContent = (rr.load && rr.load.driverName) ? ('→ '+rr.load.driverName+' ✓') : 'Assigned ✓';
+        } catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = err.message; }
+      });
       box.querySelectorAll('.cmAsgBtn').forEach(b => b.onclick = async () => {
         const id = b.dataset.id, sel = box.querySelector('.cmAsgSel[data-id="'+id+'"]'), msg = box.querySelector('.cmAsgMsg[data-id="'+id+'"]');
         msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
