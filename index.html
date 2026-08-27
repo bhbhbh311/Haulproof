@@ -106,6 +106,7 @@
   .histHead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
   .poHist:hover{text-decoration:underline !important;}
 </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 </head>
 <body>
 <div class="bar">
@@ -543,13 +544,19 @@
           <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
           <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
-        <div class="row" style="grid-template-columns:1fr 1fr 1fr;margin-top:12px;align-items:end;">
+        <div class="row" style="grid-template-columns:1fr 0.6fr 1fr;margin-top:12px;align-items:start;">
           <div><label>Document type</label>
             <select id="uType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+          <div><label>Stop # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="uStop" type="number" min="1" step="1" placeholder="e.g. 1">
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Files another stop on the same PO/Load.</div></div>
           <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
             <select id="uReceiver"><option value="">— none —</option></select>
             <button type="button" id="uReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
-          <div><label>PDF file</label><input id="uFile" type="file" accept="application/pdf"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
+          <div><label>PDF file(s)</label><input id="uFile" type="file" accept="application/pdf" multiple>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one PDF for this stop and they'll be merged into a single document, in the order chosen.</div></div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="uBtn" type="button">Upload</button>
@@ -1503,7 +1510,7 @@
           </div>` : '';
           return `<tr>
           <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—')}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
-          <td>${esc(x.consignee) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${esc(x.docType) || 'POD'}</td>
+          <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${esc(x.docType) || 'POD'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
@@ -1810,7 +1817,7 @@
       }
       return `<tr>
       <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—')}</td><td class="mono">${x.loadNumber||'—'}</td>
-      <td>${x.consignee||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.docType||'POD'}</td>
+      <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${x.docType||'POD'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
       <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
@@ -1876,26 +1883,48 @@
   function uMsg(t, kind) { const el = $('uMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
   $('upToggle').onclick = () => { $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
   $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); };
+  // Merge several PDFs (in the order picked) into one, using pdf-lib. Returns an ArrayBuffer.
+  async function mergePdfs(files) {
+    if (!window.PDFLib) throw new Error('PDF tools failed to load — refresh and try again');
+    const out = await PDFLib.PDFDocument.create();
+    for (const file of files) {
+      const src = await PDFLib.PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
+      const pages = await out.copyPages(src, src.getPageIndices());
+      pages.forEach(p => out.addPage(p));
+    }
+    return await out.save();
+  }
   $('uBtn').onclick = async () => {
     const po = $('uPo').value.trim();
     const load = $('uLoad').value.trim();
-    const f = $('uFile').files[0];
+    const files = Array.from($('uFile').files || []);
     if (!po) { uMsg('Customer PO # is required', 'err'); $('uPo').focus(); return; }
-    if (!f) { uMsg('Choose a PDF file', 'err'); return; }
-    if (f.type && f.type !== 'application/pdf') { uMsg('Please choose a PDF file', 'err'); return; }
-    uMsg('Uploading…'); $('uAfter').classList.add('hide');
+    if (!files.length) { uMsg('Choose a PDF file', 'err'); return; }
+    if (files.some(f => f.type && f.type !== 'application/pdf')) { uMsg('All files must be PDFs', 'err'); return; }
+    const stop = $('uStop') ? $('uStop').value.trim() : '';
+    uMsg(files.length > 1 ? ('Merging ' + files.length + ' PDFs…') : 'Uploading…'); $('uAfter').classList.add('hide');
     try {
-      const buf = await f.arrayBuffer();
+      let buf, filename;
+      if (files.length > 1) {
+        buf = await mergePdfs(files);
+        const base = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '');
+        filename = base + '-merged-' + files.length + 'docs.pdf';
+        uMsg('Uploading merged document…');
+      } else {
+        buf = await files[0].arrayBuffer();
+        filename = files[0].name;
+      }
       const res = await fetch('/api/pods/upload', {
         method: 'POST', credentials: 'include',
         headers: {
           'Content-Type': 'application/pdf', 'X-Enc': 'uri',
           'X-PO': encodeURIComponent(po),
           'X-Load': encodeURIComponent(load),
+          'X-Stop': encodeURIComponent(stop),
           'X-Consignee': encodeURIComponent($('uCons').value.trim()),
           'X-DocType': encodeURIComponent($('uType').value),
           'X-Receiver': encodeURIComponent(($('uReceiver')||{}).value||''),
-          'X-Filename': encodeURIComponent(f.name)
+          'X-Filename': encodeURIComponent(filename)
         }, body: buf
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); uMsg(e.error || 'Upload failed', 'err'); return; }

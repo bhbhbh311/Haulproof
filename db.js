@@ -173,6 +173,7 @@ addColumn('orgs', 'externalId', 'TEXT');  // e.g. "hubspot:12345" — for import
 // even when the load was created by a different customer.
 addColumn('pods', 'receiverId', 'TEXT');
 addColumn('pods', 'receiverName', 'TEXT');
+addColumn('pods', 'stopNumber', 'INTEGER');   // multi-stop loads: 1st stop, 2nd stop, … under the same PO/Load
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
