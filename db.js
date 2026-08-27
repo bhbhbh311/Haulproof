@@ -161,6 +161,19 @@ addColumn('pods', 'signedByDriverId', 'TEXT');   // which driver (personal token
 addColumn('pods', 'offeredToOrgId', 'TEXT');
 addColumn('pods', 'claimStatus', 'TEXT');   // null/'none' | 'offered' | 'accepted' | 'declined'
 addColumn('pods', 'offeredFromOrgId', 'TEXT'); // on the customer's accepted copy: which carrier sent it
+// Multi-role orgs (an org can be e.g. both a customer AND a receiver) + parent/child locations.
+addColumn('orgs', 'roles', 'TEXT');       // JSON array of roles, e.g. ["customer","receiver"]; backfilled from kind
+addColumn('orgs', 'parentId', 'TEXT');    // optional parent org (a location rolls up to its parent company)
+// Receiver/consignee link on a signed document, so a receiver can look up what was delivered to them
+// even when the load was created by a different customer.
+addColumn('pods', 'receiverId', 'TEXT');
+addColumn('pods', 'receiverName', 'TEXT');
+// Backfill roles for existing orgs from their single kind.
+try {
+  const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
+  const _setRoles = db.prepare(`UPDATE orgs SET roles = ? WHERE id = ?`);
+  for (const o of _needRoles) { _setRoles.run(JSON.stringify([o.kind || 'customer']), o.id); }
+} catch (e) { console.error('roles backfill failed', e.message); }
 
 // Org indexes are created AFTER the columns are guaranteed to exist (legacy DBs add orgId above).
 db.exec(`
@@ -196,6 +209,8 @@ CREATE TABLE IF NOT EXISTS access_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_reqs_status ON access_requests(status);
 CREATE INDEX IF NOT EXISTS idx_reqs_code   ON access_requests(code);
+CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
+CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
 
 module.exports = { db, DATA_DIR };

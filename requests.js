@@ -9,7 +9,7 @@ const { sendMail } = require('./mailer');
 
 const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const ORG_TYPES = ['customer', 'carrier', 'broker'];
+const ORG_TYPES = ['customer', 'carrier', 'broker', 'receiver'];
 function newCode() { return crypto.randomBytes(4).toString('hex').toUpperCase(); }   // 8 chars
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 function driverToken() { return 'drv_' + crypto.randomBytes(24).toString('hex'); }
@@ -104,13 +104,33 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
       const orgType = ORG_TYPES.includes(b.orgType) ? b.orgType : (r.orgType || 'customer');
       const name = (b.company || r.company || r.contactName).trim();
       const adminEmail = (b.adminEmail || r.email || '').toLowerCase().trim();
+      const parentId = (b.parentId || '').trim() || null;
       if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid admin email is required' });
-      if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That email already has a login' });
+      const existing = db.prepare(`SELECT * FROM users WHERE email = ?`).get(adminEmail);
+      if (existing) {
+        // One account, two roles: if they already have an account, add this role to it instead of
+        // creating a duplicate (e.g. an existing customer who is now also a receiver).
+        if (existing.orgId) {
+          const org = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(existing.orgId);
+          if (org) {
+            let roles = []; try { roles = org.roles ? JSON.parse(org.roles) : []; } catch (e) {}
+            if (!roles.length) roles = [org.kind || 'customer'];
+            if (!roles.includes(orgType)) roles.push(orgType);
+            db.prepare(`UPDATE orgs SET roles = ? WHERE id = ?`).run(JSON.stringify(roles), org.id);
+            db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), org.id, r.id);
+            pushThread(r, 'admin', `Approved — added the ${orgType} role to existing account "${org.name}".`);
+            sendMail({ to: r.email, subject: 'HaulProof access updated',
+              text: `Your account "${org.name}" now has ${orgType} access.\n\nSign in at ${originOf(req)} — your existing login is unchanged.` });
+            return res.json({ ok: true, kind: 'company', orgType, orgId: org.id, merged: true });
+          }
+        }
+        return res.status(409).json({ error: 'That email already has a login' });
+      }
       const adminPassword = (b.adminPassword || '').trim() || crypto.randomBytes(5).toString('hex');
       const orgId = crypto.randomUUID();
-      db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, contactName, contactEmail, contactPhone, mcNumber, dotNumber, active, createdAt)
-         VALUES (?,?,?,?,?,?,?,?,?,1,?)`)
-        .run(orgId, name, newDeviceKey(), orgType, r.contactName, adminEmail, r.phone || null, r.mcNumber || null, r.dotNumber || null, Date.now());
+      db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, parentId, contactName, contactEmail, contactPhone, mcNumber, dotNumber, active, createdAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`)
+        .run(orgId, name, newDeviceKey(), orgType, JSON.stringify([orgType]), parentId, r.contactName, adminEmail, r.phone || null, r.mcNumber || null, r.dotNumber || null, Date.now());
       createUser({ email: adminEmail, name: r.contactName, role: 'admin', password: adminPassword, orgId });
       db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), orgId, r.id);
       pushThread(r, 'admin', `Approved — ${orgType} account "${name}" created; login emailed.`);

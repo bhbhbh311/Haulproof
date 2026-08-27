@@ -8,6 +8,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
+const { descendantOrgIds } = require('./hierarchy');
 
 const router = express.Router();
 const raw = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '30mb' });
@@ -59,6 +60,8 @@ function canAccess(req, doc) {
   const my = reqOrgId(req);
   if ((doc.orgId || null) === my) return true;                  // the customer's own document
   if (doc.offeredToOrgId === my && doc.claimStatus === 'offered') return true; // offered to this customer (preview before accepting)
+  // A receiver (or its parent company) may view a document that was delivered to it.
+  if (doc.receiverId && my && descendantOrgIds(my).includes(doc.receiverId)) return true;
   return false;
 }
 
@@ -103,6 +106,11 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     const consignee = (dec(h['x-consignee']) || '').trim();
     const docType = (dec(h['x-doctype']) || 'POD').trim();
     const filename = (dec(h['x-filename']) || 'document.pdf').trim();
+    // Optional: tag this document with the receiver/consignee it's being delivered to, so that
+    // receiver can later look it up regardless of which customer owns the load.
+    const receiverId = (dec(h['x-receiver']) || '').trim() || null;
+    let receiverName = null;
+    if (receiverId) { const ro = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(receiverId); receiverName = ro ? ro.name : null; }
     if (!poNumber) return res.status(422).json({ error: 'Customer PO # is required for every document' });
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
@@ -112,9 +120,9 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     const load = findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy: req.user.email });
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
-      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
+      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
     logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf'), actor: req.user.email });
     res.json({ ok: true, id, poNumber });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
@@ -188,6 +196,11 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
+    // Carry the receiver tag from the prepared doc onto this signed one, so the receiver can look it up.
+    try {
+      const prep = db.prepare(`SELECT receiverId, receiverName FROM pods WHERE loadId = ? AND receiverId IS NOT NULL ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
+      if (prep && prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
+    } catch (e) {}
     // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
     try { db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL`).run(Date.now(), load.id); } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
@@ -229,6 +242,23 @@ router.get('/', requireAuth, (req, res) => {
   const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, sizeBytes, gps, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt
                FROM pods WHERE ${where.join(' AND ')} ORDER BY uploadedAt DESC LIMIT 200`;
   const rows = db.prepare(sql).all(...args).map(rowOut);
+  res.json({ count: rows.length, results: rows });
+});
+
+// ---- Documents delivered TO this receiver (across every customer that shipped to them). ----
+// A parent-company login also sees all of its child locations' received documents.
+router.get('/received', requireAuth, (req, res) => {
+  let orgId = req.user.orgId || null;
+  if (req.user.role === 'superadmin') orgId = (req.query.orgId || '').trim() || orgId;
+  if (!orgId) return res.json({ count: 0, results: [] });
+  const ids = descendantOrgIds(orgId);
+  const ph = ids.map(() => '?').join(',');
+  const where = [`pods.receiverId IN (${ph})`, `pods.status IN ('signed','emailed')`];
+  const args = [...ids];
+  if (req.query.po) { where.push(`pods.poNumber LIKE ?`); args.push(`%${req.query.po}%`); }
+  if (req.query.q) { where.push(`(pods.poNumber LIKE ? OR pods.loadNumber LIKE ? OR pods.consignee LIKE ? OR pods.filename LIKE ?)`); args.push(`%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`); }
+  const rows = db.prepare(`SELECT pods.*, orgs.name AS shipperName FROM pods LEFT JOIN orgs ON orgs.id = pods.orgId
+     WHERE ${where.join(' AND ')} ORDER BY COALESCE(pods.signedAt, pods.uploadedAt) DESC LIMIT 200`).all(...args).map(rowOut);
   res.json({ count: rows.length, results: rows });
 });
 
