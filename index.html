@@ -1102,6 +1102,15 @@
 
   // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
   const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function relTime(ts) {
+    if (!ts) return '';
+    const s = Math.max(0, (Date.now() - Number(ts)) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+    return new Date(Number(ts)).toLocaleDateString();
+  }
   const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
   function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
   async function loadLoads() {
@@ -1113,13 +1122,13 @@
       const heading = q
         ? `<div class="sub" style="margin:0 0 8px;">${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"</div>`
         : `<div class="sub" style="margin:0 0 8px;">Latest ${showing.length} load${showing.length === 1 ? '' : 's'}${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
-      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
+      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Last update</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>
           <td class="mono">${esc(l.poNumber) || '—'}</td>
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
-          <td>${statusChip(l.status)}</td>
-          <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open</button></td>
+          <td>${l.lastEvent ? `${esc(l.lastEvent.detail || l.lastEvent.type)}<div style="color:var(--muted);font-size:12px;">${relTime(l.lastEvent.createdAt)}</div>` : statusChip(l.status)}</td>
+          <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open ›</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -1649,7 +1658,7 @@
       return `<tr>
       <td class="mono">${x.poNumber||'—'}</td><td class="mono">${x.loadNumber||'—'}</td>
       <td>${x.consignee||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.docType||'POD'}</td>
-      <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}</td>
+      <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
       <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
     </tr>`; }).join('');

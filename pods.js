@@ -89,8 +89,16 @@ function uniquePoForOrg(orgId, po) {
   return cand;
 }
 
+// A signing location is stored as a plain "lat,lng" string. Turn it into a Google Maps link.
+function gpsUrl(s) {
+  if (!s) return null;
+  const m = String(s).match(/-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?/);
+  return m ? 'https://www.google.com/maps?q=' + encodeURIComponent(m[0].replace(/\s+/g, '')) : null;
+}
 function rowOut(r) {
-  return { ...r, gps: r.gps ? safeJson(r.gps) : null, recipients: r.recipients ? safeJson(r.recipients) : [], fields: r.fields ? (safeJson(r.fields) || []) : [], fileUrl: `/api/pods/${r.id}/file` };
+  const gpsStr = (r.gps && typeof r.gps === 'string' && r.gps.indexOf(',') > -1) ? r.gps : (r.gps ? (safeJson(r.gps) || null) : null);
+  const gpsText = (gpsStr && typeof gpsStr === 'object' && gpsStr.lat != null) ? (gpsStr.lat + ',' + gpsStr.lng) : (typeof gpsStr === 'string' ? gpsStr : null);
+  return { ...r, gps: gpsText, mapUrl: gpsUrl(gpsText), recipients: r.recipients ? safeJson(r.recipients) : [], fields: r.fields ? (safeJson(r.fields) || []) : [], fileUrl: `/api/pods/${r.id}/file` };
 }
 
 // ---- UPLOAD (dispatcher files a document). Session auth; scoped to caller's customer. ----

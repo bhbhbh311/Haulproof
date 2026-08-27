@@ -424,7 +424,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27a · save keeps close button</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27b · map links on coordinates</div>
   </section>
 </main>
 
@@ -818,8 +818,8 @@ window.__startApp=function(){
     if(!stops.length){ list.innerHTML='<div class="empty">No stops yet. Load the sample route or add your stops.</div>'; return; }
     stops.forEach(function(s){
       var c=document.createElement("div"); c.className="stopcard "+s.status;
-      var statTxt = s.status==="delivered" ? '<div class="sstat d">✓ Delivered '+timeStr(new Date(s.deliveredAt))+(s.deliveredGps?" · 📍 "+s.deliveredGps.lat.toFixed(3)+","+s.deliveredGps.lng.toFixed(3):"")+'</div>'
-        : s.status==="arrived" ? '<div class="sstat a">● Arrived '+timeStr(new Date(s.arriveAt))+(s.arriveGps?" · 📍 "+s.arriveGps.lat.toFixed(3)+","+s.arriveGps.lng.toFixed(3):"")+'</div>'
+      var statTxt = s.status==="delivered" ? '<div class="sstat d">✓ Delivered '+timeStr(new Date(s.deliveredAt))+(s.deliveredGps?" · 📍 "+gmap(s.deliveredGps.lat.toFixed(5),s.deliveredGps.lng.toFixed(5),s.deliveredGps.lat.toFixed(3)+","+s.deliveredGps.lng.toFixed(3)):"")+'</div>'
+        : s.status==="arrived" ? '<div class="sstat a">● Arrived '+timeStr(new Date(s.arriveAt))+(s.arriveGps?" · 📍 "+gmap(s.arriveGps.lat.toFixed(5),s.arriveGps.lng.toFixed(5),s.arriveGps.lat.toFixed(3)+","+s.arriveGps.lng.toFixed(3)):"")+'</div>'
         : '<div class="sstat p">○ Not yet visited</div>';
       c.innerHTML='<div class="snum">'+(s.status==="delivered"?"✓":s.n)+'</div><div class="sbody"><div class="sname">'+esc(s.name)+'</div><div class="saddr">'+esc(s.addr||"")+'</div>'+statTxt+'</div><div class="sact" id="act-'+s.id+'"></div>';
       list.appendChild(c);
@@ -831,6 +831,8 @@ window.__startApp=function(){
   }
   function mkBtn(label,kind,fn){ var b=document.createElement("button"); b.className="btn "+kind+" sm"; b.type="button"; b.textContent=label; b.addEventListener("click",fn); return b; }
   function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  // Wrap a lat/lng as a tappable Google Maps link (label shown, precise coords in the URL).
+  function gmap(lat,lng,label){ return '<a href="https://www.google.com/maps?q='+lat+','+lng+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">'+label+'</a>'; }
 
   function arrive(s){
     s.status="arrived"; s.arriveAt=Date.now();
@@ -1364,7 +1366,7 @@ window.__startApp=function(){
     } else { showLocBar(); }
   }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
-    navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").textContent="📍 Captured: "+lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
+    navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").innerHTML="📍 Captured: "+gmap(lastGps.lat.toFixed(5),lastGps.lng.toFixed(5),lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4)); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
   // Capitalize the first letter of each name part (first, last, hyphenated) without touching the rest.
   function titleCaseName(s){ return String(s==null?"":s).replace(/(^|[\s\-'.])([a-z])/g, function(m,p,c){ return p+c.toUpperCase(); }); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });

@@ -60,7 +60,11 @@ router.get('/', requireAuth, (req, res) => {
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
   const rows = db.prepare(`SELECT * FROM loads WHERE ${where.join(' AND ')} ORDER BY createdAt DESC LIMIT 200`).all(...args);
-  res.json({ count: rows.length, results: rows.map(loadOut) });
+  // Attach ONLY the latest history event to each load (the list shows the current step;
+  // the full timeline lives in the load's detail view).
+  const lastEv = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt DESC LIMIT 1`);
+  const out = rows.map(l => ({ ...loadOut(l), lastEvent: lastEv.get(l.id) || null }));
+  res.json({ count: out.length, results: out });
 });
 
 // One load plus its documents.
