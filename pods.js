@@ -213,12 +213,19 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     try { db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL`).run(Date.now(), load.id); } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
       detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+    // Also email the completed doc to the receiver's people who asked for the BOL.
+    let bolEmails = [];
+    try {
+      const p = db.prepare(`SELECT receiverId FROM pods WHERE id = ?`).get(id);
+      if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != ''`).all(p.receiverId).map(r => r.email);
+    } catch (e) {}
+    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails]));
     let mail = { sent: false };
-    if (meta.recipients.length) {
-      mail = await emailPodCopy({ to: meta.recipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });
+    if (allRecipients.length) {
+      mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });
       if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
     }
-    res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: meta.recipients });
+    res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: allRecipients });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ingest failed' }); }
 });
 

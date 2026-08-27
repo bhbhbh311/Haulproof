@@ -164,6 +164,11 @@ addColumn('pods', 'offeredFromOrgId', 'TEXT'); // on the customer's accepted cop
 // Multi-role orgs (an org can be e.g. both a customer AND a receiver) + parent/child locations.
 addColumn('orgs', 'roles', 'TEXT');       // JSON array of roles, e.g. ["customer","receiver"]; backfilled from kind
 addColumn('orgs', 'parentId', 'TEXT');    // optional parent org (a location rolls up to its parent company)
+// Structured address for receivers (address = street line; city/state/zip separate).
+addColumn('orgs', 'city', 'TEXT');
+addColumn('orgs', 'state', 'TEXT');
+addColumn('orgs', 'zip', 'TEXT');
+addColumn('orgs', 'externalId', 'TEXT');  // e.g. "hubspot:12345" — for import de-dupe / sync
 // Receiver/consignee link on a signed document, so a receiver can look up what was delivered to them
 // even when the load was created by a different customer.
 addColumn('pods', 'receiverId', 'TEXT');
@@ -205,6 +210,17 @@ CREATE TABLE IF NOT EXISTS approved_partners (
   PRIMARY KEY (ownerOrgId, partnerOrgId)
 );
 CREATE INDEX IF NOT EXISTS idx_approved_owner ON approved_partners(ownerOrgId);
+-- People at a receiver. receiveBol = 1 means email them the completed BOL/POD when it's signed.
+CREATE TABLE IF NOT EXISTS receiver_contacts (
+  id         TEXT PRIMARY KEY,
+  receiverId TEXT NOT NULL,
+  name       TEXT,
+  email      TEXT,
+  phone      TEXT,
+  receiveBol INTEGER NOT NULL DEFAULT 0,
+  createdAt  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rcontacts_recv ON receiver_contacts(receiverId);
 CREATE TABLE IF NOT EXISTS access_requests (
   id TEXT PRIMARY KEY,
   code TEXT,

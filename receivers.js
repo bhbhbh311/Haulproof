@@ -13,13 +13,29 @@ function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex');
 function norm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
 
 function rolesOf(o) { let r = []; try { r = o.roles ? JSON.parse(o.roles) : []; } catch (e) {} if (!r.length) r = [o.kind || 'customer']; return r; }
+function contactsOf(id) {
+  return db.prepare(`SELECT id, name, email, phone, receiveBol FROM receiver_contacts WHERE receiverId = ? ORDER BY createdAt`).all(id)
+    .map(c => ({ id: c.id, name: c.name || '', email: c.email || '', phone: c.phone || '', receiveBol: !!c.receiveBol }));
+}
+function setContacts(receiverId, contacts) {
+  db.prepare(`DELETE FROM receiver_contacts WHERE receiverId = ?`).run(receiverId);
+  const ins = db.prepare(`INSERT INTO receiver_contacts (id, receiverId, name, email, phone, receiveBol, createdAt) VALUES (?,?,?,?,?,?,?)`);
+  (Array.isArray(contacts) ? contacts : []).forEach(c => {
+    const name = String(c && c.name || '').trim(), email = String(c && c.email || '').trim().toLowerCase(), phone = String(c && c.phone || '').trim();
+    if (!name && !email) return;                                   // skip empty rows
+    ins.run(crypto.randomUUID(), receiverId, name || null, email || null, phone || null, (c && c.receiveBol) ? 1 : 0, Date.now());
+  });
+}
+function addressLine(o) { return [o.address, o.city, o.state, o.zip].map(s => (s || '').trim()).filter(Boolean).join(', '); }
 function receiverOut(o) {
   const parent = o.parentId ? db.prepare(`SELECT id, name FROM orgs WHERE id = ?`).get(o.parentId) : null;
   const docCount = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`).get(o.id).n;
   const admins = db.prepare(`SELECT email FROM users WHERE orgId = ? AND role='admin' ORDER BY createdAt`).all(o.id).map(r => r.email);
   return { id: o.id, name: o.name, active: !!o.active, createdAt: o.createdAt, roles: rolesOf(o), kind: o.kind || 'customer',
-    contactName: o.contactName, contactEmail: o.contactEmail, contactPhone: o.contactPhone, address: o.address,
-    parentId: o.parentId || null, parentName: parent ? parent.name : null, docCount, admins, hasLogin: admins.length > 0 };
+    contactName: o.contactName, contactEmail: o.contactEmail, contactPhone: o.contactPhone,
+    address: o.address, city: o.city, state: o.state, zip: o.zip, addressLine: addressLine(o), externalId: o.externalId || null,
+    parentId: o.parentId || null, parentName: parent ? parent.name : null, docCount, admins, hasLogin: admins.length > 0,
+    contacts: contactsOf(o.id) };
 }
 function linkReceiver(orgId, receiverId) {
   if (!orgId || !receiverId) return;
@@ -89,12 +105,15 @@ router.post('/', requireAuth, (req, res) => {
     if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That email already has a login' });
   }
   const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, parentId, contactName, contactEmail, contactPhone, address, active, createdAt)
-              VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`)
+  db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, parentId, contactName, contactEmail, contactPhone, address, city, state, zip, externalId, active, createdAt)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), parentId,
          (b.contactName || '').trim() || null, (b.contactEmail || '').trim() || null,
-         (b.contactPhone || '').trim() || null, (b.address || b.city || '').trim() || null, Date.now());
+         (b.phone || b.contactPhone || '').trim() || null,
+         (b.address || '').trim() || null, (b.city || '').trim() || null, (b.state || '').trim() || null, (b.zip || '').trim() || null,
+         (b.externalId || '').trim() || null, Date.now());
   if (isSuper && adminEmail) createUser({ email: adminEmail, name: (b.adminName || b.contactName || '').trim(), role: 'admin', password: String(adminPassword), orgId: id });
+  setContacts(id, b.contacts);
   linkReceiver(ownerOrg, id);
   res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id)), linked: !!ownerOrg, created: true });
 });
@@ -115,10 +134,12 @@ router.put('/:id', requireAuth, requireSuper, (req, res) => {
   let parentId = (b.parentId !== undefined) ? ((b.parentId || '').trim() || null) : (o.parentId || null);
   if (parentId === o.id) parentId = null;
   if (parentId && !db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(parentId)) return res.status(400).json({ error: 'Parent company not found' });
-  db.prepare(`UPDATE orgs SET name = ?, contactName = ?, contactEmail = ?, contactPhone = ?, address = ?, parentId = ?, active = ? WHERE id = ?`)
+  db.prepare(`UPDATE orgs SET name = ?, contactName = ?, contactEmail = ?, contactPhone = ?, address = ?, city = ?, state = ?, zip = ?, externalId = ?, parentId = ?, active = ? WHERE id = ?`)
     .run((b.name || o.name).trim(), (b.contactName ?? o.contactName) || null, (b.contactEmail ?? o.contactEmail) || null,
-         (b.contactPhone ?? o.contactPhone) || null, (b.address ?? o.address) || null, parentId,
-         (b.active === undefined ? o.active : (b.active ? 1 : 0)), o.id);
+         ((b.phone ?? b.contactPhone) ?? o.contactPhone) || null, (b.address ?? o.address) || null,
+         (b.city ?? o.city) || null, (b.state ?? o.state) || null, (b.zip ?? o.zip) || null, (b.externalId ?? o.externalId) || null,
+         parentId, (b.active === undefined ? o.active : (b.active ? 1 : 0)), o.id);
+  if (b.contacts !== undefined) setContacts(o.id, b.contacts);
   res.json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 
