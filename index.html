@@ -97,6 +97,12 @@
   .inviteSide input{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:8px 9px;flex:1 1 140px;min-width:120px;}
   .inviteSide button,.inviteSide a{font-size:13px;padding:8px 11px;border-radius:8px;}
   .inviteSide #inviteMsg{font-size:12px;font-weight:600;flex-basis:100%;}
+  /* Load-history popup (opened by clicking a PO #) */
+  .histOverlay{position:fixed;inset:0;background:rgba(15,25,45,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:200;overflow:auto;}
+  .histOverlay.hide{display:none;}
+  .histBox{background:var(--surface);border-radius:var(--radius);box-shadow:0 20px 60px rgba(10,20,50,.35);max-width:560px;width:100%;padding:22px;}
+  .histHead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .poHist:hover{text-decoration:underline !important;}
 </style>
 </head>
 <body>
@@ -138,6 +144,14 @@
 
   <!-- SEARCH -->
   <div id="appView" class="hide">
+
+    <!-- Load-history popup (opened by clicking a PO #) -->
+    <div id="histModal" class="histOverlay hide">
+      <div class="histBox">
+        <div class="histHead"><h1 id="histTitle" style="margin:0;font-size:18px;">Load history</h1><button id="histClose" class="ghost" type="button">✕ Close</button></div>
+        <div id="histBody" style="margin-top:14px;"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
 
     <!-- TOP BAR: section tabs (left) + compact invite to the side (right) -->
     <div id="portalTop">
@@ -1113,6 +1127,15 @@
   }
   const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
   function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
+  // Clean CURRENT status for the loads list (derived from the latest event). Full history is one click away.
+  function loadStatusChip(l) {
+    const t = l.lastEvent && l.lastEvent.type;
+    const map = { created: ['received', 'Open'], document_uploaded: ['prepared', 'Doc uploaded'], prepared: ['prepared', 'Ready to sign'],
+      broker_assigned: ['prepared', 'With broker'], carrier_assigned: ['prepared', 'Carrier assigned'], driver_assigned: ['prepared', 'Driver assigned'],
+      signed: ['signed', 'Signed'], emailed: ['signed', 'Delivered'], note: ['received', 'Updated'] };
+    const m = map[t] || (l.status === 'signed' ? ['signed', 'Signed'] : l.status === 'assigned' ? ['prepared', 'Assigned'] : ['received', 'Open']);
+    return `<span class="chip ${m[0]}">${m[1]}</span>`;
+  }
   async function loadLoads() {
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
@@ -1122,15 +1145,16 @@
       const heading = q
         ? `<div class="sub" style="margin:0 0 8px;">${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"</div>`
         : `<div class="sub" style="margin:0 0 8px;">Latest ${showing.length} load${showing.length === 1 ? '' : 's'}${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
-      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Last update</th><th></th></tr></thead><tbody>' +
+      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>
-          <td class="mono">${esc(l.poNumber) || '—'}</td>
+          <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
-          <td>${l.lastEvent ? `${esc(l.lastEvent.detail || l.lastEvent.type)}<div style="color:var(--muted);font-size:12px;">${relTime(l.lastEvent.createdAt)}</div>` : statusChip(l.status)}</td>
+          <td>${loadStatusChip(l)}</td>
           <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open ›</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
+      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
   $('nlToggle').onclick = () => { $('nlForm').classList.toggle('hide'); if (!$('nlForm').classList.contains('hide')) $('nlPo').focus(); };
@@ -1291,6 +1315,24 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
 
+  // Click a PO # anywhere → show its load's full step-by-step history in a popup.
+  async function openLoadHistory(loadId) {
+    if (!loadId) { alert('No history recorded for this item yet.'); return; }
+    const modal = $('histModal'), body = $('histBody');
+    modal.classList.remove('hide'); body.innerHTML = '<div class="empty">Loading…</div>';
+    try {
+      const r = await api('/api/loads/' + loadId + '/history');
+      $('histTitle').textContent = 'History — PO ' + ((r.load && r.load.poNumber) || '');
+      if (!r.events || !r.events.length) { body.innerHTML = '<div class="empty">No history recorded yet.</div>'; return; }
+      body.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);">
+        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:120px;">${new Date(e.createdAt).toLocaleString()}</div>
+        <div><div>${esc(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(e.actor)}</div>` : ''}</div>
+      </div>`).join('');
+    } catch (err) { body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+  }
+  if ($('histClose')) $('histClose').onclick = () => $('histModal').classList.add('hide');
+  if ($('histModal')) $('histModal').addEventListener('click', e => { if (e.target === $('histModal')) $('histModal').classList.add('hide'); });
+
   // --- Super-admin: manage one customer's users + drivers ---
   let cmOrgId = null;
   function cmMsg(el, t, kind) { el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
@@ -1350,7 +1392,7 @@
             <span class="cmAsgMsg" data-id="${x.id}" style="font-size:12px;color:var(--ok);font-weight:600;">${x.assignedDriverName?('→ '+esc(x.assignedDriverName)):''}</span>
           </div>` : '';
           return `<tr>
-          <td class="mono">${esc(x.poNumber) || '—'}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
+          <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—')}</td><td class="mono">${esc(x.loadNumber) || '—'}</td>
           <td>${esc(x.consignee) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${esc(x.docType) || 'POD'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
@@ -1358,6 +1400,7 @@
             <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
             <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>${assign}
           </td></tr>`; }).join('') + '</tbody></table>';
+      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
       box.querySelectorAll('.cmAsgBtn').forEach(b => b.onclick = async () => {
         const id = b.dataset.id, sel = box.querySelector('.cmAsgSel[data-id="'+id+'"]'), msg = box.querySelector('.cmAsgMsg[data-id="'+id+'"]');
         msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
@@ -1656,12 +1699,13 @@
         </div>`;
       }
       return `<tr>
-      <td class="mono">${x.poNumber||'—'}</td><td class="mono">${x.loadNumber||'—'}</td>
+      <td class="mono">${x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—')}</td><td class="mono">${x.loadNumber||'—'}</td>
       <td>${x.consignee||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.docType||'POD'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
       <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
     </tr>`; }).join('');
+    tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
     tb.querySelectorAll('.asgBtn').forEach(b => b.onclick = async () => {
       const id = b.dataset.id, sel = tb.querySelector('.asgSel[data-id="'+id+'"]'), msg = tb.querySelector('.asgMsg[data-id="'+id+'"]');
