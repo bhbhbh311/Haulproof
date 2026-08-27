@@ -1370,8 +1370,17 @@
         <td>${esc(p.docType) || 'POD'}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
         <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
         <td><span class="chip ${p.status}">${p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
-        <td style="text-align:right;"><a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a></td></tr>`).join('') +
+        <td style="text-align:right;white-space:nowrap;">
+          <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
+          ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
+          &nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>
+        </td></tr>`).join('') +
       '</tbody></table>';
+    box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = async () => {
+      if (!confirm('Remove ' + (b.dataset.name || 'this document') + '? You can then upload a corrected file to this stop.')) return;
+      try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); }
+      catch (e) { alert(e.message); }
+    });
   }
   // Edit the load's basic fields.
   if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { $('ldEditForm').classList.toggle('hide'); };

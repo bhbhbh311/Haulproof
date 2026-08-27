@@ -364,6 +364,17 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
   res.json({ ok: true, count: fields.length, status });
 });
 
+// ---- DELETE a document (remove a wrong/duplicate upload so a corrected one can be filed). ----
+router.delete('/:id', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  try { if (row.filepath && fs.existsSync(row.filepath)) fs.unlinkSync(row.filepath); } catch (e) {}
+  db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_removed',
+    detail: (row.docType || 'Document') + ' removed' + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
+  res.json({ ok: true });
+});
+
 // ---- DOWNLOAD the PDF. Session OR device key; same customer only. ----
 router.get('/:id/file', requireAuthOrKey, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
