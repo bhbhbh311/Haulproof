@@ -596,7 +596,8 @@ window.__startApp=function(){
             "X-POD-Load":he(p.loadNumber),
             "X-POD-Consignee":he(p.consignee),
             "X-POD-Emails":he((p.recipients||[]).join(",")),
-            "X-POD-SignedAt":String(p.signedAt||p.createdAt||Date.now())
+            "X-POD-SignedAt":String(p.signedAt||p.createdAt||Date.now()),
+            "X-POD-PrepId":he(p.prepId||"")
           };
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
@@ -740,8 +741,30 @@ window.__startApp=function(){
       if(!r.ok){ var e=await r.json().catch(function(){return {};}); toast(e.error||"No document found"); return; }
       var d=await r.json();
       $("pullPo").value=""; $("pullLoad").value="";
-      await openPreparedDoc(d);
+      var docs=(d.docs&&d.docs.length)?d.docs:[d];
+      var chosen = docs.length>1 ? await chooseStop(docs) : docs[0];
+      if(chosen) await openPreparedDoc(chosen);
     }catch(err){ console.error(err); toast("Lookup failed — check signal & Outbox settings"); }
+  }
+  // Multi-stop load: let the driver pick which stop's document they're signing.
+  function chooseStop(docs){
+    return new Promise(function(resolve){
+      var ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
+      var sheet=document.createElement("div"); sheet.style.cssText="background:#fff;width:100%;max-width:520px;border-radius:14px 14px 0 0;padding:16px;max-height:80vh;overflow:auto;";
+      sheet.innerHTML='<div style="font-weight:800;font-size:16px;margin-bottom:2px;">This load has '+docs.length+' stops</div><div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Pick the stop you’re signing for.</div>';
+      docs.forEach(function(doc){
+        var b=document.createElement("button"); b.className="btn primary"; b.type="button";
+        b.style.cssText="display:block;width:100%;text-align:left;margin-bottom:8px;";
+        b.innerHTML="<b>"+(doc.stopNumber?("Stop "+doc.stopNumber):"Document")+"</b> — "+esc(doc.receiverName||doc.consignee||doc.docType||"POD");
+        b.addEventListener("click",function(){ document.body.removeChild(ov); resolve(doc); });
+        sheet.appendChild(b);
+      });
+      var cancel=document.createElement("button"); cancel.className="btn ghost"; cancel.type="button"; cancel.textContent="Cancel"; cancel.style.cssText="display:block;width:100%;margin-top:4px;";
+      cancel.addEventListener("click",function(){ document.body.removeChild(ov); resolve(null); });
+      sheet.appendChild(cancel);
+      ov.appendChild(sheet); ov.addEventListener("click",function(e){ if(e.target===ov){ document.body.removeChild(ov); resolve(null); } });
+      document.body.appendChild(ov);
+    });
   }
   // Open a prepared document (from a pull OR an assigned load) into the sign view.
   async function openPreparedDoc(d){
@@ -1439,7 +1462,7 @@ window.__startApp=function(){
       // save to outbox
       var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
       var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
-      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, stopId:currentStop?currentStop.id:null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
+      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
       var pods=loadPods(); pods.unshift(pod); savePods(pods);
       if(currentStop){ currentStop.status="delivered"; currentStop.deliveredAt=Date.now(); currentStop.deliveredGps=lastGps; currentStop.podId=pod.id; saveRoute(route); }
       showCompletion(pod);

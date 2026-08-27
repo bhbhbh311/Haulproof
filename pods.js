@@ -157,7 +157,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (load) { or.push(`TRIM(pods.loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
     rows = db.prepare(`SELECT pods.* FROM pods JOIN loads ON loads.id = pods.loadId
-      WHERE ${where.join(' AND ')} ORDER BY (pods.status='prepared') DESC, pods.uploadedAt DESC LIMIT 1`).all(...args);
+      WHERE ${where.join(' AND ')} ORDER BY (pods.status='prepared') DESC, (pods.stopNumber IS NULL), pods.stopNumber ASC, pods.uploadedAt ASC`).all(...args);
   } else {
     const orgId = reqOrgId(req);
     const where = [`orgId IS ?`], args = [orgId];
@@ -165,11 +165,15 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (po) { or.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
     if (load) { or.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
-    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} ORDER BY (status='prepared') DESC, uploadedAt DESC LIMIT 1`).all(...args);
+    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} ORDER BY (status='prepared') DESC, (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(...args);
   }
   if (!rows.length) return res.status(404).json({ error: 'No document found for that PO # / Load #' });
-  const r = rowOut(rows[0]);
-  res.json({ id: r.id, poNumber: r.poNumber, loadNumber: r.loadNumber, consignee: r.consignee, filename: r.filename, status: r.status, fields: r.fields, fileUrl: r.fileUrl });
+  // A driver signs the prepared docs. Return every prepared stop so they can sign each one; if none are
+  // prepared, fall back to whatever matched. Each entry carries its own server id for exact stop matching.
+  const prepared = rows.filter(r => r.status === 'prepared');
+  const list = (prepared.length ? prepared : rows).slice(0, 50);
+  const docs = list.map(row => { const o = rowOut(row); return { id: o.id, poNumber: o.poNumber, loadNumber: o.loadNumber, consignee: o.consignee, stopNumber: o.stopNumber || null, receiverName: o.receiverName || null, docType: o.docType, filename: o.filename, status: o.status, fields: o.fields, fileUrl: o.fileUrl }; });
+  res.json(Object.assign({}, docs[0], { docs }));
 });
 
 // ---- INGEST (signed POD back from the driver app). Device key; stored under that customer. ----
@@ -212,13 +216,20 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
-    // Carry the receiver tag (and stop number) from the prepared doc onto this signed one.
+    // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
+    // sends the exact prepared-doc id it signed (X-POD-PrepId), match THAT stop precisely; otherwise fall
+    // back to the most recent prepared stop on the load.
     try {
-      const prep = db.prepare(`SELECT receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL OR salesRepUserId IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
+      const prepId = (dec(h['x-pod-prepid']) || '').trim() || null;
+      let prep = null;
+      if (prepId) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE id = ? AND loadId = ?`).get(prepId, load.id);
+      if (!prep) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND status = 'prepared' AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL OR salesRepUserId IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
       if (prep) {
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
         if (prep.salesRepUserId) db.prepare(`UPDATE pods SET salesRepUserId = ? WHERE id = ?`).run(prep.salesRepUserId, id);
+        // Mark the exact prepared stop fulfilled so it drops off "to sign" lists.
+        if (prepId && prep.id) db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE id = ? AND assignedFulfilledAt IS NULL`).run(Date.now(), prep.id);
       }
     } catch (e) {}
     // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
