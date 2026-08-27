@@ -126,10 +126,16 @@ router.post('/:id/unlink', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ---- Edit the global receiver record (master admin only). ----
-router.put('/:id', requireAuth, requireSuper, (req, res) => {
+// ---- Edit the receiver record. Master admin can edit any; a customer admin can edit a
+//      receiver they've linked (customer_receivers). ----
+router.put('/:id', requireAuth, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Receiver not found' });
+  if (req.user.role !== 'superadmin') {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+    const linked = db.prepare(`SELECT 1 FROM customer_receivers WHERE orgId = ? AND receiverId = ?`).get(req.user.orgId || '', o.id);
+    if (!linked) return res.status(403).json({ error: 'You can only edit receivers you have added' });
+  }
   const b = req.body || {};
   let parentId = (b.parentId !== undefined) ? ((b.parentId || '').trim() || null) : (o.parentId || null);
   if (parentId === o.id) parentId = null;
