@@ -223,17 +223,21 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       const prepId = (dec(h['x-pod-prepid']) || '').trim() || null;
       let prep = null;
       if (prepId) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE id = ? AND loadId = ?`).get(prepId, load.id);
+      // Fallbacks for an older driver app that doesn't send the exact stop id (X-POD-PrepId): the most
+      // recent prepared stop with details, else any most-recent prepared assigned stop. We resolve to ONE
+      // stop and only ever fulfill that one — a multi-stop load must keep its OTHER stops available to sign.
       if (!prep) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND status = 'prepared' AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL OR salesRepUserId IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
+      if (!prep) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
       if (prep) {
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
         if (prep.salesRepUserId) db.prepare(`UPDATE pods SET salesRepUserId = ? WHERE id = ?`).run(prep.salesRepUserId, id);
-        // Mark the exact prepared stop fulfilled so it drops off "to sign" lists.
-        if (prepId && prep.id) db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE id = ? AND assignedFulfilledAt IS NULL`).run(Date.now(), prep.id);
+        // Mark ONLY the exact prepared stop that was just signed as fulfilled, so it drops off "to sign" /
+        // "Your loads" lists while every other stop on the load stays put. (Signing stop 1 must never clear
+        // stop 2.)
+        db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE id = ? AND assignedFulfilledAt IS NULL`).run(Date.now(), prep.id);
       }
     } catch (e) {}
-    // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
-    try { db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL`).run(Date.now(), load.id); } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
       detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
     // Also email the completed doc to the receiver's people who asked for the BOL.

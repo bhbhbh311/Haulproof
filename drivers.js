@@ -60,12 +60,13 @@ router.get('/my-loads', (req, res) => {
 router.get('/my-documents', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ docs: [] });
-  const rows = db.prepare(`SELECT id, poNumber, loadNumber, consignee, filename, docType, status, uploadedAt, signedAt
+  const rows = db.prepare(`SELECT id, loadId, poNumber, loadNumber, consignee, receiverName, stopNumber, filename, docType, status, uploadedAt, signedAt
       FROM pods
       WHERE status IN ('signed','emailed')
         AND (signedByDriverId = ? OR (driver = ? AND orgId IS ?))
-      ORDER BY uploadedAt DESC LIMIT 15`).all(r.driver.id, r.driver.name || '', r.driver.orgId || null);
-  const docs = rows.map(p => ({ id: p.id, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+      ORDER BY uploadedAt DESC LIMIT 30`).all(r.driver.id, r.driver.name || '', r.driver.orgId || null);
+  const docs = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+    receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     filename: p.filename, when: p.uploadedAt || p.signedAt, fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ docs });
 });

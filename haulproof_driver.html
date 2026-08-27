@@ -1441,7 +1441,11 @@ window.__startApp=function(){
       var doc=await PDFLib.PDFDocument.load(origBytes), pages=doc.getPages();
       var font=await doc.embedFont(PDFLib.StandardFonts.Helvetica), fontB=await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
       var sg=sigs();
-      for(var i=0;i<sg.length;i++){ var t=sg[i]; if(!t.signed||!t.png) continue; var png=await doc.embedPng(t.png), pg=pages[t.pageIdx]; if(!pg) continue;
+      for(var i=0;i<sg.length;i++){ var t=sg[i]; if(!t.signed) continue; var pg=pages[t.pageIdx]; if(!pg) continue;
+        // Safety net: a field marked signed must NEVER render blank. If the signature image is somehow
+        // missing, draw the signer's typed name in its place so the signature always appears on the page.
+        if(!t.png){ var fnm=t.name||t.role||""; if(fnm){ var fsz=Math.min(16,Math.max(9,(t.hPdf||20)*0.5)); pg.drawText(fnm,{x:t.xPdf+2,y:t.yPdf+Math.max(2,((t.hPdf||20)-fsz)/2),size:fsz,font:fontB,color:PDFLib.rgb(.07,.22,.43)}); if(t.name) pg.drawText(t.name,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)}); } continue; }
+        var png=await doc.embedPng(t.png);
         var dm=png.scale(1),asp=dm.width/dm.height;
         if(t.kind==="sigdate"){
           // Combined box: signature on the left, the signing date to its right on the same line.
@@ -1578,14 +1582,36 @@ window.__startApp=function(){
       if(!docs.length){ card.classList.add("hide"); return; }
       card.classList.remove("hide");
       var box=$("recentDocsList"); box.innerHTML="";
-      docs.forEach(function(d){
+      // Group by load (PO#): a multi-stop load shows as ONE entry you tap to expand and view each stop's doc.
+      var groups=[], gmap={};
+      docs.forEach(function(d){ var k=d.loadId||("po:"+(d.poNumber||"")); var g=gmap[k]; if(!g){ g=gmap[k]={key:k,poNumber:d.poNumber,loadNumber:d.loadNumber,consignee:d.consignee,docs:[]}; groups.push(g);} g.docs.push(d); });
+      // Helper: one tappable document line (used for a single-doc load and for each expanded stop).
+      function docLine(d, isChild){
         var row=document.createElement("div");
-        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);";
-        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;">PO '+esc(d.poNumber||"—")+'</div>'+
-          '<div style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(d.consignee?esc(d.consignee)+" · ":"")+(d.when?new Date(d.when).toLocaleDateString():"")+'</div></div>'+
+        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0 9px "+(isChild?"14px":"0")+";border-top:1px solid var(--line);"+(isChild?"background:#fafcff;":"");
+        var title = isChild ? (d.stopNumber?("Stop "+d.stopNumber):"Document") : ("PO "+esc(d.poNumber||"—"));
+        var sub = isChild ? (esc(d.receiverName||d.consignee||d.docType||"POD")) : ((d.consignee?esc(d.consignee)+" · ":"")+(d.when?new Date(d.when).toLocaleDateString():""));
+        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;">'+title+'</div>'+
+          '<div style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+sub+'</div></div>'+
           '<button class="btn ghost sm recentView" type="button">View</button>';
         row.querySelector(".recentView").addEventListener("click", function(){ viewRemoteDoc(d); });
-        box.appendChild(row);
+        return row;
+      }
+      groups.forEach(function(g){
+        if(g.docs.length===1){ box.appendChild(docLine(g.docs[0], false)); return; }
+        // Multi-stop load: a header you tap to expand, then a View for each stop's document.
+        var head=document.createElement("div");
+        head.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;";
+        head.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;"><span class="rdCaret" style="display:inline-block;width:12px;color:var(--muted);">▸</span> PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
+          '<div style="color:var(--muted);font-size:12px;">'+g.docs.length+' documents · tap to view each stop</div></div>'+
+          '<span style="font-size:11px;font-weight:700;color:var(--brand,#1655d1);background:#e7effe;border-radius:999px;padding:3px 9px;white-space:nowrap;">'+g.docs.length+' stops</span>';
+        box.appendChild(head);
+        var kids=[];
+        g.docs.forEach(function(d){ var line=docLine(d, true); line.style.display="none"; box.appendChild(line); kids.push(line); });
+        head.addEventListener("click", function(){
+          var caret=head.querySelector(".rdCaret"); var show=kids.length&&kids[0].style.display==="none";
+          kids.forEach(function(k){ k.style.display = show?"flex":"none"; }); if(caret) caret.textContent = show?"▾":"▸";
+        });
       });
     }catch(e){ card.classList.add("hide"); }
   }
