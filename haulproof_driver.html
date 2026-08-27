@@ -424,7 +424,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-26g · recent documents</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27a · save keeps close button</div>
   </section>
 </main>
 
@@ -1509,7 +1509,22 @@ window.__startApp=function(){
   }); }
   function closePv(){ $("pdfViewer").classList.remove("on"); $("pdfViewer").setAttribute("aria-hidden","true"); $("pvBody").innerHTML=""; pvBytes=null; }
   $("pvClose").addEventListener("click", closePv);
-  $("pvDownload").addEventListener("click", function(){ if(!pvBytes) return; var url=URL.createObjectURL(new Blob([pvBytes],{type:"application/pdf"})); var a=document.createElement("a"); a.href=url; a.download=pvName+".pdf"; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(url);},1000); });
+  $("pvDownload").addEventListener("click", function(){
+    if(!pvBytes) return;
+    var url=URL.createObjectURL(new Blob([pvBytes],{type:"application/pdf"}));
+    // iOS/iPadOS ignore the <a download> attribute and instead navigate the whole
+    // app away to preview the PDF, stranding the driver with no Close button.
+    // On those devices open the PDF in a SEPARATE tab so the app (and its ✕ Close)
+    // stays put underneath. Everywhere else, do a normal silent download.
+    var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && (navigator.maxTouchPoints||0)>1);
+    if(isIOS){
+      var w=window.open(url,"_blank");
+      if(!w){ alert("Allow pop-ups for this site to open the PDF, or use the ✕ to go back — your document is already saved."); }
+    } else {
+      var a=document.createElement("a"); a.href=url; a.download=pvName+".pdf"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+    setTimeout(function(){URL.revokeObjectURL(url);},60000);
+  });
   // ---- Driver's recent documents (from the server) ----
   async function loadMyDocuments(){
     var card=$("recentDocsCard"); if(!card) return;

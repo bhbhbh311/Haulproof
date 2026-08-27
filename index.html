@@ -84,6 +84,19 @@
   .ssoNote.warn{color:#8a5a13;background:var(--warn-soft);border:1px solid #f0dcc0;}
   .ssoNote.info{color:var(--primary);background:var(--primary-soft);border:1px solid #cdddf8;}
   .hide{display:none !important;}
+  .tabhidden{display:none !important;}
+  /* Top bar: section tabs on the left, compact invite to the side */
+  #portalTop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+  .tabbar{display:flex;gap:6px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px;flex:1 1 auto;min-width:0;}
+  .tab{background:transparent;color:var(--muted);border:none;box-shadow:none;font-family:var(--display,inherit);font-weight:700;font-size:14px;padding:9px 15px;border-radius:calc(var(--radius) - 6px);cursor:pointer;white-space:nowrap;}
+  .tab:hover{background:var(--primary-soft);color:var(--ink);}
+  .tab.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(20,60,140,.18);}
+  .inviteSide{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px;flex:0 1 340px;min-width:240px;}
+  .inviteSide .inviteSideLabel{font-family:var(--display,inherit);font-weight:800;font-size:13px;color:var(--ink);margin-bottom:8px;}
+  .inviteSide .inviteSideRow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .inviteSide input{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:8px 9px;flex:1 1 140px;min-width:120px;}
+  .inviteSide button,.inviteSide a{font-size:13px;padding:8px 11px;border-radius:8px;}
+  .inviteSide #inviteMsg{font-size:12px;font-weight:600;flex-basis:100%;}
 </style>
 </head>
 <body>
@@ -126,15 +139,17 @@
   <!-- SEARCH -->
   <div id="appView" class="hide">
 
-    <!-- INVITE / SHARE (any logged-in user) -->
-    <div class="card hide" id="inviteCard">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">Invite to HaulProof</h1><p class="sub" style="margin-bottom:0;">Share this link — a company or driver fills in their details and requests access. Requests come to the Master Admin to grant, deny, or ask a question.</p></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input id="inviteLink" readonly style="min-width:240px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;">
-          <button id="inviteCopy" type="button">Copy link</button>
-          <a id="inviteOpen" href="/request" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;padding:8px 12px;border-radius:8px;">Open</a>
-          <span id="inviteMsg" style="font-size:13px;font-weight:600;"></span>
+    <!-- TOP BAR: section tabs (left) + compact invite to the side (right) -->
+    <div id="portalTop">
+      <div class="tabbar" id="tabBar" role="tablist"></div>
+      <!-- INVITE / SHARE (any logged-in user) -->
+      <div class="inviteSide hide" id="inviteCard" title="Share this link — a company or driver fills in their details and requests access.">
+        <div class="inviteSideLabel">Invite to HaulProof</div>
+        <div class="inviteSideRow">
+          <input id="inviteLink" readonly>
+          <button id="inviteCopy" type="button">Copy</button>
+          <a id="inviteOpen" href="/request" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;">Open</a>
+          <span id="inviteMsg"></span>
         </div>
       </div>
     </div>
@@ -672,6 +687,38 @@
         show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
       } else { show('driverCard', false); show('teamCard', false); show('driversCard', false); }
     }
+    buildTabs();
+  }
+  // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
+  // Cards are grouped; the active tab shows its group and hides the others, so the main
+  // Documents view isn't buried under the management sections. Role logic still decides
+  // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
+  var TAB_DEFS = [
+    { key:'documents', label:'Documents',   cards:['uploadCard','findCard','resultsCard','offeredCard'] },
+    { key:'loads',     label:'Loads',       cards:['loadsCard','loadDetailCard'] },
+    { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
+    { key:'carriers',  label:'Approved carriers', cards:['brokerCarriersCard'] },
+    { key:'team',      label:'Team logins', cards:['teamCard'] },
+    { key:'companies', label:'Companies',   cards:['customersCard','carriersCard','brokersCard','custManageCard'] },
+    { key:'requests',  label:'Requests',    cards:['requestsCard'] }
+  ];
+  function cardExistsForRole(id){ var el=$(id); return !!(el && !el.classList.contains('hide')); }
+  function buildTabs(){
+    var bar=$('tabBar'); if(!bar) return; bar.innerHTML='';
+    var shown = TAB_DEFS.filter(function(t){ return t.cards.some(cardExistsForRole); });
+    shown.forEach(function(t){
+      var b=document.createElement('button'); b.type='button'; b.className='tab';
+      b.textContent=t.label; b.setAttribute('data-tab', t.key);
+      b.onclick=function(){ selectTab(t.key); };
+      bar.appendChild(b);
+    });
+    if(shown.length){ var def = shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
+  }
+  function selectTab(key){
+    var active={};
+    TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
+    TAB_DEFS.forEach(function(t){ t.cards.forEach(function(c){ var el=$(c); if(el) el.classList.toggle('tabhidden', !active[c]); }); });
+    var bar=$('tabBar'); if(bar){ Array.prototype.forEach.call(bar.children, function(btn){ btn.classList.toggle('active', btn.getAttribute('data-tab')===key); }); }
   }
   // --- Invite link (all users) + access-request inbox (super-admin) ---
   function loadInviteLink(){ var el=$('inviteLink'); if(el) el.value = location.origin + '/request'; }
