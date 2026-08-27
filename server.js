@@ -132,7 +132,10 @@ function driverHtml() {
       + '<meta name="apple-mobile-web-app-capable" content="yes">'
       + '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
       + '<meta name="apple-mobile-web-app-title" content="HaulProof">'
-      + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">';
+      + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">'
+      // Register the service worker so the home-screen app always loads the freshest
+      // build (network-first) and auto-updates itself instead of serving a stale cache.
+      + '<script>if("serviceWorker" in navigator){try{navigator.serviceWorker.register("/sw.js",{scope:"/driver"});var _hpHad=!!navigator.serviceWorker.controller,_hpRef=false;navigator.serviceWorker.addEventListener("controllerchange",function(){if(_hpRef)return;if(!_hpHad){_hpHad=true;return;}_hpRef=true;location.reload();});}catch(e){}}</script>';
     const boot = '<script>try{var k=new URL(location.href).searchParams.get("k");var cur=JSON.parse(localStorage.getItem("hp_cfg")||"{}");localStorage.setItem("hp_cfg",JSON.stringify({endpoint:location.origin+"/api/pods/ingest",apikey:k||cur.apikey||""}));}catch(e){}</script>';
     DRIVER_HTML = html.replace('</head>', headTags + '</head>').replace('<body>', '<body>' + boot);
     DRIVER_MTIME = mt;
@@ -144,6 +147,53 @@ app.get('/driver', (_req, res) => {
   // Ask the phone to revalidate every open so a new build is picked up instead of a stale cached copy.
   res.set('Cache-Control', 'no-cache, must-revalidate');
   res.type('html').send(h);
+});
+// --- Service worker: makes the Add-to-Home-Screen app self-updating instead of stale-cached. ---
+// Strategy: network-FIRST for the app + its assets (always load the newest build when online),
+// cache only as an offline fallback, and never touch API calls (POST uploads / GET loads stay live).
+// The cache name is versioned to the current driver build, so every deploy retires the old cache.
+const SW_JS = `// HaulProof driver service worker (auto-generated)
+var CACHE='__VERSION__';
+self.addEventListener('install', function(e){ self.skipWaiting(); });
+self.addEventListener('activate', function(e){
+  e.waitUntil((async function(){
+    var keys = await caches.keys();
+    await Promise.all(keys.filter(function(k){ return k!==CACHE; }).map(function(k){ return caches.delete(k); }));
+    await self.clients.claim();
+  })());
+});
+self.addEventListener('fetch', function(e){
+  var req = e.request;
+  if(req.method !== 'GET') return;                       // uploads / posts go straight to the network
+  var url;
+  try { url = new URL(req.url); } catch(_) { return; }
+  if(url.origin !== self.location.origin) return;        // don't touch cross-origin
+  if(url.pathname.indexOf('/api/') === 0) return;        // never cache API — always live
+  e.respondWith((async function(){
+    try {
+      var fresh = await fetch(req);                       // network first
+      if(fresh && fresh.ok){
+        var cacheable = req.mode === 'navigate'
+          || url.pathname.indexOf('/icons/') === 0
+          || url.pathname.indexOf('/vendor/') === 0
+          || url.pathname === '/manifest.webmanifest';
+        if(cacheable){ var c = await caches.open(CACHE); c.put(req, fresh.clone()); }
+      }
+      return fresh;
+    } catch(err) {                                        // offline: fall back to cache
+      var hit = await caches.match(req);
+      if(hit) return hit;
+      if(req.mode === 'navigate'){ var d = await caches.match('/driver'); if(d) return d; }
+      throw err;
+    }
+  })());
+});`;
+app.get('/sw.js', (_req, res) => {
+  let ver = 'hp-0';
+  try { ver = 'hp-' + Math.floor(fs.statSync(path.join(__dirname, 'haulproof_driver.html')).mtimeMs); } catch (_) {}
+  res.type('text/javascript');
+  res.set('Cache-Control', 'no-cache, must-revalidate');   // so the phone always re-checks the SW
+  res.send(SW_JS.replace('__VERSION__', ver));
 });
 function pdfjsFile(name) {
   const roots = [path.join(__dirname, 'node_modules', 'pdfjs-dist', 'build'), path.join(__dirname, 'node_modules', 'pdfjs-dist', 'legacy', 'build')];
