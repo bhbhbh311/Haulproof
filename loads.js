@@ -63,8 +63,16 @@ router.get('/', requireAuth, (req, res) => {
   // Attach ONLY the latest history event to each load (the list shows the current step;
   // the full timeline lives in the load's detail view).
   const lastEv = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt DESC LIMIT 1`);
-  const out = rows.map(l => ({ ...loadOut(l), lastEvent: lastEv.get(l.id) || null }));
-  res.json({ count: out.length, results: out });
+  // Carrier/broker viewers also see which CUSTOMER each load came from (customers never see this — they
+  // only ever see their own loads).
+  const viewerIsCB = isCarrier(req) || isBroker(req);
+  const orgName = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
+  const out = rows.map(l => {
+    const o = { ...loadOut(l), lastEvent: lastEv.get(l.id) || null };
+    if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
+    return o;
+  });
+  res.json({ count: out.length, results: out, viewerKind: req.user.orgKind || null });
 });
 
 // One load plus its documents.
@@ -156,10 +164,19 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
 router.post('/:id/assign-driver', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
-  const driverName = (req.body && req.body.driverName || '').trim();
+  let driverName = (req.body && req.body.driverName || '').trim();
   const truck = (req.body && req.body.truck || '').trim();
   const trailer = (req.body && req.body.trailer || '').trim();
-  if (!driverName) return res.status(400).json({ error: "Enter the driver's name" });
+  // Optional: pick a registered driver (of the caller's org). We then route the load's prepared docs to
+  // that driver's phone (their "Your loads") by stamping assignedDriverId on them.
+  const driverId = (req.body && req.body.driverId || '').trim() || null;
+  if (driverId) {
+    const drv = db.prepare(`SELECT * FROM drivers WHERE id = ? AND orgId = ?`).get(driverId, req.user.orgId || null);
+    if (!drv) return res.status(400).json({ error: 'That driver was not found on your account' });
+    driverName = drv.name || driverName;
+    try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE loadId = ? AND status IN ('received','prepared')`).run(drv.id, drv.name, load.id); } catch (e) {}
+  }
+  if (!driverName) return res.status(400).json({ error: "Choose or enter the driver's name" });
   db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_assigned',
     detail: 'Driver ' + driverName + (truck ? ' · Truck ' + truck : '') + (trailer ? ' · Trailer ' + trailer : ''), actor: actorOf(req) });

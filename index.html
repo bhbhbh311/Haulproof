@@ -579,6 +579,10 @@
           <span id="ldDrvSummary" style="font-size:13px;color:var(--muted);margin-left:auto;"></span>
         </div>
         <div id="ldDrvBody" class="hide" style="margin-top:12px;">
+          <div class="row" style="grid-template-columns:1fr;margin-bottom:10px;">
+            <div><label>Assign a driver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">pick from your drivers — routes the load to their phone</span></label>
+              <select id="ldDrvSelect"><option value="">— choose a driver —</option></select></div>
+          </div>
           <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
             <div><label>Driver name</label><input id="ldDrv"></div>
             <div><label>Truck #</label><input id="ldTruck"></div>
@@ -1366,9 +1370,11 @@
       const heading = q
         ? `<div class="sub" style="margin:0 0 8px;">${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"</div>`
         : `<div class="sub" style="margin:0 0 8px;">Latest ${showing.length} load${showing.length === 1 ? '' : 's'}${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
-      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th><th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
+      const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
+      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
+          ${isCB ? `<td>${esc(l.customerName) || '<span style="color:var(--muted)">— your own —</span>'}</td>` : ''}
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
           <td>${loadStatusChip(l)}</td>
@@ -1411,8 +1417,10 @@
       renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
       $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
       $('ldDrvMsg').textContent = '';
-      // Driver & equipment collapses by default; the header shows who's set.
-      if ($('ldDrvBody')) { $('ldDrvBody').classList.add('hide'); $('ldDrvCaret').textContent = '▸'; }
+      // Driver & equipment: collapsed by default for customers, but OPEN for carriers (assigning a
+      // driver is their main action here). The header shows who's set.
+      populateLdDrivers();
+      if ($('ldDrvBody')) { $('ldDrvBody').classList.toggle('hide', !carrierUser); $('ldDrvCaret').textContent = carrierUser ? '▾' : '▸'; }
       if ($('ldDrvSummary')) $('ldDrvSummary').textContent = curLoad.driverName ? (curLoad.driverName + (curLoad.truck ? (' · Truck ' + curLoad.truck) : '')) : 'Not set — tap to add';
       populateSalesRep();
       if ($('ldSalesRep')) $('ldSalesRep').value = '';
@@ -1729,13 +1737,34 @@
     const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
     curLoad = r.load; renderCarrierNow(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
   }
+  // Populate the "Assign a driver" dropdown from this account's registered drivers.
+  let _ldSelectedDriverId = '';
+  async function populateLdDrivers() {
+    const sel = $('ldDrvSelect'); if (!sel) return;
+    _ldSelectedDriverId = '';
+    sel.innerHTML = '<option value="">— choose a driver —</option>';
+    try {
+      const r = await api('/api/drivers');
+      (r.drivers || []).filter(d => d.active !== false).forEach(d => {
+        const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : ''); o.dataset.name = d.name;
+        if (curLoad && curLoad.driverName && d.name === curLoad.driverName) { o.selected = true; _ldSelectedDriverId = d.id; }
+        sel.appendChild(o);
+      });
+    } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
+  }
+  if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () {
+    _ldSelectedDriverId = this.value || '';
+    const opt = this.options[this.selectedIndex];
+    if (opt && opt.dataset && opt.dataset.name) $('ldDrv').value = opt.dataset.name;
+  };
   $('ldDrvBtn').onclick = async () => {
     const driverName = $('ldDrv').value.trim();
-    if (!driverName) { $('ldDrvMsg').textContent = "Enter the driver's name"; $('ldDrvMsg').className = 'umsg-err'; return; }
+    if (!driverName && !_ldSelectedDriverId) { $('ldDrvMsg').textContent = "Choose or enter the driver's name"; $('ldDrvMsg').className = 'umsg-err'; return; }
     $('ldDrvMsg').textContent = 'Saving…'; $('ldDrvMsg').className = '';
     try {
-      const r = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, truck: $('ldTruck').value.trim(), trailer: $('ldTrailer').value.trim() }) });
-      curLoad = r.load; $('ldDrvMsg').textContent = 'Saved ✓'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id);
+      const r = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, driverId: _ldSelectedDriverId, truck: $('ldTruck').value.trim(), trailer: $('ldTrailer').value.trim() }) });
+      curLoad = r.load; $('ldDrv').value = curLoad.driverName || driverName;
+      $('ldDrvMsg').textContent = _ldSelectedDriverId ? 'Saved ✓ — sent to the driver’s app' : 'Saved ✓'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id);
     } catch (e) { $('ldDrvMsg').textContent = e.message; $('ldDrvMsg').className = 'umsg-err'; }
   };
   async function loadHistory(id) {
