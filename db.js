@@ -174,6 +174,7 @@ addColumn('orgs', 'externalId', 'TEXT');  // e.g. "hubspot:12345" — for import
 addColumn('pods', 'receiverId', 'TEXT');
 addColumn('pods', 'receiverName', 'TEXT');
 addColumn('pods', 'stopNumber', 'INTEGER');   // multi-stop loads: 1st stop, 2nd stop, … under the same PO/Load
+addColumn('pods', 'salesRepUserId', 'TEXT');  // team login who reps this stop → notified when the stop completes
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
@@ -222,6 +223,21 @@ CREATE TABLE IF NOT EXISTS receiver_contacts (
   createdAt  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rcontacts_recv ON receiver_contacts(receiverId);
+-- Who gets update emails. Per-load subscribers (this load only) and the account-wide master list.
+CREATE TABLE IF NOT EXISTS load_subscribers (
+  loadId    TEXT NOT NULL,
+  userId    TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (loadId, userId)
+);
+CREATE INDEX IF NOT EXISTS idx_loadsubs_load ON load_subscribers(loadId);
+CREATE TABLE IF NOT EXISTS org_notify (
+  orgId     TEXT NOT NULL,
+  userId    TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (orgId, userId)
+);
+CREATE INDEX IF NOT EXISTS idx_orgnotify_org ON org_notify(orgId);
 CREATE TABLE IF NOT EXISTS access_requests (
   id TEXT PRIMARY KEY,
   code TEXT,

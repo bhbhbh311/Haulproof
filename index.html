@@ -498,6 +498,10 @@
             <div><label>Document type</label><select id="ldDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
             <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select></div>
           </div>
+          <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
+            <div><label>Sales rep for this stop <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — emailed when this stop completes</span></label>
+              <select id="ldSalesRep"><option value="">— none —</option></select></div>
+          </div>
           <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen. Uncheck any pages below you don't want.</div></div>
           <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,#fafafa);max-height:340px;overflow:auto;"></div>
@@ -535,13 +539,31 @@
         </div>
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
-        <h1 style="font-size:16px;">Driver &amp; equipment</h1>
-        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-          <div><label>Driver name</label><input id="ldDrv"></div>
-          <div><label>Truck #</label><input id="ldTruck"></div>
-          <div><label>Trailer # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldTrailer"></div>
+        <div id="ldDrvToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+          <span id="ldDrvCaret" style="font-size:14px;color:var(--muted);width:14px;">▸</span>
+          <h1 style="font-size:16px;margin:0;">Driver &amp; equipment</h1>
+          <span id="ldDrvSummary" style="font-size:13px;color:var(--muted);margin-left:auto;"></span>
         </div>
-        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver &amp; equipment</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
+        <div id="ldDrvBody" class="hide" style="margin-top:12px;">
+          <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+            <div><label>Driver name</label><input id="ldDrv"></div>
+            <div><label>Truck #</label><input id="ldTruck"></div>
+            <div><label>Trailer # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldTrailer"></div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver &amp; equipment</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
+        </div>
+      </div>
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <div id="ldSubsToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+          <span id="ldSubsCaret" style="font-size:14px;color:var(--muted);width:14px;">▸</span>
+          <h1 style="font-size:16px;margin:0;">Load updates</h1>
+          <span id="ldSubsSummary" style="font-size:13px;color:var(--muted);margin-left:auto;"></span>
+        </div>
+        <div id="ldSubsBody" class="hide" style="margin-top:12px;">
+          <p class="sub" style="margin-top:0;">Team members who get an email as each stop on this load completes. (Your account “Always notify” list is also included automatically.)</p>
+          <div id="ldSubsList" style="display:flex;flex-wrap:wrap;gap:8px 18px;"><div class="empty">Loading team…</div></div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldSubsSave" type="button">Save recipients</button><span id="ldSubsMsg" style="font-size:13px;font-weight:600;"></span></div>
+        </div>
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;">History</h1>
@@ -697,6 +719,12 @@
         <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
         <tbody id="userRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
+        <h1 style="font-size:16px;margin-bottom:4px;">Always notify (master list)</h1>
+        <p class="sub" style="margin-top:0;">These team members get an update email whenever stops complete — on every load, automatically. Set it once here.</p>
+        <div id="mnList" style="display:flex;flex-wrap:wrap;gap:8px 18px;"><div class="empty">Loading…</div></div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="mnSave" type="button">Save master list</button><span id="mnMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
     </div>
 
     <!-- DRIVERS (admin only) -->
@@ -911,6 +939,8 @@
       loadReceiverOptions();
     }
     buildTabs();
+    // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
+    if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('loads'); } catch (e) {} openLoad(_dl); }
   }
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
@@ -1347,6 +1377,14 @@
       renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
       $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
       $('ldDrvMsg').textContent = '';
+      // Driver & equipment collapses by default; the header shows who's set.
+      if ($('ldDrvBody')) { $('ldDrvBody').classList.add('hide'); $('ldDrvCaret').textContent = '▸'; }
+      if ($('ldDrvSummary')) $('ldDrvSummary').textContent = curLoad.driverName ? (curLoad.driverName + (curLoad.truck ? (' · Truck ' + curLoad.truck) : '')) : 'Not set — tap to add';
+      populateSalesRep();
+      if ($('ldSalesRep')) $('ldSalesRep').value = '';
+      if ($('ldSubsBody')) { $('ldSubsBody').classList.add('hide'); $('ldSubsCaret').textContent = '▸'; }
+      if ($('ldSubsMsg')) $('ldSubsMsg').textContent = '';
+      loadLoadSubscribers();
       loadHistory(id);
       // Stops & documents
       renderLoadDocs(r.pods || []);
@@ -1376,7 +1414,7 @@
         <td><span class="chip ${p.status}">${p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
-          ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
+          ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           &nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -1386,6 +1424,50 @@
       catch (e) { alert(e.message); }
     });
   }
+  // Driver & equipment: collapsible section.
+  if ($('ldDrvToggle')) $('ldDrvToggle').onclick = () => { const b = $('ldDrvBody'); b.classList.toggle('hide'); $('ldDrvCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; };
+
+  // ---- Team logins (cached) → sales-rep picker + update subscribers ----
+  let _teamUsers = null;
+  async function getTeamUsers() { if (_teamUsers) return _teamUsers; try { const r = await api('/api/users'); _teamUsers = r.users || []; } catch (e) { _teamUsers = []; } return _teamUsers; }
+  async function populateSalesRep() {
+    const sel = $('ldSalesRep'); if (!sel) return;
+    const users = await getTeamUsers();
+    sel.innerHTML = '<option value="">— none —</option>' + users.map(u => `<option value="${u.id}">${esc(u.name || u.email)}${u.role === 'sales' ? ' (sales)' : ''}</option>`).join('');
+  }
+  async function loadLoadSubscribers() {
+    const box = $('ldSubsList'); if (!box || !curLoad) return;
+    const users = await getTeamUsers();
+    let selected = [];
+    try { const r = await api('/api/loads/' + curLoad.id + '/subscribers'); selected = r.userIds || []; } catch (e) {}
+    if (!users.length) { box.innerHTML = '<div class="empty">No team logins yet — add users under Team logins first.</div>'; }
+    else box.innerHTML = users.map(u => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" class="ldSubCb" value="${u.id}" style="width:auto;"${selected.indexOf(u.id) > -1 ? ' checked' : ''}> ${esc(u.name || u.email)}</label>`).join('');
+    if ($('ldSubsSummary')) $('ldSubsSummary').textContent = selected.length ? (selected.length + ' getting updates') : 'None yet';
+  }
+  if ($('ldSubsToggle')) $('ldSubsToggle').onclick = () => { const b = $('ldSubsBody'); b.classList.toggle('hide'); $('ldSubsCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; if (!b.classList.contains('hide')) loadLoadSubscribers(); };
+  if ($('ldSubsSave')) $('ldSubsSave').onclick = async () => {
+    const ids = Array.prototype.map.call($('ldSubsList').querySelectorAll('.ldSubCb:checked'), c => c.value);
+    $('ldSubsMsg').textContent = 'Saving…'; $('ldSubsMsg').className = '';
+    try { const r = await api('/api/loads/' + curLoad.id + '/subscribers', { method: 'PUT', body: JSON.stringify({ userIds: ids }) });
+      $('ldSubsMsg').textContent = 'Saved ✓'; $('ldSubsMsg').className = 'umsg-ok';
+      if ($('ldSubsSummary')) $('ldSubsSummary').textContent = (r.userIds || []).length ? ((r.userIds || []).length + ' getting updates') : 'None yet';
+    } catch (e) { $('ldSubsMsg').textContent = e.message; $('ldSubsMsg').className = 'umsg-err'; }
+  };
+  // ---- Master notify list (Team logins card) ----
+  async function loadMasterNotify() {
+    const box = $('mnList'); if (!box) return;
+    const users = await getTeamUsers();
+    let selected = [];
+    try { const r = await api('/api/users/notify'); selected = r.userIds || []; } catch (e) {}
+    if (!users.length) { box.innerHTML = '<div class="empty">Add team logins above first.</div>'; return; }
+    box.innerHTML = users.map(u => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" class="mnCb" value="${u.id}" style="width:auto;"${selected.indexOf(u.id) > -1 ? ' checked' : ''}> ${esc(u.name || u.email)}${u.role === 'sales' ? ' (sales)' : ''}</label>`).join('');
+  }
+  if ($('mnSave')) $('mnSave').onclick = async () => {
+    const ids = Array.prototype.map.call($('mnList').querySelectorAll('.mnCb:checked'), c => c.value);
+    $('mnMsg').textContent = 'Saving…'; $('mnMsg').className = '';
+    try { await api('/api/users/notify', { method: 'PUT', body: JSON.stringify({ userIds: ids }) }); $('mnMsg').textContent = 'Saved ✓'; $('mnMsg').className = 'umsg-ok'; }
+    catch (e) { $('mnMsg').textContent = e.message; $('mnMsg').className = 'umsg-err'; }
+  };
   // Edit the load's basic fields.
   if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { $('ldEditForm').classList.toggle('hide'); };
   if ($('ldEditCancel')) $('ldEditCancel').onclick = () => $('ldEditForm').classList.add('hide');
@@ -1458,7 +1540,8 @@
         headers: { 'Content-Type': 'application/pdf', 'X-Enc': 'uri',
           'X-PO': encodeURIComponent(curLoad.poNumber || ''), 'X-Load': encodeURIComponent(curLoad.loadNumber || ''),
           'X-Stop': encodeURIComponent(stop), 'X-DocType': encodeURIComponent($('ldDocType').value),
-          'X-Receiver': encodeURIComponent(($('ldReceiver') || {}).value || ''), 'X-Filename': encodeURIComponent(filename) },
+          'X-Receiver': encodeURIComponent(($('ldReceiver') || {}).value || ''),
+          'X-SalesRep': encodeURIComponent(($('ldSalesRep') || {}).value || ''), 'X-Filename': encodeURIComponent(filename) },
         body: buf });
       if (!res.ok) { const e = await res.json().catch(() => ({})); $('ldUploadMsg').textContent = e.error || 'Upload failed'; $('ldUploadMsg').className = 'umsg-err'; return; }
       $('ldUploadMsg').textContent = 'Uploaded ✓'; $('ldUploadMsg').className = 'umsg-ok';
@@ -1809,6 +1892,8 @@
   async function loadUsers() {
     try {
       const r = await api('/api/users');
+      _teamUsers = r.users || [];
+      loadMasterNotify();
       const tb = $('userRows');
       if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; return; }
       tb.innerHTML = r.users.map(u => `<tr>
@@ -1924,6 +2009,7 @@
     const m = SSO_MESSAGES[s] || ['warn', 'Microsoft sign-in didn’t complete. Please try again.'];
     const el = $('ssoMsg'); el.className = 'ssoNote ' + m[0]; el.textContent = m[1]; el.classList.remove('hide');
   }
+  var DEEP_LOAD = null; try { DEEP_LOAD = new URLSearchParams(location.search).get('load'); } catch (e) {}
   function cleanUrl() { if (location.search) history.replaceState({}, '', location.pathname); }
   async function boot() {
     // Show the Microsoft button only when the server says SSO is configured.

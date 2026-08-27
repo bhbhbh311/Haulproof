@@ -123,6 +123,9 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     // filed as another stop on the SAME PO/Load — so we do NOT auto-suffix the PO in that case.
     const stopRaw = parseInt((dec(h['x-stop']) || '').trim(), 10);
     const stopNumber = (Number.isFinite(stopRaw) && stopRaw > 0) ? stopRaw : null;
+    // Team login who reps this stop — emailed when the stop completes. Must belong to the filing org.
+    let salesRepUserId = (dec(h['x-salesrep']) || '').trim() || null;
+    if (salesRepUserId && !db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(salesRepUserId, orgId)) salesRepUserId = null;
     if (!poNumber) return res.status(422).json({ error: 'Customer PO # is required for every document' });
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
@@ -133,9 +136,9 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     const load = findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy: req.user.email });
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
-      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
+      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
     logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf') + (stopNumber ? ' (Stop ' + stopNumber + ')' : ''), actor: req.user.email });
     res.json({ ok: true, id, poNumber, stopNumber });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
@@ -211,10 +214,11 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // Carry the receiver tag (and stop number) from the prepared doc onto this signed one.
     try {
-      const prep = db.prepare(`SELECT receiverId, receiverName, stopNumber FROM pods WHERE loadId = ? AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
+      const prep = db.prepare(`SELECT receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL OR salesRepUserId IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
       if (prep) {
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
+        if (prep.salesRepUserId) db.prepare(`UPDATE pods SET salesRepUserId = ? WHERE id = ?`).run(prep.salesRepUserId, id);
       }
     } catch (e) {}
     // Signing an assigned prepared load fulfills it → drop it off that driver's "Your loads".
@@ -227,7 +231,15 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       const p = db.prepare(`SELECT receiverId FROM pods WHERE id = ?`).get(id);
       if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != ''`).all(p.receiverId).map(r => r.email);
     } catch (e) {}
-    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails]));
+    // Stop-completed updates → this stop's sales rep + this load's subscribers + the account master list (all team logins).
+    let notifyEmails = [];
+    try {
+      const p = db.prepare(`SELECT salesRepUserId FROM pods WHERE id = ?`).get(id);
+      if (p && p.salesRepUserId) { const u = db.prepare(`SELECT email FROM users WHERE id = ?`).get(p.salesRepUserId); if (u && u.email) notifyEmails.push(u.email); }
+      db.prepare(`SELECT u.email FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(load.id).forEach(r => notifyEmails.push(r.email));
+      db.prepare(`SELECT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId WHERE onf.orgId IS ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(orgId).forEach(r => notifyEmails.push(r.email));
+    } catch (e) {}
+    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails]));
     let mail = { sent: false };
     if (allRecipients.length) {
       mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });

@@ -76,6 +76,26 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ load: loadOut(load), pods });
 });
 
+// Who gets update emails for THIS load (chosen from the customer's own team logins).
+router.get('/:id/subscribers', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const rows = db.prepare(`SELECT userId FROM load_subscribers WHERE loadId = ?`).all(load.id);
+  res.json({ userIds: rows.map(r => r.userId) });
+});
+router.put('/:id/subscribers', requireAuth, (req, res) => {
+  const load = ownedLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const ids = Array.isArray(req.body && req.body.userIds) ? req.body.userIds : [];
+  const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(uid, load.orgId || null));
+  db.transaction(() => {
+    db.prepare(`DELETE FROM load_subscribers WHERE loadId = ?`).run(load.id);
+    const ins = db.prepare(`INSERT OR IGNORE INTO load_subscribers (loadId, userId, createdAt) VALUES (?,?,?)`);
+    valid.forEach(uid => ins.run(load.id, uid, Date.now()));
+  })();
+  res.json({ ok: true, userIds: valid });
+});
+
 // Edit a load's basic fields (owning customer or super). Changing the PO # cascades to its documents.
 router.put('/:id', requireAuth, (req, res) => {
   const load = ownedLoad(req, req.params.id);

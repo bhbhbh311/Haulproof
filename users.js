@@ -27,6 +27,24 @@ router.get('/', requireAuth, requireAdmin, (req, res) => {
   res.json({ users });
 });
 
+// Master notify list: team logins who always get an update email when a load's stops complete.
+router.get('/notify', requireAuth, requireAdmin, (req, res) => {
+  const orgId = scopeOrgId(req);
+  const rows = db.prepare(`SELECT userId FROM org_notify WHERE orgId IS ?`).all(orgId);
+  res.json({ userIds: rows.map(r => r.userId) });
+});
+router.put('/notify', requireAuth, requireAdmin, (req, res) => {
+  const orgId = scopeOrgId(req);
+  const ids = Array.isArray(req.body && req.body.userIds) ? req.body.userIds : [];
+  const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(uid, orgId));
+  db.transaction(() => {
+    db.prepare(`DELETE FROM org_notify WHERE orgId IS ?`).run(orgId);
+    const ins = db.prepare(`INSERT OR IGNORE INTO org_notify (orgId, userId, createdAt) VALUES (?,?,?)`);
+    valid.forEach(uid => ins.run(orgId, uid, Date.now()));
+  })();
+  res.json({ ok: true, userIds: valid });
+});
+
 // Create a login in this customer.
 router.post('/', requireAuth, requireAdmin, (req, res) => {
   const orgId = scopeOrgId(req);
