@@ -25,6 +25,8 @@
   .who{margin-left:auto;color:var(--muted);font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
   .who .uname{font-weight:600;color:var(--ink);}
   .rolebadge{font-family:var(--display);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);background:var(--primary-soft);padding:3px 10px;border-radius:20px;}
+  .rolebadge.alt{color:var(--muted);background:var(--surface-2,#eef2f7);}
+  .who .orgname{font-weight:600;color:var(--muted);}
   .who button{margin-left:2px;padding:8px 13px;font-size:13px;}
   main{max-width:1040px;margin:0 auto;padding:26px 20px 64px;}
   /* cards */
@@ -734,8 +736,13 @@
   }
   function enterApp(u) {
     user = u;
-    const roleLabel = u.role === 'superadmin' ? 'master admin' : u.role;
-    $('who').innerHTML = `<span class="uname">${esc(user.name||user.email)}</span> <span class="rolebadge">${esc(roleLabel)}</span> <button class="ghost" id="logoutBtn">Sign out</button>`;
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    const kinds = u.role === 'superadmin' ? 'Master Admin' : (((u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : [])).map(cap).join(' · ') || 'User');
+    $('who').innerHTML = `<span class="uname">${esc(user.name||user.email)}</span>`
+      + (user.orgName ? ` <span class="orgname">${esc(user.orgName)}</span>` : '')
+      + ` <span class="rolebadge">${esc(kinds)}</span>`
+      + (u.role !== 'superadmin' && u.role ? ` <span class="rolebadge alt">${esc(cap(u.role))}</span>` : '')
+      + ` <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);

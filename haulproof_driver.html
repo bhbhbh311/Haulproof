@@ -291,7 +291,7 @@
   <span class="wordmark">Haul<b>Proof</b></span>
   <button class="drvbadge hide" id="drvBadge" type="button" title="Signed-on driver — tap to sign off">
     <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
-    <span id="drvName"></span>
+    <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;"><span id="drvName"></span><span id="drvCompany" style="font-size:10px;opacity:.7;font-weight:600;"></span></span>
   </button>
   <button class="pill" id="cloudPill" type="button"><span class="dot"></span><span id="cloudTxt">…</span></button>
 </header>
@@ -424,7 +424,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27b · map links on coordinates</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27c · company + role shown</div>
   </section>
 </main>
 
@@ -634,10 +634,17 @@ window.__startApp=function(){
   /* ============ driver sign on / off ============ */
   function driverName(){ try{ return (localStorage.getItem("hp_driver")||"").trim(); }catch(e){ return ""; } }
   function setDriver(n){ try{ if(n){ localStorage.setItem("hp_driver", n); } else { localStorage.removeItem("hp_driver"); } }catch(e){} }
+  function driverCompany(){ try{ return (localStorage.getItem("hp_company")||"").trim(); }catch(e){ return ""; } }
+  function driverKind(){ try{ return (localStorage.getItem("hp_kind")||"").trim(); }catch(e){ return ""; } }
+  function setCompany(c,k){ try{ if(c) localStorage.setItem("hp_company",c); else localStorage.removeItem("hp_company"); if(k) localStorage.setItem("hp_kind",k); else localStorage.removeItem("hp_kind"); }catch(e){} }
   function renderDrvBadge(){
     var n=driverName(), b=$("drvBadge");
-    if(n){ $("drvName").textContent=n; b.classList.remove("hide"); }
-    else { b.classList.add("hide"); }
+    if(n){
+      $("drvName").textContent=n;
+      var c=driverCompany(), k=driverKind(), kl=k?(k.charAt(0).toUpperCase()+k.slice(1)):"";
+      if($("drvCompany")) $("drvCompany").textContent = c ? (c + (kl?(" · "+kl):"")) : kl;
+      b.classList.remove("hide");
+    } else { b.classList.add("hide"); }
   }
   // The driver's name comes from their personal link — no sign-on needed. A friendly daily welcome instead.
   var WELCOME_LINES=[
@@ -675,7 +682,7 @@ window.__startApp=function(){
       $("pinBtn").disabled=false;
       if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
       if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
-      var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); $("pinErr").textContent=""; finishStart();
+      var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); setCompany(d.company,d.companyKind); $("pinErr").textContent=""; finishStart();
     }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
   }
   $("pinBtn").addEventListener("click", verifyPin);
@@ -688,6 +695,7 @@ window.__startApp=function(){
       try{ var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}}); if(r.ok) info=await r.json(); }catch(e){}
     }
     if(info && info.name){ setDriver(info.name); }          // remember the driver's real name for offline opens
+    if(info){ setCompany(info.company, info.companyKind); }  // and which company / kind their link belongs to
     if(info && info.requiresPin && !loadUnlock()){ showPinGate(); return; }
     finishStart();
   }

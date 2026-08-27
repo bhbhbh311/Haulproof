@@ -24,21 +24,21 @@ function orgKindOf(orgId) {
   const o = db.prepare(`SELECT kind FROM orgs WHERE id = ?`).get(orgId);
   return o ? (o.kind || 'customer') : null;
 }
-// Full org context for the session: kind (legacy primary role), roles[] (multi-role), parentId.
+// Full org context for the session: kind (legacy primary role), roles[] (multi-role), parentId, company name.
 function orgMetaOf(orgId) {
-  if (!orgId) return { kind: null, roles: [], parentId: null };
-  const o = db.prepare(`SELECT kind, roles, parentId FROM orgs WHERE id = ?`).get(orgId);
-  if (!o) return { kind: null, roles: [], parentId: null };
+  if (!orgId) return { kind: null, roles: [], parentId: null, name: null };
+  const o = db.prepare(`SELECT name, kind, roles, parentId FROM orgs WHERE id = ?`).get(orgId);
+  if (!o) return { kind: null, roles: [], parentId: null, name: null };
   let roles = [];
   try { roles = o.roles ? JSON.parse(o.roles) : []; } catch (e) { roles = []; }
   if (!roles.length) roles = [o.kind || 'customer'];
-  return { kind: o.kind || 'customer', roles, parentId: o.parentId || null };
+  return { kind: o.kind || 'customer', roles, parentId: o.parentId || null, name: o.name || null };
 }
-// Sign a 12h session token. Carries the user's role, which org they belong to, that org's kind,
+// Sign a 12h session token. Carries the user's role, which org they belong to, that org's kind + name,
 // its full role set (so a customer that is also a receiver gets both views), and its parent (hierarchy).
 function signToken(u) {
   const m = orgMetaOf(u.orgId);
-  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, parentId: m.parentId }, JWT_SECRET, { expiresIn: '12h' });
+  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId }, JWT_SECRET, { expiresIn: '12h' });
 }
 
 function login(email, password) {
@@ -48,7 +48,7 @@ function login(email, password) {
   if (u.orgId) { const o = db.prepare(`SELECT active FROM orgs WHERE id = ?`).get(u.orgId); if (o && !o.active) return null; }
   const token = signToken(u);
   const m = orgMetaOf(u.orgId);
-  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, parentId: m.parentId } };
+  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId } };
 }
 
 // Provision (or refresh) a user who signed in through Microsoft SSO. No password is set.

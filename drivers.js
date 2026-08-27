@@ -27,17 +27,18 @@ function driverOut(req, d) {
 router.get('/link-info', (req, res) => {
   const r = resolveKey(req);
   if (!r) return res.status(401).json({ error: 'This link is not valid' });
-  res.json({ requiresPin: !!(r.driver && r.driver.pinHash), name: r.driver ? r.driver.name : '' });
+  res.json({ requiresPin: !!(r.driver && r.driver.pinHash), name: r.driver ? r.driver.name : '',
+    company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
 });
 // Exchange the correct PIN for an "unlock" value the app stores and replays on every request.
 router.post('/verify-pin', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const d = r.driver;
-  if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '' });   // no PIN set — nothing to check
+  if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });   // no PIN set — nothing to check
   const pin = String((req.body && req.body.pin) || '');
   if (!bcrypt.compareSync(pin, d.pinHash)) return res.status(401).json({ error: 'That PIN is not correct' });
-  res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '' });
+  res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
 });
 
 // Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
