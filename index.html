@@ -107,6 +107,7 @@
   .poHist:hover{text-decoration:underline !important;}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <script src="/vendor/pdf.js"></script>
 </head>
 <body>
 <div class="bar">
@@ -498,7 +499,8 @@
             <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select></div>
           </div>
           <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
-            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen.</div></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen. Uncheck any pages below you don't want.</div></div>
+          <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,#fafafa);max-height:340px;overflow:auto;"></div>
           <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
             <button id="ldUploadBtn" type="button">Upload to this stop</button>
             <button class="ghost" id="ldStopCancel" type="button">Cancel</button>
@@ -1353,6 +1355,8 @@
       $('ldEditMsg').textContent = ''; $('ldUploadMsg').textContent = '';
       $('ldStop').value = nextStopNumber(r.pods || []);
       if ($('ldFiles')) $('ldFiles').value = '';
+      if ($('ldPagePicker')) { $('ldPagePicker').innerHTML = ''; $('ldPagePicker').classList.add('hide'); }
+      ldPageState = []; ldFileBufs = [];
       loadReceiverOptions();
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
@@ -1397,15 +1401,58 @@
   // Add a stop / upload documents to this load.
   if ($('ldAddStopToggle')) $('ldAddStopToggle').onclick = () => { $('ldStopForm').classList.toggle('hide'); if (!$('ldStopForm').classList.contains('hide')) $('ldStop').focus(); };
   if ($('ldStopCancel')) $('ldStopCancel').onclick = () => $('ldStopForm').classList.add('hide');
+  // ---- Page picker: render a thumbnail of every page of the selected PDFs, each with a checkbox. ----
+  let ldPageState = [];   // { fileIdx, pageIdx, cb }
+  let ldFileBufs = [];    // ArrayBuffer per selected file (reused for assembly)
+  async function ldRenderPages() {
+    const picker = $('ldPagePicker'); if (!picker) return;
+    const files = Array.from(($('ldFiles') || {}).files || []);
+    picker.innerHTML = ''; ldPageState = []; ldFileBufs = [];
+    if (!files.length || !window.pdfjsLib) { picker.classList.add('hide'); return; }
+    picker.classList.remove('hide');
+    picker.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Uncheck any pages you don\'t want — only the checked pages are merged, in order.</div>';
+    try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
+    const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;'; picker.appendChild(grid);
+    for (let fi = 0; fi < files.length; fi++) {
+      let buf; try { buf = await files[fi].arrayBuffer(); } catch (e) { continue; }
+      ldFileBufs[fi] = buf;
+      let pdf; try { pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise; } catch (e) { continue; }
+      for (let pi = 0; pi < pdf.numPages; pi++) {
+        const page = await pdf.getPage(pi + 1);
+        const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 100 / vp0.width });
+        const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
+        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;';
+        try { await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise; } catch (e) {}
+        const wrap = document.createElement('label'); wrap.style.cssText = 'width:100px;font-size:11px;text-align:center;cursor:pointer;';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.style.marginBottom = '3px';
+        const cap = document.createElement('div'); cap.style.color = 'var(--muted)'; cap.textContent = (files.length > 1 ? ('File ' + (fi + 1) + ' · ') : '') + 'p' + (pi + 1);
+        wrap.appendChild(cb); wrap.appendChild(canvas); wrap.appendChild(cap); grid.appendChild(wrap);
+        ldPageState.push({ fileIdx: fi, pageIdx: pi, cb });
+      }
+    }
+  }
+  if ($('ldFiles')) $('ldFiles').addEventListener('change', ldRenderPages);
   if ($('ldUploadBtn')) $('ldUploadBtn').onclick = async () => {
     const files = Array.from(($('ldFiles') || {}).files || []);
     if (!files.length) { $('ldUploadMsg').textContent = 'Choose PDF file(s)'; $('ldUploadMsg').className = 'umsg-err'; return; }
     if (files.some(f => f.type && f.type !== 'application/pdf')) { $('ldUploadMsg').textContent = 'All files must be PDFs'; $('ldUploadMsg').className = 'umsg-err'; return; }
     const stop = $('ldStop').value.trim();
-    $('ldUploadMsg').textContent = files.length > 1 ? ('Merging ' + files.length + ' PDFs…') : 'Uploading…'; $('ldUploadMsg').className = '';
+    const selected = ldPageState.filter(s => s.cb.checked);
+    const usePicker = ldPageState.length > 0 && window.PDFLib;
+    if (usePicker && !selected.length) { $('ldUploadMsg').textContent = 'Keep at least one page'; $('ldUploadMsg').className = 'umsg-err'; return; }
+    $('ldUploadMsg').textContent = 'Building document…'; $('ldUploadMsg').className = '';
     try {
       let buf, filename;
-      if (files.length > 1) { buf = await mergePdfs(files); filename = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '') + '-merged-' + files.length + 'docs.pdf'; }
+      if (usePicker) {
+        // Assemble only the checked pages, in the order shown.
+        const out = await PDFLib.PDFDocument.create(); const cache = {};
+        for (const s of selected) {
+          if (!cache[s.fileIdx]) cache[s.fileIdx] = await PDFLib.PDFDocument.load(ldFileBufs[s.fileIdx], { ignoreEncryption: true });
+          const [pg] = await out.copyPages(cache[s.fileIdx], [s.pageIdx]); out.addPage(pg);
+        }
+        buf = await out.save();
+        filename = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '') + (selected.length !== ldPageState.length ? '-trimmed' : (files.length > 1 ? '-merged' : '')) + '.pdf';
+      } else if (files.length > 1) { buf = await mergePdfs(files); filename = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '') + '-merged-' + files.length + 'docs.pdf'; }
       else { buf = await files[0].arrayBuffer(); filename = files[0].name; }
       const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/pdf', 'X-Enc': 'uri',
