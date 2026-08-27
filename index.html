@@ -466,7 +466,45 @@
     <div class="card hide" id="loadDetailCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
-        <button class="ghost" id="ldBack" type="button">← Back to loads</button>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost" id="ldEditBtn" type="button">✎ Edit</button>
+          <button class="ghost" id="ldBack" type="button">← Back to loads</button>
+        </div>
+      </div>
+      <div id="ldEditForm" class="hide" style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;">
+        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
+          <div><label>Customer PO #</label><input id="ldEditPo"></div>
+          <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
+          <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditCons"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;">
+          <button id="ldEditSave" type="button">Save changes</button>
+          <button class="ghost" id="ldEditCancel" type="button">Cancel</button>
+          <span id="ldEditMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+
+      <!-- Stops & documents on this load -->
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
+          <button class="ghost" id="ldAddStopToggle" type="button">＋ Add stop / documents</button>
+        </div>
+        <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
+        <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
+          <div class="row" style="grid-template-columns:0.6fr 1fr 1fr;">
+            <div><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
+            <div><label>Document type</label><select id="ldDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+            <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select></div>
+          </div>
+          <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen.</div></div>
+          <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+            <button id="ldUploadBtn" type="button">Upload to this stop</button>
+            <button class="ghost" id="ldStopCancel" type="button">Cancel</button>
+            <span id="ldUploadMsg" style="font-size:13px;font-weight:600;"></span>
+          </div>
+        </div>
       </div>
       <div style="margin-top:18px;" id="ldCarrierSection">
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
@@ -1308,9 +1346,70 @@
       $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
       $('ldDrvMsg').textContent = '';
       loadHistory(id);
+      // Stops & documents
+      renderLoadDocs(r.pods || []);
+      $('ldEditForm').classList.add('hide'); $('ldStopForm').classList.add('hide');
+      $('ldEditPo').value = curLoad.poNumber || ''; $('ldEditLoad').value = curLoad.loadNumber || ''; $('ldEditCons').value = curLoad.consignee || '';
+      $('ldEditMsg').textContent = ''; $('ldUploadMsg').textContent = '';
+      $('ldStop').value = nextStopNumber(r.pods || []);
+      if ($('ldFiles')) $('ldFiles').value = '';
+      loadReceiverOptions();
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
+  function nextStopNumber(pods) {
+    const nums = pods.map(p => p.stopNumber).filter(n => n != null);
+    return nums.length ? (Math.max.apply(null, nums) + 1) : 1;
+  }
+  function renderLoadDocs(pods) {
+    const box = $('ldDocs'); if (!box) return;
+    if (!pods.length) { box.innerHTML = '<div class="empty">No documents on this load yet. Use “Add stop / documents” to file the first one.</div>'; return; }
+    box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>' +
+      pods.map(p => `<tr>
+        <td>${p.stopNumber ? `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber}</span>` : '<span class="empty">—</span>'}</td>
+        <td>${esc(p.docType) || 'POD'}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
+        <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
+        <td><span class="chip ${p.status}">${p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
+        <td style="text-align:right;"><a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a></td></tr>`).join('') +
+      '</tbody></table>';
+  }
+  // Edit the load's basic fields.
+  if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { $('ldEditForm').classList.toggle('hide'); };
+  if ($('ldEditCancel')) $('ldEditCancel').onclick = () => $('ldEditForm').classList.add('hide');
+  if ($('ldEditSave')) $('ldEditSave').onclick = async () => {
+    const po = $('ldEditPo').value.trim(); if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; return; }
+    $('ldEditMsg').textContent = 'Saving…'; $('ldEditMsg').className = '';
+    try {
+      await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify({ poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() }) });
+      $('ldEditMsg').textContent = 'Saved ✓'; $('ldEditMsg').className = 'umsg-ok';
+      openLoad(curLoad.id);
+    } catch (e) { $('ldEditMsg').textContent = e.message; $('ldEditMsg').className = 'umsg-err'; }
+  };
+  // Add a stop / upload documents to this load.
+  if ($('ldAddStopToggle')) $('ldAddStopToggle').onclick = () => { $('ldStopForm').classList.toggle('hide'); if (!$('ldStopForm').classList.contains('hide')) $('ldStop').focus(); };
+  if ($('ldStopCancel')) $('ldStopCancel').onclick = () => $('ldStopForm').classList.add('hide');
+  if ($('ldUploadBtn')) $('ldUploadBtn').onclick = async () => {
+    const files = Array.from(($('ldFiles') || {}).files || []);
+    if (!files.length) { $('ldUploadMsg').textContent = 'Choose PDF file(s)'; $('ldUploadMsg').className = 'umsg-err'; return; }
+    if (files.some(f => f.type && f.type !== 'application/pdf')) { $('ldUploadMsg').textContent = 'All files must be PDFs'; $('ldUploadMsg').className = 'umsg-err'; return; }
+    const stop = $('ldStop').value.trim();
+    $('ldUploadMsg').textContent = files.length > 1 ? ('Merging ' + files.length + ' PDFs…') : 'Uploading…'; $('ldUploadMsg').className = '';
+    try {
+      let buf, filename;
+      if (files.length > 1) { buf = await mergePdfs(files); filename = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '') + '-merged-' + files.length + 'docs.pdf'; }
+      else { buf = await files[0].arrayBuffer(); filename = files[0].name; }
+      const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/pdf', 'X-Enc': 'uri',
+          'X-PO': encodeURIComponent(curLoad.poNumber || ''), 'X-Load': encodeURIComponent(curLoad.loadNumber || ''),
+          'X-Stop': encodeURIComponent(stop), 'X-DocType': encodeURIComponent($('ldDocType').value),
+          'X-Receiver': encodeURIComponent(($('ldReceiver') || {}).value || ''), 'X-Filename': encodeURIComponent(filename) },
+        body: buf });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); $('ldUploadMsg').textContent = e.error || 'Upload failed'; $('ldUploadMsg').className = 'umsg-err'; return; }
+      $('ldUploadMsg').textContent = 'Uploaded ✓'; $('ldUploadMsg').className = 'umsg-ok';
+      $('ldFiles').value = '';
+      openLoad(curLoad.id);
+    } catch (e) { $('ldUploadMsg').textContent = e.message; $('ldUploadMsg').className = 'umsg-err'; }
+  };
   function renderCarrierNow() {
     const parts = [];
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>');
@@ -1943,6 +2042,7 @@
     const active = list.filter(r => r.active !== false);
     const opts = '<option value="">— none —</option>' + active.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
     if ($('uReceiver')) $('uReceiver').innerHTML = opts;
+    if ($('ldReceiver')) $('ldReceiver').innerHTML = opts;
     if ($('nrParent')) $('nrParent').innerHTML = '<option value="">— none (top-level) —</option>' + active.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
   }
   // Fill just the pickers (for anyone who can file a document).

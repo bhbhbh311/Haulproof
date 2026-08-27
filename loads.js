@@ -76,6 +76,29 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ load: loadOut(load), pods });
 });
 
+// Edit a load's basic fields (owning customer or super). Changing the PO # cascades to its documents.
+router.put('/:id', requireAuth, (req, res) => {
+  const load = ownedLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const b = req.body || {};
+  const loadNumber = (b.loadNumber !== undefined) ? ((b.loadNumber || '').trim() || null) : load.loadNumber;
+  const consignee = (b.consignee !== undefined) ? ((b.consignee || '').trim() || null) : load.consignee;
+  let poNumber = load.poNumber;
+  if (b.poNumber !== undefined) {
+    const newPo = (b.poNumber || '').trim();
+    if (!newPo) return res.status(400).json({ error: 'PO # cannot be empty' });
+    if (newPo !== load.poNumber) {
+      const clash = db.prepare(`SELECT id FROM loads WHERE orgId IS ? AND poNumber = ? AND id != ?`).get(load.orgId || null, newPo, load.id);
+      if (clash) return res.status(409).json({ error: 'Another load already uses PO ' + newPo });
+      poNumber = newPo;
+    }
+  }
+  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, load.id);
+  if (poNumber !== load.poNumber) db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ?`).run(poNumber, load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated', actor: actorOf(req) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+});
+
 // Hand a load to a broker. Only the owning customer (or super) does this.
 router.post('/:id/assign-broker', requireAuth, (req, res) => {
   const load = ownedLoad(req, req.params.id);
