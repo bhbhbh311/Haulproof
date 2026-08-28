@@ -280,8 +280,11 @@
   #pdfViewer .pv-close,#pdfViewer .pv-dl{font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:9px;padding:10px 15px;cursor:pointer;flex:none;}
   #pdfViewer .pv-close{background:var(--btn-grad,linear-gradient(180deg,#2f6ae4,#1655d1));color:#fff;box-shadow:var(--btn-shadow);}
   #pdfViewer .pv-dl{background:var(--surface-2,#f5f7fa);color:var(--ink,#16202b);border:1px solid var(--line-strong,#c6d0db);}
-  #pdfViewer .pv-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;display:flex;flex-direction:column;align-items:center;gap:14px;}
-  #pdfViewer .pv-page{background:#fff;box-shadow:var(--shadow);border-radius:6px;overflow:hidden;max-width:100%;}
+  /* min-height:0 lets this flex child actually scroll instead of expanding past the viewport; the safe-area
+     padding keeps the last page clear of the iPhone home indicator. */
+  #pdfViewer .pv-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:14px;}
+  /* flex-shrink:0 stops the pages being squished to fit — each keeps full height and the body scrolls. */
+  #pdfViewer .pv-page{background:#fff;box-shadow:var(--shadow);border-radius:6px;overflow:hidden;max-width:100%;flex-shrink:0;}
   #pdfViewer .pv-page canvas{display:block;width:100%;height:auto;}
 </style>
 </head>
