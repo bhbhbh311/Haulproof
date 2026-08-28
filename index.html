@@ -1448,7 +1448,24 @@
   }
   function renderLoadDocs(pods) {
     const box = $('ldDocs'); if (!box) return;
-    if (!pods.length) { box.innerHTML = '<div class="empty">No documents on this load yet. Use “Add stop / documents” to file the first one.</div>'; return; }
+    // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
+    // load reads as having a stop from the moment it's created — click "Add document" to file into it.
+    if (!pods.length) {
+      box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>'
+        + '<tr>'
+        + '<td><span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop 1</span></td>'
+        + '<td><span class="empty">—</span></td>'
+        + '<td><span class="empty">—</span></td>'
+        + '<td><span class="chip" style="background:var(--surface2,#eef3fb);color:var(--muted);">Awaiting document</span></td>'
+        + '<td style="text-align:right;white-space:nowrap;"><button class="ghost ldAddToStop" data-stop="1" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;">＋ Add document</button></td>'
+        + '</tr></tbody></table>';
+      const addBtn = box.querySelector('.ldAddToStop');
+      if (addBtn) addBtn.onclick = () => {
+        if ($('ldStopForm')) $('ldStopForm').classList.remove('hide');
+        if ($('ldStop')) { $('ldStop').value = addBtn.dataset.stop || '1'; $('ldStop').focus(); }
+      };
+      return;
+    }
     box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>' +
       pods.map(p => `<tr>
         <td>${p.stopNumber ? `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber}</span>` : '<span class="empty">—</span>'}</td>
