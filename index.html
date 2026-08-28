@@ -1824,6 +1824,7 @@
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost cmuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost cmuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset pw</button>
+        <button class="ghost cmuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
         <button class="ghost cmuDel" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
       </td></tr>`).join('');
   }
@@ -1986,7 +1987,8 @@
     } catch (e) { cmMsg($('cmuMsg'), e.message, 'err'); }
   };
   $('cmUserRows').addEventListener('click', async (e) => {
-    const ed = e.target.closest('.cmuEdit'), r = e.target.closest('.cmuReset'), d = e.target.closest('.cmuDel');
+    const ed = e.target.closest('.cmuEdit'), r = e.target.closest('.cmuReset'), d = e.target.closest('.cmuDel'), lk = e.target.closest('.cmuLink');
+    if (lk) { genLoginLink(lk.dataset.id); return; }
     if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role }, cmOrgId, cmLoadUsers); return; }
     if (r) { const np = randPw(); try { await api('/api/users/' + r.dataset.id + '/password?orgId=' + encodeURIComponent(cmOrgId), { method: 'POST', body: JSON.stringify({ password: np }) }); cmMsg($('cmuMsg'), 'New password for ' + r.dataset.email + ': ' + np + ' (copy now)', 'ok'); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
     if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
@@ -2068,6 +2070,46 @@
   const myId = () => (user && (user.sub || user.id)) || null;
   function nuMsg(t, kind) { const el = $('nuMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
   function randPass() { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 10; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+  // Generate a shareable "here's your login" link for a user and show it so the admin can send it.
+  async function genLoginLink(userId) {
+    try { const r = await api('/api/users/' + userId + '/login-link', { method: 'POST' }); showLoginLink(r.link, r.email); }
+    catch (e) { alert(e.message); }
+  }
+  // Copy a link so it pastes as a tidy clickable word (label) in rich editors (email, Teams), and as the
+  // plain URL everywhere else (SMS, plain text). Falls back to copying the URL if rich copy isn't supported.
+  async function copyRichLink(url, label) {
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const html = '<a href="' + url + '">' + label + '</a>';
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([url], { type: 'text/plain' })
+        })]);
+        return true;
+      }
+    } catch (e) {}
+    try { await navigator.clipboard.writeText(url); return true; } catch (e) { return false; }
+  }
+  function showLoginLink(link, email) {
+    const label = 'HaulProof Login';
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,40,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px;';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#fff;border-radius:16px;max-width:470px;width:100%;padding:24px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);';
+    card.innerHTML = '<h1 style="font-size:18px;margin:0 0 6px;">Login link ready</h1>'
+      + '<p class="sub" style="margin:0 0 14px;color:var(--muted);font-size:14px;">Send this to <b>' + esc(email) + '</b>. Use <b>Copy link</b> to paste a tidy “' + esc(label) + '” link into an email or text — they open it to see their login and a temporary password. Works for 7 days; don’t share it more widely.</p>'
+      + '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:#fbfcff;">'
+      + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="font-weight:700;color:var(--primary);text-decoration:none;">🔗 ' + esc(label) + ' →</a>'
+      + '<button type="button" class="llCopy" style="padding:8px 13px;border:1px solid var(--primary);background:#fff;color:var(--primary);border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy link</button></div>'
+      + '<details style="margin-top:10px;"><summary style="font-size:12px;color:var(--muted);cursor:pointer;">Show full web address</summary><div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><input readonly class="llUrl" value="' + esc(link) + '" style="flex:1;min-width:0;font-size:12px;padding:9px;border:1px solid var(--line);border-radius:9px;font-family:monospace;"><button type="button" class="llCopyUrl" style="padding:9px 12px;border:1px solid var(--line);background:#fff;border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy URL</button></div></details>'
+      + '<div style="text-align:right;margin-top:16px;"><button type="button" class="llClose" style="padding:9px 16px;border:none;background:var(--primary);color:#fff;border-radius:9px;font-weight:700;cursor:pointer;">Done</button></div>';
+    ov.appendChild(card); document.body.appendChild(ov);
+    card.querySelector('.llCopy').onclick = async function () { const ok = await copyRichLink(link, label); const b = this, o = b.textContent; b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { b.textContent = o; }, 1500); };
+    card.querySelector('.llCopyUrl').onclick = async function () { const inp = card.querySelector('.llUrl'); try { inp.select(); } catch (e) {} const ok = await copyText(link); const b = this, o = b.textContent; b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { b.textContent = o; }, 1500); };
+    const close = function () { if (ov.parentNode) document.body.removeChild(ov); };
+    card.querySelector('.llClose').onclick = close;
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  }
   async function loadUsers() {
     try {
       const r = await api('/api/users');
@@ -2081,6 +2123,7 @@
         <td style="text-align:right;white-space:nowrap;">
           <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
           <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
+          <button class="ghost nuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
           ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
         </td></tr>`).join('');
     } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
@@ -2099,7 +2142,8 @@
     } catch (e) { nuMsg(e.message, 'err'); }
   };
   $('userRows').addEventListener('click', async (e) => {
-    const ed = e.target.closest('.nuEdit'), rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel');
+    const ed = e.target.closest('.nuEdit'), rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel'), lk = e.target.closest('.nuLink');
+    if (lk) { genLoginLink(lk.dataset.id); return; }
     if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role }, '', loadUsers); return; }
     if (rb) {
       const np = randPass();
