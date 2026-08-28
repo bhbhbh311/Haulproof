@@ -260,6 +260,19 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });
       if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
     }
+    // Persist the FULL recipient list on the record (not just the consignee email typed at signing) and
+    // record an 'emailed' event on the load history — an audit trail of exactly who was notified.
+    try {
+      db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(allRecipients), id);
+      const stopRow = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
+      const stopTag = (stopRow && stopRow.stopNumber) ? ('Stop ' + stopRow.stopNumber + ' — ') : '';
+      let detail;
+      if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
+      else if (mail.sent) detail = stopTag + 'Emailed to ' + allRecipients.length + ' recipient' + (allRecipients.length > 1 ? 's' : '') + ': ' + allRecipients.join(', ');
+      else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + allRecipients.join(', ');
+      else detail = stopTag + 'Email NOT sent' + (mail.error ? ' (' + mail.error + ')' : '') + ' — intended recipients: ' + allRecipients.join(', ');
+      logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'emailed', detail, actor: meta.driver || 'driver' });
+    } catch (e) {}
     res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: allRecipients });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ingest failed' }); }
 });
