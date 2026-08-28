@@ -60,6 +60,30 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
 
+// --- Super-admin maintenance: a login is unique by email across the WHOLE system, but logins are only
+//     listed per-account — so a login attached to a deleted/hidden org becomes invisible while still
+//     blocking its email. These two routes let a super-admin locate and clear such a stray login.
+//     (Defined BEFORE the '/:id' routes so 'by-email' isn't captured as an :id.)
+router.get('/lookup', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Super-admin only' });
+  const em = (req.query.email || '').toLowerCase().trim();
+  if (!em) return res.status(400).json({ error: 'email is required' });
+  const u = db.prepare('SELECT id, email, name, role, orgId, createdAt FROM users WHERE email = ?').get(em);
+  if (!u) return res.json({ user: null });
+  const org = u.orgId ? db.prepare('SELECT id, name, kind FROM orgs WHERE id = ?').get(u.orgId) : null;
+  res.json({ user: Object.assign({}, u, { org: org || null, orgExists: !!org }) });
+});
+router.delete('/by-email', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Super-admin only' });
+  const em = (req.query.email || (req.body && req.body.email) || '').toLowerCase().trim();
+  if (!em) return res.status(400).json({ error: 'email is required' });
+  const u = db.prepare('SELECT id, email, name, role, orgId FROM users WHERE email = ?').get(em);
+  if (!u) return res.status(404).json({ error: 'No login exists with that email' });
+  if (u.role === 'superadmin') return res.status(400).json({ error: 'Refusing to delete a super-admin login' });
+  db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+  res.json({ ok: true, deleted: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId } });
+});
+
 // Edit a login's email / name / role (fix input mistakes). Same customer only.
 router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
