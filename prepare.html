@@ -77,7 +77,7 @@
       b.classList.add('on'); activeTool={role:b.dataset.role,kind:b.dataset.kind};
     });
   });
-  var backTo='/';
+  var backTo='/app';
   $('#backBtn').addEventListener('click',function(){ location.href=backTo; });
 
   if(!DOC_ID){ $('#loadMsg').textContent='No document id — open this from the portal.'; return; }
@@ -88,7 +88,7 @@
   fetch('/api/pods/'+DOC_ID,{credentials:'include'}).then(function(r){return r.json();}).then(function(m){
     if(m.error){ $('#loadMsg').textContent=m.error; return; }
     meta=m; $('#ctx').textContent='PO '+(m.poNumber||'—')+(m.loadNumber?(' · Load '+m.loadNumber):'')+(m.consignee?(' · '+m.consignee):'');
-    if(m.loadId){ backTo='/?load='+encodeURIComponent(m.loadId); $('#backBtn').textContent='← Back to load'; }
+    if(m.loadId){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn').textContent='← Back to load'; }
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
     if(!buf) return;

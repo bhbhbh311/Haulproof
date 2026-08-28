@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HaulProof — Electronic Proof of Delivery for Trucking</title>
+<meta name="description" content="HaulProof captures signed BOLs and PODs on the driver's phone and emails them to everyone who needs them the moment a stop is complete. Built for carriers, brokers, shippers, and 3PLs.">
+<meta name="theme-color" content="#1655d1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f5f8fd; --surface2:#eef3fb; --card:#ffffff;
+    --text:#0e1a2d; --muted:#566780; --border:#e3e9f2;
+    --primary:#1655d1; --primary-dark:#0f3fa6; --primary-soft:#e7effe;
+    --ok:#12b76a; --ok-soft:#e4f7ee;
+    --shadow:0 1px 2px rgba(16,32,58,.05), 0 12px 32px -12px rgba(16,32,58,.18);
+    --shadow-lg:0 24px 60px -20px rgba(16,44,110,.35);
+    --radius:16px;
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme: dark){
+      --bg:#0a1120; --surface:#0e1729; --surface2:#111d33; --card:#111d33;
+      --text:#eaf1fb; --muted:#9aabc4; --border:#1e2c46;
+      --primary:#4d84f0; --primary-dark:#2e63cf; --primary-soft:#16274a;
+      --ok:#34d399; --ok-soft:#12291f;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+      --shadow-lg:0 30px 70px -24px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0a1120; --surface:#0e1729; --surface2:#111d33; --card:#111d33;
+    --text:#eaf1fb; --muted:#9aabc4; --border:#1e2c46;
+    --primary:#4d84f0; --primary-dark:#2e63cf; --primary-soft:#16274a;
+    --ok:#34d399; --ok-soft:#12291f;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+    --shadow-lg:0 30px 70px -24px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  h1,h2,h3,.brand{font-family:"Plus Jakarta Sans","Inter",sans-serif; letter-spacing:-.02em; line-height:1.12; margin:0}
+  a{color:inherit; text-decoration:none}
+  p{margin:0}
+  .wrap{width:100%; max-width:1140px; margin:0 auto; padding:0 24px}
+  .eyebrow{font-family:"Plus Jakarta Sans",sans-serif; font-weight:700; font-size:13px; letter-spacing:.09em; text-transform:uppercase; color:var(--primary)}
+
+  /* ---------- buttons ---------- */
+  .btn{display:inline-flex; align-items:center; gap:8px; font-family:"Plus Jakarta Sans",sans-serif; font-weight:700; font-size:15px;
+    padding:12px 22px; border-radius:11px; cursor:pointer; border:1px solid transparent; transition:transform .15s ease, box-shadow .15s ease, background .15s ease; white-space:nowrap}
+  .btn:hover{transform:translateY(-1px)}
+  .btn-primary{background:var(--primary); color:#fff; box-shadow:0 8px 20px -8px rgba(22,85,209,.6)}
+  .btn-primary:hover{background:var(--primary-dark)}
+  .btn-ghost{background:transparent; color:var(--text); border-color:var(--border)}
+  .btn-ghost:hover{border-color:var(--primary); color:var(--primary)}
+  .btn-lg{padding:15px 28px; font-size:16px}
+
+  /* ---------- nav ---------- */
+  header.nav{position:sticky; top:0; z-index:50; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:saturate(180%) blur(12px); border-bottom:1px solid transparent; transition:border-color .2s}
+  header.nav.scrolled{border-bottom-color:var(--border)}
+  .navrow{display:flex; align-items:center; justify-content:space-between; height:68px}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px}
+  .brandmark{width:32px; height:32px; border-radius:9px; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); display:grid; place-items:center; box-shadow:0 6px 14px -6px rgba(22,85,209,.7)}
+  .navlinks{display:flex; align-items:center; gap:30px}
+  .navlinks a.link{font-weight:600; font-size:15px; color:var(--muted)}
+  .navlinks a.link:hover{color:var(--text)}
+  .navcta{display:flex; align-items:center; gap:12px}
+  .menutoggle{display:none; background:none; border:1px solid var(--border); border-radius:10px; width:42px; height:42px; cursor:pointer; color:var(--text)}
+
+  /* ---------- hero ---------- */
+  .hero{position:relative; padding:72px 0 40px; overflow:hidden}
+  .hero:before{content:""; position:absolute; inset:-40% 0 auto 0; height:680px; z-index:0;
+    background:radial-gradient(60% 60% at 70% 20%, var(--primary-soft), transparent 70%); opacity:.9}
+  .herogrid{position:relative; z-index:1; display:grid; grid-template-columns:1.05fr .95fr; gap:52px; align-items:center}
+  .pill{display:inline-flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--border); color:var(--muted);
+    font-size:13px; font-weight:600; padding:7px 14px; border-radius:999px; box-shadow:var(--shadow)}
+  .pill .dot{width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 4px var(--ok-soft)}
+  h1.headline{font-size:clamp(34px,5vw,54px); font-weight:800; margin:20px 0 0}
+  h1.headline .grad{background:linear-gradient(120deg,var(--primary),#3aa0ff); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .subhead{font-size:clamp(16px,2vw,19px); color:var(--muted); margin-top:20px; max-width:33ch}
+  .herocta{display:flex; gap:14px; margin-top:30px; flex-wrap:wrap}
+  .heronote{margin-top:16px; font-size:13.5px; color:var(--muted); display:flex; align-items:center; gap:8px}
+
+  /* ---------- hero visual ---------- */
+  .visual{position:relative; height:460px}
+  .doccard{position:absolute; top:8px; left:0; width:298px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-lg); padding:20px; z-index:1}
+  .doccard .drow{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+  .stopbadge{background:var(--primary); color:#fff; font-size:11px; font-weight:800; padding:3px 9px; border-radius:6px; font-family:"Plus Jakarta Sans",sans-serif}
+  .docmeta{font-size:12px; color:var(--muted)}
+  .docname{font-family:"Plus Jakarta Sans",sans-serif; font-weight:700; font-size:15px; margin-bottom:2px}
+  .skel{height:9px; border-radius:5px; background:var(--surface2); margin:9px 0}
+  .sigbox{margin-top:14px; border:1.5px dashed var(--border); border-radius:11px; padding:12px 14px; background:var(--surface)}
+  .siglabel{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-weight:700}
+  .signed{display:inline-flex; align-items:center; gap:6px; margin-top:8px; color:var(--ok); font-weight:700; font-size:13px}
+
+  .phone{position:absolute; right:0; bottom:0; width:214px; height:430px; background:var(--card); border:1px solid var(--border); border-radius:34px; box-shadow:var(--shadow-lg); padding:14px; z-index:2}
+  .phone .screen{height:100%; background:var(--surface); border-radius:24px; overflow:hidden; display:flex; flex-direction:column}
+  .phone .top{background:linear-gradient(135deg,var(--primary),var(--primary-dark)); color:#fff; padding:16px 14px 14px}
+  .phone .top .t1{font-size:11px; opacity:.85; font-weight:600}
+  .phone .top .t2{font-family:"Plus Jakarta Sans",sans-serif; font-weight:700; font-size:15px; margin-top:2px}
+  .phone .body{padding:12px; flex:1; display:flex; flex-direction:column; gap:9px}
+  .ldrow{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:9px 10px; font-size:11.5px}
+  .ldrow b{font-family:"Plus Jakarta Sans",sans-serif}
+  .ldrow .mini{color:var(--muted); font-size:10.5px}
+  .ldrow.active{border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft)}
+  .notif{position:absolute; top:180px; right:-6px; z-index:3; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:11px 13px; box-shadow:var(--shadow-lg); display:flex; gap:10px; align-items:center; width:212px}
+  .notif .ic{width:30px;height:30px;border-radius:8px; background:var(--ok-soft); color:var(--ok); display:grid; place-items:center; flex:none}
+  .notif .nt{font-size:11px; color:var(--muted)} .notif .nt b{color:var(--text); font-family:"Plus Jakarta Sans",sans-serif; font-size:12.5px; display:block}
+
+  .floaty{animation:floaty 6s ease-in-out infinite}
+  .floaty2{animation:floaty 7s ease-in-out infinite; animation-delay:-2s}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+  /* ---------- trust strip ---------- */
+  .trust{border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--surface); padding:22px 0; margin-top:36px}
+  .trustrow{display:flex; align-items:center; justify-content:center; gap:14px 40px; flex-wrap:wrap; color:var(--muted); font-weight:600; font-size:14px}
+  .trustrow .who{display:flex; align-items:center; gap:9px; font-family:"Plus Jakarta Sans",sans-serif}
+
+  /* ---------- sections ---------- */
+  section.band{padding:84px 0}
+  .sechead{max-width:640px; margin:0 auto 52px; text-align:center}
+  .sechead h2{font-size:clamp(27px,3.6vw,38px); font-weight:800; margin-top:14px}
+  .sechead p{color:var(--muted); font-size:17px; margin-top:14px}
+
+  .fgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+  .fcard{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:26px; box-shadow:var(--shadow); transition:transform .18s ease, box-shadow .18s ease, border-color .18s}
+  .fcard:hover{transform:translateY(-4px); box-shadow:var(--shadow-lg); border-color:color-mix(in srgb,var(--primary) 40%,var(--border))}
+  .ficon{width:46px; height:46px; border-radius:12px; background:var(--primary-soft); color:var(--primary); display:grid; place-items:center; margin-bottom:16px}
+  .fcard h3{font-size:18px; font-weight:700}
+  .fcard p{color:var(--muted); font-size:14.5px; margin-top:9px}
+
+  /* ---------- spotlight (alternating) ---------- */
+  .spot{display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:center; padding:26px 0}
+  .spot.rev .spotmedia{order:2}
+  .spot h2{font-size:clamp(24px,3vw,32px); font-weight:800; margin-top:14px}
+  .spot p.lead{color:var(--muted); font-size:16.5px; margin-top:14px}
+  .checklist{margin-top:22px; display:flex; flex-direction:column; gap:13px}
+  .checklist .ci{display:flex; gap:12px; align-items:flex-start}
+  .checklist .cm{flex:none; width:22px; height:22px; border-radius:7px; background:var(--ok-soft); color:var(--ok); display:grid; place-items:center; margin-top:2px}
+  .checklist .ci b{font-family:"Plus Jakarta Sans",sans-serif; font-weight:700}
+  .checklist .ci span{color:var(--muted); font-size:14.5px}
+
+  .spotmedia{background:linear-gradient(160deg,var(--surface),var(--surface2)); border:1px solid var(--border); border-radius:22px; padding:28px; box-shadow:var(--shadow); position:relative; overflow:hidden}
+
+  /* mini load list mock */
+  .loadgroup{background:var(--card); border:1px solid var(--border); border-radius:13px; overflow:hidden; box-shadow:var(--shadow)}
+  .lg-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:var(--surface2); cursor:default}
+  .lg-head .po{font-family:"Plus Jakarta Sans",sans-serif; font-weight:800; color:var(--primary); font-size:15px}
+  .lg-head .cnt{font-size:12px; color:var(--muted)}
+  .lg-stop{display:flex; align-items:center; gap:12px; padding:13px 16px; border-top:1px solid var(--border)}
+  .lg-stop .s-badge{background:var(--primary); color:#fff; font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:5px; font-family:"Plus Jakarta Sans",sans-serif; flex:none}
+  .lg-stop .s-name{font-size:13.5px; font-weight:600; flex:1}
+  .lg-stop .s-chip{font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px}
+  .chip-ready{background:var(--primary-soft); color:var(--primary)}
+  .chip-signed{background:var(--ok-soft); color:var(--ok)}
+
+  /* notify mock */
+  .maillist{display:flex; flex-direction:column; gap:11px}
+  .mailrow{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--border); border-radius:11px; padding:12px 14px; box-shadow:var(--shadow)}
+  .mailrow .av{width:34px;height:34px;border-radius:9px; display:grid; place-items:center; font-family:"Plus Jakarta Sans",sans-serif; font-weight:800; font-size:13px; color:#fff; flex:none}
+  .mailrow .mi{flex:1; min-width:0}
+  .mailrow .mi b{font-size:13.5px; font-family:"Plus Jakarta Sans",sans-serif; display:block}
+  .mailrow .mi span{font-size:12px; color:var(--muted)}
+  .mailrow .tag{font-size:10.5px; font-weight:700; color:var(--primary); background:var(--primary-soft); padding:3px 8px; border-radius:999px; flex:none}
+
+  /* audit timeline mock */
+  .tl{position:relative; padding-left:26px}
+  .tl:before{content:""; position:absolute; left:8px; top:4px; bottom:4px; width:2px; background:var(--border)}
+  .tl .ev{position:relative; padding:9px 0}
+  .tl .ev:before{content:""; position:absolute; left:-22px; top:14px; width:12px; height:12px; border-radius:50%; background:var(--primary); box-shadow:0 0 0 4px var(--primary-soft)}
+  .tl .ev.done:before{background:var(--ok); box-shadow:0 0 0 4px var(--ok-soft)}
+  .tl .ev b{font-family:"Plus Jakarta Sans",sans-serif; font-weight:700; font-size:14px}
+  .tl .ev span{display:block; font-size:12px; color:var(--muted)}
+
+  /* ---------- how it works ---------- */
+  .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:22px; counter-reset:step}
+  .step{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:28px 26px; position:relative; box-shadow:var(--shadow)}
+  .step .num{font-family:"Plus Jakarta Sans",sans-serif; font-weight:800; font-size:15px; color:#fff; background:var(--primary); width:36px;height:36px; border-radius:10px; display:grid; place-items:center; margin-bottom:16px}
+  .step h3{font-size:18px; font-weight:700}
+  .step p{color:var(--muted); font-size:14.5px; margin-top:9px}
+  .step .arrow{position:absolute; right:-20px; top:44px; color:var(--border); z-index:1; display:block}
+
+  /* ---------- who it's for ---------- */
+  .whogrid{display:grid; grid-template-columns:repeat(4,1fr); gap:18px}
+  .whocard{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px 20px; text-align:center; box-shadow:var(--shadow)}
+  .whocard .wi{width:48px;height:48px;border-radius:13px; margin:0 auto 14px; background:var(--primary-soft); color:var(--primary); display:grid; place-items:center}
+  .whocard h3{font-size:16px; font-weight:700}
+  .whocard p{color:var(--muted); font-size:13.5px; margin-top:7px}
+
+  /* ---------- final CTA ---------- */
+  .ctaband{position:relative; overflow:hidden; background:linear-gradient(135deg,var(--primary),var(--primary-dark)); border-radius:26px; padding:60px 40px; text-align:center; box-shadow:var(--shadow-lg)}
+  .ctaband:before{content:""; position:absolute; inset:0; background:radial-gradient(50% 120% at 15% 10%, rgba(255,255,255,.18), transparent 60%)}
+  .ctaband h2{position:relative; color:#fff; font-size:clamp(26px,3.4vw,38px); font-weight:800}
+  .ctaband p{position:relative; color:rgba(255,255,255,.9); font-size:17px; margin-top:14px; max-width:560px; margin-left:auto; margin-right:auto}
+  .ctaband .row{position:relative; display:flex; gap:14px; justify-content:center; margin-top:28px; flex-wrap:wrap}
+  .btn-white{background:#fff; color:var(--primary-dark)}
+  .btn-white:hover{background:#eef3fb}
+  .btn-outline-w{background:transparent; color:#fff; border-color:rgba(255,255,255,.5)}
+  .btn-outline-w:hover{border-color:#fff}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--border); padding:44px 0 40px; margin-top:20px}
+  .footrow{display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap}
+  .footrow .fl{display:flex; align-items:center; gap:22px; flex-wrap:wrap; color:var(--muted); font-size:14px}
+  .footrow .fl a:hover{color:var(--primary)}
+  .copyright{color:var(--muted); font-size:13px; margin-top:22px}
+
+  /* ---------- reveal (progressive enhancement: hidden only when JS is active) ---------- */
+  .js-reveal .reveal{opacity:0; transform:translateY(18px); transition:opacity .6s ease, transform .6s ease}
+  .js-reveal .reveal.in{opacity:1; transform:none}
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1; transform:none; transition:none}
+    .floaty,.floaty2{animation:none}
+    html{scroll-behavior:auto}
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:960px){
+    .herogrid{grid-template-columns:1fr; gap:36px}
+    .subhead{max-width:none}
+    .visual{height:400px; max-width:420px; margin:0 auto}
+    .fgrid{grid-template-columns:repeat(2,1fr)}
+    .spot{grid-template-columns:1fr; gap:32px}
+    .spot.rev .spotmedia{order:0}
+    .steps{grid-template-columns:1fr; gap:16px}
+    .step .arrow{display:none}
+    .whogrid{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:640px){
+    .navlinks{display:none}
+    .navcta .btn-ghost{display:none}
+    .menutoggle{display:grid; place-items:center}
+    .fgrid{grid-template-columns:1fr}
+    .hero{padding:48px 0 24px}
+    section.band{padding:60px 0}
+    .ctaband{padding:44px 22px}
+    .visual{height:430px}
+  }
+</style>
+</head>
+<body>
+<script>
+  // Gate the scroll-reveal on JS + IntersectionObserver support, so content is ALWAYS visible
+  // without them. Added before paint to avoid a flash of the un-animated state.
+  if ('IntersectionObserver' in window) document.documentElement.className += ' js-reveal';
+  // If the visitor already has a valid session, send them straight to their dashboard instead of
+  // showing the marketing page. (401/any error just means "not logged in" — stay on the landing.)
+  try {
+    fetch('/api/me', { credentials: 'include' })
+      .then(function (r) { if (r && r.ok) location.replace('/app'); })
+      .catch(function () {});
+  } catch (e) {}
+</script>
+
+<!-- NAV -->
+<header class="nav" id="nav">
+  <div class="wrap navrow">
+    <a class="brand" href="#top" aria-label="HaulProof home">
+      <span class="brandmark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5V16H3V7.5Z" fill="#fff"/><path d="M15 10h3.2l2.8 3.2V16H15v-6Z" fill="#cfe0ff"/><circle cx="7" cy="17.5" r="2" fill="#0f3fa6"/><circle cx="17" cy="17.5" r="2" fill="#0f3fa6"/><path d="M8.5 12.5l2 2 4-4" stroke="#1655d1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      HaulProof
+    </a>
+    <nav class="navlinks">
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#how">How it works</a>
+      <a class="link" href="#who">Who it's for</a>
+    </nav>
+    <div class="navcta">
+      <a class="btn btn-ghost" href="/app">Sign in</a>
+      <a class="btn btn-primary" href="#demo">Request a demo</a>
+      <button class="menutoggle" id="menutoggle" aria-label="Menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<a id="top"></a>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap herogrid">
+    <div class="herocopy">
+      <span class="pill"><span class="dot"></span>Proof of delivery, the moment the wheels stop</span>
+      <h1 class="headline">Signed BOLs and PODs, <span class="grad">off the dock and into your inbox.</span></h1>
+      <p class="subhead">HaulProof turns every delivery into a signed, time-stamped document your team can see instantly — captured on the driver's phone, no app store required.</p>
+      <div class="herocta">
+        <a class="btn btn-primary btn-lg" href="#demo">Request a demo</a>
+        <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+      </div>
+      <div class="heronote">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2 2 4-4.5" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="var(--ok)" stroke-width="1.6"/></svg>
+        Multi-stop loads, per-stop signatures, and automatic delivery notifications.
+      </div>
+    </div>
+
+    <!-- HERO VISUAL -->
+    <div class="visual" aria-hidden="true">
+      <div class="doccard floaty">
+        <div class="drow">
+          <div>
+            <div class="docname">Bill of Lading</div>
+            <div class="docmeta">PO OKC827 · Wheeler Metals</div>
+          </div>
+          <span class="stopbadge">Stop 1</span>
+        </div>
+        <div class="skel" style="width:90%"></div>
+        <div class="skel" style="width:75%"></div>
+        <div class="skel" style="width:82%"></div>
+        <div class="sigbox">
+          <span class="siglabel">Received by</span>
+          <svg width="150" height="34" viewBox="0 0 150 34" style="display:block;margin-top:4px"><path d="M4 22c8-14 14 6 20-2s8-12 14-4 10 12 16 2 12-14 20-6 12 12 22 4 18-10 26-2" stroke="var(--primary)" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+          <div class="signed"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2 2 4-4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/></svg>Signed · emailed to your team</div>
+        </div>
+      </div>
+
+      <div class="notif floaty2">
+        <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7l8 6 8-6M4 7v10h16V7M4 7h16" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
+        <div class="nt"><b>Stop 1 complete</b>Sales rep + subscribers notified</div>
+      </div>
+
+      <div class="phone floaty">
+        <div class="screen">
+          <div class="top">
+            <div class="t1">HAULPROOF · DRIVER</div>
+            <div class="t2">Your loads</div>
+          </div>
+          <div class="body">
+            <div class="ldrow active"><b>PO OKC827</b><div class="mini">2 stops · tap to sign</div></div>
+            <div class="ldrow"><b>PO DAL119</b><div class="mini">1 stop · ready</div></div>
+            <div class="ldrow"><b>PO TUL044</b><div class="mini">3 stops · ready</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST -->
+<div class="trust">
+  <div class="wrap trustrow">
+    <span>Built for the whole delivery chain:</span>
+    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 8h11v8H3zM14 11h4l3 3v2h-7z" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Carriers</span>
+    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Brokers</span>
+    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 9l8-5 8 5v9H4z M9 18v-5h6v5" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Shippers</span>
+    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="var(--primary)" stroke-width="1.6"/><path d="M8 9h8M8 13h5" stroke="var(--primary)" stroke-width="1.6" stroke-linecap="round"/></svg>3PLs</span>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="band" id="features">
+  <div class="wrap">
+    <div class="sechead reveal">
+      <span class="eyebrow">Everything in one place</span>
+      <h2>Proof of delivery, without the paperwork chase</h2>
+      <p>Stop hunting for scanned BOLs and chasing drivers for signatures. HaulProof captures it once, cleanly, and routes it everywhere it needs to go.</p>
+    </div>
+    <div class="fgrid">
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="6" y="2.5" width="12" height="19" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M9 6l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Sign on any phone</h3>
+        <p>Drivers open a link — no app store, no login friction. The signature lands exactly where you placed it on the real document.</p>
+      </div>
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="2.3" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="18" r="2.3" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="12" r="2.3" stroke="currentColor" stroke-width="1.7"/><path d="M8 6h6a2 2 0 0 1 2 2v2M8 18h6a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.7"/></svg></div>
+        <h3>Multi-stop loads</h3>
+        <p>One PO, many stops. Each stop keeps its own document and signature, grouped under a single load so nothing gets lost.</p>
+      </div>
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 8l7 5 7-5M5 8v9h14V8M5 8h14" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
+        <h3>Instant notifications</h3>
+        <p>The second a stop is signed, the right people get it — the stop's sales rep, load subscribers, and an always-notify master list.</p>
+      </div>
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 11l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Dispatch to the driver</h3>
+        <p>Assign a load to one of your drivers and it appears on their phone, ready to sign. One driver per load, no mix-ups.</p>
+      </div>
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="19" cy="18" r="2.4" stroke="currentColor" stroke-width="1.7"/></svg></div>
+        <h3>Receiver directory</h3>
+        <p>Keep your delivery locations in one place, import them in bulk, and share a global list every customer can pull from.</p>
+      </div>
+      <div class="fcard reveal">
+        <div class="ficon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 3v4M12 21a9 9 0 1 0 0-18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Full audit trail</h3>
+        <p>Every load has a timeline — created, prepared, assigned, signed, emailed — with the signing location pinned on a map.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SPOTLIGHT 1: multi-stop -->
+<section class="band" style="background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="spot reveal">
+      <div class="spotcopy">
+        <span class="eyebrow">Multi-stop, made simple</span>
+        <h2>One load. Every stop. Zero confusion.</h2>
+        <p class="lead">A single PO with three drops shouldn't turn into three loads and a headache. HaulProof keeps every stop under one load — each with its own document, receiver, and signature.</p>
+        <div class="checklist">
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Grouped by PO#.</b> <span>Open the load and see every stop expand underneath it.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Per-stop sales rep.</b> <span>Each stop notifies the right rep the moment it's complete.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Merge & trim PDFs.</b> <span>Drop in the paperwork, cut the pages you don't need, place the fields.</span></div></div>
+        </div>
+      </div>
+      <div class="spotmedia">
+        <div class="loadgroup">
+          <div class="lg-head"><span class="po">▾ PO OKC827</span><span class="cnt">2 stops</span></div>
+          <div class="lg-stop"><span class="s-badge">Stop 1</span><span class="s-name">Wheeler Metals</span><span class="s-chip chip-signed">Signed</span></div>
+          <div class="lg-stop"><span class="s-badge">Stop 2</span><span class="s-name">Big Elk Steel</span><span class="s-chip chip-ready">Ready to sign</span></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="loadgroup">
+          <div class="lg-head"><span class="po">▸ PO TUL044</span><span class="cnt">3 stops</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SPOTLIGHT 2: notifications -->
+<section class="band">
+  <div class="wrap">
+    <div class="spot rev reveal">
+      <div class="spotcopy">
+        <span class="eyebrow">The right people, automatically</span>
+        <h2>Delivered proof, before the truck leaves the lot</h2>
+        <p class="lead">No more "did we get the signed BOL?" The signed document emails itself to everyone who needs it the instant a stop is complete — you decide who that is.</p>
+        <div class="checklist">
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Per-stop sales rep.</b> <span>The rep tied to that stop is notified when it's signed.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Load subscribers.</b> <span>Add anyone who wants updates on a specific load.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Master notify list.</b> <span>Set the people who should always get completed loads, account-wide.</span></div></div>
+        </div>
+      </div>
+      <div class="spotmedia">
+        <div class="maillist">
+          <div class="mailrow"><span class="av" style="background:linear-gradient(135deg,#1655d1,#0f3fa6)">JM</span><div class="mi"><b>Jordan Miles</b><span>Sales rep · Stop 1</span></div><span class="tag">Per-stop</span></div>
+          <div class="mailrow"><span class="av" style="background:linear-gradient(135deg,#6366f1,#4338ca)">AR</span><div class="mi"><b>Alex Reyes</b><span>Subscribed to PO OKC827</span></div><span class="tag">Subscriber</span></div>
+          <div class="mailrow"><span class="av" style="background:linear-gradient(135deg,#0891b2,#0e7490)">OPS</span><div class="mi"><b>Operations inbox</b><span>ops@yourcompany.com</span></div><span class="tag">Always</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SPOTLIGHT 3: audit trail -->
+<section class="band" style="background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="spot reveal">
+      <div class="spotcopy">
+        <span class="eyebrow">Nothing slips through</span>
+        <h2>A complete record for every load</h2>
+        <p class="lead">When a customer disputes a delivery, you have the answer in seconds: who signed, when, and where. Every load carries its own timeline and a map-pinned signing location.</p>
+        <div class="checklist">
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Time-stamped history.</b> <span>Created, prepared, assigned, signed, emailed — all logged.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Signing location on a map.</b> <span>See exactly where the signature was captured.</span></div></div>
+          <div class="ci"><span class="cm"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><b>Your data, your accounts.</b> <span>Every customer, carrier, and broker sees only their own view.</span></div></div>
+        </div>
+      </div>
+      <div class="spotmedia">
+        <div class="tl">
+          <div class="ev done"><b>Load created</b><span>PO OKC827 · 8:02 AM</span></div>
+          <div class="ev done"><b>Documents prepared</b><span>2 stops · signature fields placed</span></div>
+          <div class="ev done"><b>Assigned to driver</b><span>Routed to phone · 8:40 AM</span></div>
+          <div class="ev done"><b>Stop 1 signed</b><span>Wheeler Metals · 📍 map pinned · 11:15 AM</span></div>
+          <div class="ev"><b>Emailed to team</b><span>Sales rep + subscribers · 11:15 AM</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="band" id="how">
+  <div class="wrap">
+    <div class="sechead reveal">
+      <span class="eyebrow">How it works</span>
+      <h2>From dock to inbox in three steps</h2>
+      <p>No hardware, no scanners, no paper shuffle. Just a link and a signature.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="num">1</div>
+        <h3>Upload &amp; prepare</h3>
+        <p>Drop in the BOL or POD, trim the pages you don't need, and place the signature fields right where they belong.</p>
+        <svg class="arrow" width="40" height="24" viewBox="0 0 40 24" fill="none"><path d="M2 12h34m0 0l-7-7m7 7l-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="step reveal">
+        <div class="num">2</div>
+        <h3>Assign &amp; dispatch</h3>
+        <p>Assign the load to a driver. It shows up on their phone under the PO#, with each stop ready to sign.</p>
+        <svg class="arrow" width="40" height="24" viewBox="0 0 40 24" fill="none"><path d="M2 12h34m0 0l-7-7m7 7l-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="step reveal">
+        <div class="num">3</div>
+        <h3>Sign &amp; deliver</h3>
+        <p>The driver captures the signature at the dock. The signed document emails itself to everyone who needs it — instantly.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHO IT'S FOR -->
+<section class="band" id="who" style="background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="sechead reveal">
+      <span class="eyebrow">Who it's for</span>
+      <h2>One system, every seat at the table</h2>
+      <p>HaulProof is multi-tenant from the ground up — each party gets exactly the view they need, and nothing they don't.</p>
+    </div>
+    <div class="whogrid">
+      <div class="whocard reveal">
+        <div class="wi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M3 8h11v8H3zM14 11h4l3 3v2h-7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="17" r="1.7" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="17" r="1.7" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <h3>Carriers</h3>
+        <p>Dispatch loads to drivers, capture signatures, and send finished PODs straight to your customers.</p>
+      </div>
+      <div class="whocard reveal">
+        <div class="wi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Brokers</h3>
+        <p>See the customer behind every load, assign the right driver, and keep proof flowing to all sides.</p>
+      </div>
+      <div class="whocard reveal">
+        <div class="wi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 9l8-5 8 5v9H4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 18v-5h6v5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+        <h3>Shippers</h3>
+        <p>Know a delivery is done the moment it's signed, with the document already in the right hands.</p>
+      </div>
+      <div class="whocard reveal">
+        <div class="wi"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+        <h3>3PLs &amp; receivers</h3>
+        <p>Manage receiver locations, share a global directory, and keep BOL contacts in the loop automatically.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="band" id="demo">
+  <div class="wrap">
+    <div class="ctaband reveal">
+      <h2>See HaulProof on your own loads</h2>
+      <p>Get a walkthrough of the driver flow, multi-stop signatures, and automatic delivery notifications — built for how your operation actually runs.</p>
+      <div class="row">
+        <a class="btn btn-white btn-lg" href="mailto:hello@haulproofepod.com?subject=HaulProof%20demo%20request">Request a demo</a>
+        <a class="btn btn-outline-w btn-lg" href="/app">Sign in to your account</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="footrow">
+      <a class="brand" href="#top" style="font-size:18px">
+        <span class="brandmark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5V16H3V7.5Z" fill="#fff"/><path d="M15 10h3.2l2.8 3.2V16H15v-6Z" fill="#cfe0ff"/><circle cx="7" cy="17.5" r="2" fill="#0f3fa6"/><circle cx="17" cy="17.5" r="2" fill="#0f3fa6"/><path d="M8.5 12.5l2 2 4-4" stroke="#1655d1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        HaulProof
+      </a>
+      <div class="fl">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#who">Who it's for</a>
+        <a href="#demo">Request a demo</a>
+        <a href="/app">Sign in</a>
+      </div>
+    </div>
+    <div class="copyright">© <span id="yr">2026</span> HaulProof · Electronic proof of delivery for trucking.</div>
+  </div>
+</footer>
+
+<script>
+  // year
+  try { document.getElementById('yr').textContent = new Date().getFullYear(); } catch(e){}
+
+  // nav shadow on scroll
+  var nav = document.getElementById('nav');
+  function onScroll(){ if(window.scrollY > 8) nav.classList.add('scrolled'); else nav.classList.remove('scrolled'); }
+  window.addEventListener('scroll', onScroll, {passive:true}); onScroll();
+
+  // reveal on scroll
+  var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function(entries){
+    entries.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+  }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'}) : null;
+  document.querySelectorAll('.reveal').forEach(function(el){ if(io) io.observe(el); else el.classList.add('in'); });
+
+  // mobile menu: simple smooth-scroll fallback (links already anchor); toggle just scrolls to features
+  var mt = document.getElementById('menutoggle');
+  if(mt){ mt.addEventListener('click', function(){ var f=document.getElementById('features'); if(f) f.scrollIntoView({behavior:'smooth'}); }); }
+</script>
+</body>
+</html>
