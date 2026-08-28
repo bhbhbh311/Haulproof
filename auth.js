@@ -86,6 +86,12 @@ function requireAdmin(req, res, next) { // super-admin OR a customer admin
   if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) return res.status(403).json({ error: 'Admins only' });
   next();
 }
+// Managing the driver roster (add/edit/remove drivers) is an operational task, so dispatchers may do it
+// too — not just admins. Still scoped to the caller's own org (see scopeOrgId in drivers.js).
+function requireDriverManager(req, res, next) {
+  if (!req.user || !['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
+  next();
+}
 
 // --- Device keys: a shared per-customer key OR a personal per-driver token ---
 // Resolve the X-Api-Key to its customer (org) and, if it's a driver's personal token, that driver.
@@ -123,6 +129,6 @@ module.exports = {
   createUser, login, signToken, upsertSsoUser,
   requireAuth, requireApiKey, hasValidApiKey, orgForApiKey, resolveKey,
   driverUnlockValue,
-  isSuper, requireSuper, requireAdmin,
+  isSuper, requireSuper, requireAdmin, requireDriverManager,
   JWT_SECRET, LEGACY_INGEST_KEY,
 };

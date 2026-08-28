@@ -4,7 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('./db');
-const { requireAuth, requireAdmin, resolveKey, driverUnlockValue } = require('./auth');
+const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
 
 const router = express.Router();
 
@@ -72,7 +72,7 @@ router.get('/my-documents', (req, res) => {
 });
 
 // List a customer's drivers.
-router.get('/', requireAuth, requireAdmin, (req, res) => {
+router.get('/', requireAuth, requireDriverManager, (req, res) => {
   const orgId = scopeOrgId(req);
   if (!orgId) return res.status(400).json({ error: 'No customer specified' });
   const rows = db.prepare(`SELECT * FROM drivers WHERE orgId = ? ORDER BY active DESC, createdAt DESC`).all(orgId);
@@ -80,7 +80,7 @@ router.get('/', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Add a driver.
-router.post('/', requireAuth, requireAdmin, (req, res) => {
+router.post('/', requireAuth, requireDriverManager, (req, res) => {
   const orgId = scopeOrgId(req);
   if (!orgId) return res.status(400).json({ error: 'No customer specified' });
   const name = (req.body && req.body.name || '').trim();
@@ -97,7 +97,7 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Edit a driver's details (fix input mistakes). Same org only.
-router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+router.put('/:id', requireAuth, requireDriverManager, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
   if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
   const b = req.body || {};
@@ -119,7 +119,7 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Turn a driver on/off (deactivating instantly revokes their personal link).
-router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
+router.post('/:id/active', requireAuth, requireDriverManager, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
   if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
   const active = req.body && req.body.active ? 1 : 0;
@@ -128,7 +128,7 @@ router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Issue a fresh personal link (invalidates the old one).
-router.post('/:id/rotate', requireAuth, requireAdmin, (req, res) => {
+router.post('/:id/rotate', requireAuth, requireDriverManager, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
   if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
   db.prepare(`UPDATE drivers SET token = ? WHERE id = ?`).run(newToken(), d.id);
@@ -136,7 +136,7 @@ router.post('/:id/rotate', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Remove a driver.
-router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
+router.delete('/:id', requireAuth, requireDriverManager, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
   if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
   db.prepare(`DELETE FROM drivers WHERE id = ?`).run(d.id);

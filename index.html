@@ -965,8 +965,9 @@
     }
     // A customer/carrier/broker that is ALSO a receiver gets the "delivered to us" view too.
     if (!pureReceiver && roles.indexOf('receiver') > -1) { show('receivedCard', true); loadReceived(); }
-    // Customer / carrier / broker admins get their own Receivers tab — only the receivers they've linked.
-    if (!pureReceiver && u.role === 'admin' && ['customer','carrier','broker'].some(r => roles.indexOf(r) > -1)) {
+    // Customer / carrier / broker admins AND dispatchers get their own Receivers tab — only the receivers
+    // their org has linked. Both roles tag documents with receivers, so both can view/add/edit them.
+    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher') && ['customer','carrier','broker'].some(r => roles.indexOf(r) > -1)) {
       show('receiversCard', true);
       if ($('nrToggle')) $('nrToggle').classList.add('hide');
       if ($('nrForm')) $('nrForm').classList.add('hide');
