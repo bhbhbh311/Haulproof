@@ -171,10 +171,12 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
   // that driver's phone (their "Your loads") by stamping assignedDriverId on them.
   const driverId = (req.body && req.body.driverId || '').trim() || null;
   if (driverId) {
-    // The driver belongs to the LOAD's org (a super-admin managing a customer assigns that customer's
-    // drivers, not their own). accessibleLoad already confirmed the caller may act on this load.
+    // The driver must belong to an org connected to this load — its owner (customer), its assigned carrier,
+    // or its broker. A carrier's driver hauls the customer's load, so their orgs legitimately differ.
+    // accessibleLoad already confirmed the caller may act on this load.
     const drv = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(driverId);
-    if (!drv || (drv.orgId || null) !== (load.orgId || null)) return res.status(400).json({ error: 'That driver was not found on this account' });
+    const allowedOrgs = new Set([load.orgId, load.carrierId, load.brokerId].filter(Boolean).map(String));
+    if (!drv || !allowedOrgs.has(String(drv.orgId || ''))) return res.status(400).json({ error: 'That driver is not on this load’s account or its assigned carrier/broker' });
     driverName = drv.name || driverName;
     try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE loadId = ? AND status IN ('received','prepared')`).run(drv.id, drv.name, load.id); } catch (e) {}
   }

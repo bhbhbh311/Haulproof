@@ -458,7 +458,12 @@ router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
     return res.json({ ok: true, assignedDriverId: null, assignedDriverName: null });
   }
   const drv = db.prepare(`SELECT * FROM drivers WHERE id = ? AND active = 1`).get(driverId);
-  if (!drv || (drv.orgId || null) !== (pod.orgId || null)) return res.status(400).json({ error: 'That driver is not on this account' });
+  if (!drv) return res.status(400).json({ error: 'That driver is not on this account' });
+  // The driver must belong to an org connected to this document's load — its owner (customer), its assigned
+  // carrier, or its broker. A carrier's driver signs the customer's load, so their orgs legitimately differ.
+  const asgLoad = pod.loadId ? db.prepare(`SELECT orgId, carrierId, brokerId FROM loads WHERE id = ?`).get(pod.loadId) : null;
+  const allowedOrgs = new Set([pod.orgId, asgLoad && asgLoad.orgId, asgLoad && asgLoad.carrierId, asgLoad && asgLoad.brokerId].filter(Boolean).map(String));
+  if (!allowedOrgs.has(String(drv.orgId || ''))) return res.status(400).json({ error: 'That driver is not on this load’s account or its assigned carrier/broker' });
   // Re-assigning makes it active again on the new driver's list.
   db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ?, assignedFulfilledAt = NULL WHERE id = ?`).run(drv.id, drv.name, pod.id);
   logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'assigned_driver', detail: 'Assigned to driver ' + drv.name, actor: req.user.email });
