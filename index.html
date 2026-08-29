@@ -93,6 +93,19 @@
   .tab{background:transparent;color:var(--muted);border:none;box-shadow:none;font-family:var(--display,inherit);font-weight:700;font-size:14px;padding:9px 15px;border-radius:calc(var(--radius) - 6px);cursor:pointer;white-space:nowrap;}
   .tab:hover{background:var(--primary-soft);color:var(--ink);}
   .tab.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(20,60,140,.18);}
+  .tab .tabcount{display:inline-block;min-width:20px;padding:0 6px;margin-left:7px;border-radius:999px;background:var(--surface2,#eef3fb);color:var(--muted);font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle;}
+  .tab .tabcount:empty{display:none;}
+  .tab.active .tabcount{background:rgba(255,255,255,.28);color:#fff;}
+  .tab .tabcount.alert{background:#e5484d;color:#fff;}
+  .tab.active .tabcount.alert{background:#fff;color:#c0392b;}
+  /* Searchable dropdown (type to filter a long list, e.g. receivers) */
+  .ss-wrap{position:relative;}
+  .ss-panel{position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid var(--line-strong,var(--line));border-radius:10px;box-shadow:0 14px 34px -12px rgba(16,44,110,.35);max-height:260px;overflow-y:auto;margin-top:4px;}
+  .ss-item{padding:9px 12px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .ss-item:last-child{border-bottom:none;}
+  .ss-item:hover,.ss-item.hi{background:var(--primary-soft);}
+  .ss-item.sel{font-weight:700;color:var(--primary);}
+  .ss-empty{padding:11px 12px;color:var(--muted);font-size:13px;}
   .inviteSide{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px;flex:0 1 340px;min-width:240px;}
   .inviteSide .inviteSideLabel{font-family:var(--display,inherit);font-weight:800;font-size:13px;color:var(--ink);margin-bottom:8px;}
   .inviteSide .inviteSideRow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
@@ -234,7 +247,8 @@
           <div><label>Document type</label><select id="seDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
-          <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="seReceiver"><option value="">— none —</option></select></div>
+          <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="seReceiver"><option value="">— none —</option></select>
+            <button type="button" id="seReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
           <div><label>Sales rep <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — notified when this stop completes</span></label><select id="seSalesRep"><option value="">— none —</option></select></div>
@@ -530,7 +544,8 @@
           <div class="row" style="grid-template-columns:0.6fr 1fr 1fr;">
             <div><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
             <div><label>Document type</label><select id="ldDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
-            <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select></div>
+            <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select>
+              <button type="button" id="ldReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
           </div>
           <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
             <div><label>Sales rep for this stop <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — emailed when this stop completes</span></label>
@@ -990,21 +1005,38 @@
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'loads',     label:'Loads',       cards:['loadsCard','loadDetailCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
-    { key:'carriers',  label:'Approved carriers', cards:['brokerCarriersCard'] },
+    { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
-    { key:'companies', label:'Companies',   cards:['customersCard','carriersCard','brokersCard','custManageCard'] },
+    // Super-admin management: each company type is its own top tab (click straight to what you want),
+    // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
+    { key:'customers', label:'Customers',   cards:['customersCard','custManageCard'] },
+    { key:'carriers',  label:'Carriers',    cards:['carriersCard','custManageCard'] },
+    { key:'brokers',   label:'Brokers',     cards:['brokersCard','custManageCard'] },
     { key:'receivers', label:'Receivers',   cards:['receiversCard'] },
     { key:'requests',  label:'Requests',    cards:['requestsCard'] }
   ];
   function cardExistsForRole(id){ var el=$(id); return !!(el && !el.classList.contains('hide')); }
+  // A count/badge shown on a tab (e.g. "Customers 4", or a red Requests badge for pending items).
+  // Stored so it survives a rebuild and can be set before or after the tab button exists.
+  var _tabCounts = {};
+  function setTabCount(key, n, alert){ _tabCounts[key] = { n: (n == null ? null : Number(n)), alert: !!alert }; applyTabCount(key); }
+  function applyTabCount(key){
+    var bar=$('tabBar'); if(!bar) return;
+    var btn = bar.querySelector('.tab[data-tab="' + key + '"]'); if(!btn) return;
+    var span = btn.querySelector('.tabcount'); if(!span) return;
+    var c = _tabCounts[key];
+    if(!c || c.n == null || (c.n <= 0)){ span.textContent=''; span.className='tabcount'; return; }
+    span.textContent = c.n; span.className = 'tabcount' + (c.alert ? ' alert' : '');
+  }
   function buildTabs(){
     var bar=$('tabBar'); if(!bar) return; bar.innerHTML='';
     var shown = TAB_DEFS.filter(function(t){ return t.cards.some(cardExistsForRole); });
     shown.forEach(function(t){
-      var b=document.createElement('button'); b.type='button'; b.className='tab';
-      b.textContent=t.label; b.setAttribute('data-tab', t.key);
+      var b=document.createElement('button'); b.type='button'; b.className='tab'; b.setAttribute('data-tab', t.key);
+      b.innerHTML = esc(t.label) + '<span class="tabcount"></span>';
       b.onclick=function(){ selectTab(t.key); };
       bar.appendChild(b);
+      applyTabCount(t.key);
     });
     if(shown.length){ var def = shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
   }
@@ -1032,6 +1064,7 @@
     try {
       const r = await api('/api/requests');
       const cnt = $('reqCount'); if (r.pending>0){ cnt.style.display=''; cnt.textContent = r.pending+' new'; } else cnt.style.display='none';
+      setTabCount('requests', r.pending, true);   // red badge on the Requests tab when items are pending
       if (!r.requests.length){ box.innerHTML = '<div class="empty">No requests yet. Share your invite link above.</div>'; return; }
       const orgs = await allOrgsForPicker();
       box.innerHTML = r.requests.map(x => reqRowHtml(x, orgs)).join('');
@@ -1099,6 +1132,7 @@
     try {
       const r = await api('/api/carriers' + (inc ? '?includeInactive=1' : ''));
       carrierCache = r.carriers || [];
+      setTabCount('carriers', carrierCache.length);
       if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
@@ -1167,6 +1201,7 @@
     try {
       const r = await api('/api/brokers' + (inc ? '?includeInactive=1' : ''));
       brokerCache = r.brokers || [];
+      setTabCount('brokers', brokerCache.length);
       if (!r.brokers || !r.brokers.length) { box.innerHTML = '<div class="empty">No brokers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
         r.brokers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
@@ -1516,6 +1551,7 @@
     let recvs = [];
     try { const d = await api('/api/receivers'); recvs = d.receivers || []; } catch (e) {}
     $('seReceiver').innerHTML = '<option value="">— none —</option>' + recvs.map(r => `<option value="${r.id}"${r.id === p.receiverId ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
+    if ($('seReceiver')) { makeSearchable($('seReceiver'), 'Type to search receivers…'); if ($('seReceiver')._ssSync) $('seReceiver')._ssSync(); }
     $('stopEditModal').classList.remove('hide');
   }
   function closeStopEdit() { $('stopEditModal').classList.add('hide'); _stopEditId = null; }
@@ -2004,6 +2040,7 @@
     try {
       const r = await api('/api/orgs' + (inc ? '?includeInactive=1' : ''));
       custCache = r.orgs || [];
+      setTabCount('customers', custCache.length);
       const box = $('custList');
       if (!r.orgs || !r.orgs.length) { box.innerHTML = '<div class="empty">No customers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Customer</th><th>Admin(s)</th><th>Docs</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -2455,12 +2492,57 @@
   };
 
   // ================= Receivers / consignees =================
+  // Turn a native <select> into a type-to-filter search box. The <select> stays the value holder (so all
+  // existing .value reads/writes and form submits keep working); we just overlay a text input that filters
+  // its options live. Options are read fresh each time the panel opens, so re-populating the <select> works.
+  function makeSearchable(sel, placeholder){
+    if(!sel || sel._searchable) return; sel._searchable = true;
+    var wrap = document.createElement('div'); wrap.className = 'ss-wrap';
+    sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel); sel.style.display = 'none';
+    var input = document.createElement('input'); input.type = 'text'; input.setAttribute('autocomplete','off');
+    input.placeholder = placeholder || 'Type to search…'; wrap.appendChild(input);
+    var panel = document.createElement('div'); panel.className = 'ss-panel'; panel.style.display = 'none'; wrap.appendChild(panel);
+    var hi = -1, cur = [];
+    function label(){ var o = sel.options[sel.selectedIndex]; var t = o ? o.text : ''; return (t === '— none —' || t === '— none (top-level) —') ? '' : t; }
+    function sync(){ input.value = label(); }
+    sel._ssSync = sync;
+    function render(f){
+      f = (f||'').toLowerCase().trim(); hi = -1;
+      cur = Array.prototype.map.call(sel.options, function(o){ return {v:o.value, t:o.text}; })
+        .filter(function(o){ return !f || o.t.toLowerCase().indexOf(f) >= 0; });
+      panel.innerHTML = '';
+      if(!cur.length){ var e = document.createElement('div'); e.className = 'ss-empty'; e.textContent = 'No matches'; panel.appendChild(e); return; }
+      cur.slice(0, 300).forEach(function(o){
+        var it = document.createElement('div'); it.className = 'ss-item' + (o.v === sel.value ? ' sel' : ''); it.textContent = o.t;
+        it.addEventListener('mousedown', function(ev){ ev.preventDefault(); choose(o.v); });
+        panel.appendChild(it);
+      });
+    }
+    function choose(v){ sel.value = v; try { sel.dispatchEvent(new Event('change', {bubbles:true})); } catch(e){} close(); }
+    function open(){ input.value = ''; render(''); panel.style.display = 'block'; }
+    function close(){ panel.style.display = 'none'; sync(); }
+    input.addEventListener('focus', open);
+    input.addEventListener('input', function(){ panel.style.display = 'block'; render(input.value); });
+    input.addEventListener('keydown', function(ev){
+      var items = panel.querySelectorAll('.ss-item'); if(!items.length) return;
+      if(ev.key === 'ArrowDown'){ ev.preventDefault(); hi = Math.min(hi+1, items.length-1); }
+      else if(ev.key === 'ArrowUp'){ ev.preventDefault(); hi = Math.max(hi-1, 0); }
+      else if(ev.key === 'Enter'){ ev.preventDefault(); if(hi >= 0 && cur[hi]) choose(cur[hi].v); else if(cur.length === 1) choose(cur[0].v); return; }
+      else if(ev.key === 'Escape'){ close(); input.blur(); return; }
+      else return;
+      Array.prototype.forEach.call(items, function(el,i){ el.classList.toggle('hi', i===hi); }); if(items[hi]) items[hi].scrollIntoView({block:'nearest'});
+    });
+    input.addEventListener('blur', function(){ setTimeout(close, 130); });
+    sync();
+  }
   function fillReceiverPickers(list){
     const active = list.filter(r => r.active !== false);
     const opts = '<option value="">— none —</option>' + active.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
     if ($('uReceiver')) $('uReceiver').innerHTML = opts;
     if ($('ldReceiver')) $('ldReceiver').innerHTML = opts;
     if ($('nrParent')) $('nrParent').innerHTML = '<option value="">— none (top-level) —</option>' + active.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
+    // Make the receiver pickers type-to-searchable, and refresh their displayed value after re-populating.
+    ['uReceiver','ldReceiver','seReceiver'].forEach(function(id){ var s = $(id); if(s){ makeSearchable(s, 'Type to search receivers…'); if(s._ssSync) s._ssSync(); } });
   }
   // Fill just the pickers (for anyone who can file a document).
   async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); fillReceiverPickers(d.receivers || []); } catch(e){} }
@@ -2471,6 +2553,7 @@
       const d = await api('/api/receivers?includeInactive=1');
       const list = d.receivers || [];
       fillReceiverPickers(list);
+      setTabCount('receivers', list.length);
       if (!list.length){ box.innerHTML = '<div class="empty">No receivers yet. Add one, then tag documents with it when you file them.</div>'; return; }
       const byId = {}; list.forEach(r => byId[r.id] = r);
       box.innerHTML = '<table><thead><tr><th>Receiver</th><th>Parent company</th><th>Documents</th><th>Login</th><th></th></tr></thead><tbody>'
@@ -2487,6 +2570,7 @@
       const d = await api('/api/receivers');
       const list = d.receivers || [];
       fillReceiverPickers(list);
+      setTabCount('receivers', list.length);
       if (!list.length){ box.innerHTML = '<div class="empty">No receivers yet. Click “Add / find receiver” to add the places you deliver to.</div>'; return; }
       const byId = {}; list.forEach(r => byId[r.id] = r);
       box.innerHTML = '<table><thead><tr><th>Receiver</th><th>People</th><th>Documents</th><th></th></tr></thead><tbody>' +
@@ -2711,7 +2795,15 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
   }
   if ($('cmRecvAdd')) $('cmRecvAdd').onclick = () => openRecvModal({ customerId: cmOrgId, onDone: () => loadCmReceivers() });
-  if ($('uReceiverAdd')) $('uReceiverAdd').onclick = () => openRecvModal({ onDone: (id) => { loadReceiverOptions().then(() => { if (id && $('uReceiver')) $('uReceiver').value = id; }); } });
+  if ($('uReceiverAdd')) $('uReceiverAdd').onclick = () => openRecvModal({ onDone: (id) => { loadReceiverOptions().then(() => { if (id && $('uReceiver')) { $('uReceiver').value = id; if ($('uReceiver')._ssSync) $('uReceiver')._ssSync(); } }); } });
+  // Add a receiver right from a load's "Add stop / documents" form.
+  if ($('ldReceiverAdd')) $('ldReceiverAdd').onclick = () => openRecvModal({ onDone: (id) => { loadReceiverOptions().then(() => { if (id && $('ldReceiver')) { $('ldReceiver').value = id; if ($('ldReceiver')._ssSync) $('ldReceiver')._ssSync(); } }); } });
+  // Add a receiver right from the edit-stop dialog (rebuild its own picker, which loadReceiverOptions doesn't touch).
+  if ($('seReceiverAdd')) $('seReceiverAdd').onclick = () => openRecvModal({ onDone: async (id) => {
+    try { const d = await api('/api/receivers'); const list = (d.receivers || []).filter(r => r.active !== false);
+      $('seReceiver').innerHTML = '<option value="">— none —</option>' + list.map(r => `<option value="${r.id}"${r.id === id ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
+      if ($('seReceiver')) { makeSearchable($('seReceiver'), 'Type to search receivers…'); if ($('seReceiver')._ssSync) $('seReceiver')._ssSync(); } } catch (e) {}
+  } });
 
   // ---- Approved carriers/brokers roster (master admin, inside manage-customer) ----
   let cmpKind = 'carrier';
