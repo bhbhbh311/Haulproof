@@ -1009,9 +1009,9 @@
     { key:'team',      label:'Team logins', cards:['teamCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
-    { key:'customers', label:'Customers',   cards:['customersCard','custManageCard'] },
-    { key:'carriers',  label:'Carriers',    cards:['carriersCard','custManageCard'] },
-    { key:'brokers',   label:'Brokers',     cards:['brokersCard','custManageCard'] },
+    { key:'customers', label:'Customers',   cards:['customersCard'] },
+    { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
+    { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
     { key:'receivers', label:'Receivers',   cards:['receiversCard'] },
     { key:'requests',  label:'Requests',    cards:['requestsCard'] }
   ];
@@ -1040,7 +1040,18 @@
     });
     if(shown.length){ var def = shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
   }
+  // Clicking any top tab should drop you out of the super-admin drill-in "Manage" view
+  // and back to the normal lists, so the tab you clicked actually shows.
+  function closeCustManageForTab(){
+    var mc = $('custManageCard');
+    if(mc && !mc.classList.contains('hide')){
+      mc.classList.add('hide');
+      ['customersCard','carriersCard','brokersCard'].forEach(function(id){ var el=$(id); if(el) el.classList.remove('hide'); });
+      try{ loadCustomers(); loadCarriers(); loadBrokers(); }catch(e){}
+    }
+  }
   function selectTab(key){
+    closeCustManageForTab();
     var active={};
     TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
     TAB_DEFS.forEach(function(t){ t.cards.forEach(function(c){ var el=$(c); if(el) el.classList.toggle('tabhidden', !active[c]); }); });
