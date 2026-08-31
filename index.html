@@ -994,16 +994,16 @@
     }
     buildTabs();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
-    if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('loads'); } catch (e) {} openLoad(_dl); }
+    if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('documents'); } catch (e) {} openLoad(_dl); }
   }
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
   // Documents view isn't buried under the management sections. Role logic still decides
   // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
   var TAB_DEFS = [
-    { key:'documents', label:'Documents',   cards:['uploadCard','findCard','resultsCard','offeredCard'] },
+    // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
+    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
-    { key:'loads',     label:'Loads',       cards:['loadsCard','loadDetailCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
