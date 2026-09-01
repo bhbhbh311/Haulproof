@@ -5,8 +5,9 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const { login, requireAuth, createUser } = require('./auth');
+const { login, requireAuth, requireSuper, createUser } = require('./auth');
 const { db } = require('./db');
+const { verifyUnsub, optOut, optIn, listOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
 const loadsRouter = require('./loads');
 const podsRouter = require('./pods');
@@ -79,6 +80,38 @@ app.use('/api/brokers', brokersRouter);
 app.use('/api/requests', requestsRouter);
 app.use('/api/receivers', receiversRouter);
 
+// --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
+app.get('/api/stats', requireAuth, requireSuper, (_req, res) => {
+  const one = (sql, ...args) => { try { const r = db.prepare(sql).get(...args); return r ? Number(Object.values(r)[0]) || 0 : 0; } catch (e) { return 0; } };
+  const byKind = (kind) => one('SELECT COUNT(*) c FROM orgs WHERE kind = ?', kind);
+  res.json({
+    customers: byKind('customer'),
+    carriers:  byKind('carrier'),
+    brokers:   byKind('broker'),
+    receivers: byKind('receiver'),
+    orgsTotal: one('SELECT COUNT(*) c FROM orgs'),
+    drivers:   one('SELECT COUNT(*) c FROM drivers'),
+    users:     one('SELECT COUNT(*) c FROM users'),
+    loads:     one('SELECT COUNT(*) c FROM loads'),
+    documents: one('SELECT COUNT(*) c FROM pods'),
+    signed:    one("SELECT COUNT(*) c FROM pods WHERE status IN ('signed','emailed')"),
+    optouts:   one('SELECT COUNT(*) c FROM email_optouts'),
+    accessRequests: one("SELECT COUNT(*) c FROM access_requests WHERE status = 'pending'"),
+  });
+});
+
+// --- Opt-out (unsubscribe) admin views. Super-admin only. ---
+app.get('/api/optouts', requireAuth, requireSuper, (_req, res) => {
+  res.json({ optouts: listOptedOut() });
+});
+// Admin re-consent (remove an address from the opt-out list) — e.g. the recipient asked to resume.
+app.post('/api/optouts/remove', requireAuth, requireSuper, (req, res) => {
+  const email = (req.body && req.body.email) || '';
+  if (!email) return res.status(400).json({ error: 'email required' });
+  optIn(email);
+  res.json({ ok: true });
+});
+
 // The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
 // Super-admins provision drivers per customer from the Customers screen instead.
 app.get('/api/driver-link', requireAuth, (req, res) => {
@@ -132,6 +165,30 @@ try {
 app.get('/prepare', (_req, res) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'); res.sendFile(path.join(__dirname, 'prepare.html')); });
 app.get('/request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'request.html')); });
 app.get('/login-info', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'login-info.html')); });
+
+// --- PUBLIC one-click unsubscribe (no login). The token is HMAC-signed for one email address. ---
+function unsubPage(title, msg, ok) {
+  const color = ok ? '#137a3f' : '#b42318';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
+    + `<title>${title} — HaulProof</title></head>`
+    + `<body style="margin:0;background:#f4f6fa;font:16px/1.5 system-ui,Arial,sans-serif;color:#1f2733">`
+    + `<div style="max-width:520px;margin:60px auto;background:#fff;border:1px solid #e3e8f0;border-radius:14px;padding:32px 28px;text-align:center">`
+    + `<div style="font-size:26px;font-weight:800;color:#1f6feb;margin-bottom:6px">HaulProof</div>`
+    + `<h1 style="font-size:20px;color:${color};margin:14px 0 10px">${title}</h1>`
+    + `<p style="color:#41505f;margin:0 auto;max-width:400px">${msg}</p>`
+    + `<p style="margin-top:26px"><a href="https://haulproofepod.com" style="color:#1f6feb;text-decoration:none;font-weight:600">Go to HaulProof</a></p>`
+    + `</div></body></html>`;
+}
+function doUnsub(req, res) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  const token = (req.query.t || (req.body && req.body.t) || '').toString().trim();
+  const email = verifyUnsub(token);
+  if (!email) { res.status(400).type('html'); return res.send(unsubPage('Link not valid', 'This unsubscribe link is missing or invalid. If you keep getting documents you don\'t want, reply to the email and let us know.', false)); }
+  try { optOut(email, 'unsubscribe-link'); } catch (e) {}
+  res.type('html').send(unsubPage('You\'re unsubscribed', `<b>${email}</b> will no longer receive delivery documents from HaulProof. Changed your mind? Ask the sender to add you back.`, true));
+}
+app.get('/unsubscribe', doUnsub);
+app.post('/unsubscribe', express.urlencoded({ extended: false }), doUnsub); // email-client one-click (List-Unsubscribe-Post)
 
 // --- driver app served at /driver so phones just open a URL ---
 // Auto-points at this server's origin. Device key is NOT embedded; pass it once via ?k=KEY

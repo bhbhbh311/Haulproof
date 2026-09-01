@@ -282,10 +282,14 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(allRecipients), id);
       const stopRow = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
       const stopTag = (stopRow && stopRow.stopNumber) ? ('Stop ' + stopRow.stopNumber + ' — ') : '';
+      const sentTo = mail.sentTo || allRecipients;
+      const blocked = mail.blocked || [];
+      const optNote = blocked.length ? ' (skipped ' + blocked.length + ' opted-out: ' + blocked.join(', ') + ')' : '';
       let detail;
       if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
-      else if (mail.sent) detail = stopTag + 'Emailed to ' + allRecipients.length + ' recipient' + (allRecipients.length > 1 ? 's' : '') + ': ' + allRecipients.join(', ');
-      else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + allRecipients.join(', ');
+      else if (mail.sent) detail = stopTag + 'Emailed to ' + sentTo.length + ' recipient' + (sentTo.length > 1 ? 's' : '') + ': ' + sentTo.join(', ') + optNote;
+      else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + sentTo.join(', ') + optNote;
+      else if (blocked.length && !sentTo.length) detail = stopTag + 'Not emailed — all ' + blocked.length + ' recipient(s) opted out: ' + blocked.join(', ');
       else detail = stopTag + 'Email NOT sent' + (mail.error ? ' (' + mail.error + ')' : '') + ' — intended recipients: ' + allRecipients.join(', ');
       logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'emailed', detail, actor: meta.driver || 'driver' });
     } catch (e) {}

@@ -272,6 +272,14 @@ CREATE TABLE IF NOT EXISTS access_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_reqs_status ON access_requests(status);
 CREATE INDEX IF NOT EXISTS idx_reqs_code   ON access_requests(code);
+-- Recipients who have opted out of receiving emailed documents. Legal (CAN-SPAM) compliance: once an
+-- address is here we never email it a document again. Email is stored lower-cased as the primary key.
+CREATE TABLE IF NOT EXISTS email_optouts (
+  email     TEXT PRIMARY KEY,
+  createdAt INTEGER,
+  source    TEXT,        -- 'unsubscribe-link' | 'admin' | 'reply' etc.
+  note      TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);

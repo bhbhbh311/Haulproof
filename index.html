@@ -336,6 +336,26 @@
       <span id="storageText"></span>
     </div>
 
+    <!-- DASHBOARD SUMMARY (super-admin only): at-a-glance counts across the whole system. -->
+    <div class="card hide" id="statsCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Dashboard</h1><p class="sub" style="margin-bottom:0;">Everything on HaulProof at a glance.</p></div>
+        <button class="ghost" id="statsRefresh" type="button">Refresh</button>
+      </div>
+      <div id="statsGrid" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+        <div class="empty" style="grid-column:1/-1;">Loading…</div>
+      </div>
+    </div>
+
+    <!-- OPT-OUTS (super-admin only): recipients who unsubscribed from document emails. -->
+    <div class="card hide" id="optoutsCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Email opt-outs <span id="optCount" class="chip received" style="display:none;"></span></h1><p class="sub" style="margin-bottom:0;">People who unsubscribed. We never email documents to these addresses.</p></div>
+        <button class="ghost" id="optRefresh" type="button">Refresh</button>
+      </div>
+      <div id="optList" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- ACCESS REQUESTS (super-admin only) -->
     <div class="card hide" id="requestsCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -983,7 +1003,7 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
+    const SUPER_CARDS = ['statsCard','optoutsCard','customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
     show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     const roles = (u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : []);
     const pureReceiver = u.role !== 'superadmin' && roles.indexOf('receiver') > -1 && !['customer','carrier','broker'].some(r => roles.indexOf(r) > -1);
@@ -993,6 +1013,8 @@
       CUSTOMER_CARDS.concat(['receiversCard']).forEach(id => show(id, false));
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
+      show('statsCard', true); loadStats();
+      show('optoutsCard', true); loadOptouts();
       show('requestsCard', true); loadRequests();
       show('customersCard', true); loadCustomers();
       show('carriersCard', true); loadCarriers();
@@ -1064,6 +1086,7 @@
     { key:'team',      label:'Team logins', cards:['teamCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
+    { key:'dashboard', label:'Dashboard',   cards:['statsCard','optoutsCard'] },
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
@@ -1128,6 +1151,55 @@
       g.classList.remove('hide');
     } catch (e) {}
   }
+  // Super-admin dashboard: at-a-glance counts across the whole system.
+  async function loadStats(){
+    const grid = $('statsGrid'); if (!grid) return;
+    const tile = (n, label, accent) => '<div style="background:var(--card2,#f7f9fc);border:1px solid var(--line);border-radius:12px;padding:14px 16px;">'
+      + '<div style="font-size:26px;font-weight:800;line-height:1;color:' + (accent||'var(--text,#1f2733)') + ';">' + (n==null?'—':n) + '</div>'
+      + '<div style="font-size:12.5px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.03em;">' + label + '</div></div>';
+    try {
+      const s = await api('/api/stats');
+      grid.innerHTML =
+        tile(s.customers, 'Customers') +
+        tile(s.carriers, 'Carriers') +
+        tile(s.brokers, 'Brokers') +
+        tile(s.receivers, 'Receivers') +
+        tile(s.drivers, 'Drivers') +
+        tile(s.loads, 'Loads') +
+        tile(s.documents, 'Documents') +
+        tile(s.signed, 'Signed / delivered', 'var(--ok)') +
+        tile(s.accessRequests, 'Pending requests', s.accessRequests>0?'var(--warn)':null) +
+        tile(s.optouts, 'Email opt-outs', s.optouts>0?'var(--danger)':null);
+    } catch (e) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Could not load dashboard.</div>'; }
+  }
+  if ($('statsRefresh')) $('statsRefresh').onclick = loadStats;
+
+  // Super-admin opt-out list: addresses that unsubscribed from document emails.
+  async function loadOptouts(){
+    const box = $('optList'); if (!box) return;
+    try {
+      const r = await api('/api/optouts');
+      const list = r.optouts || [];
+      const cnt = $('optCount');
+      if (cnt) { if (list.length){ cnt.style.display=''; cnt.textContent = list.length; } else cnt.style.display='none'; }
+      if (!list.length) { box.innerHTML = '<div class="empty">No opt-outs. Everyone is still receiving their documents.</div>'; return; }
+      box.innerHTML = list.map(o => {
+        const when = o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '';
+        const src = o.source ? (' · ' + o.source) : '';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">'
+          + '<div><div style="font-weight:600;">' + esc(o.email) + '</div>'
+          + '<div style="font-size:12px;color:var(--muted);">Opted out ' + esc(when) + esc(src) + '</div></div>'
+          + '<button class="ghost optRemove" type="button" data-email="' + esc(o.email) + '" style="font-size:12.5px;">Allow again</button></div>';
+      }).join('');
+      box.querySelectorAll('.optRemove').forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        try { await api('/api/optouts/remove', { method:'POST', body: JSON.stringify({ email: b.dataset.email }) }); loadOptouts(); loadStats(); }
+        catch(e){ b.disabled = false; }
+      });
+    } catch (e) { box.innerHTML = '<div class="empty">Could not load opt-outs.</div>'; }
+  }
+  if ($('optRefresh')) $('optRefresh').onclick = loadOptouts;
+
   if ($('inviteCopy')) $('inviteCopy').onclick = async () => { const ok = await copyText($('inviteLink').value); const m=$('inviteMsg'); m.textContent = ok?'Copied ✓':'Copy failed'; setTimeout(()=>m.textContent='',1600); };
 
   let reqOrgsCache = null;
