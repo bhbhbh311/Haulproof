@@ -1,8 +1,0 @@
-{
-  "_note": "Who may sign in with Microsoft. Emails are matched case-insensitively against the Microsoft account. Edit this file anytime — changes take effect on the NEXT sign-in, no server restart needed. Anyone NOT listed here is denied even with a valid Microsoft login.",
-  "admins": [
-    "bharris@callahantrans.com"
-  ],
-  "users": [
-  ]
-}
