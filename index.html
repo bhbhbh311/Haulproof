@@ -1118,7 +1118,7 @@
   async function loadStorageGauge(){
     const g = $('storageGauge'); if (!g) return;
     try {
-      const r = await api('/api/storage');
+      const r = await api('/api/pods/storage');
       const used = r.bytes || 0, lim = r.limitBytes || (1024*1024*1024);
       const pct = Math.min(100, Math.round(used / lim * 100));
       const usedMb = used / 1048576, limMb = Math.round(lim / 1048576);
