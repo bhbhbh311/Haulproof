@@ -1692,7 +1692,10 @@
   async function getTeamUsers() { if (_teamUsers) return _teamUsers; try { const r = await api('/api/users'); _teamUsers = r.users || []; } catch (e) { _teamUsers = []; } return _teamUsers; }
   async function populateSalesRep() {
     const sel = $('ldSalesRep'); if (!sel) return;
-    const users = await getTeamUsers();
+    const scope = ldScopeOrgId();
+    let users;
+    if (scope) { try { const r = await api('/api/users?orgId=' + encodeURIComponent(scope)); users = r.users || []; } catch (e) { users = []; } }
+    else users = await getTeamUsers();
     sel.innerHTML = '<option value="">— none —</option>' + users.map(u => `<option value="${u.id}">${esc(u.name || u.email)}${u.role === 'sales' ? ' (sales)' : ''}</option>`).join('');
   }
   async function loadLoadSubscribers() {
@@ -1940,12 +1943,19 @@
   }
   // Populate the "Assign a driver" dropdown from this account's registered drivers.
   let _ldSelectedDriverId = '';
+  // The org whose drivers/team this load belongs to. For a super-admin opening a load from the Manage
+  // view, that's the load's carrier (or owning customer) — NOT the master-admin's own (empty) roster.
+  function ldScopeOrgId() {
+    if (user && user.role === 'superadmin' && curLoad) return curLoad.carrierId || curLoad.orgId || '';
+    return '';
+  }
   async function populateLdDrivers() {
     const sel = $('ldDrvSelect'); if (!sel) return;
     _ldSelectedDriverId = '';
     sel.innerHTML = '<option value="">— choose a driver —</option>';
     try {
-      const r = await api('/api/drivers');
+      const scope = ldScopeOrgId();
+      const r = await api('/api/drivers' + (scope ? ('?orgId=' + encodeURIComponent(scope)) : ''));
       (r.drivers || []).filter(d => d.active !== false).forEach(d => {
         const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : ''); o.dataset.name = d.name;
         if (curLoad && curLoad.driverName && d.name === curLoad.driverName) { o.selected = true; _ldSelectedDriverId = d.id; }
@@ -2976,7 +2986,8 @@
     $('srMsg').textContent = 'Creating…'; $('srMsg').className = '';
     const password = randPass();
     try {
-      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role: 'sales', password }) });
+      const _sc = ldScopeOrgId();
+      const r = await api('/api/users', { method: 'POST', body: JSON.stringify(Object.assign({ email, name, role: 'sales', password }, _sc ? { orgId: _sc } : {})) });
       _srNewId = (r && r.user && r.user.id) || null;
       _teamUsers = null; // bust the cached team list so pickers include the new rep
       $('srMsg').textContent = 'Created ✓ — temp password: ' + password + '  (copy now; they can reset it later)'; $('srMsg').className = 'umsg-ok';
@@ -3010,7 +3021,8 @@
     if (!/^\d{4,6}$/.test(pin)) { $('drvMsg').textContent = 'Set a 4–6 digit PIN'; $('drvMsg').className = 'umsg-err'; $('drvPin').focus(); return; }
     $('drvMsg').textContent = 'Creating…'; $('drvMsg').className = '';
     try {
-      const r = await api('/api/drivers', { method: 'POST', body: JSON.stringify({ name, phone, email, pin }) });
+      const _sc = ldScopeOrgId();
+      const r = await api('/api/drivers', { method: 'POST', body: JSON.stringify(Object.assign({ name, phone, email, pin }, _sc ? { orgId: _sc } : {})) });
       const id = (r && r.driver && r.driver.id) || null;
       const cb = _drvCtx && _drvCtx.onDone;
       closeDriverModal();
