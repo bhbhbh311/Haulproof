@@ -1442,9 +1442,17 @@
     if (!poNumber) { $('nlMsg').textContent = 'PO # is required'; $('nlMsg').className = 'umsg-err'; return; }
     $('nlMsg').textContent = 'Creating…'; $('nlMsg').className = '';
     try {
-      await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber, loadNumber: $('nlLoad').value.trim(), consignee: $('nlCons').value.trim() }) });
+      const r = await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber, loadNumber: $('nlLoad').value.trim(), consignee: $('nlCons').value.trim() }) });
       $('nlMsg').textContent = 'Created ✓'; $('nlMsg').className = 'umsg-ok';
-      $('nlPo').value = ''; $('nlLoad').value = ''; $('nlCons').value = ''; loadLoads();
+      $('nlPo').value = ''; $('nlLoad').value = ''; $('nlCons').value = ''; $('nlForm').classList.add('hide');
+      const newId = r && r.load && r.load.id;
+      if (newId) {
+        // Open the new load straight into edit mode with the add-stop form ready, so stops, receivers,
+        // sales reps and documents can all be added right here — the load and its stops in one place.
+        await openLoad(newId);
+        setLoadEditMode(true);
+        if ($('ldAddStopToggle')) $('ldAddStopToggle').click();
+      } else { loadLoads(); }
     } catch (e) { $('nlMsg').textContent = e.message; $('nlMsg').className = 'umsg-err'; }
   };
   $('lSearchBtn').onclick = loadLoads;
