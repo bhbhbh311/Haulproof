@@ -1,5 +1,6 @@
 // Team logins WITHIN a customer. A customer admin manages only their own org's people.
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createUser, requireAuth, requireAdmin } = require('./auth');
 const { db } = require('./db');
@@ -19,7 +20,9 @@ function sameOrg(req, targetOrgId) {
 }
 
 // List logins in this customer.
-router.get('/', requireAuth, requireAdmin, (req, res) => {
+router.get('/', requireAuth, (req, res) => {
+  // Admins/super manage the team; dispatchers may read it too (to pick a sales rep for a stop).
+  if (!['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
   const users = db.prepare(
     `SELECT id, email, name, role, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
@@ -46,13 +49,18 @@ router.put('/notify', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Create a login in this customer.
-router.post('/', requireAuth, requireAdmin, (req, res) => {
+router.post('/', requireAuth, (req, res) => {
+  // Admins/super-admins create any team login; a dispatcher may add a SALES REP only (not admins/dispatchers).
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  const isDispatcher = req.user.role === 'dispatcher';
+  if (!isAdmin && !isDispatcher) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
   const { email, name, role, password } = req.body || {};
   const em = (email || '').toLowerCase().trim();
   if (!EMAIL_RE.test(em)) return res.status(400).json({ error: 'Enter a valid email address' });
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  const r = role === 'admin' ? 'admin' : (role === 'sales' ? 'sales' : 'dispatcher'); // never create a superadmin here
+  let r = role === 'admin' ? 'admin' : (role === 'sales' ? 'sales' : 'dispatcher'); // never create a superadmin here
+  if (isDispatcher && r !== 'sales') return res.status(403).json({ error: 'Dispatchers can only add sales reps' });
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
   try {
     const u = createUser({ email: em, name: name || '', role: r, password: String(password), orgId });
@@ -111,6 +119,22 @@ router.post('/:id/password', requireAuth, requireAdmin, (req, res) => {
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   db.prepare('UPDATE users SET passHash = ? WHERE id = ?').run(bcrypt.hashSync(String(password), 10), target.id);
   res.json({ ok: true });
+});
+
+// Generate (or regenerate) a shareable "here's your login" link for a user. Sets a fresh temporary
+// password and returns a link whose page shows that password + the login email. The user changes the
+// password after signing in. Admin/super, same org only. Regenerating replaces any previous link.
+router.post('/:id/login-link', requireAuth, requireAdmin, (req, res) => {
+  const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
+  if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
+  db.prepare('UPDATE users SET passHash = ? WHERE id = ?').run(bcrypt.hashSync(temp, 10), target.id);
+  const token = crypto.randomBytes(24).toString('hex');
+  const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;   // link good for 7 days
+  db.prepare('DELETE FROM login_links WHERE userId = ?').run(target.id);   // one active link per user
+  db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, target.id, temp, expiresAt, now);
+  const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+  res.json({ ok: true, link: origin + '/login-info?t=' + token, email: target.email, expiresAt });
 });
 
 // Remove a login (same customer only; you cannot remove yourself).
