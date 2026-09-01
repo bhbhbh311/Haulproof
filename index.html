@@ -649,12 +649,7 @@
               <select id="ldDrvSelect"><option value="">— choose a driver —</option></select>
               <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button></div>
           </div>
-          <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-            <div><label>Driver name</label><input id="ldDrv"></div>
-            <div><label>Truck #</label><input id="ldTruck"></div>
-            <div><label>Trailer # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldTrailer"></div>
-          </div>
-          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver &amp; equipment</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
         </div>
       </div>
       <div class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
@@ -1525,7 +1520,6 @@
       $('ldBrokerAssign').classList.toggle('hide', !brokerUser);
       if (brokerUser) await fillApprovedSelect(); else setAssignMode('carrier');
       renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
-      $('ldDrv').value = curLoad.driverName || ''; $('ldTruck').value = curLoad.truck || ''; $('ldTrailer').value = curLoad.trailer || '';
       $('ldDrvMsg').textContent = '';
       // Driver & equipment: collapsed by default for customers, but OPEN for carriers (assigning a
       // driver is their main action here). The header shows who's set.
@@ -1586,6 +1580,9 @@
       if ($('ldSubsCaret')) $('ldSubsCaret').textContent = '▾';
       if ($('ldDrvBtn')) $('ldDrvBtn').classList.add('hide');
       if ($('ldSubsSave')) $('ldSubsSave').classList.add('hide');
+      // For now, carriers can't hand a load to a broker or another carrier (no broker authority) — hide the
+      // assign section for carrier logins. (Revisit once we detect double authority via FMCSA.)
+      if (isCarrierUser() && $('ldCarrierSection')) $('ldCarrierSection').classList.add('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
     } else {
       if ($('ldStopForm')) $('ldStopForm').classList.add('hide');
@@ -1749,10 +1746,9 @@
     try {
       // 1) Basic fields
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify({ poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() }) });
-      // 2) Driver & equipment (only if a driver is named/selected)
-      const driverName = ($('ldDrv') && $('ldDrv').value.trim()) || '';
-      if (driverName || _ldSelectedDriverId) {
-        await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, driverId: _ldSelectedDriverId, truck: ($('ldTruck') || {}).value ? $('ldTruck').value.trim() : '', trailer: ($('ldTrailer') || {}).value ? $('ldTrailer').value.trim() : '' }) });
+      // 2) Driver (only if one is selected; the server fills in the name from the driver record)
+      if (_ldSelectedDriverId) {
+        await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
       }
       // 3) Load-update recipients
       if ($('ldSubsList')) {
@@ -1963,19 +1959,14 @@
       });
     } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
   }
-  if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () {
-    _ldSelectedDriverId = this.value || '';
-    const opt = this.options[this.selectedIndex];
-    if (opt && opt.dataset && opt.dataset.name) $('ldDrv').value = opt.dataset.name;
-  };
+  if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () { _ldSelectedDriverId = this.value || ''; };
   $('ldDrvBtn').onclick = async () => {
-    const driverName = $('ldDrv').value.trim();
-    if (!driverName && !_ldSelectedDriverId) { $('ldDrvMsg').textContent = "Choose or enter the driver's name"; $('ldDrvMsg').className = 'umsg-err'; return; }
+    if (!_ldSelectedDriverId) { $('ldDrvMsg').textContent = 'Choose a driver'; $('ldDrvMsg').className = 'umsg-err'; return; }
     $('ldDrvMsg').textContent = 'Saving…'; $('ldDrvMsg').className = '';
     try {
-      const r = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, driverId: _ldSelectedDriverId, truck: $('ldTruck').value.trim(), trailer: $('ldTrailer').value.trim() }) });
-      curLoad = r.load; $('ldDrv').value = curLoad.driverName || driverName;
-      $('ldDrvMsg').textContent = _ldSelectedDriverId ? 'Saved ✓ — sent to the driver’s app' : 'Saved ✓'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id);
+      const r = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
+      curLoad = r.load;
+      $('ldDrvMsg').textContent = 'Saved ✓ — sent to the driver’s app'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id);
     } catch (e) { $('ldDrvMsg').textContent = e.message; $('ldDrvMsg').className = 'umsg-err'; }
   };
   async function loadHistory(id) {
@@ -2036,7 +2027,10 @@
     // Every org type (customer, carrier, broker) manages its own drivers + documents and can assign loads.
     $('cmDriversSection').classList.remove('hide');
     $('cmDocsSection').classList.remove('hide');
-    cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); loadCmReceivers(); cmpSetKind('carrier'); loadCmPartners();
+    cmMsg($('cmdMsg'), ''); loadDrivers(cmOrgId, $('cmDriverRows')); wireDriverTable($('cmDriverRows'), cmOrgId); cmDocReset(); cmLoadDocs(''); loadCmReceivers();
+    // A carrier doesn't approve carriers/brokers — hide that roster when managing a carrier (for now).
+    if ($('cmPartnersSection')) $('cmPartnersSection').classList.toggle('hide', cmIsCarrier);
+    if (!cmIsCarrier) { cmpSetKind('carrier'); loadCmPartners(); }
     window.scrollTo(0, 0);
   }
   $('cmBack').onclick = () => {
@@ -3033,7 +3027,6 @@
   if ($('ldDriverAdd')) $('ldDriverAdd').onclick = () => openDriverModal({ onDone: async (id, name) => {
     await populateLdDrivers();
     if (id && $('ldDrvSelect')) { $('ldDrvSelect').value = id; _ldSelectedDriverId = id; }
-    if ($('ldDrv')) $('ldDrv').value = name || '';
   } });
   // "Not set — tap to add" opens the driver section and jumps straight to creating a driver.
   if ($('ldDrvSummary')) $('ldDrvSummary').onclick = (e) => {
