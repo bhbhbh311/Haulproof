@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#eef1f7;--bg2:#e6ebf3;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#e3e9f1;--primary:#1655d1;--primary-d:#0f47b8;--primary-soft:#e7eefc;--ok:#12784a;--ok-soft:#e2f2ea;--warn:#b5731a;--warn-soft:#fbeedd;--danger:#c0392b;
+  :root{--bg:#eef1f7;--bg2:#e6ebf3;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#e3e9f1;--primary:#1655d1;--primary-d:#0f47b8;--primary-soft:#e7eefc;--ok:#12784a;--ok-soft:#e2f2ea;--warn:#b5731a;--warn-soft:#fbeedd;--danger:#c0392b;--divider:#aeb9cc;
     --radius:16px;--radius-sm:10px;
     --shadow:0 6px 22px rgba(20,40,80,.07),0 1px 3px rgba(20,40,80,.05);
     --shadow-lg:0 24px 60px rgba(15,40,90,.20);
@@ -63,6 +63,11 @@
   .chip.prepared{color:var(--primary);background:var(--primary-soft);} .chip.signed{color:var(--ok);background:var(--ok-soft);}
   a.dl{color:var(--primary);font-weight:600;text-decoration:none;} a.dl:hover{text-decoration:underline;} .empty{color:var(--muted);text-align:center;padding:28px 20px;}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
+  /* Missing/unset values shown in red so they stand out (e.g. "Not assigned", "Not set"). */
+  .ld-missing{color:var(--danger)!important;font-weight:700;}
+  /* Darker, clearer separators between the sections of a load. */
+  #loadDetailCard [style*="border-top"]{border-top-color:var(--divider)!important;}
+  #loadDetailCard [style*="border-bottom"]{border-bottom-color:var(--divider)!important;}
   /* login split hero */
   .authwrap{display:grid;grid-template-columns:1.02fr .98fr;max-width:900px;margin:5vh auto;background:var(--surface);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow-lg);}
   .authhero{position:relative;overflow:hidden;background:radial-gradient(130% 130% at 0% 0%,#2f72ea 0%,#1655d1 46%,#0e3a97 100%);color:#fff;padding:42px 38px;display:flex;flex-direction:column;}
@@ -251,12 +256,32 @@
             <button type="button" id="seReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
-          <div><label>Sales rep <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — notified when this stop completes</span></label><select id="seSalesRep"><option value="">— none —</option></select></div>
+          <div><label>Sales rep <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — notified when this stop completes</span></label><select id="seSalesRep"><option value="">— none —</option></select>
+            <button type="button" id="seSalesRepAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find sales rep</button></div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="seSave" type="button">Save changes</button>
           <button class="ghost" id="seCancel" type="button">Cancel</button>
           <span id="seMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add a sales rep (a team login, role "sales") inline from any stop form -->
+    <div id="salesRepModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:460px;">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Add a sales rep</h1><button id="srClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" style="margin:8px 0 12px;">Creates a team login (role: Sales) that can be picked as the rep for a stop. They'll be emailed when the stop completes.</p>
+        <div class="row" style="grid-template-columns:1fr;">
+          <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="srName" placeholder="Full name"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
+          <div><label>Email <span style="color:#c0392b;">*required</span></label><input id="srEmail" type="email" placeholder="rep@callahantrans.com"></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+          <button id="srCreate" type="button">Create sales rep</button>
+          <button class="ghost" id="srCancel" type="button">Cancel</button>
+          <span id="srMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
     </div>
@@ -552,7 +577,8 @@
           </div>
           <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
             <div><label>Sales rep for this stop <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — emailed when this stop completes</span></label>
-              <select id="ldSalesRep"><option value="">— none —</option></select></div>
+              <select id="ldSalesRep"><option value="">— none —</option></select>
+              <button type="button" id="ldSalesRepAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find sales rep</button></div>
           </div>
           <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen. Uncheck any pages below you don't want.</div></div>
@@ -1483,7 +1509,7 @@
       // driver is their main action here). The header shows who's set.
       populateLdDrivers();
       if ($('ldDrvBody')) { $('ldDrvBody').classList.toggle('hide', !carrierUser); $('ldDrvCaret').textContent = carrierUser ? '▾' : '▸'; }
-      if ($('ldDrvSummary')) $('ldDrvSummary').textContent = curLoad.driverName ? (curLoad.driverName + (curLoad.truck ? (' · Truck ' + curLoad.truck) : '')) : 'Not set — tap to add';
+      if ($('ldDrvSummary')) { const _drvSet = !!curLoad.driverName; $('ldDrvSummary').textContent = _drvSet ? (curLoad.driverName + (curLoad.truck ? (' · Truck ' + curLoad.truck) : '')) : 'Not set — tap to add'; $('ldDrvSummary').classList.toggle('ld-missing', !_drvSet); }
       populateSalesRep();
       if ($('ldSalesRep')) $('ldSalesRep').value = '';
       if ($('ldSubsBody')) { $('ldSubsBody').classList.add('hide'); $('ldSubsCaret').textContent = '▸'; }
@@ -1514,10 +1540,10 @@
     const asg = [];
     if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
     if (curLoad.carrierName) asg.push('Carrier: ' + esc(curLoad.carrierName));
-    rows.push(['Carrier / broker', asg.length ? asg.join(' · ') : '<span class="empty">Not assigned</span>']);
+    rows.push(['Carrier / broker', asg.length ? asg.join(' · ') : '<span class="ld-missing">Not assigned</span>']);
     const drv = curLoad.driverName
       ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
-      : '<span class="empty">Not set</span>';
+      : '<span class="ld-missing">Not set</span>';
     rows.push(['Driver & equipment', drv]);
     rows.push(['Status', esc(curLoad.status || 'open')]);
     $('ldView').innerHTML = '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:14px;align-items:baseline;">' +
@@ -1613,7 +1639,7 @@
   async function openStopEdit(p) {
     if (!p) return;
     _stopEditId = p.id;
-    $('seStop').value = p.stopNumber || '';
+    $('seStop').value = p.stopNumber || 1;
     $('seDocType').value = p.docType || 'POD';
     $('seMsg').textContent = '';
     // populate receiver + sales rep options, then select current
@@ -1785,7 +1811,7 @@
     const parts = [];
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>');
     if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>');
-    $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span style="color:var(--muted)">Not assigned yet.</span>';
+    $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
   }
   // Customer/super: toggle between assigning a carrier directly or handing to a broker.
   let ldMode = 'carrier';
@@ -2903,6 +2929,44 @@
     try { const d = await api('/api/receivers'); const list = (d.receivers || []).filter(r => r.active !== false);
       $('seReceiver').innerHTML = '<option value="">— none —</option>' + list.map(r => `<option value="${r.id}"${r.id === id ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
       if ($('seReceiver')) { makeSearchable($('seReceiver'), 'Type to search receivers…'); if ($('seReceiver')._ssSync) $('seReceiver')._ssSync(); } } catch (e) {}
+  } });
+
+  // ---- Add a sales rep (a team login, role "sales") inline from any stop form ----
+  let _srCtx = null, _srNewId = null;
+  function openSalesRepModal(ctx) {
+    _srCtx = ctx || {}; _srNewId = null;
+    $('srName').value = ''; $('srEmail').value = ''; $('srMsg').textContent = ''; $('srMsg').className = '';
+    $('srCreate').classList.remove('hide'); $('srCancel').textContent = 'Cancel';
+    $('salesRepModal').classList.remove('hide'); setTimeout(() => $('srEmail').focus(), 50);
+  }
+  function finishSalesRep() {
+    const id = _srNewId, cb = _srCtx && _srCtx.onDone;
+    $('salesRepModal').classList.add('hide'); _srCtx = null; _srNewId = null;
+    if (cb) cb(id);
+  }
+  if ($('srClose')) $('srClose').onclick = finishSalesRep;
+  if ($('srCancel')) $('srCancel').onclick = finishSalesRep;
+  if ($('salesRepModal')) $('salesRepModal').addEventListener('click', e => { if (e.target === $('salesRepModal')) finishSalesRep(); });
+  if ($('srCreate')) $('srCreate').onclick = async () => {
+    const email = $('srEmail').value.trim(), name = $('srName').value.trim();
+    if (!email) { $('srMsg').textContent = 'Email is required'; $('srMsg').className = 'umsg-err'; return; }
+    $('srMsg').textContent = 'Creating…'; $('srMsg').className = '';
+    const password = randPass();
+    try {
+      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role: 'sales', password }) });
+      _srNewId = (r && r.user && r.user.id) || null;
+      _teamUsers = null; // bust the cached team list so pickers include the new rep
+      $('srMsg').textContent = 'Created ✓ — temp password: ' + password + '  (copy now; they can reset it later)'; $('srMsg').className = 'umsg-ok';
+      $('srCreate').classList.add('hide'); $('srCancel').textContent = 'Done';
+    } catch (e) { $('srMsg').textContent = e.message; $('srMsg').className = 'umsg-err'; }
+  };
+  // "+ Add / find sales rep" on the load's add-stop form → refresh that picker and select the new rep.
+  if ($('ldSalesRepAdd')) $('ldSalesRepAdd').onclick = () => openSalesRepModal({ onDone: async (id) => { await populateSalesRep(); if (id && $('ldSalesRep')) $('ldSalesRep').value = id; } });
+  // "+ Add / find sales rep" on the edit-stop dialog → rebuild its own picker and select the new rep.
+  if ($('seSalesRepAdd')) $('seSalesRepAdd').onclick = () => openSalesRepModal({ onDone: async (id) => {
+    try { const users = await getTeamUsers();
+      $('seSalesRep').innerHTML = '<option value="">— none —</option>' + users.map(u => `<option value="${u.id}"${u.id === id ? ' selected' : ''}>${esc(u.name || u.email)}</option>`).join('');
+    } catch (e) {}
   } });
 
   // ---- Approved carriers/brokers roster (master admin, inside manage-customer) ----
