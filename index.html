@@ -1462,7 +1462,7 @@
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${d.phone ? `<a class="linkbtn" href="${driverSmsHref(d.phone, d.link)}" title="Text this link to ${esc(d.phone)}">Text</a>` : ''}
         ${d.email ? `<a class="linkbtn" href="${driverMailHref(d.email, d.link)}" title="Email this link to ${esc(d.email)}">Email</a>` : ''}
-        <button class="ghost drvCopy" data-link="${esc(d.link)}" style="padding:6px 10px;font-size:12px;">Copy link</button>
+        <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -1478,7 +1478,7 @@
     tbody.onclick = async (e) => {
       const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit');
       if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email, hasPin: ed.dataset.haspin === '1' }, orgId, () => loadDrivers(orgId, tbody)); return; }
-      if (c) { const ok = await copyText(c.dataset.link); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
+      if (c) { const ok = await copyRichLink(c.dataset.link, 'HaulProof — ' + (c.dataset.name || 'Driver')); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
       if (t) { try { await api('/api/drivers/' + t.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: t.dataset.active !== '1' }) }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
       if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
     };
