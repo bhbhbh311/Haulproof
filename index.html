@@ -696,7 +696,7 @@
       <div id="offeredList"><div class="empty">No documents waiting.</div></div>
     </div>
 
-    <div class="card" id="uploadCard">
+    <div class="card hide" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
         <button class="ghost" id="upToggle" type="button">＋ New upload</button>
@@ -1001,7 +1001,7 @@
       if ($('nlToggle')) $('nlToggle').classList.add('hide');       // brokers don't create loads
       show('loadsCard', true); loadLoads();
       show('brokerCarriersCard', true); loadApprovedCarriers();
-      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
+      ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
       if (u.role === 'admin') { show('teamCard', true); loadUsers(); }
     } else if (u.orgKind === 'carrier') {
@@ -1010,12 +1010,12 @@
       show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.remove('hide');   // carriers can create their own loads now
       show('loadsCard', true); loadLoads();
-      ['uploadCard','findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
+      ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
       if (u.role === 'admin') { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
     } else {
       SUPER_CARDS.forEach(id => show(id, false));
-      ['uploadCard','findCard','resultsCard','loadsCard'].forEach(id => show(id, true));
+      ['findCard','resultsCard','loadsCard'].forEach(id => show(id, true));
       show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.remove('hide');
       loadLoads();
@@ -1050,7 +1050,7 @@
   // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
   var TAB_DEFS = [
     // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
-    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
+    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
@@ -1460,11 +1460,14 @@
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
       const r = await api('/api/loads' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
-      if (!r.results.length) { box.innerHTML = '<div class="empty">' + (q ? 'No loads match that search.' : 'No loads yet. Create one above.') + '</div>'; return; }
-      const all = r.results, showing = q ? all : all.slice(0, 15);
+      // Default view shows only loads still needing action; completed (all stops signed) drop off — they
+      // stay findable via search and in "Find a document" below. Search shows everything (incl. completed).
+      const active = q ? r.results : r.results.filter(l => !l.complete);
+      if (!active.length) { box.innerHTML = '<div class="empty">' + (q ? 'No loads match that search.' : (r.results.length ? 'All caught up — every load is signed. Search or use “Find a document” below to see completed ones.' : 'No loads yet. Create one above.')) + '</div>'; return; }
+      const all = active, showing = q ? all : all.slice(0, 15);
       const heading = q
         ? `<div class="sub" style="margin:0 0 8px;">${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"</div>`
-        : `<div class="sub" style="margin:0 0 8px;">Latest ${showing.length} load${showing.length === 1 ? '' : 's'}${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
+        : `<div class="sub" style="margin:0 0 8px;">${showing.length} load${showing.length === 1 ? '' : 's'} needing action${all.length > showing.length ? ' — search above to find older ones' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>

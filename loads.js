@@ -70,8 +70,12 @@ router.get('/', requireAuth, (req, res) => {
   // only ever see their own loads).
   const viewerIsCB = isCarrier(req) || isBroker(req);
   const orgName = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
+  // A load is "complete" when it has at least one document and EVERY document is signed/emailed. Such loads
+  // drop off the default Loads list (still findable via search) so only loads needing action remain.
+  const podStat = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`);
   const out = rows.map(l => {
     const o = { ...loadOut(l), lastEvent: lastEv.get(l.id) || null };
+    const ps = podStat.get(l.id); o.complete = !!(ps && ps.total > 0 && Number(ps.done) === Number(ps.total));
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     return o;
   });
