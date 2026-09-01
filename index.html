@@ -329,6 +329,12 @@
         </div>
       </div>
     </div>
+    <!-- STORAGE GAUGE (super-admin only): document storage used vs the app disk budget. -->
+    <div id="storageGauge" class="hide" style="max-width:1100px;margin:0 auto 14px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:10px;">
+      <span style="font-weight:700;">Document storage:</span>
+      <div style="flex:1;max-width:280px;height:8px;border-radius:99px;background:var(--line);overflow:hidden;"><i id="storageBar" style="display:block;height:100%;width:0;background:var(--ok);"></i></div>
+      <span id="storageText"></span>
+    </div>
 
     <!-- ACCESS REQUESTS (super-admin only) -->
     <div class="card hide" id="requestsCard">
@@ -994,6 +1000,7 @@
       show('receiversCard', true); loadReceivers();
       if ($('recvAddFind')) $('recvAddFind').classList.add('hide'); if ($('nrToggle')) $('nrToggle').classList.remove('hide');
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
+      loadStorageGauge();
     } else if (u.orgKind === 'broker') {
       // Broker's space: loads customers handed them, their approved-carrier roster, their own documents + drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
@@ -1107,6 +1114,20 @@
   }
   // --- Invite link (all users) + access-request inbox (super-admin) ---
   function loadInviteLink(){ var el=$('inviteLink'); if(el) el.value = location.origin + '/request'; }
+  // Super-admin storage gauge: shows document storage used vs the app disk budget, and warns as it fills.
+  async function loadStorageGauge(){
+    const g = $('storageGauge'); if (!g) return;
+    try {
+      const r = await api('/api/storage');
+      const used = r.bytes || 0, lim = r.limitBytes || (1024*1024*1024);
+      const pct = Math.min(100, Math.round(used / lim * 100));
+      const usedMb = used / 1048576, limMb = Math.round(lim / 1048576);
+      const usedStr = usedMb < 100 ? usedMb.toFixed(1) : Math.round(usedMb);
+      if ($('storageBar')) { $('storageBar').style.width = pct + '%'; $('storageBar').style.background = pct >= 85 ? 'var(--danger)' : pct >= 65 ? 'var(--warn)' : 'var(--ok)'; }
+      if ($('storageText')) $('storageText').textContent = usedStr + ' MB of ~' + limMb + ' MB (' + pct + '%) · ' + (r.count || 0) + ' docs' + (pct >= 65 ? ' — time to plan object storage' : '');
+      g.classList.remove('hide');
+    } catch (e) {}
+  }
   if ($('inviteCopy')) $('inviteCopy').onclick = async () => { const ok = await copyText($('inviteLink').value); const m=$('inviteMsg'); m.textContent = ok?'Copied ✓':'Copy failed'; setTimeout(()=>m.textContent='',1600); };
 
   let reqOrgsCache = null;

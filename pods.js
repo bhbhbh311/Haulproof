@@ -237,10 +237,21 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
         if (prep.salesRepUserId) db.prepare(`UPDATE pods SET salesRepUserId = ? WHERE id = ?`).run(prep.salesRepUserId, id);
-        // Mark ONLY the exact prepared stop that was just signed as fulfilled, so it drops off "to sign" /
-        // "Your loads" lists while every other stop on the load stays put. (Signing stop 1 must never clear
-        // stop 2.)
-        db.prepare(`UPDATE pods SET assignedFulfilledAt = ? WHERE id = ? AND assignedFulfilledAt IS NULL`).run(Date.now(), prep.id);
+        // Record a SHA-256 fingerprint of the pre-signature original before we remove it — cheap (a few
+        // dozen bytes) integrity proof that the signed doc's underlying pages match what was prepared.
+        try {
+          const pf = db.prepare(`SELECT filepath FROM pods WHERE id = ?`).get(prep.id);
+          if (pf && pf.filepath && fs.existsSync(pf.filepath)) {
+            const hash = crypto.createHash('sha256').update(fs.readFileSync(pf.filepath)).digest('hex');
+            db.prepare(`UPDATE pods SET originalHash = ? WHERE id = ?`).run(hash, id);
+            try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note', detail: 'Original document fingerprint (SHA-256): ' + hash, actor: 'system' }); } catch (_) {}
+          }
+          // The prepared "ready to sign" copy for THIS stop has now been replaced by the signed copy above —
+          // remove it so the stop shows only the signed document (no lingering duplicate to sign). Only ever
+          // the ONE exact stop that was just signed; a multi-stop load keeps its other stops to sign.
+          db.prepare(`DELETE FROM pods WHERE id = ?`).run(prep.id);
+          if (pf && pf.filepath) { try { fs.unlinkSync(pf.filepath); } catch (_) {} }
+        } catch (e) {}
       }
     } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
@@ -340,6 +351,14 @@ router.get('/offered', requireAuth, (req, res) => {
     WHERE pods.offeredToOrgId = ? AND pods.claimStatus = 'offered' ORDER BY pods.uploadedAt DESC`).all(orgId)
     .map(r => ({ ...r, fileUrl: `/api/pods/${r.id}/file` }));
   res.json({ count: rows.length, results: rows });
+});
+// Storage gauge (super-admin): total stored document bytes vs the app's persistent-disk budget, so we can
+// see how close we are to needing object storage. Registered before '/:id' so it isn't read as an id.
+router.get('/storage', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Super-admin only' });
+  const row = db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(sizeBytes),0) AS bytes FROM pods`).get();
+  const limitBytes = Number(process.env.DISK_LIMIT_BYTES || (1024 * 1024 * 1024)); // Render disk is ~1 GB
+  res.json({ count: row.count, bytes: Number(row.bytes) || 0, limitBytes });
 });
 // A carrier offers one of its own documents to a customer it has worked with.
 router.post('/:id/offer', requireAuth, express.json(), (req, res) => {

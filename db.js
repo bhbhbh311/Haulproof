@@ -175,6 +175,7 @@ addColumn('pods', 'receiverId', 'TEXT');
 addColumn('pods', 'receiverName', 'TEXT');
 addColumn('pods', 'stopNumber', 'INTEGER');   // multi-stop loads: 1st stop, 2nd stop, … under the same PO/Load
 addColumn('pods', 'salesRepUserId', 'TEXT');  // team login who reps this stop → notified when the stop completes
+addColumn('pods', 'originalHash', 'TEXT');    // SHA-256 fingerprint of the pre-signature original (integrity/dispute proof)
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
@@ -238,6 +239,17 @@ CREATE TABLE IF NOT EXISTS org_notify (
   PRIMARY KEY (orgId, userId)
 );
 CREATE INDEX IF NOT EXISTS idx_orgnotify_org ON org_notify(orgId);
+-- A shareable "here's your login" link for a portal user: the page it points to shows their email plus a
+-- one-time temporary password (which we also set as their real password). Single active link per user.
+CREATE TABLE IF NOT EXISTS login_links (
+  token        TEXT PRIMARY KEY,
+  userId       TEXT NOT NULL,
+  tempPassword TEXT NOT NULL,     -- plaintext temp password shown on the link page; the user changes it after signing in
+  expiresAt    INTEGER NOT NULL,
+  viewedAt     INTEGER,
+  createdAt    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loginlinks_user ON login_links(userId);
 CREATE TABLE IF NOT EXISTS access_requests (
   id TEXT PRIMARY KEY,
   code TEXT,
