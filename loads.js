@@ -39,9 +39,12 @@ router.post('/', requireAuth, (req, res) => {
     if (existing) return res.json({ load: loadOut(existing), existed: true });
   }
   const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, status, createdBy, createdAt)
-     VALUES (?,?,?,?,?,?,?,?, 'open', ?, ?)`)
-    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, req.user.email, Date.now());
+  // A carrier creating its own load IS the carrier — default it to their company (they can change it later).
+  let carrierId = null, carrierName = null;
+  if (isCarrier(req) && orgId) { carrierId = orgId; const o = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId); carrierName = o ? o.name : null; }
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, status, createdBy, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
+    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, req.user.email, Date.now());
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : ''), actor: actorOf(req) });
   res.json({ load: loadOut(load), existed: false });
