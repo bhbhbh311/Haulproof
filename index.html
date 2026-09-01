@@ -137,7 +137,7 @@
 </div>
 <main>
   <!-- LOGIN -->
-  <div id="loginView" class="authwrap">
+  <div id="loginView" class="authwrap hide">
     <div class="authhero">
       <span class="deco d1"></span><span class="deco d2"></span>
       <span class="mk" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13.5 9 18.5 20 6.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -2419,12 +2419,14 @@
   var DEEP_LOAD = null; try { DEEP_LOAD = new URLSearchParams(location.search).get('load'); } catch (e) {}
   function cleanUrl() { if (location.search) history.replaceState({}, '', location.pathname); }
   async function boot() {
-    // Show the Microsoft button only when the server says SSO is configured.
+    // Check the session FIRST so a logged-in user (e.g. returning from the signature page) never sees a
+    // flash of the login screen — it stays hidden until we confirm they're actually signed out.
+    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); enterApp(me.user); return; } } catch(_){}
+    // Not signed in → now reveal the login screen and decorate it with the SSO options.
+    cleanUrl();
+    $('loginView').classList.remove('hide');
     try { const cfg = await api('/api/auth/config'); if (cfg.microsoft) { $('msBtn').classList.remove('hide'); $('pwDivider').classList.remove('hide'); } } catch(_){}
     showSsoMsg();
-    // If a session cookie is already valid (just came back from Microsoft, or returning visit), go straight in.
-    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); enterApp(me.user); return; } } catch(_){}
-    cleanUrl();
   }
   boot();
   $('searchBtn').onclick = search;
