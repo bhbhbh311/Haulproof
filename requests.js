@@ -16,6 +16,7 @@ function driverToken() { return 'drv_' + crypto.randomBytes(24).toString('hex');
 function originOf(req) { return (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host')); }
 function parseThread(s) { try { return JSON.parse(s || '[]'); } catch (e) { return []; } }
 function adminEmails() { return (process.env.ADMIN_EMAIL || '').split(',').map(s => s.trim()).filter(Boolean); }
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 function reqOut(r) {
   return { id: r.id, code: r.code, kind: r.kind, orgType: r.orgType, contactName: r.contactName, email: r.email,
     phone: r.phone, company: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, targetCompany: r.targetCompany,
@@ -46,7 +47,18 @@ router.post('/', express.json(), async (req, res) => {
   // Let the Master Admin know a request came in.
   sendMail({ to: adminEmails(), subject: 'New HaulProof access request',
     text: `${contactName} (${email}${phone ? ', ' + phone : ''}) requested ${kind === 'company' ? 'a ' + orgType + ' account' : 'driver access'}${company ? ' — ' + company : ''}${b.targetCompany ? ' (join ' + b.targetCompany + ')' : ''}.\n\nReview it in the Master Admin portal → Access requests.` });
-  res.json({ ok: true, code, statusUrl: originOf(req) + '/request?code=' + code });
+  // Send the requester an immediate acknowledgment so they know it went through (they otherwise wouldn't
+  // hear anything until the Master Admin grants/denies/asks a question). Includes their status link + code.
+  const statusUrl = originOf(req) + '/request?code=' + code;
+  const firstName = contactName.split(/\s+/)[0] || contactName;
+  sendMail({ to: email, subject: 'We received your HaulProof request',
+    text: `Hi ${firstName},\n\nThanks — we've received your request${company ? ' for ' + company : ''} and it's now with our team for review. You'll get another email as soon as it's approved.\n\nReference code: ${code}\nCheck your status anytime: ${statusUrl}\n\n— HaulProof`,
+    html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Hi ${escapeHtml(firstName)},</p>`
+      + `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thanks — we've received your request${company ? ' for <b>' + escapeHtml(company) + '</b>' : ''} and it's now with our team for review. You'll get another email as soon as it's approved.</p>`
+      + `<p style="font:14px system-ui,Arial,sans-serif;color:#41505f">Reference code: <b>${code}</b><br>`
+      + `<a href="${statusUrl}" style="color:#1f6feb;font-weight:600;text-decoration:none">Check your request status</a></p>`
+      + `<p style="font:14px system-ui,Arial,sans-serif;color:#8a94a6">— HaulProof</p>` });
+  res.json({ ok: true, code, statusUrl });
 });
 
 // ---- PUBLIC: check a request by its code ----
