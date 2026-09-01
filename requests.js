@@ -52,12 +52,12 @@ router.post('/', express.json(), async (req, res) => {
   const statusUrl = originOf(req) + '/request?code=' + code;
   const firstName = contactName.split(/\s+/)[0] || contactName;
   sendMail({ to: email, subject: 'We received your HaulProof request',
-    text: `Hi ${firstName},\n\nThanks — we've received your request${company ? ' for ' + company : ''} and it's now with our team for review. You'll get another email as soon as it's approved.\n\nReference code: ${code}\nCheck your status anytime: ${statusUrl}\n\n— HaulProof`,
+    text: `Hi ${firstName},\n\nThanks — we've received your request${company ? ' for ' + company : ''} and it's now with our team for review. You'll get another email as soon as it's approved.\n\nCheck your status any time: ${statusUrl}\n(Reference code: ${code})\n\n— HaulProof`,
     html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Hi ${escapeHtml(firstName)},</p>`
       + `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thanks — we've received your request${company ? ' for <b>' + escapeHtml(company) + '</b>' : ''} and it's now with our team for review. You'll get another email as soon as it's approved.</p>`
-      + `<p style="font:14px system-ui,Arial,sans-serif;color:#41505f">Reference code: <b>${code}</b><br>`
-      + `<a href="${statusUrl}" style="color:#1f6feb;font-weight:600;text-decoration:none">Check your request status</a></p>`
-      + `<p style="font:14px system-ui,Arial,sans-serif;color:#8a94a6">— HaulProof</p>` });
+      + `<p style="margin:18px 0"><a href="${statusUrl}" style="display:inline-block;background:#1f6feb;color:#fff;font:600 14px system-ui,Arial,sans-serif;text-decoration:none;padding:10px 18px;border-radius:8px">Check your request status</a></p>`
+      + `<p style="font:12px system-ui,Arial,sans-serif;color:#8a94a6;margin:0 0 14px">Reference code: ${code}</p>`
+      + `<p style="font:14px system-ui,Arial,sans-serif;color:#8a94a6;margin:0">— HaulProof</p>` });
   res.json({ ok: true, code, statusUrl });
 });
 
