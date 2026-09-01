@@ -286,6 +286,27 @@
       </div>
     </div>
 
+    <!-- Add a driver (roster entry with PIN) inline from a load -->
+    <div id="driverModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:520px;">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Add a driver</h1><button id="drvClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" style="margin:8px 0 12px;">Creates a driver on your account with a personal link + PIN, so you can route this load to their phone.</p>
+        <div class="row" style="grid-template-columns:1fr 1fr;">
+          <div><label>Driver name <span style="color:#c0392b;">*required</span></label><input id="drvName" placeholder="e.g. Mike Rowe"></div>
+          <div><label>PIN <span style="color:#c0392b;">*required</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">4–6 digits</span></label><input id="drvPin" inputmode="numeric" placeholder="4–6 digits, locks their link"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+          <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="drvPhone" placeholder="(555) 555-5555"></div>
+          <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="drvEmail" type="email" placeholder="driver@email.com"></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+          <button id="drvCreate" type="button">Create driver</button>
+          <button class="ghost" id="drvCancel" type="button">Cancel</button>
+          <span id="drvMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Load-history popup (opened by clicking a PO #) -->
     <div id="histModal" class="histOverlay hide">
       <div class="histBox">
@@ -625,7 +646,8 @@
         <div id="ldDrvBody" class="hide" style="margin-top:12px;">
           <div class="row" style="grid-template-columns:1fr;margin-bottom:10px;">
             <div><label>Assign a driver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">pick from your drivers — routes the load to their phone</span></label>
-              <select id="ldDrvSelect"><option value="">— choose a driver —</option></select></div>
+              <select id="ldDrvSelect"><option value="">— choose a driver —</option></select>
+              <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button></div>
           </div>
           <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
             <div><label>Driver name</label><input id="ldDrv"></div>
@@ -2968,6 +2990,47 @@
       $('seSalesRep').innerHTML = '<option value="">— none —</option>' + users.map(u => `<option value="${u.id}"${u.id === id ? ' selected' : ''}>${esc(u.name || u.email)}</option>`).join('');
     } catch (e) {}
   } });
+
+  // ---- Add a driver (roster entry with PIN) inline from a load ----
+  let _drvCtx = null;
+  function openDriverModal(ctx) {
+    _drvCtx = ctx || {};
+    ['drvName', 'drvPin', 'drvPhone', 'drvEmail'].forEach(id => { if ($(id)) $(id).value = ''; });
+    $('drvMsg').textContent = ''; $('drvMsg').className = '';
+    $('driverModal').classList.remove('hide'); setTimeout(() => $('drvName').focus(), 50);
+  }
+  function closeDriverModal() { $('driverModal').classList.add('hide'); _drvCtx = null; }
+  if ($('drvClose')) $('drvClose').onclick = closeDriverModal;
+  if ($('drvCancel')) $('drvCancel').onclick = closeDriverModal;
+  if ($('driverModal')) $('driverModal').addEventListener('click', e => { if (e.target === $('driverModal')) closeDriverModal(); });
+  if ($('drvCreate')) $('drvCreate').onclick = async () => {
+    const name = $('drvName').value.trim(), pin = $('drvPin').value.trim(), phone = $('drvPhone').value.trim(), email = $('drvEmail').value.trim();
+    if (!name) { $('drvMsg').textContent = "Enter the driver's name"; $('drvMsg').className = 'umsg-err'; return; }
+    if (!/^\d{4,6}$/.test(pin)) { $('drvMsg').textContent = 'Set a 4–6 digit PIN'; $('drvMsg').className = 'umsg-err'; $('drvPin').focus(); return; }
+    $('drvMsg').textContent = 'Creating…'; $('drvMsg').className = '';
+    try {
+      const r = await api('/api/drivers', { method: 'POST', body: JSON.stringify({ name, phone, email, pin }) });
+      const id = (r && r.driver && r.driver.id) || null;
+      const cb = _drvCtx && _drvCtx.onDone;
+      closeDriverModal();
+      if (cb) await cb(id, name);
+    } catch (e) { $('drvMsg').textContent = e.message; $('drvMsg').className = 'umsg-err'; }
+  };
+  // "+ Add / create driver" on the load → create a driver, then select them for this load.
+  if ($('ldDriverAdd')) $('ldDriverAdd').onclick = () => openDriverModal({ onDone: async (id, name) => {
+    await populateLdDrivers();
+    if (id && $('ldDrvSelect')) { $('ldDrvSelect').value = id; _ldSelectedDriverId = id; }
+    if ($('ldDrv')) $('ldDrv').value = name || '';
+  } });
+  // "Not set — tap to add" opens the driver section and jumps straight to creating a driver.
+  if ($('ldDrvSummary')) $('ldDrvSummary').onclick = (e) => {
+    if (curLoad && curLoad.driverName) return;   // already set → let the header toggle behave normally
+    e.stopPropagation();
+    if ($('ldDrvBody')) $('ldDrvBody').classList.remove('hide');
+    if ($('ldDrvCaret')) $('ldDrvCaret').textContent = '▾';
+    if ($('ldDriverAdd')) $('ldDriverAdd').click();
+  };
+  if ($('ldDrvSummary')) $('ldDrvSummary').style.cursor = 'pointer';
 
   // ---- Approved carriers/brokers roster (master admin, inside manage-customer) ----
   let cmpKind = 'carrier';
