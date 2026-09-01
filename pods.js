@@ -122,7 +122,9 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     // Optional stop number for multi-stop loads (1st stop, 2nd stop, …). When present, this document is
     // filed as another stop on the SAME PO/Load — so we do NOT auto-suffix the PO in that case.
     const stopRaw = parseInt((dec(h['x-stop']) || '').trim(), 10);
-    const stopNumber = (Number.isFinite(stopRaw) && stopRaw > 0) ? stopRaw : null;
+    const stopProvided = Number.isFinite(stopRaw) && stopRaw > 0;
+    // Every document belongs to at least Stop 1 — default to it when no stop was entered.
+    const stopNumber = stopProvided ? stopRaw : 1;
     // Team login who reps this stop — emailed when the stop completes. Must belong to the filing org.
     let salesRepUserId = (dec(h['x-salesrep']) || '').trim() || null;
     if (salesRepUserId && !db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(salesRepUserId, orgId)) salesRepUserId = null;
@@ -131,7 +133,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
     // Standalone doc: never create an exact duplicate PO # within this org — auto-suffix (-2, -3, …).
     // A stop on a multi-stop load intentionally reuses the same PO, so skip the suffix then.
-    if (!stopNumber) poNumber = uniquePoForOrg(orgId, poNumber);
+    if (!stopProvided) poNumber = uniquePoForOrg(orgId, poNumber);
     const id = crypto.randomUUID();
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
