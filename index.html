@@ -516,20 +516,23 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
         <div style="display:flex;gap:8px;">
-          <button class="ghost" id="ldEditBtn" type="button">✎ Edit</button>
-          <button class="ghost" id="ldBack" type="button">← Back to loads</button>
+          <button class="ghost ld-viewonly" id="ldEditBtn" type="button">✎ Edit</button>
+          <button class="ld-editonly hide" id="ldSaveAll" type="button">Save</button>
+          <button class="ghost ld-editonly hide" id="ldCancelAll" type="button">Cancel</button>
+          <button class="ghost" id="ldBack" type="button">← Back</button>
         </div>
       </div>
-      <div id="ldEditForm" class="hide" style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;">
+      <div id="ldEditMsg" class="ld-editonly hide" style="margin-top:8px;font-size:13px;font-weight:600;"></div>
+
+      <!-- READ-ONLY SUMMARY (shown when viewing) -->
+      <div id="ldView" class="ld-viewonly" style="margin-top:14px;"></div>
+
+      <!-- EDITABLE basic fields (shown after clicking Edit) -->
+      <div id="ldEditForm" class="ld-editonly hide" style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
           <div><label>Customer PO #</label><input id="ldEditPo"></div>
           <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
           <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditCons"></div>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;">
-          <button id="ldEditSave" type="button">Save changes</button>
-          <button class="ghost" id="ldEditCancel" type="button">Cancel</button>
-          <span id="ldEditMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
 
@@ -537,7 +540,7 @@
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
-          <button class="ghost" id="ldAddStopToggle" type="button">＋ Add stop / documents</button>
+          <button class="ghost ld-editonly hide" id="ldAddStopToggle" type="button">＋ Add stop / documents</button>
         </div>
         <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
         <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
@@ -561,7 +564,7 @@
           </div>
         </div>
       </div>
-      <div style="margin-top:18px;" id="ldCarrierSection">
+      <div style="margin-top:18px;" id="ldCarrierSection" class="ld-editonly hide">
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
         <!-- customer/super: choose whether to hand the load to a carrier directly, or to a broker -->
@@ -587,7 +590,7 @@
           <div id="ldCarResults" style="margin-top:10px;"></div>
         </div>
       </div>
-      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+      <div class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <div id="ldDrvToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
           <span id="ldDrvCaret" style="font-size:14px;color:var(--muted);width:14px;">▸</span>
           <h1 style="font-size:16px;margin:0;">Driver &amp; equipment</h1>
@@ -606,7 +609,7 @@
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver &amp; equipment</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
         </div>
       </div>
-      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+      <div class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <div id="ldSubsToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
           <span id="ldSubsCaret" style="font-size:14px;color:var(--muted);width:14px;">▸</span>
           <h1 style="font-size:16px;margin:0;">Load updates</h1>
@@ -618,9 +621,11 @@
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldSubsSave" type="button">Save recipients</button><span id="ldSubsMsg" style="font-size:13px;font-weight:600;"></span></div>
         </div>
       </div>
-      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
-        <h1 style="font-size:16px;">History</h1>
-        <div id="ldHistory"></div>
+      <div class="ld-viewonly" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+        <a href="#" id="ldHistoryLink" style="color:var(--primary);font-weight:600;text-decoration:none;">View history ▾</a>
+        <div id="ldHistoryWrap" class="hide" style="margin-top:12px;">
+          <div id="ldHistory"></div>
+        </div>
       </div>
     </div>
 
@@ -1420,7 +1425,7 @@
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>
-          <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
+          <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           ${isCB ? `<td>${esc(l.customerName) || '<span style="color:var(--muted)">— your own —</span>'}</td>` : ''}
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
@@ -1428,7 +1433,7 @@
           <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open ›</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
-      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
+      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
   $('nlToggle').onclick = () => { $('nlForm').classList.toggle('hide'); if (!$('nlForm').classList.contains('hide')) $('nlPo').focus(); };
@@ -1446,11 +1451,13 @@
   $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadLoads(); });
 
   let curLoad = null;
-  async function openLoad(id) {
+  let _lastPods = [];      // most recent pods for the open load (so edit-mode re-render has them)
+  let _ldBackFn = null;    // where "Back" returns to (set when opened from the Manage view)
+  async function openLoad(id, opts) {
     try {
       const r = await api('/api/loads/' + id);
-      curLoad = r.load;
-      $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide');
+      curLoad = r.load; _lastPods = r.pods || []; _ldBackFn = (opts && opts.back) || null;
+      $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
       $('ldSummary').textContent = [curLoad.consignee ? 'Consignee: ' + curLoad.consignee : '', 'Status: ' + (curLoad.status || 'open')].filter(Boolean).join('  ·  ');
       // Carriers just view + set the driver — hide the assign section entirely.
@@ -1477,7 +1484,7 @@
       loadHistory(id);
       // Stops & documents
       renderLoadDocs(r.pods || []);
-      $('ldEditForm').classList.add('hide'); $('ldStopForm').classList.add('hide');
+      $('ldStopForm').classList.add('hide');
       $('ldEditPo').value = curLoad.poNumber || ''; $('ldEditLoad').value = curLoad.loadNumber || ''; $('ldEditCons').value = curLoad.consignee || '';
       $('ldEditMsg').textContent = ''; $('ldUploadMsg').textContent = '';
       $('ldStop').value = nextStopNumber(r.pods || []);
@@ -1485,8 +1492,53 @@
       if ($('ldPagePicker')) { $('ldPagePicker').innerHTML = ''; $('ldPagePicker').classList.add('hide'); }
       ldPageState = []; ldFileBufs = [];
       loadReceiverOptions();
+      renderLdView(); setLoadEditMode(false);
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
+  }
+  // Read-only summary shown when not editing.
+  function renderLdView() {
+    if (!curLoad || !$('ldView')) return;
+    const rows = [];
+    rows.push(['Customer PO #', esc(curLoad.poNumber) || '—']);
+    rows.push(['Load #', esc(curLoad.loadNumber) || '—']);
+    rows.push(['Consignee', esc(curLoad.consignee) || '—']);
+    const asg = [];
+    if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
+    if (curLoad.carrierName) asg.push('Carrier: ' + esc(curLoad.carrierName));
+    rows.push(['Carrier / broker', asg.length ? asg.join(' · ') : '<span class="empty">Not assigned</span>']);
+    const drv = curLoad.driverName
+      ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
+      : '<span class="empty">Not set</span>';
+    rows.push(['Driver & equipment', drv]);
+    rows.push(['Status', esc(curLoad.status || 'open')]);
+    $('ldView').innerHTML = '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:14px;align-items:baseline;">' +
+      rows.map(r => '<div style="color:var(--muted);font-weight:600;white-space:nowrap;">' + r[0] + '</div><div>' + r[1] + '</div>').join('') +
+      '</div>';
+  }
+  // Toggle the whole load between read-only (view) and editable.
+  function setLoadEditMode(on) {
+    const card = $('loadDetailCard'); if (!card) return;
+    card.classList.toggle('editing', on);
+    Array.prototype.forEach.call(card.querySelectorAll('.ld-editonly'), e => e.classList.toggle('hide', !on));
+    Array.prototype.forEach.call(card.querySelectorAll('.ld-viewonly'), e => e.classList.toggle('hide', on));
+    if (on) {
+      // Editing: open the collapsible bodies, drop the redundant per-section save buttons (one Save covers all).
+      if ($('ldDrvBody')) $('ldDrvBody').classList.remove('hide');
+      if ($('ldDrvCaret')) $('ldDrvCaret').textContent = '▾';
+      if ($('ldSubsBody')) $('ldSubsBody').classList.remove('hide');
+      if ($('ldSubsCaret')) $('ldSubsCaret').textContent = '▾';
+      if ($('ldDrvBtn')) $('ldDrvBtn').classList.add('hide');
+      if ($('ldSubsSave')) $('ldSubsSave').classList.add('hide');
+      if (isCarrierUser() && $('ldCarrierSection')) $('ldCarrierSection').classList.add('hide');
+      if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
+    } else {
+      if ($('ldStopForm')) $('ldStopForm').classList.add('hide');
+      if ($('ldHistoryWrap')) $('ldHistoryWrap').classList.add('hide');
+      if ($('ldHistoryLink')) $('ldHistoryLink').textContent = 'View history ▾';
+    }
+    // Per-document Edit/Remove and the Add button depend on the mode.
+    if (curLoad) renderLoadDocs(_lastPods);
   }
   function nextStopNumber(pods) {
     const nums = pods.map(p => p.stopNumber).filter(n => n != null);
@@ -1494,6 +1546,7 @@
   }
   function renderLoadDocs(pods) {
     const box = $('ldDocs'); if (!box) return;
+    const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
     if (!pods.length) {
@@ -1503,7 +1556,7 @@
         + '<td><span class="empty">—</span></td>'
         + '<td><span class="empty">—</span></td>'
         + '<td><span class="chip" style="background:var(--surface2,#eef3fb);color:var(--muted);">Awaiting document</span></td>'
-        + '<td style="text-align:right;white-space:nowrap;"><button class="ghost ldAddToStop" data-stop="1" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;">＋ Add document</button></td>'
+        + '<td style="text-align:right;white-space:nowrap;">' + (editing ? '<button class="ghost ldAddToStop" data-stop="1" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;">＋ Add document</button>' : '<span class="empty" style="font-size:12px;">Click Edit to add</span>') + '</td>'
         + '</tr></tbody></table>';
       const addBtn = box.querySelector('.ldAddToStop');
       if (addBtn) addBtn.onclick = () => {
@@ -1521,8 +1574,7 @@
         <td style="text-align:right;white-space:nowrap;">
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
-          &nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>
-          &nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>
+          ${editing ? `&nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>&nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
     const byId = {}; pods.forEach(p => byId[p.id] = p);
@@ -1621,16 +1673,35 @@
     try { await api('/api/users/notify', { method: 'PUT', body: JSON.stringify({ userIds: ids }) }); $('mnMsg').textContent = 'Saved ✓'; $('mnMsg').className = 'umsg-ok'; }
     catch (e) { $('mnMsg').textContent = e.message; $('mnMsg').className = 'umsg-err'; }
   };
-  // Edit the load's basic fields.
-  if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { $('ldEditForm').classList.toggle('hide'); };
-  if ($('ldEditCancel')) $('ldEditCancel').onclick = () => $('ldEditForm').classList.add('hide');
-  if ($('ldEditSave')) $('ldEditSave').onclick = async () => {
-    const po = $('ldEditPo').value.trim(); if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; return; }
+  // View → Edit toggle. Edit unlocks every field; one Save writes them all; Cancel discards.
+  if ($('ldEditBtn')) $('ldEditBtn').onclick = () => setLoadEditMode(true);
+  if ($('ldCancelAll')) $('ldCancelAll').onclick = () => { if (curLoad) openLoad(curLoad.id, { back: _ldBackFn }); };
+  if ($('ldHistoryLink')) $('ldHistoryLink').onclick = (e) => {
+    e.preventDefault();
+    const w = $('ldHistoryWrap'); if (!w) return;
+    const show = w.classList.contains('hide');
+    w.classList.toggle('hide', !show);
+    $('ldHistoryLink').textContent = show ? 'Hide history ▴' : 'View history ▾';
+  };
+  if ($('ldSaveAll')) $('ldSaveAll').onclick = async () => {
+    if (!curLoad) return;
+    const po = $('ldEditPo').value.trim();
+    if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; return; }
     $('ldEditMsg').textContent = 'Saving…'; $('ldEditMsg').className = '';
     try {
+      // 1) Basic fields
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify({ poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() }) });
-      $('ldEditMsg').textContent = 'Saved ✓'; $('ldEditMsg').className = 'umsg-ok';
-      openLoad(curLoad.id);
+      // 2) Driver & equipment (only if a driver is named/selected)
+      const driverName = ($('ldDrv') && $('ldDrv').value.trim()) || '';
+      if (driverName || _ldSelectedDriverId) {
+        await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverName, driverId: _ldSelectedDriverId, truck: ($('ldTruck') || {}).value ? $('ldTruck').value.trim() : '', trailer: ($('ldTrailer') || {}).value ? $('ldTrailer').value.trim() : '' }) });
+      }
+      // 3) Load-update recipients
+      if ($('ldSubsList')) {
+        const ids = Array.prototype.map.call($('ldSubsList').querySelectorAll('.ldSubCb:checked'), c => c.value);
+        try { await api('/api/loads/' + curLoad.id + '/subscribers', { method: 'PUT', body: JSON.stringify({ userIds: ids }) }); } catch (e) {}
+      }
+      openLoad(curLoad.id, { back: _ldBackFn });
     } catch (e) { $('ldEditMsg').textContent = e.message; $('ldEditMsg').className = 'umsg-err'; }
   };
   // Add a stop / upload documents to this load.
@@ -1743,7 +1814,17 @@
       await assignBrokerId(br.broker.id);
     } catch (e) { alert(e.message); }
   }
-  $('ldBack').onclick = () => { $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads(); };
+  $('ldBack').onclick = () => {
+    if (_ldBackFn) { const f = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); f(); return; }
+    $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads();
+  };
+  // Open the shared load detail from the Master-Admin Manage view (returns there on Back).
+  function openLoadFromManage(loadId) {
+    if (!loadId) return;
+    $('custManageCard').classList.add('hide');
+    $('loadDetailCard').classList.remove('hide', 'tabhidden');
+    openLoad(loadId, { back: () => { $('loadDetailCard').classList.add('hide'); $('custManageCard').classList.remove('hide'); } });
+  }
   $('ldCarLookup').onclick = async () => {
     const val = $('ldCarSearch').value.trim(); const by = $('ldCarBy').value;
     if (!val) return;
@@ -1925,7 +2006,7 @@
           </div>` : '';
         const poCell = childCls
           ? '<span style="color:var(--muted);">↳</span>'
-          : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—'));
+          : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—'));
         return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
           <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber) || '—')}</td>
           <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${esc(x.docType) || 'POD'}</td>
@@ -1972,7 +2053,7 @@
         const willShow = rows.length && rows[0].classList.contains('hide');
         rows.forEach(rw => rw.classList.toggle('hide', !willShow)); if (caret) caret.textContent = willShow ? '▾' : '▸';
       });
-      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
+      box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadFromManage(a.dataset.load); });
       // Assign ONE driver to the whole load (all its stops) from the group header.
       box.querySelectorAll('.cmLasgBtn').forEach(b => b.onclick = async (e) => {
         e.stopPropagation();
@@ -2331,7 +2412,7 @@
       }
       const poCell = childCls
         ? '<span style="color:var(--muted);">↳</span>'
-        : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="View history" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—'));
+        : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—'));
       return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
       <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
       <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${x.stopNumber?`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber}</span>`:''}${x.docType||'POD'}</td>
@@ -2386,7 +2467,7 @@
         msg.style.color = 'var(--ok)'; msg.textContent = (rr.load && rr.load.driverName) ? ('→ ' + rr.load.driverName + ' ✓') : 'Assigned ✓';
       } catch (err) { msg.style.color = 'var(--danger)'; msg.textContent = err.message; }
     });
-    tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoadHistory(a.dataset.load); });
+    tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
     tb.querySelectorAll('.asgBtn').forEach(b => b.onclick = async () => {
       const id = b.dataset.id, sel = tb.querySelector('.asgSel[data-id="'+id+'"]'), msg = tb.querySelector('.asgMsg[data-id="'+id+'"]');
