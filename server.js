@@ -18,6 +18,7 @@ const { router: carriersRouter } = require('./carriers');
 const { router: brokersRouter } = require('./brokers');
 const requestsRouter = require('./requests');
 const receiversRouter = require('./receivers');
+const customersRouter = require('./customers');
 
 const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
@@ -79,6 +80,7 @@ app.use('/api/carriers', carriersRouter);
 app.use('/api/brokers', brokersRouter);
 app.use('/api/requests', requestsRouter);
 app.use('/api/receivers', receiversRouter);
+app.use('/api/customers', customersRouter);
 
 // --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
 app.get('/api/stats', requireAuth, requireSuper, (_req, res) => {

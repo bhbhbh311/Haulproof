@@ -141,13 +141,27 @@ router.put('/:id', requireAuth, (req, res) => {
       orgIdNew = newOrg;
     }
   }
-  // Free-text customer name. A carrier/broker can set/change it on a load THEY created (own); a customer
-  // whose load was assigned out can't have its customer changed by the carrier. (Super may set it too.)
+  // Customer, chosen from the load owner's OWN customer list. A carrier/broker can set/change it on a
+  // load THEY created (own); a customer whose load was assigned out can't have its customer changed by
+  // the carrier. (Super may set it too.) We snapshot the customer's name onto the load so the existing
+  // lists/search keep working, and store customerId so the entry stays linked to the picker list.
+  let customerId = load.customerId;
   let customerText = load.customer;
-  if (b.customer !== undefined && (req.user.role === 'superadmin' || ((isCarrier(req) || isBroker(req)) && (load.orgId || null) === (req.user.orgId || null)))) {
+  const canSetCustomer = (req.user.role === 'superadmin' || ((isCarrier(req) || isBroker(req)) && (load.orgId || null) === (req.user.orgId || null)));
+  if (b.customerId !== undefined && canSetCustomer) {
+    const cid = (b.customerId || '').trim() || null;
+    if (!cid) { customerId = null; customerText = null; }
+    else {
+      const cust = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId IS ?`).get(cid, load.orgId || null);
+      if (!cust) return res.status(400).json({ error: 'That customer is not in your list' });
+      customerId = cust.id; customerText = cust.name;
+    }
+  } else if (b.customer !== undefined && canSetCustomer) {
+    // Back-compat: a plain free-text name still works, and clears any linked list entry.
     customerText = (b.customer || '').trim() || null;
+    customerId = null;
   }
-  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, load.id);
+  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
   if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
   logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });

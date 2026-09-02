@@ -151,6 +151,7 @@ addColumn('loads', 'truck', 'TEXT');
 addColumn('loads', 'trailer', 'TEXT');
 addColumn('loads', 'brokerId', 'TEXT');    // a customer can hand a load to a broker, who then assigns the carrier
 addColumn('loads', 'brokerName', 'TEXT');
+addColumn('loads', 'customerId', 'TEXT');  // link to the owner org's own customer-list entry (customers.id)
 addColumn('drivers', 'email', 'TEXT');   // optional driver email (for sending their link)
 addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) that gates their link
 // Carrier → customer document hand-off: a carrier-owned doc can be offered to a customer who then accepts it.
@@ -272,6 +273,21 @@ CREATE TABLE IF NOT EXISTS access_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_reqs_status ON access_requests(status);
 CREATE INDEX IF NOT EXISTS idx_reqs_code   ON access_requests(code);
+-- Each carrier/broker/customer org keeps its OWN private list of customers (companies it hauls for).
+-- Separate from customer tenant accounts; linkedOrgId optionally ties an entry to a real account later.
+CREATE TABLE IF NOT EXISTS customers (
+  id           TEXT PRIMARY KEY,
+  ownerOrgId   TEXT NOT NULL,     -- the org whose private list this belongs to
+  name         TEXT NOT NULL,
+  mcNumber     TEXT,
+  dotNumber    TEXT,
+  contactName  TEXT,
+  contactEmail TEXT,
+  note         TEXT,
+  linkedOrgId  TEXT,              -- (future) a real customer tenant this entry is confirmed to be
+  createdAt    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_customers_owner ON customers(ownerOrgId);
 -- Recipients who have opted out of receiving emailed documents. Legal (CAN-SPAM) compliance: once an
 -- address is here we never email it a document again. Email is stored lower-cased as the primary key.
 CREATE TABLE IF NOT EXISTS email_optouts (
