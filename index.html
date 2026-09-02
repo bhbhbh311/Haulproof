@@ -1461,7 +1461,7 @@
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${d.phone ? `<a class="linkbtn" href="${driverSmsHref(d.phone, d.link)}" title="Text this link to ${esc(d.phone)}">Text</a>` : ''}
-        ${d.email ? `<a class="linkbtn" href="${driverMailHref(d.email, d.link)}" title="Email this link to ${esc(d.email)}">Email</a>` : ''}
+        ${d.email ? `<button class="ghost drvEmail" data-id="${d.id}" title="Email ${esc(d.email)} their link + home-screen steps" style="padding:6px 10px;font-size:12px;">Email</button>` : ''}
         <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
@@ -1476,8 +1476,15 @@
   }
   function wireDriverTable(tbody, orgId) {
     tbody.onclick = async (e) => {
-      const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit');
+      const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit'), em = e.target.closest('.drvEmail');
       if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email, hasPin: ed.dataset.haspin === '1' }, orgId, () => loadDrivers(orgId, tbody)); return; }
+      if (em) {
+        em.disabled = true; const o0 = em.textContent; em.textContent = 'Sending…';
+        try { await api('/api/drivers/' + em.dataset.id + '/email-link', { method: 'POST' }); em.textContent = 'Sent ✓'; }
+        catch (err) { em.textContent = 'Failed'; alert(err.message); }
+        setTimeout(() => { em.disabled = false; em.textContent = 'Email'; }, 1900);
+        return;
+      }
       if (c) { const ok = await copyRichLink(c.dataset.link, 'HaulProof — ' + (c.dataset.name || 'Driver')); c.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => c.textContent = 'Copy link', 1600); }
       if (t) { try { await api('/api/drivers/' + t.dataset.id + '/active', { method: 'POST', body: JSON.stringify({ active: t.dataset.active !== '1' }) }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }
       if (d) { try { await api('/api/drivers/' + d.dataset.id, { method: 'DELETE' }); loadDrivers(orgId, tbody); } catch (err) { alert(err.message); } }

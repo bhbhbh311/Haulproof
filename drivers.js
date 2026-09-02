@@ -5,10 +5,40 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
+const { sendMail } = require('./mailer');
 
 const router = express.Router();
 
 function newToken() { return 'drv_' + crypto.randomBytes(24).toString('hex'); }
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+// The driver-link email — plain-text fallback + a formatted HTML version with a real "Open" button and
+// add-to-home-screen steps for iPhone and Android. (A mailto: can only send plain text, which is why the
+// app sends this itself instead of opening the admin's mail client.)
+function driverLinkText(first, orgName, link) {
+  return `Hi ${first},\n\n`
+    + `You're set up as a driver${orgName ? ' for ' + orgName : ''} on HaulProof. Open this link on your phone to sign deliveries — no app to install and no password:\n\n`
+    + `${link}\n\n`
+    + `Tip: add it to your home screen so it's one tap away.\n`
+    + `• iPhone (Safari): tap the Share button, choose "Add to Home Screen", then tap Add.\n`
+    + `• Android (Chrome): tap the menu (⋮, top-right), choose "Add to Home screen", then tap Add.\n\n`
+    + `— HaulProof`;
+}
+function driverLinkHtml(first, orgName, link) {
+  const forOrg = orgName ? (' for <b>' + escapeHtml(orgName) + '</b>') : '';
+  return `<div style="font-family:-apple-system,system-ui,'Segoe UI',Arial,sans-serif;color:#1f2733;font-size:15px;line-height:1.6;max-width:480px;">`
+    + `<p style="margin:0 0 14px;">Hi ${escapeHtml(first)},</p>`
+    + `<p style="margin:0 0 22px;">You're set up as a driver${forOrg} on HaulProof. Open it on your phone to sign deliveries — no app to install and no password.</p>`
+    + `<p style="margin:0 0 26px;"><a href="${link}" style="display:inline-block;background:#1f6feb;color:#ffffff;font-weight:700;text-decoration:none;font-size:16px;padding:14px 26px;border-radius:10px;">Open HaulProof &rarr;</a></p>`
+    + `<div style="background:#f5f8fc;border:1px solid #dde4ec;border-radius:12px;padding:16px 18px;margin:0 0 22px;">`
+    + `<p style="margin:0 0 12px;font-weight:700;">Tip: add it to your home screen so it's one tap away.</p>`
+    + `<p style="margin:0 0 12px;"><b>iPhone (Safari)</b><br>Tap the Share button <span style="color:#5a6577;">(the square with an arrow pointing up)</span>, choose <b>Add to Home Screen</b>, then tap <b>Add</b>.</p>`
+    + `<p style="margin:0;"><b>Android (Chrome)</b><br>Tap the menu <b>&#8942;</b> <span style="color:#5a6577;">(top-right)</span>, choose <b>Add to Home screen</b>, then tap <b>Add</b>.</p>`
+    + `</div>`
+    + `<p style="margin:0 0 4px;font-size:12.5px;color:#8a94a6;">If the button doesn't work, open this address on your phone:</p>`
+    + `<p style="margin:0 0 20px;font-size:12.5px;color:#8a94a6;word-break:break-all;">${escapeHtml(link)}</p>`
+    + `<p style="margin:0;color:#8a94a6;font-size:13px;">— HaulProof</p></div>`;
+}
 const PIN_RE = /^\d{4,6}$/;
 function originOf(req) { return (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host')); }
 // The customer this request manages drivers for. Super-admin may target any via ?orgId; admins pinned to their own.
@@ -133,6 +163,24 @@ router.post('/:id/rotate', requireAuth, requireDriverManager, (req, res) => {
   if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
   db.prepare(`UPDATE drivers SET token = ? WHERE id = ?`).run(newToken(), d.id);
   res.json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id)) });
+});
+
+// Email a driver their personal link — a formatted message with a real "Open HaulProof" button and
+// add-to-home-screen steps. Sent by the app (not a mailto) so it can carry a button, not just a raw URL.
+router.post('/:id/email-link', requireAuth, requireDriverManager, async (req, res) => {
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
+  if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
+  const to = (d.email || '').trim();
+  if (!to) return res.status(400).json({ error: 'This driver has no email on file — add one first, or use Text / Copy link.' });
+  const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(d.orgId);
+  const orgName = org ? org.name : '';
+  const link = originOf(req) + '/driver?k=' + encodeURIComponent(d.token);
+  const first = (d.name || '').split(/\s+/)[0] || 'there';
+  try {
+    const r = await sendMail({ to, subject: 'Your HaulProof driver link', text: driverLinkText(first, orgName, link), html: driverLinkHtml(first, orgName, link) });
+    if (r && (r.sent || r.simulated)) return res.json({ ok: true, sentTo: to, simulated: !!r.simulated });
+    return res.status(502).json({ error: 'Email could not be sent right now' + (r && r.error ? ' (' + r.error + ')' : '') });
+  } catch (e) { console.error('email-link', e); return res.status(500).json({ error: 'Email could not be sent right now' }); }
 });
 
 // Remove a driver.
