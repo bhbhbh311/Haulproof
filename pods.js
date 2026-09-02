@@ -199,6 +199,10 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     };
     // If a named driver's personal token was used, attribute the signature to them automatically.
     if (req.driver && req.driver.name) meta.driver = req.driver.name;
+    // "Save, sign later": the driver captured/scanned a document but hasn't signed it. Store it as a
+    // PREPARED doc on the load (so it shows up to be signed later by the driver, or organized by dispatch)
+    // instead of running the signed-POD + email flow.
+    const asPrepared = /^(prepared|unsigned|1|true)$/i.test(String(h['x-pod-status'] || h['x-pod-unsigned'] || '').trim());
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
     // A carrier's driver files the signed POD back to the CUSTOMER that owns the assigned load.
@@ -215,12 +219,22 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     fs.writeFileSync(filepath, req.body);
     if (!load) load = findOrCreateLoad({ orgId, ...meta });
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,'signed',@uploadedAt)`)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
-        gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, uploadedAt: Date.now() });
+        gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver,
+        status: asPrepared ? 'prepared' : 'signed', uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
+    // A document created by a named driver is automatically assigned to that driver.
+    if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE id = ?`).run(req.driver.id, req.driver.name || null, id); } catch (e) {} }
+    // Save-for-later: stop here — it's a prepared (unsigned) doc, so no fingerprint, no prepared-copy
+    // cleanup, and no delivery email. It now shows on the load ready to be signed.
+    if (asPrepared) {
+      try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note',
+        detail: 'Document saved to sign later' + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
+      return res.json({ ok: true, podId: id, loadId: load.id, prepared: true });
+    }
     // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
     // sends the exact prepared-doc id it signed (X-POD-PrepId), match THAT stop precisely; otherwise fall
     // back to the most recent prepared stop on the load.

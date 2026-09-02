@@ -420,6 +420,9 @@
       <div class="meter"><i id="meterFill"></i></div>
       <button class="btn primary sm" id="nextBtn" type="button">Start</button>
     </div>
+    <div class="rowbtns hide" id="saveLaterRow" style="justify-content:center;margin:0 0 12px;">
+      <button class="btn ghost sm" id="saveLaterBtn" type="button">💾 Save to load — sign later</button>
+    </div>
     <div id="pages"></div>
     <div id="doneActions" class="hide" style="margin-top:18px;"></div>
   </section>
@@ -623,6 +626,7 @@ window.__startApp=function(){
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(p.gps&&p.gps.lat!=null) hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
+          if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
           if(!res.ok){
             var body=await res.json().catch(function(){return {};});
@@ -935,6 +939,7 @@ window.__startApp=function(){
     if($("uploadTools")) $("uploadTools").classList.remove("hide");
     capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
+    if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
     if($("poNum")){ $("poNum").value=""; $("poNum").parentElement.classList.remove("missing"); setPoLocked(false); }
     if($("consName")){ $("consName").value = stop ? (stop.name||"") : ""; $("consName").placeholder = "Who you're delivering to"; setConsLocked(!!(stop && stop.name)); }
     $("file").value="";
@@ -1352,7 +1357,9 @@ window.__startApp=function(){
     docPageStops = (pageStops && pageStops.length) ? pageStops : null;
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
-    refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
+    refreshActive(); $("banner").classList.add("on"); updateProgress();
+    if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — allow save-for-later
+    window.scrollTo(0,0);
   }
   var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
   async function renderPages(bytes){
@@ -1595,10 +1602,33 @@ window.__startApp=function(){
       renderCloud();
     }catch(e){ console.error(e); toast("Couldn't build the PDF"); }
   }
+  // Save the scanned document to the load WITHOUT signing it yet. It uploads as a "prepared" doc so it
+  // shows up on the load ready to be signed later — by this driver, or organized/fixed by dispatch.
+  async function saveUnsigned(){
+    var poNum = $("poNum") ? $("poNum").value.trim() : "";
+    if(!poNum){
+      if($("poNum")){ $("poNum").parentElement.classList.add("missing"); $("poNum").focus(); $("poNum").scrollIntoView({behavior:"smooth",block:"center"}); }
+      toast("Customer PO # is required to save");
+      return;
+    }
+    if($("poNum")) $("poNum").parentElement.classList.remove("missing");
+    if(!origBytes || !origBytes.length){ toast("Photograph or choose a document first"); return; }
+    var consInput = $("consName") ? $("consName").value.trim() : "";
+    var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
+    var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
+    var pod={ id:genId(), name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal,
+      stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
+      gps:lastGps, size:origBytes.length, status:"pending", unsigned:true, b64:u8ToB64(origBytes) };
+    var pods=loadPods(); pods.unshift(pod); savePods(pods);
+    toast(online()?"Saved to load — uploading…":"Saved — will upload when you have signal");
+    renderCloud(); if(online()) syncOutbox();
+    showView(currentStop?"route":"outbox");
+  }
+  if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
   function showCompletion(pod){
     compPod=pod; compCtx=getCtx(); compRecips=[];
-    $("banner").classList.remove("on"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
+    $("banner").classList.remove("on"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
     sb.textContent=online()?"✓ Saved on device · uploading…":"✓ Saved on device · will upload when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
