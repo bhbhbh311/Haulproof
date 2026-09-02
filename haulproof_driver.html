@@ -795,7 +795,9 @@ window.__startApp=function(){
       enterSign(null);
       $("signCtx").textContent = "Prepared by dispatch · PO "+(d.poNumber||"")+(d.loadNumber?(" · Load "+d.loadNumber):"");
       if($("poNum")){ $("poNum").value=d.poNumber||""; setPoLocked(!!d.poNumber); }
-      if($("consName")){ $("consName").value=d.consignee||""; setConsLocked(!!d.consignee); }
+      // Consignee belongs to the dispatch build, so on a prepared load it's always locked (with Edit) —
+      // even when the build left it blank, so the driver sees "Not set" instead of an open field to type in.
+      if($("consName")){ $("consName").value=d.consignee||""; $("consName").placeholder = d.consignee ? "Who you're delivering to" : "Not set — tap Edit to add"; setConsLocked(true); }
       await startDocTemplate(bytes, d.fields||[]);
     }catch(err){ console.error(err); toast("Couldn't open that load"); }
   }
@@ -917,7 +919,7 @@ window.__startApp=function(){
     e.addEventListener("click", function(ev){ ev.preventDefault(); unlock(false); var i=$(inputId); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(_){} } });
   }
   wireEdit("poEdit", setPoLocked, "poNum");
-  wireEdit("consEdit", setConsLocked, "consName");
+  wireEdit("consEdit", function(l){ setConsLocked(l); if(!l && $("consName")) $("consName").placeholder = "Who you're delivering to"; }, "consName");
 
   function enterSign(stop){
     currentStop=stop;
@@ -929,7 +931,7 @@ window.__startApp=function(){
     capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
     if($("poNum")){ $("poNum").value=""; $("poNum").parentElement.classList.remove("missing"); setPoLocked(false); }
-    if($("consName")){ $("consName").value = stop ? (stop.name||"") : ""; setConsLocked(!!(stop && stop.name)); }
+    if($("consName")){ $("consName").value = stop ? (stop.name||"") : ""; $("consName").placeholder = "Who you're delivering to"; setConsLocked(!!(stop && stop.name)); }
     $("file").value="";
     showView("sign");
   }
