@@ -607,8 +607,9 @@
           <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditCons"></div>
         </div>
         <div class="row hide" id="ldEditCustomerRow" style="grid-template-columns:1fr;margin-top:10px;">
-          <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">which account owns this PO</span></label>
-            <select id="ldEditCustomer"></select></div>
+          <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;" id="ldEditCustomerHint">which account owns this PO</span></label>
+            <select id="ldEditCustomer" class="hide"></select>
+            <input id="ldEditCustomerText" class="hide" placeholder="Customer name"></div>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
           <button class="ghost" id="ldDeleteBtn" type="button" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
@@ -1658,17 +1659,35 @@
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
-  // Customer picker in the load edit — Master Admin only, to move a PO/load to a different customer account.
+  // Customer control in the load edit. Two modes:
+  //  • Master Admin → a dropdown that reassigns which customer ACCOUNT owns the PO/load.
+  //  • Carrier/broker on a load THEY created → a free-text customer name they can add/change.
+  //  • Carrier/broker on a load a customer assigned to them → hidden (the customer owns it).
   async function populateLdCustomer() {
-    const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'); if (!row || !sel) return;
-    if (!(user && user.role === 'superadmin')) { row.classList.add('hide'); return; }
-    try {
-      const r = await api('/api/orgs'); const orgs = (r.orgs || []);
-      sel.innerHTML = '';
-      orgs.forEach(o => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.name; sel.appendChild(op); });
-      if (curLoad && curLoad.orgId) sel.value = curLoad.orgId;
+    const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'), txt = $('ldEditCustomerText'), hint = $('ldEditCustomerHint'); if (!row) return;
+    const isSuper = user && user.role === 'superadmin';
+    const isCB = user && (user.orgKind === 'carrier' || user.orgKind === 'broker');
+    const owns = curLoad && (curLoad.orgId || null) === ((user && user.orgId) || null);
+    if (isSuper) {
+      try {
+        const r = await api('/api/orgs'); const orgs = (r.orgs || []);
+        sel.innerHTML = '';
+        orgs.forEach(o => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.name; sel.appendChild(op); });
+        if (curLoad && curLoad.orgId) sel.value = curLoad.orgId;
+        sel.classList.remove('hide'); if (txt) txt.classList.add('hide');
+        if (hint) hint.textContent = 'which account owns this PO';
+        row.classList.remove('hide');
+      } catch (e) { row.classList.add('hide'); }
+      return;
+    }
+    if (isCB && owns) {
+      if (txt) { txt.value = (curLoad && curLoad.customer) || ''; txt.classList.remove('hide'); }
+      if (sel) sel.classList.add('hide');
+      if (hint) hint.textContent = 'who this load is for';
       row.classList.remove('hide');
-    } catch (e) { row.classList.add('hide'); }
+      return;
+    }
+    row.classList.add('hide');
   }
   // Delete the whole load — two confirmations before it happens.
   if ($('ldDeleteBtn')) $('ldDeleteBtn').onclick = () => {
@@ -1691,6 +1710,7 @@
     const rows = [];
     rows.push(['Customer PO #', esc(curLoad.poNumber) || '—']);
     rows.push(['Load #', esc(curLoad.loadNumber) || '—']);
+    if (curLoad.customer) rows.push(['Customer', esc(curLoad.customer)]);
     rows.push(['Consignee', esc(curLoad.consignee) || '—']);
     const asg = [];
     if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
@@ -1885,8 +1905,11 @@
     try {
       // 1) Basic fields (+ customer reassignment when a Master Admin picked a different one)
       const body1 = { poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() };
-      if (user && user.role === 'superadmin' && $('ldEditCustomer') && !$('ldEditCustomerRow').classList.contains('hide') && $('ldEditCustomer').value) {
+      const custRowShown = $('ldEditCustomerRow') && !$('ldEditCustomerRow').classList.contains('hide');
+      if (user && user.role === 'superadmin' && custRowShown && $('ldEditCustomer') && !$('ldEditCustomer').classList.contains('hide') && $('ldEditCustomer').value) {
         body1.customerOrgId = $('ldEditCustomer').value;
+      } else if (custRowShown && $('ldEditCustomerText') && !$('ldEditCustomerText').classList.contains('hide')) {
+        body1.customer = $('ldEditCustomerText').value.trim();
       }
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
       // 2) Driver (only if one is selected; the server fills in the name from the driver record)

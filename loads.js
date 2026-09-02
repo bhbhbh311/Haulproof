@@ -141,7 +141,13 @@ router.put('/:id', requireAuth, (req, res) => {
       orgIdNew = newOrg;
     }
   }
-  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, load.id);
+  // Free-text customer name. A carrier/broker can set/change it on a load THEY created (own); a customer
+  // whose load was assigned out can't have its customer changed by the carrier. (Super may set it too.)
+  let customerText = load.customer;
+  if (b.customer !== undefined && (req.user.role === 'superadmin' || ((isCarrier(req) || isBroker(req)) && (load.orgId || null) === (req.user.orgId || null)))) {
+    customerText = (b.customer || '').trim() || null;
+  }
+  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, load.id);
   if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
   logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
