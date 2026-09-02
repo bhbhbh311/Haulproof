@@ -1,7 +1,8 @@
 // Loads: create, search, assign a carrier, assign a driver/truck/trailer, and read history. Org-scoped.
 const express = require('express');
 const crypto = require('crypto');
-const { db } = require('./db');
+const fs = require('fs');
+const { db, DATA_DIR } = require('./db');
 const { requireAuth } = require('./auth');
 const { logEvent } = require('./events');
 const { brokerApproved } = require('./brokers');
@@ -128,10 +129,37 @@ router.put('/:id', requireAuth, (req, res) => {
       poNumber = newPo;
     }
   }
-  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, load.id);
-  if (poNumber !== load.poNumber) db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ?`).run(poNumber, load.id);
-  logEvent({ orgId: load.orgId, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated', actor: actorOf(req) });
+  // Reassign the load to a different CUSTOMER (Master Admin only). Moves the load and its documents.
+  let orgIdNew = load.orgId;
+  if (req.user.role === 'superadmin' && b.customerOrgId !== undefined) {
+    const newOrg = (b.customerOrgId || '').trim() || null;
+    if (newOrg && newOrg !== load.orgId) {
+      const org = db.prepare(`SELECT id FROM orgs WHERE id = ? AND kind = 'customer'`).get(newOrg);
+      if (!org) return res.status(400).json({ error: 'That customer was not found' });
+      const clash2 = db.prepare(`SELECT id FROM loads WHERE orgId IS ? AND poNumber = ? AND id != ?`).get(newOrg, poNumber, load.id);
+      if (clash2) return res.status(409).json({ error: 'That customer already has a load with PO ' + poNumber });
+      orgIdNew = newOrg;
+    }
+  }
+  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, load.id);
+  if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
+  logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+});
+
+// Delete a load and all its documents. Owner (or super) only. Irreversible — the app confirms twice first.
+router.delete('/:id', requireAuth, (req, res) => {
+  const load = ownedLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  try {
+    const pods = db.prepare(`SELECT id, filepath FROM pods WHERE loadId = ?`).all(load.id);
+    pods.forEach(p => { if (p.filepath) { try { fs.unlinkSync(p.filepath); } catch (e) {} } });
+    db.prepare(`DELETE FROM pods WHERE loadId = ?`).run(load.id);
+    try { db.prepare(`DELETE FROM load_subscribers WHERE loadId = ?`).run(load.id); } catch (e) {}
+    db.prepare(`DELETE FROM loads WHERE id = ?`).run(load.id);
+    logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'deleted', detail: 'Load and its ' + pods.length + ' document(s) deleted', actor: actorOf(req) });
+    res.json({ ok: true, deletedPods: pods.length });
+  } catch (e) { console.error('delete load', e); res.status(500).json({ error: 'Could not delete this load' }); }
 });
 
 // Hand a load to a broker. Only the owning customer (or super) does this.

@@ -249,7 +249,7 @@
         <div class="histHead"><h1 style="margin:0;font-size:18px;">Edit stop</h1><button id="stopEditClose" class="ghost" type="button">✕ Close</button></div>
         <div class="row" style="grid-template-columns:0.6fr 1fr;margin-top:10px;">
           <div><label>Stop #</label><input id="seStop" type="number" min="1" step="1"></div>
-          <div><label>Document type</label><select id="seDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+          <div><label>Document type</label><select id="seDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
           <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="seReceiver"><option value="">— none —</option></select>
@@ -523,7 +523,7 @@
             <div><label>Customer PO # <span style="color:#c0392b;">*required</span></label><input id="cmDocPo" placeholder="e.g. 4501-88"></div>
             <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocLoad"></div>
             <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocCons"></div>
-            <div><label>Type</label><select id="cmDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+            <div><label>Type</label><select id="cmDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
           </div>
           <div class="row" style="grid-template-columns:1fr;margin-top:12px;"><div><label>PDF file</label><input id="cmDocFile" type="file" accept="application/pdf"></div></div>
           <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -606,6 +606,14 @@
           <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
           <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditCons"></div>
         </div>
+        <div class="row hide" id="ldEditCustomerRow" style="grid-template-columns:1fr;margin-top:10px;">
+          <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">which account owns this PO</span></label>
+            <select id="ldEditCustomer"></select></div>
+        </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+          <button class="ghost" id="ldDeleteBtn" type="button" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
+          <span style="color:var(--muted);font-size:12px;margin-left:8px;">Removes the PO/load and all its documents.</span>
+        </div>
       </div>
 
       <!-- Stops & documents on this load -->
@@ -618,7 +626,7 @@
         <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
           <div class="row" style="grid-template-columns:0.6fr 1fr 1fr;">
             <div><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
-            <div><label>Document type</label><select id="ldDocType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+            <div><label>Document type</label><select id="ldDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
             <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select>
               <button type="button" id="ldReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
           </div>
@@ -735,7 +743,7 @@
         </div>
         <div class="row" style="grid-template-columns:1fr 0.6fr 1fr;margin-top:12px;align-items:start;">
           <div><label>Document type</label>
-            <select id="uType"><option>POD</option><option>BOL</option><option>LUMPER</option><option>OTHER</option></select></div>
+            <select id="uType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
           <div><label>Stop # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
             <input id="uStop" type="number" min="1" step="1" placeholder="e.g. 1">
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Files another stop on the same PO/Load.</div></div>
@@ -1645,10 +1653,38 @@
       if ($('ldPagePicker')) { $('ldPagePicker').innerHTML = ''; $('ldPagePicker').classList.add('hide'); }
       ldPageState = []; ldFileBufs = [];
       loadReceiverOptions();
+      populateLdCustomer();
       renderLdView(); setLoadEditMode(false);
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
+  // Customer picker in the load edit — Master Admin only, to move a PO/load to a different customer account.
+  async function populateLdCustomer() {
+    const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'); if (!row || !sel) return;
+    if (!(user && user.role === 'superadmin')) { row.classList.add('hide'); return; }
+    try {
+      const r = await api('/api/orgs'); const orgs = (r.orgs || []);
+      sel.innerHTML = '';
+      orgs.forEach(o => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.name; sel.appendChild(op); });
+      if (curLoad && curLoad.orgId) sel.value = curLoad.orgId;
+      row.classList.remove('hide');
+    } catch (e) { row.classList.add('hide'); }
+  }
+  // Delete the whole load — two confirmations before it happens.
+  if ($('ldDeleteBtn')) $('ldDeleteBtn').onclick = () => {
+    if (!curLoad) return;
+    const po = curLoad.poNumber || 'this load';
+    if (!confirm('Remove load PO ' + po + ' and all of its documents?')) return;
+    if (!confirm('Are you sure? This permanently deletes the load and its documents and cannot be undone.')) return;
+    (async () => {
+      try {
+        await api('/api/loads/' + curLoad.id, { method: 'DELETE' });
+        const back = _ldBackFn;
+        $('loadDetailCard').classList.add('hide');
+        if (typeof back === 'function') back(); else { try { selectTab('documents'); } catch (e) {} loadLoads(); }
+      } catch (e) { alert(e.message); }
+    })();
+  };
   // Read-only summary shown when not editing.
   function renderLdView() {
     if (!curLoad || !$('ldView')) return;
@@ -1761,7 +1797,7 @@
     if (!p) return;
     _stopEditId = p.id;
     $('seStop').value = p.stopNumber || 1;
-    $('seDocType').value = p.docType || 'POD';
+    $('seDocType').value = p.docType || 'BOL';
     $('seMsg').textContent = '';
     // populate receiver + sales rep options, then select current
     const users = await getTeamUsers();
@@ -1847,8 +1883,12 @@
     if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; return; }
     $('ldEditMsg').textContent = 'Saving…'; $('ldEditMsg').className = '';
     try {
-      // 1) Basic fields
-      await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify({ poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() }) });
+      // 1) Basic fields (+ customer reassignment when a Master Admin picked a different one)
+      const body1 = { poNumber: po, loadNumber: $('ldEditLoad').value.trim(), consignee: $('ldEditCons').value.trim() };
+      if (user && user.role === 'superadmin' && $('ldEditCustomer') && !$('ldEditCustomerRow').classList.contains('hide') && $('ldEditCustomer').value) {
+        body1.customerOrgId = $('ldEditCustomer').value;
+      }
+      await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
       // 2) Driver (only if one is selected; the server fills in the name from the driver record)
       if (_ldSelectedDriverId) {
         await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
