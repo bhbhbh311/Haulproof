@@ -609,7 +609,10 @@
         <div class="row hide" id="ldEditCustomerRow" style="grid-template-columns:1fr;margin-top:10px;">
           <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;" id="ldEditCustomerHint">which account owns this PO</span></label>
             <select id="ldEditCustomer" class="hide"></select>
-            <input id="ldEditCustomerText" class="hide" placeholder="Customer name"></div>
+            <div id="ldEditCustomerPickWrap" class="hide" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <select id="ldEditCustomerPick" style="flex:1;min-width:180px;"></select>
+              <button class="ghost" id="ldCustAddBtn" type="button" style="white-space:nowrap;">＋ Add / find customer</button>
+            </div></div>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
           <button class="ghost" id="ldDeleteBtn" type="button" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
@@ -824,6 +827,36 @@
         </div>
       </div>
       <div id="receiverRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
+    </div>
+
+    <!-- YOUR CUSTOMER LIST (carrier/broker admins) — the companies you haul for -->
+    <div class="card hide" id="myCustomersCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Customers</h1><p class="sub" style="margin-bottom:0;">The companies you haul for. Assign one to a load's Customer field. We check for duplicates so the same company isn't added twice.</p></div>
+        <button id="mcCustAddBtn" type="button">＋ Add / find customer</button>
+      </div>
+      <div id="myCustomerRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
+    </div>
+
+    <!-- Add / find a customer in YOUR list (with duplicate check) — top-level so it overlays any tab -->
+    <div id="custModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
+      <div style="background:var(--surface,#fff);border-radius:14px;max-width:440px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);max-height:90vh;overflow:auto;">
+        <h1 style="font-size:17px;margin:0 0 4px;">Add or find a customer</h1>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 14px;">Search your customer list or add a new one. We flag possible duplicates so the same company isn't entered twice.</p>
+        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
+        <input id="custModalName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
+        <div id="custModalMatches"></div>
+        <div id="custModalDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px 12px;margin:6px 0 10px;font-size:13px;color:#7c2d12;"></div>
+        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Contact name <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+        <input id="custModalContact" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
+        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">MC # <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+        <input id="custModalMc" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
+        <div id="custModalMsg" style="font-size:13px;margin:6px 0;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+          <button class="ghost" id="custModalCancel" type="button">Cancel</button>
+          <button id="custModalSave" type="button">Save customer</button>
+        </div>
+      </div>
     </div>
 
     <!-- DRIVER LINK (admin only) -->
@@ -1078,6 +1111,13 @@
       // Non-admin uploaders (dispatchers) still need the receiver picker filled.
       loadReceiverOptions();
     }
+    // Carrier / broker admins & dispatchers get their own Customers tab — their private list of the
+    // companies they haul for (used by the load's Customer picker). Deduped within their org.
+    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher')
+        && (u.orgKind === 'carrier' || u.orgKind === 'broker' || ['carrier','broker'].some(r => roles.indexOf(r) > -1))) {
+      show('myCustomersCard', true);
+      loadMyCustomersTab();
+    }
     buildTabs();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
     if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('documents'); } catch (e) {} openLoad(_dl); }
@@ -1093,6 +1133,7 @@
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
+    { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
     { key:'dashboard', label:'Dashboard',   cards:['statsCard','optoutsCard'] },
@@ -1659,14 +1700,30 @@
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
-  // Customer control in the load edit. Two modes:
+  // Customer control in the load edit. Three modes:
   //  • Master Admin → a dropdown that reassigns which customer ACCOUNT owns the PO/load.
-  //  • Carrier/broker on a load THEY created → a free-text customer name they can add/change.
+  //  • Carrier/broker on a load THEY created → a picker of THEIR OWN customer list (+ add / find).
   //  • Carrier/broker on a load a customer assigned to them → hidden (the customer owns it).
+  let _myCustomers = [];   // this org's customer list, cached for the picker
+  // (Re)draw the customer dropdown from _myCustomers, keeping selectedId chosen if present.
+  function renderCustomerPick(selectedId) {
+    const pick = $('ldEditCustomerPick'); if (!pick) return;
+    pick.innerHTML = '';
+    const none = document.createElement('option'); none.value = ''; none.textContent = '— No customer —'; pick.appendChild(none);
+    _myCustomers.forEach(c => { const op = document.createElement('option'); op.value = c.id; op.textContent = c.name; pick.appendChild(op); });
+    if (selectedId && _myCustomers.some(c => c.id === selectedId)) pick.value = selectedId;
+    else pick.value = '';
+  }
+  async function loadMyCustomers(selectedId) {
+    try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
+    catch (e) { _myCustomers = []; }
+    renderCustomerPick(selectedId);
+  }
   async function populateLdCustomer() {
-    const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'), txt = $('ldEditCustomerText'), hint = $('ldEditCustomerHint'); if (!row) return;
+    const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'), pickWrap = $('ldEditCustomerPickWrap'), hint = $('ldEditCustomerHint'); if (!row) return;
     const isSuper = user && user.role === 'superadmin';
-    const isCB = user && (user.orgKind === 'carrier' || user.orgKind === 'broker');
+    const _roles = (user && user.orgRoles) || [];
+    const isCB = user && (user.orgKind === 'carrier' || user.orgKind === 'broker' || _roles.indexOf('carrier') > -1 || _roles.indexOf('broker') > -1);
     const owns = curLoad && (curLoad.orgId || null) === ((user && user.orgId) || null);
     if (isSuper) {
       try {
@@ -1674,21 +1731,127 @@
         sel.innerHTML = '';
         orgs.forEach(o => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.name; sel.appendChild(op); });
         if (curLoad && curLoad.orgId) sel.value = curLoad.orgId;
-        sel.classList.remove('hide'); if (txt) txt.classList.add('hide');
+        sel.classList.remove('hide'); if (pickWrap) pickWrap.classList.add('hide');
         if (hint) hint.textContent = 'which account owns this PO';
         row.classList.remove('hide');
       } catch (e) { row.classList.add('hide'); }
       return;
     }
     if (isCB && owns) {
-      if (txt) { txt.value = (curLoad && curLoad.customer) || ''; txt.classList.remove('hide'); }
       if (sel) sel.classList.add('hide');
-      if (hint) hint.textContent = 'who this load is for';
+      if (pickWrap) pickWrap.classList.remove('hide');
+      if (hint) hint.textContent = 'pick from your list, or add / find a customer';
       row.classList.remove('hide');
+      await loadMyCustomers(curLoad && curLoad.customerId);
       return;
     }
     row.classList.add('hide');
   }
+  // ---- Add / find a customer in YOUR list, with a duplicate check ----
+  let _custMatchT = null;
+  function openCustModal() {
+    ['custModalName','custModalContact','custModalMc'].forEach(id => { if ($(id)) $(id).value = ''; });
+    if ($('custModalMatches')) $('custModalMatches').innerHTML = '';
+    if ($('custModalDup')) { $('custModalDup').classList.add('hide'); $('custModalDup').innerHTML = ''; }
+    if ($('custModalMsg')) { $('custModalMsg').textContent = ''; $('custModalMsg').className = ''; }
+    if ($('custModal')) $('custModal').classList.remove('hide');
+    setTimeout(() => { if ($('custModalName')) $('custModalName').focus(); }, 30);
+  }
+  function closeCustModal() { if ($('custModal')) $('custModal').classList.add('hide'); }
+  // Pick an existing customer (from suggestions or the dup box), add to the picker, and close.
+  function chooseCustomer(c) {
+    if (!_myCustomers.some(x => x.id === c.id)) _myCustomers.push(c);
+    _myCustomers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    renderCustomerPick(c.id);
+    renderMyCustomerRows();
+    setTabCount('mycustomers', _myCustomers.length);
+    closeCustModal();
+  }
+  // ---- The Customers TAB: manage the org's own list (list + add/find + remove) ----
+  function renderMyCustomerRows() {
+    const box = $('myCustomerRows'); if (!box) return;
+    if (!_myCustomers.length) { box.innerHTML = '<div class="empty">No customers yet. Use “＋ Add / find customer” to add the companies you haul for.</div>'; return; }
+    box.innerHTML = _myCustomers.map(c =>
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;flex-wrap:wrap;">'
+      + '<div><div style="font-weight:700;">' + esc(c.name) + '</div>'
+      + '<div style="color:var(--muted);font-size:12px;">'
+      + [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactEmail ? esc(c.contactEmail) : ''].filter(Boolean).join(' · ')
+      + '</div></div>'
+      + '<button class="ghost mcRemoveBtn" data-id="' + esc(c.id) + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Remove</button>'
+      + '</div>'
+    ).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.mcRemoveBtn'), function (b) {
+      b.onclick = async function () {
+        const id = b.getAttribute('data-id');
+        const c = _myCustomers.find(x => x.id === id); if (!c) return;
+        if (!confirm('Remove "' + c.name + '" from your customer list? Loads already using it keep the name.')) return;
+        try {
+          await api('/api/customers/' + id, { method: 'DELETE' });
+          _myCustomers = _myCustomers.filter(x => x.id !== id);
+          renderMyCustomerRows(); renderCustomerPick($('ldEditCustomerPick') ? $('ldEditCustomerPick').value : '');
+          setTabCount('mycustomers', _myCustomers.length);
+        } catch (e) { alert(e.message); }
+      };
+    });
+  }
+  async function loadMyCustomersTab() {
+    try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
+    catch (e) { _myCustomers = []; }
+    renderMyCustomerRows();
+    setTabCount('mycustomers', _myCustomers.length);
+  }
+  if ($('mcCustAddBtn')) $('mcCustAddBtn').onclick = openCustModal;
+  // Live "possible duplicate" suggestions as they type a name.
+  async function custLookMatches() {
+    const box = $('custModalMatches'); if (!box) return;
+    const name = ($('custModalName').value || '').trim();
+    if ($('custModalDup')) $('custModalDup').classList.add('hide');
+    if (name.length < 2) { box.innerHTML = ''; return; }
+    let matches = [];
+    try { const r = await api('/api/customers/match?name=' + encodeURIComponent(name)); matches = r.matches || []; } catch (e) { matches = []; }
+    if (!matches.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="font-size:12px;color:var(--muted);margin:2px 0 6px;">Already in your list — tap to use one:</div>';
+    matches.forEach(c => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'ghost';
+      b.style.cssText = 'display:block;width:100%;text-align:left;margin-bottom:6px;';
+      b.textContent = c.name + (c.mcNumber ? ('  ·  MC ' + c.mcNumber) : '');
+      b.onclick = () => chooseCustomer(c);
+      box.appendChild(b);
+    });
+  }
+  // Save a new customer. Server returns existed:true on an exact-name match (unless force) so we can ask.
+  async function saveCustModal(force) {
+    const msg = $('custModalMsg');
+    const name = ($('custModalName').value || '').trim();
+    if (!name) { if (msg) { msg.textContent = 'Enter a customer name'; msg.className = 'umsg-err'; } return; }
+    if (msg) { msg.textContent = 'Saving…'; msg.className = ''; }
+    try {
+      const body = { name, contactName: ($('custModalContact').value || '').trim(), mcNumber: ($('custModalMc').value || '').trim() };
+      if (force) body.force = true;
+      const r = await api('/api/customers', { method: 'POST', body: JSON.stringify(body) });
+      if (r.existed && !force) {
+        const dup = $('custModalDup');
+        if (dup) {
+          dup.classList.remove('hide'); dup.innerHTML = '';
+          const p = document.createElement('div'); p.style.marginBottom = '8px';
+          p.innerHTML = '<b>' + esc(r.customer.name) + '</b> is already in your list. Use that one, or add this as a separate customer?';
+          dup.appendChild(p);
+          const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+          const use = document.createElement('button'); use.type = 'button'; use.textContent = 'Use existing'; use.onclick = () => chooseCustomer(r.customer);
+          const add = document.createElement('button'); add.type = 'button'; add.className = 'ghost'; add.textContent = 'Add as separate customer'; add.onclick = () => saveCustModal(true);
+          wrap.appendChild(use); wrap.appendChild(add); dup.appendChild(wrap);
+        }
+        if (msg) msg.textContent = '';
+        return;
+      }
+      chooseCustomer(r.customer);
+    } catch (e) { if (msg) { msg.textContent = e.message; msg.className = 'umsg-err'; } }
+  }
+  if ($('ldCustAddBtn')) $('ldCustAddBtn').onclick = openCustModal;
+  if ($('custModalCancel')) $('custModalCancel').onclick = closeCustModal;
+  if ($('custModalSave')) $('custModalSave').onclick = () => saveCustModal(false);
+  if ($('custModalName')) $('custModalName').addEventListener('input', () => { clearTimeout(_custMatchT); _custMatchT = setTimeout(custLookMatches, 250); });
+  if ($('custModal')) $('custModal').addEventListener('click', (e) => { if (e.target === $('custModal')) closeCustModal(); });
   // Delete the whole load — two confirmations before it happens.
   if ($('ldDeleteBtn')) $('ldDeleteBtn').onclick = () => {
     if (!curLoad) return;
@@ -1908,8 +2071,8 @@
       const custRowShown = $('ldEditCustomerRow') && !$('ldEditCustomerRow').classList.contains('hide');
       if (user && user.role === 'superadmin' && custRowShown && $('ldEditCustomer') && !$('ldEditCustomer').classList.contains('hide') && $('ldEditCustomer').value) {
         body1.customerOrgId = $('ldEditCustomer').value;
-      } else if (custRowShown && $('ldEditCustomerText') && !$('ldEditCustomerText').classList.contains('hide')) {
-        body1.customer = $('ldEditCustomerText').value.trim();
+      } else if (custRowShown && $('ldEditCustomerPickWrap') && !$('ldEditCustomerPickWrap').classList.contains('hide')) {
+        body1.customerId = $('ldEditCustomerPick') ? $('ldEditCustomerPick').value : '';
       }
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
       // 2) Driver (only if one is selected; the server fills in the name from the driver record)
