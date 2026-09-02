@@ -635,6 +635,10 @@ window.__startApp=function(){
             if(res.status>=500) break;   // server trouble — stop and retry everything later
             continue;                     // this one document has its own problem — keep trying the rest
           }
+          try{ var ok=await res.json(); if(ok&&ok.podId) p.serverId=ok.podId; }catch(_){}
+          // Free the heavy PDF bytes now that it's safely on the server — this keeps the phone's storage
+          // from filling up (which was silently dropping later saves). View re-fetches it from the server.
+          delete p.b64; p.freed=true;
         }
         else { await new Promise(function(r){setTimeout(r,500);}); } // simulated upload
         p.status="uploaded"; p.uploadedAt=Date.now(); p.error=null; p.pinNeeded=false; changed=true;
@@ -1604,7 +1608,8 @@ window.__startApp=function(){
       var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
       var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
       var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
-      var pods=loadPods(); pods.unshift(pod); savePods(pods);
+      var pods=loadPods(); pods.unshift(pod);
+      if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pod); savePods(pods); }   // free space if the phone's storage is full so a signed POD is never silently dropped
       if(currentStop){ currentStop.status="delivered"; currentStop.deliveredAt=Date.now(); currentStop.deliveredGps=lastGps; currentStop.podId=pod.id; saveRoute(route); }
       showCompletion(pod);
       // Note: we DON'T upload yet — the driver may still add the consignee's email on this screen.
@@ -1626,13 +1631,43 @@ window.__startApp=function(){
     var consInput = $("consName") ? $("consName").value.trim() : "";
     var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
     var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
+    var bytes = origBytes;   // keep a reference; the doc is already in memory
+    // ONLINE: upload straight to the load right now, from the copy in memory. This avoids stuffing a big
+    // multi-photo PDF into the phone's limited browser storage (which was silently filling up and dropping
+    // saves). No storage dependency = the save reliably reaches "Your loads".
+    if(online()){
+      var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim();
+      if(ep){
+        toast("Saving to load…");
+        try{
+          var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
+          var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
+            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-Status":"prepared" };
+          if(key) hdrs["X-Api-Key"]=key;
+          var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
+          if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
+          var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
+          if(res.ok){ try{ loadMyLoads(); }catch(_){} showSavedConfirmation(poNum); return; }
+          var eb=await res.json().catch(function(){return {};}); toast(eb.error||("Save failed ("+res.status+")")); return;
+        }catch(e){ /* network hiccup — fall through to queue it for later */ }
+      }
+    }
+    // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
     var pod={ id:genId(), name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal,
       stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
-      gps:lastGps, size:origBytes.length, status:"pending", unsigned:true, b64:u8ToB64(origBytes) };
-    var pods=loadPods(); pods.unshift(pod); savePods(pods);
+      gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
+    var arr=loadPods(); arr.unshift(pod);
+    if(!savePods(arr)){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); savePods(arr); }   // free space if storage is full
     renderCloud();
-    if(online()) syncOutbox();
     showSavedConfirmation(poNum);
+  }
+  // Reclaim phone storage: drop the heavy PDF bytes of PODs that already uploaded (they live on the server
+  // now). Keeps the lightweight outbox entry so the list still shows them.
+  function pruneUploadedBytes(){
+    try{ var a=loadPods(), changed=false;
+      a.forEach(function(p){ if(p.status==="uploaded" && p.b64){ delete p.b64; p.freed=true; changed=true; } });
+      if(changed) savePods(a);
+    }catch(e){}
   }
   // After a save-for-later: a clear confirmation with a button that takes the driver straight to the
   // "Your loads" list where the saved doc waits to be signed.
@@ -1714,7 +1749,16 @@ window.__startApp=function(){
     }catch(e){ console.error(e); body.innerHTML='<div style="color:var(--danger);padding:30px;text-align:center;">Couldn\'t preview this document. Tap <b>Save</b> to open it in your files.</div>'; }
   }
   // Local (just-signed) POD stored on the phone.
-  function viewPod(pod){ showPdfInViewer(pod.poNumber?("PO "+pod.poNumber):(pod.name||"Signed document"), pod.name, function(){ return b64ToBlob(pod.b64).arrayBuffer().then(function(ab){return new Uint8Array(ab);}); }); }
+  function viewPod(pod){ showPdfInViewer(pod.poNumber?("PO "+pod.poNumber):(pod.name||"Signed document"), pod.name, function(){
+    if(pod.b64){ return b64ToBlob(pod.b64).arrayBuffer().then(function(ab){return new Uint8Array(ab);}); }
+    // Bytes were freed after upload to save phone storage — fetch the copy from the server instead.
+    if(pod.serverId){
+      var cfg=loadCfg(), ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
+      var hdr = key?{"X-Api-Key":key}:{}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      return fetch(base+"/"+pod.serverId+"/file",{headers:hdr}).then(function(fr){ if(!fr.ok) throw new Error("fetch failed"); return fr.arrayBuffer(); }).then(function(ab){return new Uint8Array(ab);});
+    }
+    return Promise.reject(new Error("no bytes"));
+  }); }
   // A document fetched from the server (recent documents list).
   function viewRemoteDoc(d){ showPdfInViewer(d.poNumber?("PO "+d.poNumber):(d.filename||"Document"), d.filename||("PO_"+(d.poNumber||"doc")), function(){
     var cfg=loadCfg(), ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
