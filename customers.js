@@ -52,4 +52,16 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ customer: cOut(db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id)), existed: false });
 });
 
+// Remove a customer from this org's list. The load's snapshot name stays, so past loads still read fine.
+router.delete('/:id', requireAuth, (req, res) => {
+  const org = ownerOrg(req);
+  if (!org) return res.status(400).json({ error: 'No organization on this login' });
+  const row = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
+  if (!row) return res.status(404).json({ error: 'Customer not found in your list' });
+  db.prepare(`DELETE FROM customers WHERE id = ?`).run(row.id);
+  // Unlink any of this org's loads that pointed at it (keep the name snapshot on the load).
+  try { db.prepare(`UPDATE loads SET customerId = NULL WHERE customerId = ? AND orgId IS ?`).run(row.id, org); } catch (e) {}
+  res.json({ ok: true });
+});
+
 module.exports = router;
