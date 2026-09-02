@@ -76,9 +76,11 @@ router.post('/verify-pin', (req, res) => {
 router.get('/my-loads', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ loads: [] });
+  // Prepared docs the driver should sign: ones dispatch assigned to them, PLUS ones this driver saved
+  // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
   const rows = db.prepare(`SELECT p.* FROM pods p
-      WHERE p.assignedDriverId = ? AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
-      ORDER BY p.uploadedAt DESC`).all(r.driver.id);
+      WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
+      ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,

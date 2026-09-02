@@ -1631,13 +1631,25 @@ window.__startApp=function(){
       gps:lastGps, size:origBytes.length, status:"pending", unsigned:true, b64:u8ToB64(origBytes) };
     var pods=loadPods(); pods.unshift(pod); savePods(pods);
     renderCloud();
-    showView("route");
-    if(online()){
-      toast("Saved — opening it under “Your loads” to sign when ready");
-      syncOutbox().then(function(){ setTimeout(loadMyLoads, 300); }).catch(function(){});
-    } else {
-      toast("Saved — it'll appear under “Your loads” once you have signal");
-    }
+    if(online()) syncOutbox();
+    showSavedConfirmation(poNum);
+  }
+  // After a save-for-later: a clear confirmation with a button that takes the driver straight to the
+  // "Your loads" list where the saved doc waits to be signed.
+  function showSavedConfirmation(poNum){
+    captureMode=false;
+    $("banner").classList.remove("on");
+    if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
+    var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
+    var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="12px";
+    sb.textContent = online() ? ("✓ Saved to load — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will upload when you have signal");
+    da.appendChild(sb);
+    var note=document.createElement("div"); note.style.cssText="font-size:14px;color:var(--muted);margin:0 0 16px;";
+    note.textContent="It's under “Your loads.” Open it there to add signatures whenever you're ready.";
+    da.appendChild(note);
+    var b1=mkBtn("Go to Your loads","primary",function(){ if(online()) syncOutbox(); showView("route"); setTimeout(loadMyLoads,350); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
+    var b2=mkBtn("Save another document","ghost",function(){ enterSign(currentStop); }); b2.classList.remove("sm"); b2.classList.add("block");
+    da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
   }
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
