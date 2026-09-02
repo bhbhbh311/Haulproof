@@ -254,6 +254,10 @@
   .capthumb .del{position:absolute;top:3px;right:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(200,32,42,.92);color:#fff;font-size:13px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
   .capthumb .redo{position:absolute;top:3px;left:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(18,56,110,.85);color:#fff;font-size:11px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
   .capthumb .scanned{position:absolute;right:4px;bottom:4px;background:rgba(18,120,74,.92);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;letter-spacing:.02em;}
+  /* Multi-stop scanning: a tap-to-cycle stop tag under each page thumbnail. */
+  .capcell{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .capstop{border:1px solid var(--primary,#1656d1);background:var(--primary-soft,#e7f0ff);color:var(--primary,#1656d1);font-family:"Archivo",sans-serif;font-weight:700;font-size:11px;border-radius:7px;padding:3px 8px;cursor:pointer;width:76px;text-align:center;}
+  .caphint{width:100%;font-size:12px;color:var(--muted);margin:-2px 0 10px;}
   /* Scan editor (deskew + enhance) */
   #scanEditor{position:fixed;inset:0;z-index:80;display:none;flex-direction:column;background:#0b1017;color:#eaf0f8;}
   #scanEditor.on{display:flex;}
@@ -403,6 +407,7 @@
       <div id="capThumbs"></div>
       <div class="rowbtns" style="justify-content:center;">
         <button class="btn ghost sm" id="capMore" type="button">＋ Add another page</button>
+        <button class="btn ghost sm" id="capAddStop" type="button">＋ Add a stop</button>
         <button class="btn primary sm" id="capDone" type="button">✓ Use these pages</button>
       </div>
     </div>
@@ -944,6 +949,8 @@ window.__startApp=function(){
   // ---- Uploading / photographing a document ----
   var capturedPages = [];           // final (scanned) data URLs of each page, in order
   var capturedMeta = [];            // parallel: { orig, corners, mode } so a page can be re-scanned
+  var capturedStops = [];           // parallel: which stop each page belongs to (1-based); default 1
+  var capStopCount = 1;             // how many stops the driver has added for this packet
 
   $("fileBtn").addEventListener("click", function(){ $("file").click(); });
   $("file").addEventListener("change", function(e){ var fs=Array.prototype.slice.call(e.target.files||[]); if(fs.length) readFiles(fs); });
@@ -956,7 +963,7 @@ window.__startApp=function(){
     fileToDataUrl(f).then(function(u){
       // Send every photo through the scan editor (deskew + clean up) before it becomes a page.
       openScanEditor(u, -1, null, null, function(finalUrl, meta){
-        capturedPages.push(finalUrl); capturedMeta.push(meta); renderCapTray();
+        capturedPages.push(finalUrl); capturedMeta.push(meta); capturedStops.push(capStopCount); renderCapTray();
       }, true);
     });
   });
@@ -964,31 +971,69 @@ window.__startApp=function(){
     if(!capturedPages.length){ toast("Take at least one photo"); return; }
     if(!ready){ toast("Engine not loaded"); return; }
     toast("Building document…");
-    try{ var bytes=await imagesToPdf(capturedPages); capturedPages=[]; hideCapTray(); await startDoc(bytes); }
+    try{
+      // Group the pages by stop (in stop order, keeping page order within each stop) into ONE document,
+      // and build a parallel list of which stop each page ends up on so the doc can label them.
+      var order=[], pageStops=[];
+      for(var s=1;s<=capStopCount;s++){
+        for(var i=0;i<capturedPages.length;i++){
+          var ps=capturedStops[i]||1; if(ps>capStopCount) ps=capStopCount;
+          if(ps===s){ order.push(capturedPages[i]); pageStops.push(s); }
+        }
+      }
+      if(!order.length){ order=capturedPages.slice(); pageStops=order.map(function(){return 1;}); }
+      var usedStops = pageStops.filter(function(v,ix,a){return a.indexOf(v)===ix;}).length;
+      var bytes=await imagesToPdf(order);
+      capturedPages=[]; capturedMeta=[]; capturedStops=[]; capStopCount=1; hideCapTray();
+      await startDoc(bytes, usedStops>1 ? pageStops : null);
+    }
     catch(err){ console.error(err); toast("Couldn't build the document"); }
   });
 
   function renderCapTray(){
     var tray=$("capTray"), box=$("capThumbs"); tray.classList.remove("hide");
-    $("capCount").textContent = capturedPages.length + (capturedPages.length===1?" page":" pages");
+    var multi = capStopCount > 1;
+    var pageWord = capturedPages.length===1?" page":" pages";
+    $("capCount").textContent = capturedPages.length + pageWord + (multi ? (" · " + capStopCount + " stops") : "");
     box.innerHTML="";
+    if(multi){
+      var hint=document.createElement("div"); hint.className="caphint";
+      hint.textContent="Tap the blue tag under a page to move it to another stop.";
+      box.appendChild(hint);
+    }
     capturedPages.forEach(function(u,i){
+      var cell=document.createElement("div"); cell.className="capcell";
       var d=document.createElement("div"); d.className="capthumb";
       var m=capturedMeta[i];
       d.innerHTML='<img src="'+u+'" alt="page '+(i+1)+'"><span class="pg">'+(i+1)+'</span>'+
         (m&&m.orig?'<button class="redo" type="button" aria-label="Re-scan page" title="Re-scan">⟳</button>':'')+
         '<button class="del" type="button" aria-label="Remove page">×</button>'+
         (m&&m.scanned?'<span class="scanned">SCAN</span>':'');
-      d.querySelector(".del").addEventListener("click", function(){ capturedPages.splice(i,1); capturedMeta.splice(i,1); renderCapTray(); });
+      d.querySelector(".del").addEventListener("click", function(){ capturedPages.splice(i,1); capturedMeta.splice(i,1); capturedStops.splice(i,1); renderCapTray(); });
       var rd=d.querySelector(".redo");
       if(rd) rd.addEventListener("click", function(){
         openScanEditor(m.orig, i, m.corners, m.mode, function(finalUrl, meta){
           capturedPages[i]=finalUrl; capturedMeta[i]=meta; renderCapTray();
         });
       });
-      box.appendChild(d);
+      cell.appendChild(d);
+      if(multi){
+        var s=capturedStops[i]||1; if(s>capStopCount) s=capStopCount;
+        var chip=document.createElement("button"); chip.type="button"; chip.className="capstop"; chip.textContent="Stop "+s;
+        chip.addEventListener("click", function(){ capturedStops[i]=((capturedStops[i]||1) % capStopCount)+1; renderCapTray(); });
+        cell.appendChild(chip);
+      }
+      box.appendChild(cell);
     });
   }
+  if($("capAddStop")) $("capAddStop").addEventListener("click", function(){
+    if(capStopCount>=12){ toast("That's a lot of stops — 12 max"); return; }
+    capStopCount++;
+    // The pages the driver just shot before adding this stop stay where they are; only new photos default
+    // to the new stop. They can retag any page with the blue tag.
+    renderCapTray();
+    toast("Stop "+capStopCount+" added — tag each page to its stop");
+  });
   function hideCapTray(){ $("capTray").classList.add("hide"); $("capThumbs").innerHTML=""; }
 
   // ================= Scan editor: deskew a photo + clean it up (CamScanner-style) =================
@@ -1262,7 +1307,7 @@ window.__startApp=function(){
   function scanQueue(urls, i){
     if(i>=urls.length){ if(capturedPages.length){ renderCapTray(); toast("Review your pages, then tap “Use these pages”"); } return; }
     openScanEditor(urls[i], -1, null, null, function(finalUrl, meta){
-      capturedPages.push(finalUrl); capturedMeta.push(meta); renderCapTray();
+      capturedPages.push(finalUrl); capturedMeta.push(meta); capturedStops.push(capStopCount); renderCapTray();
       scanQueue(urls, i+1);
     });
   }
@@ -1301,16 +1346,19 @@ window.__startApp=function(){
   // Kept for compatibility: single image → single-page PDF.
   async function imageToPdf(dataUrl){ return imagesToPdf([dataUrl]); }
 
-  async function startDoc(bytes){
+  async function startDoc(bytes, pageStops){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
+    docPageStops = (pageStops && pageStops.length) ? pageStops : null;
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
   }
+  var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
   async function renderPages(bytes){
     var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
     var wrapW=Math.min(760, (($("pages").clientWidth||document.querySelector("main").clientWidth)-4));
+    var stopSeen={};   // running page-within-stop counter for nicer labels
     for(var n=1;n<=doc.numPages;n++){
       var page=await doc.getPage(n), base=page.getViewport({scale:1});
       var scale=Math.min(2,wrapW/base.width), vp=page.getViewport({scale:scale});
@@ -1318,10 +1366,14 @@ window.__startApp=function(){
       var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1)), rvp=page.getViewport({scale:scale*dpr});
       var pd=document.createElement("div"); pd.className="page"; pd.style.width=vp.width+"px";
       var cv=document.createElement("canvas"); cv.width=Math.floor(rvp.width); cv.height=Math.floor(rvp.height); pd.appendChild(cv);
-      var lb=document.createElement("div"); lb.className="plabel"; lb.textContent="Page "+n+" / "+doc.numPages; pd.appendChild(lb);
+      var stopNum = docPageStops ? (docPageStops[n-1]||1) : null;
+      var lb=document.createElement("div"); lb.className="plabel";
+      if(stopNum){ stopSeen[stopNum]=(stopSeen[stopNum]||0)+1; lb.textContent="Stop "+stopNum+" — Page "+stopSeen[stopNum]; }
+      else { lb.textContent="Page "+n+" / "+doc.numPages; }
+      pd.appendChild(lb);
       $("pages").appendChild(pd);
       await page.render({canvasContext:cv.getContext("2d"),viewport:rvp}).promise;
-      var rec={vp:vp,scale:scale,div:pd,idx:n-1,baseW:base.width,baseH:base.height}; pageRecs.push(rec);
+      var rec={vp:vp,scale:scale,div:pd,idx:n-1,baseW:base.width,baseH:base.height,stop:stopNum}; pageRecs.push(rec);
       var startX=(base.width-250)/2;
       placeGroup(rec,"Consignee",startX,base.height*0.50);
       placeGroup(rec,"Driver",startX,base.height*0.30);
@@ -1337,7 +1389,7 @@ window.__startApp=function(){
     el.innerHTML='<span class="content">'+content+'</span><span class="rsz"></span>';
     el.style.left=sr.left+"px"; el.style.top=sr.top+"px"; el.style.width=sr.w+"px"; el.style.height=sr.h+"px";
     rec.div.appendChild(el);
-    var o={el:el,rec:rec,pageIdx:rec.idx,kind:kind,role:r,xPdf:x,yPdf:y,wPdf:w,hPdf:h,signed:false,date:todayStr()};
+    var o={el:el,rec:rec,pageIdx:rec.idx,stop:(rec&&rec.stop)||null,kind:kind,role:r,xPdf:x,yPdf:y,wPdf:w,hPdf:h,signed:false,date:todayStr()};
     fields.push(o); wireDrag(o, tappable?function(){onSign(o);}:null); wireResize(o); return o;
   }
   // One-off (no template): drop a single combined signature+date box per role (wide, for side-by-side).
