@@ -152,6 +152,10 @@ addColumn('loads', 'trailer', 'TEXT');
 addColumn('loads', 'brokerId', 'TEXT');    // a customer can hand a load to a broker, who then assigns the carrier
 addColumn('loads', 'brokerName', 'TEXT');
 addColumn('loads', 'customerId', 'TEXT');  // link to the owner org's own customer-list entry (customers.id)
+// Customer-list entries gained more detail + a contacts list (added to installs that already have the table).
+addColumn('customers', 'contactPhone', 'TEXT');
+addColumn('customers', 'address', 'TEXT');
+addColumn('customers', 'contacts', 'TEXT');   // JSON array of {name,email,receiveDocs} — signed-doc recipients
 addColumn('drivers', 'email', 'TEXT');   // optional driver email (for sending their link)
 addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) that gates their link
 // Carrier → customer document hand-off: a carrier-owned doc can be offered to a customer who then accepts it.
@@ -283,6 +287,9 @@ CREATE TABLE IF NOT EXISTS customers (
   dotNumber    TEXT,
   contactName  TEXT,
   contactEmail TEXT,
+  contactPhone TEXT,
+  address      TEXT,
+  contacts     TEXT,              -- JSON array of {name,email,receiveDocs} — signed-doc recipients
   note         TEXT,
   linkedOrgId  TEXT,              -- (future) a real customer tenant this entry is confirmed to be
   createdAt    INTEGER

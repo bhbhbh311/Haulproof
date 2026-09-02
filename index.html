@@ -838,20 +838,47 @@
       <div id="myCustomerRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
     </div>
 
-    <!-- Add / find a customer in YOUR list (with duplicate check) — top-level so it overlays any tab -->
+    <!-- Add / find / edit a customer in YOUR list (with duplicate check) — top-level so it overlays any tab -->
     <div id="custModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
-      <div style="background:var(--surface,#fff);border-radius:14px;max-width:440px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);max-height:90vh;overflow:auto;">
-        <h1 style="font-size:17px;margin:0 0 4px;">Add or find a customer</h1>
-        <p style="color:var(--muted);font-size:13px;margin:0 0 14px;">Search your customer list or add a new one. We flag possible duplicates so the same company isn't entered twice.</p>
-        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
+      <div style="background:var(--surface,#fff);border-radius:14px;max-width:560px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);max-height:92vh;overflow:auto;">
+        <h1 id="custModalTitle" style="font-size:17px;margin:0 0 4px;">Add or find a customer</h1>
+        <p id="custModalSub" style="color:var(--muted);font-size:13px;margin:0 0 14px;">Search your customer list or add a new one. We flag possible duplicates so the same company isn't entered twice.</p>
+        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Customer / company name <span style="color:#c0392b;font-weight:400;">*required</span></label>
         <input id="custModalName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
         <div id="custModalMatches"></div>
         <div id="custModalDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px 12px;margin:6px 0 10px;font-size:13px;color:#7c2d12;"></div>
-        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Contact name <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
-        <input id="custModalContact" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
-        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">MC # <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
-        <input id="custModalMc" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
-        <div id="custModalMsg" style="font-size:13px;margin:6px 0;"></div>
+        <div class="row" style="grid-template-columns:1fr 1fr;gap:10px;">
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Main contact name <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalContact" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Main contact email <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalEmail" type="email" autocomplete="off" placeholder="ops@customer.com" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Contact phone <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalPhone" autocomplete="off" placeholder="(555) 555-5555" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Address <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalAddr" autocomplete="off" placeholder="City, State" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">MC # <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalMc" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+          <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">DOT # <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+            <input id="custModalDot" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+        </div>
+        <div style="margin-top:8px;"><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Notes <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+          <input id="custModalNote" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
+
+        <!-- Email recipients: who gets the signed documents for this customer's loads -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Signed-document recipients</label>
+            <button class="ghost" id="custModalAddContact" type="button" style="font-size:12px;padding:5px 9px;">＋ Add recipient</button>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin:4px 0 8px;">Add the people who should get signed documents for loads assigned to this customer. Checked recipients are emailed automatically when a document is signed.</p>
+          <div id="custModalContacts"></div>
+        </div>
+
+        <div id="custModalMsg" style="font-size:13px;margin:10px 0 0;"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
           <button class="ghost" id="custModalCancel" type="button">Cancel</button>
           <button id="custModalSave" type="button">Save customer</button>
@@ -1747,39 +1774,92 @@
     }
     row.classList.add('hide');
   }
-  // ---- Add / find a customer in YOUR list, with a duplicate check ----
+  // ---- Add / find / edit a customer in YOUR list: dedup check + signed-doc recipients ----
   let _custMatchT = null;
-  function openCustModal() {
-    ['custModalName','custModalContact','custModalMc'].forEach(id => { if ($(id)) $(id).value = ''; });
+  let _custEditId = null;   // null = creating; otherwise editing this customer id
+  // One editable recipient row (name + email + "receives signed docs" checkbox).
+  function custAddContactRow(name, email, receiveDocs) {
+    const box = $('custModalContacts'); if (!box) return;
+    const row = document.createElement('div');
+    row.className = 'custContactRow';
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;';
+    row.innerHTML =
+      '<input class="ccName" placeholder="Name (optional)" autocomplete="off" style="flex:1;min-width:110px;box-sizing:border-box;">'
+      + '<input class="ccEmail" type="email" placeholder="email@company.com" autocomplete="off" style="flex:1.4;min-width:150px;box-sizing:border-box;">'
+      + '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap;"><input type="checkbox" class="ccRecv"> gets docs</label>'
+      + '<button type="button" class="ghost ccRemove" style="font-size:12px;padding:5px 8px;color:var(--danger);border-color:var(--danger);">✕</button>';
+    box.appendChild(row);
+    row.querySelector('.ccName').value = name || '';
+    row.querySelector('.ccEmail').value = email || '';
+    row.querySelector('.ccRecv').checked = (receiveDocs === false) ? false : true;
+    row.querySelector('.ccRemove').onclick = () => row.remove();
+  }
+  function collectContacts() {
+    return Array.from(document.querySelectorAll('#custModalContacts .custContactRow')).map(r => ({
+      name: r.querySelector('.ccName').value.trim(),
+      email: r.querySelector('.ccEmail').value.trim(),
+      receiveDocs: r.querySelector('.ccRecv').checked,
+    })).filter(c => c.email);
+  }
+  // Open the modal. Pass a customer object to EDIT it; omit to add/find a new one.
+  function openCustModal(existing) {
+    _custEditId = (existing && existing.id) ? existing.id : null;
+    const set = (id, v) => { if ($(id)) $(id).value = v || ''; };
+    set('custModalName', existing && existing.name);
+    set('custModalContact', existing && existing.contactName);
+    set('custModalEmail', existing && existing.contactEmail);
+    set('custModalPhone', existing && existing.contactPhone);
+    set('custModalAddr', existing && existing.address);
+    set('custModalMc', existing && existing.mcNumber);
+    set('custModalDot', existing && existing.dotNumber);
+    set('custModalNote', existing && existing.note);
+    if ($('custModalContacts')) $('custModalContacts').innerHTML = '';
+    const cts = (existing && existing.contacts) || [];
+    if (cts.length) cts.forEach(c => custAddContactRow(c.name, c.email, c.receiveDocs));
+    else custAddContactRow('', '', true);   // one empty row so it's obvious where to add recipients
     if ($('custModalMatches')) $('custModalMatches').innerHTML = '';
     if ($('custModalDup')) { $('custModalDup').classList.add('hide'); $('custModalDup').innerHTML = ''; }
     if ($('custModalMsg')) { $('custModalMsg').textContent = ''; $('custModalMsg').className = ''; }
+    if ($('custModalTitle')) $('custModalTitle').textContent = _custEditId ? 'Edit customer' : 'Add or find a customer';
+    if ($('custModalSub')) $('custModalSub').textContent = _custEditId
+      ? 'Update this customer’s details and the recipients who get its signed documents.'
+      : 'Search your customer list or add a new one. We flag possible duplicates so the same company isn’t entered twice.';
     if ($('custModal')) $('custModal').classList.remove('hide');
     setTimeout(() => { if ($('custModalName')) $('custModalName').focus(); }, 30);
   }
   function closeCustModal() { if ($('custModal')) $('custModal').classList.add('hide'); }
-  // Pick an existing customer (from suggestions or the dup box), add to the picker, and close.
+  // Merge a saved customer into local state, refresh the picker + tab, and close.
   function chooseCustomer(c) {
-    if (!_myCustomers.some(x => x.id === c.id)) _myCustomers.push(c);
+    const i = _myCustomers.findIndex(x => x.id === c.id);
+    if (i >= 0) _myCustomers[i] = c; else _myCustomers.push(c);
     _myCustomers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
     renderCustomerPick(c.id);
     renderMyCustomerRows();
     setTabCount('mycustomers', _myCustomers.length);
     closeCustModal();
   }
-  // ---- The Customers TAB: manage the org's own list (list + add/find + remove) ----
+  // ---- The Customers TAB: manage the org's own list (list + add/find + edit + remove) ----
   function renderMyCustomerRows() {
     const box = $('myCustomerRows'); if (!box) return;
     if (!_myCustomers.length) { box.innerHTML = '<div class="empty">No customers yet. Use “＋ Add / find customer” to add the companies you haul for.</div>'; return; }
-    box.innerHTML = _myCustomers.map(c =>
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;flex-wrap:wrap;">'
-      + '<div><div style="font-weight:700;">' + esc(c.name) + '</div>'
-      + '<div style="color:var(--muted);font-size:12px;">'
-      + [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactEmail ? esc(c.contactEmail) : ''].filter(Boolean).join(' · ')
-      + '</div></div>'
-      + '<button class="ghost mcRemoveBtn" data-id="' + esc(c.id) + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Remove</button>'
-      + '</div>'
-    ).join('');
+    box.innerHTML = _myCustomers.map(c => {
+      const meta = [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactPhone ? esc(c.contactPhone) : ''].filter(Boolean).join(' · ');
+      const recips = (c.contacts || []).filter(x => x.email && x.receiveDocs !== false);
+      const recTxt = recips.length
+        ? ('✉ Signed docs → ' + recips.map(x => esc(x.email)).join(', '))
+        : '<span style="color:var(--muted);">No signed-doc recipients yet</span>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;flex-wrap:wrap;">'
+        + '<div style="min-width:0;"><div style="font-weight:700;">' + esc(c.name) + '</div>'
+        + (meta ? '<div style="color:var(--muted);font-size:12px;">' + meta + '</div>' : '')
+        + '<div style="font-size:12px;margin-top:2px;">' + recTxt + '</div></div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+        + '<button class="ghost mcEditBtn" data-id="' + esc(c.id) + '" type="button" style="font-size:12px;">Edit</button>'
+        + '<button class="ghost mcRemoveBtn" data-id="' + esc(c.id) + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Remove</button>'
+        + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.mcEditBtn'), function (b) {
+      b.onclick = function () { const c = _myCustomers.find(x => x.id === b.getAttribute('data-id')); if (c) openCustModal(c); };
+    });
     Array.prototype.forEach.call(box.querySelectorAll('.mcRemoveBtn'), function (b) {
       b.onclick = async function () {
         const id = b.getAttribute('data-id');
@@ -1800,10 +1880,12 @@
     renderMyCustomerRows();
     setTabCount('mycustomers', _myCustomers.length);
   }
-  if ($('mcCustAddBtn')) $('mcCustAddBtn').onclick = openCustModal;
-  // Live "possible duplicate" suggestions as they type a name.
+  if ($('mcCustAddBtn')) $('mcCustAddBtn').onclick = () => openCustModal();
+  if ($('custModalAddContact')) $('custModalAddContact').onclick = () => custAddContactRow('', '', true);
+  // Live "possible duplicate" suggestions as they type a name (create mode only).
   async function custLookMatches() {
     const box = $('custModalMatches'); if (!box) return;
+    if (_custEditId) { box.innerHTML = ''; return; }
     const name = ($('custModalName').value || '').trim();
     if ($('custModalDup')) $('custModalDup').classList.add('hide');
     if (name.length < 2) { box.innerHTML = ''; return; }
@@ -1819,14 +1901,31 @@
       box.appendChild(b);
     });
   }
-  // Save a new customer. Server returns existed:true on an exact-name match (unless force) so we can ask.
+  function custBody() {
+    return {
+      name: ($('custModalName').value || '').trim(),
+      contactName: ($('custModalContact').value || '').trim(),
+      contactEmail: ($('custModalEmail').value || '').trim(),
+      contactPhone: ($('custModalPhone').value || '').trim(),
+      address: ($('custModalAddr').value || '').trim(),
+      mcNumber: ($('custModalMc').value || '').trim(),
+      dotNumber: ($('custModalDot').value || '').trim(),
+      note: ($('custModalNote').value || '').trim(),
+      contacts: collectContacts(),
+    };
+  }
+  // Save. Edit → PUT. Create → POST (server returns existed:true on an exact-name match unless force).
   async function saveCustModal(force) {
     const msg = $('custModalMsg');
-    const name = ($('custModalName').value || '').trim();
-    if (!name) { if (msg) { msg.textContent = 'Enter a customer name'; msg.className = 'umsg-err'; } return; }
+    const body = custBody();
+    if (!body.name) { if (msg) { msg.textContent = 'Enter a customer name'; msg.className = 'umsg-err'; } return; }
     if (msg) { msg.textContent = 'Saving…'; msg.className = ''; }
     try {
-      const body = { name, contactName: ($('custModalContact').value || '').trim(), mcNumber: ($('custModalMc').value || '').trim() };
+      if (_custEditId) {
+        const r = await api('/api/customers/' + _custEditId, { method: 'PUT', body: JSON.stringify(body) });
+        chooseCustomer(r.customer);
+        return;
+      }
       if (force) body.force = true;
       const r = await api('/api/customers', { method: 'POST', body: JSON.stringify(body) });
       if (r.existed && !force) {
@@ -1847,7 +1946,7 @@
       chooseCustomer(r.customer);
     } catch (e) { if (msg) { msg.textContent = e.message; msg.className = 'umsg-err'; } }
   }
-  if ($('ldCustAddBtn')) $('ldCustAddBtn').onclick = openCustModal;
+  if ($('ldCustAddBtn')) $('ldCustAddBtn').onclick = () => openCustModal();
   if ($('custModalCancel')) $('custModalCancel').onclick = closeCustModal;
   if ($('custModalSave')) $('custModalSave').onclick = () => saveCustModal(false);
   if ($('custModalName')) $('custModalName').addEventListener('input', () => { clearTimeout(_custMatchT); _custMatchT = setTimeout(custLookMatches, 250); });

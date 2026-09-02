@@ -9,6 +9,7 @@ const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValu
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 const { descendantOrgIds } = require('./hierarchy');
+const { customerDocEmails } = require('./customers');
 
 const router = express.Router();
 const raw = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '30mb' });
@@ -284,7 +285,10 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       db.prepare(`SELECT u.email FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(load.id).forEach(r => notifyEmails.push(r.email));
       db.prepare(`SELECT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId WHERE onf.orgId IS ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(orgId).forEach(r => notifyEmails.push(r.email));
     } catch (e) {}
-    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails]));
+    // The load's assigned customer's contacts who are flagged to receive signed documents.
+    let customerEmails = [];
+    try { if (load && load.customerId) customerEmails = customerDocEmails(load.customerId); } catch (e) {}
+    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails]));
     let mail = { sent: false };
     if (allRecipients.length) {
       mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });
