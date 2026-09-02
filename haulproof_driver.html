@@ -845,9 +845,9 @@ window.__startApp=function(){
   async function startDocTemplate(bytes, tpl){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
-    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    captureMode = false;   // reopening a saved/prepared load → this is the signing screen
+    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPagesTemplate(bytes, tpl); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
-    if(!sigs().length){ toast("No signature spots were set up on this document"); }
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
   }
   async function renderPagesTemplate(bytes, tpl){
@@ -868,6 +868,15 @@ window.__startApp=function(){
       var rec=pageRecs[f.pageIdx]; if(!rec) return;
       addField(rec, f.kind==="date"?"date":(f.kind==="sigdate"?"sigdate":"sig"), f.role==="Driver"?"Driver":"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf);
     });
+    // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
+    // so the driver can sign it now that they've reopened it.
+    if(!fields.length){
+      pageRecs.forEach(function(rec){
+        var startX=(rec.baseW-250)/2;
+        placeGroup(rec,"Consignee",startX,rec.baseH*0.50);
+        placeGroup(rec,"Driver",startX,rec.baseH*0.30);
+      });
+    }
   }
 
   function renderRoute(){
@@ -1356,12 +1365,14 @@ window.__startApp=function(){
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
     docPageStops = (pageStops && pageStops.length) ? pageStops : null;
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    captureMode = true;   // a freshly scanned/uploaded doc: review & SAVE first — signing happens on reopen
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
-    refreshActive(); $("banner").classList.add("on"); updateProgress();
-    if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — allow save-for-later
+    $("banner").classList.remove("on");                                 // no signing yet — Save is the action
+    if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
     window.scrollTo(0,0);
   }
   var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
+  var captureMode = false;   // true = review-and-save screen (no signing); false = signing a (re)opened load
   async function renderPages(bytes){
     var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
     var wrapW=Math.min(760, (($("pages").clientWidth||document.querySelector("main").clientWidth)-4));
@@ -1381,9 +1392,8 @@ window.__startApp=function(){
       $("pages").appendChild(pd);
       await page.render({canvasContext:cv.getContext("2d"),viewport:rvp}).promise;
       var rec={vp:vp,scale:scale,div:pd,idx:n-1,baseW:base.width,baseH:base.height,stop:stopNum}; pageRecs.push(rec);
-      var startX=(base.width-250)/2;
-      placeGroup(rec,"Consignee",startX,base.height*0.50);
-      placeGroup(rec,"Driver",startX,base.height*0.30);
+      // No signature spots on the capture screen — the driver reviews and SAVES; signing happens when the
+      // saved load is reopened (which places the signature fields then).
     }
   }
   function screenRect(rec,x,y,w,h){ var tl=rec.vp.convertToViewportPoint(x,y+h), br=rec.vp.convertToViewportPoint(x+w,y);
@@ -1620,9 +1630,14 @@ window.__startApp=function(){
       stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
       gps:lastGps, size:origBytes.length, status:"pending", unsigned:true, b64:u8ToB64(origBytes) };
     var pods=loadPods(); pods.unshift(pod); savePods(pods);
-    toast(online()?"Saved to load — uploading…":"Saved — will upload when you have signal");
-    renderCloud(); if(online()) syncOutbox();
-    showView(currentStop?"route":"outbox");
+    renderCloud();
+    showView("route");
+    if(online()){
+      toast("Saved — opening it under “Your loads” to sign when ready");
+      syncOutbox().then(function(){ setTimeout(loadMyLoads, 300); }).catch(function(){});
+    } else {
+      toast("Saved — it'll appear under “Your loads” once you have signal");
+    }
   }
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
