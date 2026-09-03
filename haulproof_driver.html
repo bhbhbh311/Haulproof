@@ -851,7 +851,20 @@ window.__startApp=function(){
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
     captureMode = false;   // reopening a saved/prepared load → this is the signing screen
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
-    try{ await renderPagesTemplate(bytes, tpl); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
+    try{ await renderPagesTemplate(bytes, tpl); }catch(e){
+      // The prepared file couldn't be rendered (e.g. an old save-for-later whose pages never finished
+      // uploading). Fall back to the upload/scan screen so the driver can re-add the document — but KEEP
+      // the PO# and consignee from the prepared load so they're not lost and re-typed.
+      console.error(e);
+      enterSign(currentStop);
+      if(pulledMeta){
+        if($("poNum")){ $("poNum").value=pulledMeta.poNumber||""; setPoLocked(!!pulledMeta.poNumber); }
+        if($("consName")){ $("consName").value=pulledMeta.consignee||""; $("consName").placeholder = pulledMeta.consignee ? "Who you're delivering to" : "Not set — tap Edit to add"; setConsLocked(true); }
+        if($("signCtx")) $("signCtx").textContent = "PO "+(pulledMeta.poNumber||"")+" — add the document to sign";
+        toast("Add or re-scan the document, then save");
+      } else { toast("Couldn't read that PDF"); }
+      return;
+    }
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
   }
   async function renderPagesTemplate(bytes, tpl){
