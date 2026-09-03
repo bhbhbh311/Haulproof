@@ -42,11 +42,20 @@
   .umsg-ok{color:var(--ok);} .umsg-err{color:var(--danger);}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
-  button{font-family:inherit;font-size:14px;font-weight:600;border:none;border-radius:var(--radius-sm);padding:11px 17px;background:linear-gradient(180deg,#2f6ae4,var(--primary));color:#fff;cursor:pointer;box-shadow:0 2px 6px rgba(22,85,209,.26);transition:transform .12s ease,box-shadow .12s ease,filter .12s;}
-  button:hover{transform:translateY(-1px);box-shadow:0 6px 15px rgba(22,85,209,.32);filter:saturate(1.05);}
-  button:active{transform:translateY(0);box-shadow:0 2px 6px rgba(22,85,209,.26);}
+  /* Buttons — one system: solid primary (default), .ghost (secondary/outline), .btn-ok (green),
+     .btn-danger (red, or .ghost.btn-danger for outline), .btn-sm (compact). Solid fills read crisp. */
+  button{font-family:inherit;font-size:14px;font-weight:600;border:none;border-radius:var(--radius-sm);padding:11px 17px;background:var(--primary);color:#fff;cursor:pointer;box-shadow:0 1px 2px rgba(22,85,209,.25);transition:transform .12s ease,box-shadow .12s ease,background .12s;}
+  button:hover{transform:translateY(-1px);background:var(--primary-d);box-shadow:0 4px 12px rgba(22,85,209,.28);}
+  button:active{transform:translateY(0);box-shadow:0 1px 2px rgba(22,85,209,.25);}
   button.ghost{background:#fff;color:var(--ink);border:1px solid #cdd7e3;box-shadow:none;}
   button.ghost:hover{background:#f4f7fc;border-color:#b7c3d4;box-shadow:0 2px 7px rgba(20,40,80,.07);}
+  button.btn-ok{background:var(--ok);box-shadow:0 1px 2px rgba(18,120,74,.28);}
+  button.btn-ok:hover{background:#0f6640;box-shadow:0 4px 12px rgba(18,120,74,.3);}
+  button.btn-danger{background:var(--danger);color:#fff;box-shadow:0 1px 2px rgba(192,57,43,.28);}
+  button.btn-danger:hover{background:#a83226;box-shadow:0 4px 12px rgba(192,57,43,.3);}
+  button.ghost.btn-danger{background:#fff;color:var(--danger);border-color:var(--danger);box-shadow:none;}
+  button.ghost.btn-danger:hover{background:#fdecea;border-color:var(--danger);}
+  button.btn-sm{padding:6px 11px;font-size:12px;}
   a.linkbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;font-size:12px;font-weight:600;border:1px solid var(--primary);border-radius:var(--radius-sm);background:var(--primary-soft);color:var(--primary);text-decoration:none;cursor:pointer;transition:background .12s,box-shadow .12s;}
   a.linkbtn:hover{background:#dbe6fb;box-shadow:0 2px 7px rgba(22,85,209,.18);}
   /* tables */
@@ -278,7 +287,7 @@
         <p id="confirmMsg" class="sub" style="margin-top:0;"></p>
         <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end;">
           <button class="ghost" id="confirmCancel" type="button">Cancel</button>
-          <button id="confirmOk" type="button" style="background:#c0392b;">Delete</button>
+          <button id="confirmOk" type="button" class="btn-danger">Delete</button>
         </div>
       </div>
     </div>
@@ -642,7 +651,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
         <div style="display:flex;gap:8px;">
-          <button class="ld-viewonly" id="ldEditBtn" type="button" style="background:var(--primary);color:#fff;font-weight:700;padding:8px 14px;font-size:13px;border:none;border-radius:9px;box-shadow:0 1px 3px rgba(22,85,209,.3);">✎ Edit load / stops</button>
+          <button class="ld-viewonly btn-sm" id="ldEditBtn" type="button">✎ Edit load / stops</button>
           <button class="ld-editonly hide" id="ldSaveAll" type="button">Save</button>
           <button class="ghost ld-editonly hide" id="ldCancelAll" type="button">Cancel</button>
           <button class="ghost" id="ldBack" type="button">← Back</button>
@@ -2114,11 +2123,11 @@
         <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
-          ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep" data-id="${p.id}" type="button" style="padding:3px 9px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:6px;cursor:pointer;">Keep it</button> &nbsp;<button class="ldDupDiscard" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button" style="padding:3px 9px;font-size:12px;font-weight:700;color:#fff;background:#c0392b;border:none;border-radius:6px;cursor:pointer;">Discard</button></div>` : ''}
+          ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
-          ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady" data-id="${p.id}" type="button" style="padding:4px 10px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:8px;cursor:pointer;">✅ Mark ready for driver</button>` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit" data-id="${p.id}" type="button" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;background:none;border:1px solid var(--primary);border-radius:8px;cursor:pointer;">⎘ Split into stops</button>` : ''}
+          ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady btn-ok btn-sm" data-id="${p.id}" type="button">✅ Mark ready for driver</button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button">⎘ Split into stops</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>&nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
