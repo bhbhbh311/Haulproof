@@ -2193,7 +2193,34 @@
     } catch (e) { $('seMsg').textContent = e.message; $('seMsg').className = 'umsg-err'; }
   };
   // ---- Split a multi-page document into separate per-stop documents ----
-  let _splitPod = null, _splitBuf = null, _splitInputs = [];
+  let _splitPod = null, _splitBuf = null, _splitInputs = [], _splitPdf = null;
+  // Enlarge one page of the document being split so the dispatcher can read it and pick the right stop.
+  async function showSplitZoom(pi) {
+    if (!_splitPdf) return;
+    let ov = $('splitZoom');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'splitZoom';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.9);z-index:10060;display:none;align-items:center;justify-content:center;padding:12px;cursor:zoom-out;';
+      const c = document.createElement('canvas'); c.id = 'splitZoomCanvas';
+      c.style.cssText = 'max-width:97vw;max-height:94vh;border-radius:6px;box-shadow:0 12px 44px rgba(0,0,0,.55);background:#fff;';
+      const hint = document.createElement('div'); hint.textContent = 'Tap anywhere to close';
+      hint.style.cssText = 'position:absolute;top:calc(10px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6);';
+      ov.appendChild(c); ov.appendChild(hint); document.body.appendChild(ov);
+      ov.addEventListener('click', () => { ov.style.display = 'none'; });
+    }
+    ov.style.display = 'flex';
+    const canvas = $('splitZoomCanvas');
+    try {
+      const page = await _splitPdf.getPage(pi + 1);
+      const vp0 = page.getViewport({ scale: 1 });
+      const dpr = window.devicePixelRatio || 1;
+      const scale = Math.min((window.innerWidth * 0.97) / vp0.width, (window.innerHeight * 0.94) / vp0.height) * dpr;
+      const vp = page.getViewport({ scale });
+      canvas.width = vp.width; canvas.height = vp.height;
+      canvas.style.width = (vp.width / dpr) + 'px'; canvas.style.height = (vp.height / dpr) + 'px';
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    } catch (e) {}
+  }
   async function openSplit(p) {
     if (!p) return;
     if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
@@ -2208,6 +2235,7 @@
       _splitBuf = await resp.arrayBuffer();
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
+      _splitPdf = pdf;
       box.innerHTML = '';
       if (pdf.numPages < 2) {
         box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>Edit</b> on the document to change its stop number instead.</div>';
@@ -2219,21 +2247,24 @@
         const page = await pdf.getPage(pi + 1);
         const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 120 / vp0.width });
         const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
-        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;';
+        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;';
+        canvas.title = 'Click to enlarge';
         try { await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise; } catch (e) {}
+        canvas.addEventListener('click', () => showSplitZoom(pi));
         const wrap = document.createElement('div'); wrap.style.cssText = 'width:120px;text-align:center;';
         const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
+        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:10px;color:var(--primary);margin-top:3px;cursor:zoom-in;'; zhint.textContent = '🔍 Tap to enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
         const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
         const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(p.stopNumber || 1);
         inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
         row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
-        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(row); grid.appendChild(wrap);
+        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(row); grid.appendChild(wrap);
         _splitInputs.push({ pageIdx: pi, inp });
       }
       box.appendChild(grid);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
-  function closeSplit() { $('splitModal').classList.add('hide'); _splitPod = null; _splitBuf = null; _splitInputs = []; }
+  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; }
   if ($('splitClose')) $('splitClose').onclick = closeSplit;
   if ($('splitCancel')) $('splitCancel').onclick = closeSplit;
   if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) closeSplit(); });
