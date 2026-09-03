@@ -1962,7 +1962,10 @@
         await api('/api/loads/' + curLoad.id, { method: 'DELETE' });
         const back = _ldBackFn;
         $('loadDetailCard').classList.add('hide');
-        if (typeof back === 'function') back(); else { try { selectTab('documents'); } catch (e) {} loadLoads(); }
+        if (typeof back === 'function') back(); else { try { selectTab('documents'); } catch (e) {} }
+        // Refresh BOTH lists so the deleted load/documents drop off immediately (not just the Loads list).
+        try { loadLoads(); } catch (e) {}
+        try { if (typeof search === 'function') search(); } catch (e) {}
       } catch (e) { alert(e.message); }
     })();
   };
