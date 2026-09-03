@@ -78,12 +78,13 @@ router.get('/my-loads', (req, res) => {
   if (!r || !r.driver) return res.json({ loads: [] });
   // Prepared docs the driver should sign: ones dispatch assigned to them, PLUS ones this driver saved
   // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
-  const rows = db.prepare(`SELECT p.* FROM pods p
+  const rows = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
+      LEFT JOIN loads l ON l.id = p.loadId
       WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
-    receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
+    customerId: p.loadCustomerId || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ loads });
 });
@@ -101,6 +102,74 @@ router.get('/my-documents', (req, res) => {
     receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     filename: p.filename, when: p.uploadedAt || p.signedAt, fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ docs });
+});
+
+// --- Driver-app load details: pick/add a customer + edit a load's details (device-key auth) ---
+function drvNorm(s) { return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+function drvCustOut(c) { return { id: c.id, name: c.name, mcNumber: c.mcNumber, contactName: c.contactName, contactEmail: c.contactEmail }; }
+
+// The driver's org customer list (for the phone picker).
+router.get('/customers', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.org) return res.json({ customers: [] });
+  const rows = db.prepare(`SELECT * FROM customers WHERE ownerOrgId = ? ORDER BY name COLLATE NOCASE`).all(r.org.id);
+  res.json({ customers: rows.map(drvCustOut) });
+});
+// Add a customer to the org's list from the phone. Exact-name dedup (unless force), same as the portal.
+router.post('/customers', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.org) return res.status(401).json({ error: 'This link is not valid' });
+  const b = req.body || {};
+  const name = (b.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Customer name is required' });
+  const q = drvNorm(name);
+  const existing = db.prepare(`SELECT * FROM customers WHERE ownerOrgId = ?`).all(r.org.id).find(x => drvNorm(x.name) === q);
+  if (existing && !b.force) return res.json({ customer: drvCustOut(existing), existed: true });
+  const id = crypto.randomUUID();
+  db.prepare(`INSERT INTO customers (id, ownerOrgId, name, contactName, contactEmail, createdAt) VALUES (?,?,?,?,?,?)`)
+    .run(id, r.org.id, name, (b.contactName || '').trim() || null, (b.contactEmail || '').trim() || null, Date.now());
+  res.status(201).json({ customer: drvCustOut(db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id)), existed: false });
+});
+// Save a load's details (PO / Load # / Consignee / Customer) for a document the driver has open.
+router.post('/pods/:id/details', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.org) return res.status(401).json({ error: 'This link is not valid' });
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!pod) return res.status(404).json({ error: 'Document not found' });
+  const load = pod.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(pod.loadId) : null;
+  const loadOrg = load ? (load.orgId || null) : (pod.orgId || null);
+  // Allow if this driver's org owns it, or the doc is assigned to / was signed by this driver.
+  const ownOrg = (loadOrg === (r.org.id || null)) || ((pod.orgId || null) === (r.org.id || null));
+  const mine = r.driver && (pod.assignedDriverId === r.driver.id || pod.signedByDriverId === r.driver.id);
+  if (!ownOrg && !mine) return res.status(403).json({ error: 'Not allowed' });
+  const b = req.body || {};
+  const po = (b.poNumber !== undefined) ? ((b.poNumber || '').trim() || null) : (load ? load.poNumber : pod.poNumber);
+  if (!po) return res.status(400).json({ error: 'PO # is required' });
+  const ln = (b.loadNumber !== undefined) ? ((b.loadNumber || '').trim() || null) : (load ? load.loadNumber : pod.loadNumber);
+  const cons = (b.consignee !== undefined) ? ((b.consignee || '').trim() || null) : (load ? load.consignee : pod.consignee);
+  const curPo = load ? load.poNumber : pod.poNumber;
+  if (po !== curPo) {
+    const clash = db.prepare(`SELECT id FROM loads WHERE orgId IS ? AND poNumber = ? AND id != ?`).get(loadOrg, po, load ? load.id : '');
+    if (clash) return res.status(409).json({ error: 'Another load already uses PO ' + po });
+  }
+  // Customer can only be changed on a load this driver's org OWNS (mirrors the desktop rule).
+  let setCustomer = false, customerId = null, customerName = null;
+  if (b.customerId !== undefined && loadOrg === (r.org.id || null)) {
+    setCustomer = true;
+    const cid = (b.customerId || '').trim() || null;
+    if (cid) {
+      const c = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId IS ?`).get(cid, r.org.id);
+      if (!c) return res.status(400).json({ error: 'That customer is not in your list' });
+      customerId = c.id; customerName = c.name;
+    }
+  }
+  db.prepare(`UPDATE pods SET poNumber = ?, loadNumber = ?, consignee = ? WHERE id = ?`).run(po, ln, cons, pod.id);
+  if (load) {
+    if (setCustomer) db.prepare(`UPDATE loads SET poNumber = ?, loadNumber = ?, consignee = ?, customerId = ?, customer = ? WHERE id = ?`).run(po, ln, cons, customerId, customerName, load.id);
+    else db.prepare(`UPDATE loads SET poNumber = ?, loadNumber = ?, consignee = ? WHERE id = ?`).run(po, ln, cons, load.id);
+    if (po !== curPo) { try { db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ?`).run(po, load.id); } catch (e) {} }
+  }
+  res.json({ ok: true, poNumber: po, loadNumber: ln, consignee: cons, customerId: setCustomer ? customerId : (load ? load.customerId : null) });
 });
 
 // List a customer's drivers.

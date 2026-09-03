@@ -388,8 +388,41 @@
   <section class="view hide" id="viewSign">
     <div class="signctx"><button class="back" id="signBack" type="button">‹ Route</button><span class="ctxt" id="signCtx"></span></div>
     <div class="docmeta" id="docMeta">
-      <label class="f req"><span>Customer PO # <em class="poReq">required</em><em class="opt poFrom hide">from dispatch</em><button type="button" id="poEdit" class="poedit hide">Edit</button></span><input type="text" id="poNum" placeholder="Enter the customer's BOL / PO #" autocomplete="off" inputmode="text"></label>
-      <label class="f"><span>Consignee <em class="opt consOpt">optional</em><em class="opt consFrom hide">from dispatch</em><button type="button" id="consEdit" class="poedit hide">Edit</button></span><input type="text" id="consName" placeholder="Who you're delivering to"></label>
+      <div id="detailsHead" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-weight:800;font-size:14px;">Load details <em class="opt detailsFrom hide" style="margin-left:4px;">from dispatch</em></span>
+        <button type="button" id="detailsEdit" class="poedit hide">✎ Edit</button>
+      </div>
+      <label class="f req"><span>Customer PO # <em class="poReq">required</em></span><input type="text" id="poNum" placeholder="Enter the customer's BOL / PO #" autocomplete="off" inputmode="text"></label>
+      <label class="f"><span>Load # <em class="opt">optional</em></span><input type="text" id="ldNum" placeholder="Your load # (optional)" autocomplete="off"></label>
+      <label class="f"><span>Customer <em class="opt">optional</em></span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="drvCustSel" style="flex:1;min-width:0;"><option value="">— No customer —</option></select>
+          <button type="button" id="drvCustAddBtn" class="poedit hide" style="white-space:nowrap;">＋ Add</button>
+        </div>
+      </label>
+      <label class="f"><span>Consignee <em class="opt">optional</em></span><input type="text" id="consName" placeholder="Who you're delivering to" autocomplete="off"></label>
+      <div id="detailsFooter" class="hide" style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" id="detailsSave" class="btn primary sm">Save details</button>
+        <button type="button" id="detailsCancel" class="btn ghost sm">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Add / find a customer from the phone (device-key authed, deduped against the org list) -->
+    <div id="drvCustModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
+      <div style="background:#fff;color:#16202b;border-radius:14px;max-width:420px;width:100%;padding:20px;max-height:90vh;overflow:auto;box-shadow:0 12px 44px rgba(0,0,0,.3);">
+        <div style="font-size:17px;font-weight:800;margin-bottom:4px;">Add or find a customer</div>
+        <div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Type the customer name. We check your list so the same company isn't added twice.</div>
+        <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
+        <input id="drvCustName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:15px;">
+        <div id="drvCustDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px;margin:0 0 10px;font-size:13px;color:#7c2d12;"></div>
+        <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Contact email <span style="font-weight:400;text-transform:none;">optional</span></label>
+        <input id="drvCustEmail" type="email" placeholder="ops@customer.com" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:15px;">
+        <div id="drvCustMsg" style="font-size:13px;margin:6px 0;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button type="button" id="drvCustCancel" class="btn ghost sm">Cancel</button>
+          <button type="button" id="drvCustSave" class="btn primary sm">Add customer</button>
+        </div>
+      </div>
     </div>
     <label class="drop" id="drop" for="file">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -619,6 +652,7 @@ window.__startApp=function(){
             "X-POD-PO":he(p.poNumber),
             "X-POD-Load":he(p.loadNumber),
             "X-POD-Consignee":he(p.consignee),
+            "X-POD-CustomerId":he(p.customerId||""),
             "X-POD-Emails":he((p.recipients||[]).join(",")),
             "X-POD-SignedAt":String(p.signedAt||p.createdAt||Date.now()),
             "X-POD-PrepId":he(p.prepId||"")
@@ -807,10 +841,8 @@ window.__startApp=function(){
       pulledMeta=d;
       enterSign(null);
       $("signCtx").textContent = "Prepared by dispatch · PO "+(d.poNumber||"")+(d.loadNumber?(" · Load "+d.loadNumber):"");
-      if($("poNum")){ $("poNum").value=d.poNumber||""; setPoLocked(!!d.poNumber); }
-      // Consignee belongs to the dispatch build, so on a prepared load it's always locked (with Edit) —
-      // even when the build left it blank, so the driver sees "Not set" instead of an open field to type in.
-      if($("consName")){ $("consName").value=d.consignee||""; $("consName").placeholder = d.consignee ? "Who you're delivering to" : "Not set — tap Edit to add"; setConsLocked(true); }
+      // Prepared load: fill the details block and lock it (Edit unlocks; Save persists to the load).
+      fillDetails(d); setDetailsMode(false, true); drvLoadCustomers(d.customerId||"");
       await startDocTemplate(bytes, d.fields||[]);
     }catch(err){ console.error(err); toast("Couldn't open that load"); }
   }
@@ -858,8 +890,7 @@ window.__startApp=function(){
       console.error(e);
       enterSign(currentStop);
       if(pulledMeta){
-        if($("poNum")){ $("poNum").value=pulledMeta.poNumber||""; setPoLocked(!!pulledMeta.poNumber); }
-        if($("consName")){ $("consName").value=pulledMeta.consignee||""; $("consName").placeholder = pulledMeta.consignee ? "Who you're delivering to" : "Not set — tap Edit to add"; setConsLocked(true); }
+        fillDetails(pulledMeta); setDetailsMode(false, true); drvLoadCustomers(pulledMeta.customerId||"");
         if($("signCtx")) $("signCtx").textContent = "PO "+(pulledMeta.poNumber||"")+" — add the document to sign";
         toast("Add or re-scan the document, then save");
       } else { toast("Couldn't read that PDF"); }
@@ -937,24 +968,110 @@ window.__startApp=function(){
   var roles=["Consignee","Driver"], curRoleIdx=0, adoptedByRole={}, mode="type", selected=null;
   var SIG_FONTS=["Dancing Script","Great Vibes","Sacramento"];
 
-  // Prepared-load fields (PO #, Consignee) come from the dispatch build, so we show them locked/read-only
-  // to stop drivers changing them by accident; an Edit button unlocks the one they truly need to fix.
-  // The <input> stays the single source of truth — locking just makes it read-only + shows Edit.
-  function setFieldLocked(inputId, editId, optSel, fromSel, locked){
-    var i=$(inputId); if(!i) return;
-    i.readOnly = !!locked; i.classList.toggle("locked", !!locked);
-    var e=$(editId); if(e) e.classList.toggle("hide", !locked);
-    var o=document.querySelector(optSel); if(o) o.classList.toggle("hide", !!locked);
-    var f=document.querySelector(fromSel); if(f) f.classList.toggle("hide", !locked);
+  // ===== Load details block (PO #, Load #, Customer, Consignee) on the sign screen =====
+  // A prepared load's details come from dispatch, so they start locked with an Edit button. A fresh
+  // upload starts editable. "Save details" persists to the load on the server (for a prepared doc).
+  var _drvCustomers = [];   // the org's customer list (for the picker), loaded on demand
+  function drvHeaders(){ var h={}; var k=currentKey(); if(k) h["X-Api-Key"]=k; var u=loadUnlock(); if(u) h["X-Driver-Unlock"]=u; return h; }
+  function drvRenderCustSel(selectedId){
+    var sel=$("drvCustSel"); if(!sel) return;
+    sel.innerHTML='';
+    var none=document.createElement("option"); none.value=""; none.textContent="— No customer —"; sel.appendChild(none);
+    _drvCustomers.forEach(function(c){ var o=document.createElement("option"); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+    sel.value=(selectedId && _drvCustomers.some(function(c){return c.id===selectedId;}))?selectedId:"";
   }
-  function setPoLocked(locked){ setFieldLocked("poNum","poEdit",".docmeta .poReq",".docmeta .poFrom", locked); }
-  function setConsLocked(locked){ setFieldLocked("consName","consEdit",".docmeta .consOpt",".docmeta .consFrom", locked); }
-  function wireEdit(editId, unlock, inputId){
-    var e=$(editId); if(!e) return;
-    e.addEventListener("click", function(ev){ ev.preventDefault(); unlock(false); var i=$(inputId); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(_){} } });
+  async function drvLoadCustomers(selectedId){
+    if(!currentKey() || !serverOrigin() || !online()){ drvRenderCustSel(selectedId); return; }
+    try{ var r=await fetch(driverApi("/customers"),{headers:drvHeaders()}); var j=await r.json(); _drvCustomers=(j&&j.customers)||[]; }
+    catch(e){ _drvCustomers=[]; }
+    drvRenderCustSel(selectedId);
   }
-  wireEdit("poEdit", setPoLocked, "poNum");
-  wireEdit("consEdit", function(l){ setConsLocked(l); if(!l && $("consName")) $("consName").placeholder = "Who you're delivering to"; }, "consName");
+  // editing: fields writable. prepared: from dispatch (locked by default, Edit/Save shown).
+  function setDetailsMode(editing, prepared){
+    var ro=!editing;
+    ["poNum","ldNum","consName"].forEach(function(id){ var e=$(id); if(e){ e.readOnly=ro; e.classList.toggle("locked",ro); } });
+    var sel=$("drvCustSel"); if(sel){ sel.disabled=ro; sel.classList.toggle("locked",ro); }
+    var add=$("drvCustAddBtn"); if(add) add.classList.toggle("hide", ro);
+    var edit=$("detailsEdit"); if(edit) edit.classList.toggle("hide", !(prepared && !editing));
+    var foot=$("detailsFooter"); if(foot) foot.classList.toggle("hide", !(prepared && editing));
+    var from=document.querySelector(".detailsFrom"); if(from) from.classList.toggle("hide", !prepared);
+  }
+  // Fill the block from a load/doc object (prepared doc or a fresh blank).
+  function fillDetails(d){
+    d=d||{};
+    if($("poNum")) $("poNum").value=d.poNumber||"";
+    if($("ldNum")) $("ldNum").value=d.loadNumber||"";
+    if($("consName")) $("consName").value=d.consignee||"";
+    drvRenderCustSel(d.customerId||"");
+  }
+  if($("detailsEdit")) $("detailsEdit").addEventListener("click", function(){ setDetailsMode(true,true); var p=$("poNum"); if(p){ p.focus(); } });
+  if($("detailsCancel")) $("detailsCancel").addEventListener("click", function(){ fillDetails(pulledMeta||{}); setDetailsMode(false,true); });
+  if($("detailsSave")) $("detailsSave").addEventListener("click", saveDetails);
+  async function saveDetails(){
+    var po=$("poNum")?$("poNum").value.trim():"";
+    if(!po){ if($("poNum")){ $("poNum").parentElement.classList.add("missing"); $("poNum").focus(); } toast("PO # is required"); return; }
+    if($("poNum")) $("poNum").parentElement.classList.remove("missing");
+    // Fresh doc (no server record yet): keep the values locally — they're written when the doc is saved/signed.
+    if(!(pulledMeta && pulledMeta.id)){ setDetailsMode(false,true); toast("Saved"); return; }
+    var body={ poNumber:po, loadNumber:$("ldNum")?$("ldNum").value.trim():"", consignee:$("consName")?$("consName").value.trim():"", customerId:$("drvCustSel")?$("drvCustSel").value:"" };
+    try{
+      var r=await fetch(driverApi("/pods/"+pulledMeta.id+"/details"),{method:"POST",headers:Object.assign({"Content-Type":"application/json"},drvHeaders()),body:JSON.stringify(body)});
+      if(!r.ok){ var e=await r.json().catch(function(){return{};}); toast(e.error||"Couldn't save"); return; }
+      var j=await r.json();
+      pulledMeta.poNumber=j.poNumber; pulledMeta.loadNumber=j.loadNumber; pulledMeta.consignee=j.consignee; pulledMeta.customerId=j.customerId;
+      setDetailsMode(false,true);
+      if($("signCtx")) $("signCtx").textContent="Prepared by dispatch · PO "+(j.poNumber||"");
+      toast("Saved");
+      try{ loadMyLoads(); }catch(_){}
+    }catch(err){ toast("Couldn't save — check signal"); }
+  }
+  // ---- Add / find a customer from the phone ----
+  function drvOpenCustModal(){
+    if($("drvCustName")) $("drvCustName").value="";
+    if($("drvCustEmail")) $("drvCustEmail").value="";
+    if($("drvCustDup")){ $("drvCustDup").classList.add("hide"); $("drvCustDup").innerHTML=""; }
+    if($("drvCustMsg")) $("drvCustMsg").textContent="";
+    if($("drvCustModal")) $("drvCustModal").classList.remove("hide");
+    setTimeout(function(){ if($("drvCustName")) $("drvCustName").focus(); },40);
+  }
+  function drvCloseCustModal(){ if($("drvCustModal")) $("drvCustModal").classList.add("hide"); }
+  function drvPickCustomer(c){
+    if(!_drvCustomers.some(function(x){return x.id===c.id;})) _drvCustomers.push(c);
+    _drvCustomers.sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+    drvRenderCustSel(c.id);
+    drvCloseCustModal();
+  }
+  async function drvSaveCustomer(force){
+    var name=$("drvCustName")?$("drvCustName").value.trim():"";
+    var msg=$("drvCustMsg");
+    if(!name){ if(msg) msg.textContent="Enter a customer name"; return; }
+    if(msg) msg.textContent="Saving…";
+    var body={ name:name, contactEmail:$("drvCustEmail")?$("drvCustEmail").value.trim():"" };
+    if(force) body.force=true;
+    try{
+      var r=await fetch(driverApi("/customers"),{method:"POST",headers:Object.assign({"Content-Type":"application/json"},drvHeaders()),body:JSON.stringify(body)});
+      if(!r.ok){ var e=await r.json().catch(function(){return{};}); if(msg) msg.textContent=e.error||"Couldn't add"; return; }
+      var j=await r.json();
+      if(j.existed && !force){
+        var dup=$("drvCustDup");
+        if(dup){ dup.classList.remove("hide"); dup.innerHTML="";
+          var p=document.createElement("div"); p.style.marginBottom="8px"; p.textContent='"'+j.customer.name+'" is already in your list. Use it, or add as a separate customer?';
+          dup.appendChild(p);
+          var w=document.createElement("div"); w.style.cssText="display:flex;gap:8px;flex-wrap:wrap;";
+          var use=document.createElement("button"); use.type="button"; use.className="btn primary sm"; use.textContent="Use existing"; use.onclick=function(){ drvPickCustomer(j.customer); };
+          var add=document.createElement("button"); add.type="button"; add.className="btn ghost sm"; add.textContent="Add separate"; add.onclick=function(){ drvSaveCustomer(true); };
+          w.appendChild(use); w.appendChild(add); dup.appendChild(w);
+        }
+        if(msg) msg.textContent="";
+        return;
+      }
+      drvPickCustomer(j.customer);
+    }catch(err){ if(msg) msg.textContent="Couldn't add — check signal"; }
+  }
+  if($("drvCustAddBtn")) $("drvCustAddBtn").addEventListener("click", drvOpenCustModal);
+  if($("drvCustCancel")) $("drvCustCancel").addEventListener("click", drvCloseCustModal);
+  if($("drvCustSave")) $("drvCustSave").addEventListener("click", function(){ drvSaveCustomer(false); });
+  if($("drvCustModal")) $("drvCustModal").addEventListener("click", function(e){ if(e.target===$("drvCustModal")) drvCloseCustModal(); });
 
   function enterSign(stop){
     currentStop=stop;
@@ -966,8 +1083,11 @@ window.__startApp=function(){
     capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
     if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
-    if($("poNum")){ $("poNum").value=""; $("poNum").parentElement.classList.remove("missing"); setPoLocked(false); }
-    if($("consName")){ $("consName").value = stop ? (stop.name||"") : ""; $("consName").placeholder = "Who you're delivering to"; setConsLocked(!!(stop && stop.name)); }
+    // Fresh document: blank, editable details (no dispatch lock). A prepared load re-locks these after this runs.
+    if($("poNum")) $("poNum").parentElement.classList.remove("missing");
+    fillDetails({ consignee: stop ? (stop.name||"") : "" });
+    setDetailsMode(true, false);
+    drvLoadCustomers("");
     $("file").value="";
     showView("sign");
   }
@@ -1619,8 +1739,9 @@ window.__startApp=function(){
       signedPdfBytes=await doc.save();
       // save to outbox
       var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
-      var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
-      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
+      var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
+      var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
+      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
       var pods=loadPods(); pods.unshift(pod);
       if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pod); savePods(pods); }   // free space if the phone's storage is full so a signed POD is never silently dropped
       if(currentStop){ currentStop.status="delivered"; currentStop.deliveredAt=Date.now(); currentStop.deliveredGps=lastGps; currentStop.podId=pod.id; saveRoute(route); }
@@ -1643,7 +1764,8 @@ window.__startApp=function(){
     if(!origBytes || !origBytes.length){ toast("Photograph or choose a document first"); return; }
     var consInput = $("consName") ? $("consName").value.trim() : "";
     var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
-    var loadVal = (pulledMeta&&pulledMeta.loadNumber) ? pulledMeta.loadNumber : "";
+    var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
+    var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
     var bytes = origBytes;   // keep a reference; the doc is already in memory
     // ONLINE: upload straight to the load right now, from the copy in memory. This avoids stuffing a big
     // multi-photo PDF into the phone's limited browser storage (which was silently filling up and dropping
@@ -1655,7 +1777,7 @@ window.__startApp=function(){
         try{
           var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
           var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
-            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-Status":"prepared" };
+            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-Status":"prepared" };
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
@@ -1666,7 +1788,7 @@ window.__startApp=function(){
       }
     }
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
-    var pod={ id:genId(), name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal,
+    var pod={ id:genId(), name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
       stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
       gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
     var arr=loadPods(); arr.unshift(pod);

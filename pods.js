@@ -190,7 +190,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     const meta = {
       loadNumber: dec(h['x-pod-load']) || null,
       poNumber: dec(h['x-pod-po']) || null,
-      consignee: dec(h['x-pod-consignee']) || dec(h['x-pod-name']) || null,
+      consignee: dec(h['x-pod-consignee']) || null,   // don't fall back to the document name — leave blank if none
+      customerId: (dec(h['x-pod-customerid']) || '').trim() || null,   // link to the owner org's customer-list entry
       docType: h['x-pod-type'] || 'POD',
       gps: h['x-pod-gps'] || null,
       signedAt: h['x-pod-signedat'] ? Number(h['x-pod-signedat']) : Date.now(),
@@ -219,6 +220,13 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     if (!load) load = findOrCreateLoad({ orgId, ...meta });
+    // Link the load to a customer from its owner org's list, when the driver picked one (and it belongs there).
+    if (meta.customerId) {
+      try {
+        const cust = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId IS ?`).get(meta.customerId, load.orgId || null);
+        if (cust) { db.prepare(`UPDATE loads SET customerId = ?, customer = ? WHERE id = ?`).run(cust.id, cust.name, load.id); load.customerId = cust.id; load.customer = cust.name; }
+      } catch (e) {}
+    }
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
