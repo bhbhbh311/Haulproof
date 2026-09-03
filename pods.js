@@ -132,6 +132,10 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     // Team login who reps this stop — emailed when the stop completes. Must belong to the filing org.
     let salesRepUserId = (dec(h['x-salesrep']) || '').trim() || null;
     if (salesRepUserId && !db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(salesRepUserId, orgId)) salesRepUserId = null;
+    // When a dispatcher SPLITS a driver-uploaded doc into per-stop documents, each new stop should stay
+    // "awaiting_build" so dispatch can set it up and release it to the driver. X-Build carries that intent.
+    const buildFlag = /^(dispatch|awaiting|awaiting_build|1|true)$/i.test((dec(h['x-build']) || '').trim());
+    const status = buildFlag ? 'awaiting_build' : 'received';
     if (!poNumber) return res.status(422).json({ error: 'Customer PO # is required for every document' });
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
     if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
@@ -143,8 +147,8 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     fs.writeFileSync(filepath, req.body);
     const load = findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy: req.user.email });
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'received',@uploadedAt)`)
-      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), uploadedAt: Date.now() });
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,@status,@uploadedAt)`)
+      .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), status, uploadedAt: Date.now() });
     logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf') + (stopNumber ? ' (Stop ' + stopNumber + ')' : ''), actor: req.user.email });
     res.json({ ok: true, id, poNumber, stopNumber });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }

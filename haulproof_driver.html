@@ -280,6 +280,23 @@
   #scanEditor .btn{font-family:inherit;font-weight:600;font-size:15px;padding:13px 16px;border-radius:11px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
   #scanEditor .btn.primary{background:var(--btn-grad);color:#fff;box-shadow:var(--btn-shadow);}
   #scanEditor .btn.ghost{background:#16202c;color:#dbe6f4;border-color:#2b3a4d;}
+  /* In-app camera with a page-outline guide — keeps drivers close so the BOL text stays sharp */
+  #camView{position:fixed;inset:0;z-index:86;display:none;flex-direction:column;background:#000;color:#fff;}
+  #camView.on{display:flex;}
+  #camView video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
+  #camView .cam-guide{position:absolute;inset:0;pointer-events:none;z-index:2;}
+  #camView .cam-frame{position:absolute;border:2.5px dashed rgba(255,255,255,.92);border-radius:12px;box-shadow:0 0 0 100vmax rgba(0,0,0,.42);transition:border-color .15s;}
+  #camView .cam-frame::before{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);}
+  #camView .cam-frame.good{border-color:#3fd07a;}
+  #camView .cam-top{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;z-index:3;}
+  #camView .cam-title{font-family:"Archivo",sans-serif;font-weight:700;font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,.65);}
+  #camView .cam-x{margin-left:auto;background:rgba(0,0,0,.5);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:22px;line-height:40px;text-align:center;cursor:pointer;padding:0;}
+  #camView .cam-hint{position:absolute;left:50%;transform:translateX(-50%);top:calc(60px + env(safe-area-inset-top));background:rgba(0,0,0,.6);padding:9px 15px;border-radius:22px;font-size:13.5px;font-weight:600;z-index:3;text-align:center;max-width:88vw;text-shadow:0 1px 2px rgba(0,0,0,.5);}
+  #camView .cam-hint.good{background:rgba(24,120,74,.9);}
+  #camView .cam-bot{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:16px 16px calc(26px + env(safe-area-inset-bottom));z-index:3;}
+  #camView .cam-shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.45);padding:0;}
+  #camView .cam-shot:active{transform:scale(.93);}
+  #camView .cam-native{position:absolute;right:16px;bottom:calc(40px + env(safe-area-inset-bottom));background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12px;font-weight:600;border-radius:9px;padding:9px 11px;cursor:pointer;z-index:3;}
   /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
   #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,#eceff3);}
   #pdfViewer.on{display:flex;}
@@ -321,6 +338,21 @@
       </div>
       <button class="btn primary block" id="pinBtn" type="button">Unlock</button>
       <p class="note" id="pinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
+      <div id="pinHelpLinks" style="margin-top:6px;text-align:center;font-size:14px;">
+        <a href="#" id="forgotPinLink" style="color:var(--brand,#1f6feb);text-decoration:none;">Forgot PIN?</a>
+        <span style="color:var(--muted);margin:0 8px;">·</span>
+        <a href="#" id="pinNeedHelpLink" style="color:var(--brand,#1f6feb);text-decoration:none;">Still need help?</a>
+      </div>
+      <p class="note" id="forgotPinMsg" style="margin-top:10px;min-height:16px;color:var(--muted);"></p>
+
+      <!-- Driver "still need help" note panel -->
+      <div id="pinHelpPanel" class="hide" style="margin-top:12px;margin-bottom:180px;text-align:left;border-top:1px solid var(--line,#2a3346);padding-top:12px;">
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px;">What do you need help with?</label>
+        <textarea id="pinHelpNote" rows="3" placeholder="e.g. I can't get into my driver link" style="width:100%;box-sizing:border-box;margin-bottom:10px;"></textarea>
+        <button class="btn primary block" id="pinHelpSend" type="button">Send help request</button>
+        <p class="note" id="pinHelpMsg" style="margin-top:8px;min-height:16px;color:var(--muted);"></p>
+        <div style="text-align:center;"><a href="#" id="pinHelpBack" style="color:var(--muted);font-size:13px;text-decoration:none;">Back</a></div>
+      </div>
     </div>
   </section>
 
@@ -513,6 +545,16 @@
     <div class="actions"><button class="btn ghost" id="modalCancel" type="button">Cancel</button><button class="btn primary" id="adoptBtn" type="button">Adopt &amp; place</button></div>
   </div>
 </div>
+<!-- In-app camera: live view with a page outline so drivers frame the BOL up close (sharper scans) -->
+<div id="camView" aria-hidden="true">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <div class="cam-guide"><div class="cam-frame" id="camFrame"></div></div>
+  <div class="cam-top"><span class="cam-title">Photograph the BOL</span><button class="cam-x" id="camX" type="button" aria-label="Close camera">×</button></div>
+  <div class="cam-hint" id="camHintPill">Line the page up inside the box — get close so it fills the outline.</div>
+  <div class="cam-bot"><button class="cam-shot" id="camShot" type="button" aria-label="Take photo"></button></div>
+  <button class="cam-native" id="camNativeBtn" type="button">Use phone camera</button>
+</div>
+
 <!-- Scan editor: deskew a photographed document and clean it up -->
 <div id="scanEditor" aria-hidden="true">
   <div class="sc-head"><b id="scTitle">Line up the document</b><span class="sc-step" id="scStep">Step 1 of 2</span></div>
@@ -790,6 +832,36 @@ window.__startApp=function(){
   $("pinBtn").addEventListener("click", verifyPin);
   $("pinInput").addEventListener("keydown", function(e){ if(e.key==="Enter"){ verifyPin(); } });
   $("pinInput").addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); });
+
+  /* ---- Forgot PIN (emails a temp PIN to the driver, or asks support to reset) + still-need-help note ---- */
+  async function forgotPin(){
+    var msg=$("forgotPinMsg"); if($("pinHelpPanel")) $("pinHelpPanel").classList.add("hide");
+    var url=driverApi("/forgot-pin"); if(!url){ msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; return; }
+    $("forgotPinLink").style.pointerEvents="none"; msg.style.color="var(--muted)"; msg.textContent="Working…";
+    try{
+      var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({})});
+      $("forgotPinLink").style.pointerEvents="";
+      if(!r.ok){ msg.style.color="var(--danger)"; msg.textContent="Couldn't do that — try 'Still need help?' below"; return; }
+      var d=await r.json();
+      if(d.emailed){ msg.style.color="var(--muted)"; msg.textContent="We emailed a temporary PIN to "+(d.to||"your email")+". Enter it above, then pick your own."; }
+      else{ msg.style.color="var(--muted)"; msg.textContent="No email is on file, so we've asked support to reset your PIN. They'll be in touch."; }
+    }catch(e){ $("forgotPinLink").style.pointerEvents=""; msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; }
+  }
+  async function sendPinHelp(){
+    var note=($("pinHelpNote").value||"").trim(), msg=$("pinHelpMsg");
+    var url=driverApi("/help"); if(!url){ msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; return; }
+    $("pinHelpSend").disabled=true; msg.style.color="var(--muted)"; msg.textContent="Sending…";
+    try{
+      var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({note:note})});
+      $("pinHelpSend").disabled=false;
+      if(!r.ok){ msg.style.color="var(--danger)"; msg.textContent="Couldn't send — try again"; return; }
+      var d=await r.json(); msg.style.color="var(--muted)"; msg.textContent=(d&&d.message)||"Thanks — we've sent your request to support."; $("pinHelpSend").disabled=true;
+    }catch(e){ $("pinHelpSend").disabled=false; msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; }
+  }
+  if($("forgotPinLink")) $("forgotPinLink").addEventListener("click", function(e){ e.preventDefault(); forgotPin(); });
+  if($("pinNeedHelpLink")) $("pinNeedHelpLink").addEventListener("click", function(e){ e.preventDefault(); $("forgotPinMsg").textContent=""; if($("pinHelpPanel")) $("pinHelpPanel").classList.remove("hide"); setTimeout(function(){ try{ $("pinHelpNote").focus(); if($("pinHelpSend")) $("pinHelpSend").scrollIntoView({block:"center",behavior:"smooth"}); }catch(_){} },40); });
+  if($("pinHelpBack")) $("pinHelpBack").addEventListener("click", function(e){ e.preventDefault(); if($("pinHelpPanel")) $("pinHelpPanel").classList.add("hide"); });
+  if($("pinHelpSend")) $("pinHelpSend").addEventListener("click", sendPinHelp);
   if($("setPinBtn")) $("setPinBtn").addEventListener("click", saveNewPin);
   ["setPin1","setPin2"].forEach(function(id){ var el=$(id); if(el){ el.addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); }); el.addEventListener("keydown", function(e){ if(e.key==="Enter") saveNewPin(); }); } });
   // On open: pull the driver's name from their link, gate on PIN if needed, then show route + a daily welcome.
@@ -1174,17 +1246,97 @@ window.__startApp=function(){
   $("file").addEventListener("change", function(e){ var fs=Array.prototype.slice.call(e.target.files||[]); if(fs.length) readFiles(fs); });
 
   // Camera flow: one page per shot, accumulate, then build a multi-page PDF.
-  $("camBtn").addEventListener("click", function(){ $("camInput").value=""; $("camInput").click(); });
-  $("capMore").addEventListener("click", function(){ $("camInput").value=""; $("camInput").click(); });
+  // Prefer the in-app camera (live outline keeps drivers close); fall back to the phone's camera app.
+  function pushCapturedPage(finalUrl, meta){ capturedPages.push(finalUrl); capturedMeta.push(meta); capturedStops.push(capStopCount); renderCapTray(); }
+  $("camBtn").addEventListener("click", function(){ startPhotoCapture(); });
+  $("capMore").addEventListener("click", function(){ startPhotoCapture(); });
   $("camInput").addEventListener("change", function(e){
     var f=(e.target.files||[])[0]; if(!f) return;
     fileToDataUrl(f).then(function(u){
       // Send every photo through the scan editor (deskew + clean up) before it becomes a page.
-      openScanEditor(u, -1, null, null, function(finalUrl, meta){
-        capturedPages.push(finalUrl); capturedMeta.push(meta); capturedStops.push(capStopCount); renderCapTray();
-      }, true);
+      openScanEditor(u, -1, null, null, pushCapturedPage, true);
     });
   });
+
+  // ---- In-app camera: live video + a page-shaped outline; shutter grabs a full-resolution frame ----
+  var cam = { stream:null, tick:0, running:false };
+  function startPhotoCapture(){ openInAppCamera(); }
+  function startNativeCamera(){ $("camInput").value=""; $("camInput").click(); }
+  function layoutCamFrame(){
+    var vw=window.innerWidth, vh=window.innerHeight;
+    var fw=Math.min(vw*0.88, 540), fh=fw/0.773;       // 8.5 x 11 portrait page aspect
+    var maxfh=vh*0.72; if(fh>maxfh){ fh=maxfh; fw=fh*0.773; }
+    var f=$("camFrame"); if(!f) return;
+    f.style.width=Math.round(fw)+"px"; f.style.height=Math.round(fh)+"px";
+    f.style.left=Math.round((vw-fw)/2)+"px"; f.style.top=Math.round((vh-fh)/2)+"px";
+  }
+  window.addEventListener("resize", function(){ if($("camView").classList.contains("on")) layoutCamFrame(); });
+  async function openInAppCamera(){
+    if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){ startNativeCamera(); return; }
+    try{
+      var stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:"environment"}, width:{ideal:3840}, height:{ideal:2160} }, audio:false });
+      cam.stream=stream;
+      var v=$("camVideo"); v.srcObject=stream; v.setAttribute("playsinline","");
+      $("camView").classList.add("on"); $("camView").setAttribute("aria-hidden","false");
+      layoutCamFrame();
+      try{ await v.play(); }catch(e){}
+      cam.running=true; setHint(false); scheduleCloseness();
+    }catch(e){
+      // permission denied / no camera / insecure context → use the phone's own camera app
+      if(e && (e.name==="NotAllowedError"||e.name==="SecurityError")) toast("Camera blocked — using your phone's camera");
+      startNativeCamera();
+    }
+  }
+  function closeInAppCamera(){
+    cam.running=false; if(cam.tick){ clearTimeout(cam.tick); cam.tick=0; }
+    try{ if(cam.stream) cam.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+    cam.stream=null;
+    var v=$("camVideo"); try{ v.pause(); v.srcObject=null; }catch(e){}
+    $("camView").classList.remove("on"); $("camView").setAttribute("aria-hidden","true");
+  }
+  function setHint(good){
+    var pill=$("camHintPill"), fr=$("camFrame"); if(!pill||!fr) return;
+    if(good){ pill.textContent="Looks good — hold steady and tap the shutter."; pill.classList.add("good"); fr.classList.add("good"); }
+    else{ pill.textContent="Line the page up inside the box — get close so it fills the outline."; pill.classList.remove("good"); fr.classList.remove("good"); }
+  }
+  // Cheap live check: detect the document on a small frame; turn the outline green when it fills enough.
+  var _ccv=document.createElement("canvas");
+  function checkCloseness(){
+    if(!cam.running) return;
+    var v=$("camVideo"), vw=v.videoWidth, vh=v.videoHeight;
+    if(vw&&vh){
+      try{
+        var W=320, H=Math.max(1,Math.round(W*vh/vw)); _ccv.width=W; _ccv.height=H;
+        var g=_ccv.getContext("2d"); g.drawImage(v,0,0,W,H);
+        var id=g.getImageData(0,0,W,H);
+        var q=detectQuad(id,W,H);
+        var good=false;
+        if(q&&q.length===4){
+          var area=Math.abs((q[0].x*(q[1].y-q[3].y)+q[1].x*(q[2].y-q[0].y)+q[2].x*(q[3].y-q[1].y)+q[3].x*(q[0].y-q[2].y))/2);
+          var frac=area/(W*H);
+          // ignore the detector's "nothing found" fallback (a ~6% inset rectangle ≈ 0.78 of frame)
+          var isFallback = q[0].x<W*0.10 && q[0].y<H*0.10 && q[2].x>W*0.90 && q[2].y>H*0.90;
+          good = !isFallback && frac>=0.50 && frac<=0.985;
+        }
+        setHint(good);
+      }catch(e){}
+    }
+    scheduleCloseness();
+  }
+  function scheduleCloseness(){ if(cam.tick) clearTimeout(cam.tick); cam.tick=setTimeout(checkCloseness, 300); }
+  function shootInAppCamera(){
+    var v=$("camVideo"), w=v.videoWidth, h=v.videoHeight;
+    if(!w||!h){ toast("Camera not ready yet"); return; }
+    var c=document.createElement("canvas"); c.width=w; c.height=h;
+    c.getContext("2d").drawImage(v,0,0,w,h);
+    var url=c.toDataURL("image/jpeg",0.95);
+    closeInAppCamera();
+    // route the shot through the existing deskew + cleanup editor, then into the page tray
+    openScanEditor(url, -1, null, null, pushCapturedPage, false);
+  }
+  if($("camShot")) $("camShot").addEventListener("click", shootInAppCamera);
+  if($("camX")) $("camX").addEventListener("click", closeInAppCamera);
+  if($("camNativeBtn")) $("camNativeBtn").addEventListener("click", function(){ closeInAppCamera(); startNativeCamera(); });
   $("capDone").addEventListener("click", async function(){
     if(!capturedPages.length){ toast("Take at least one photo"); return; }
     if(!ready){ toast("Engine not loaded"); return; }
@@ -1261,7 +1413,7 @@ window.__startApp=function(){
   function openScanEditor(url, editIndex, priorCorners, priorMode, done, reopen){
     var img = new Image();
     img.onload = function(){
-      var maxWork = 1600;
+      var maxWork = 2500;   // longest edge of the working image — higher = sharper text (esp. photos shot from a bit farther back)
       var nW = img.naturalWidth||img.width, nH = img.naturalHeight||img.height;
       var ws = Math.min(1, maxWork/Math.max(nW,nH));
       var wW = Math.max(1,Math.round(nW*ws)), wH = Math.max(1,Math.round(nH*ws));
@@ -1348,7 +1500,7 @@ window.__startApp=function(){
   }
   function finalizeScan(){
     var out=applyFilter(scan.flat, scan.mode);
-    var url=out.toDataURL("image/jpeg",0.9);
+    var url=out.toDataURL("image/jpeg",0.92);
     var meta={ orig:scan.url, corners:scan.corners.map(function(c){return {x:c.x,y:c.y};}), mode:scan.mode, scanned:true };
     var cb=scan.done; closeScan(); if(cb) cb(url, meta);
   }
@@ -1369,7 +1521,7 @@ window.__startApp=function(){
   $("scCancel").addEventListener("click", function(){
     if(!scan) return;
     if(scan.stage===2){ scan.flat=null; showScanStage1(); }
-    else { var re=scan.reopen; closeScan(); if(re){ $("camInput").value=""; $("camInput").click(); } }
+    else { var re=scan.reopen; closeScan(); if(re){ startPhotoCapture(); } }
   });
   $("scFilters").addEventListener("click", function(e){
     var b=e.target.closest ? e.target.closest(".sc-chip") : null; if(!b||!scan) return;
@@ -1432,7 +1584,7 @@ window.__startApp=function(){
     var TL=corners[0],TR=corners[1],BR=corners[2],BL=corners[3];
     var outW=Math.max(1,Math.round(Math.max(distPt(TL,TR),distPt(BL,BR))));
     var outH=Math.max(1,Math.round(Math.max(distPt(TL,BL),distPt(TR,BR))));
-    var sc=Math.min(1, 2200/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
+    var sc=Math.min(1, 2600/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
     var Hm=computeH([{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}], [TL,TR,BR,BL]);
     var src=imgData.data, out=new Uint8ClampedArray(outW*outH*4);
     for(var y=0;y<outH;y++){
@@ -1538,11 +1690,11 @@ window.__startApp=function(){
     return new Promise(function(res,rej){
       var im=new Image();
       im.onload=function(){
-        var maxD=2200, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
+        var maxD=2600, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
         var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
         var c=document.createElement("canvas"); c.width=cw; c.height=ch;
         var g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,cw,ch); g.drawImage(im,0,0,cw,ch);
-        res({dataUrl:c.toDataURL("image/jpeg",0.9), w:cw, h:ch});
+        res({dataUrl:c.toDataURL("image/jpeg",0.92), w:cw, h:ch});
       };
       im.onerror=function(){ rej(new Error("decode failed")); };
       im.src=dataUrl;

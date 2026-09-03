@@ -161,6 +161,32 @@
       <label>Password</label><input id="password" type="password" placeholder="••••••••" style="margin-bottom:14px;">
       <button id="loginBtn" style="width:100%;">Sign in</button>
       <div class="err" id="loginErr"></div>
+      <div id="loginLinks" style="margin-top:14px;text-align:center;font-size:13px;">
+        <a href="#" id="forgotPwLink" style="color:#1f6feb;text-decoration:none;">Forgot password?</a>
+        <span style="color:var(--muted,#8a94a6);margin:0 6px;">·</span>
+        <a href="#" id="needHelpLink" style="color:#1f6feb;text-decoration:none;">Still need help?</a>
+      </div>
+
+      <!-- Forgot-password panel -->
+      <div id="forgotPwPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,#e6e9f0);padding-top:14px;">
+        <label>Your email</label>
+        <input id="fpEmail" type="email" placeholder="you@company.com" style="margin-bottom:10px;">
+        <button id="fpSend" type="button" style="width:100%;">Email me a reset link</button>
+        <div id="fpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,#5a6577);"></div>
+        <div style="text-align:center;margin-top:6px;"><a href="#" id="fpBack" style="color:var(--muted,#8a94a6);font-size:12px;text-decoration:none;">Back to sign in</a></div>
+      </div>
+
+      <!-- Need-help panel -->
+      <div id="helpPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,#e6e9f0);padding-top:14px;">
+        <p style="font-size:12.5px;color:var(--muted,#5a6577);margin:0 0 10px;">Can't get in? Send us a note and someone will reach out to help.</p>
+        <label>Your email</label>
+        <input id="helpEmail" type="email" placeholder="you@company.com" style="margin-bottom:10px;">
+        <label>What do you need help with?</label>
+        <textarea id="helpNote" rows="3" placeholder="e.g. I can't reset my password" style="width:100%;box-sizing:border-box;margin-bottom:10px;"></textarea>
+        <button id="helpSend" type="button" style="width:100%;">Send help request</button>
+        <div id="helpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,#5a6577);"></div>
+        <div style="text-align:center;margin-top:6px;"><a href="#" id="helpBack" style="color:var(--muted,#8a94a6);font-size:12px;text-decoration:none;">Back to sign in</a></div>
+      </div>
     </div>
   </div>
 
@@ -277,6 +303,20 @@
           <button id="seSave" type="button">Save changes</button>
           <button class="ghost" id="seCancel" type="button">Cancel</button>
           <span id="seMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Split a multi-page document into separate per-stop documents -->
+    <div id="splitModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:660px;">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Split into stops</h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" style="margin:8px 0 12px;">Set the stop number under each page. Pages with the same stop number are combined into one document for that stop.</p>
+        <div id="splitPages" style="display:flex;flex-wrap:wrap;gap:12px;max-height:54vh;overflow:auto;padding:4px;"></div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="splitSave" type="button">Create stops</button>
+          <button class="ghost" id="splitCancel" type="button">Cancel</button>
+          <span id="splitMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
     </div>
@@ -2077,6 +2117,7 @@
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady" data-id="${p.id}" type="button" style="padding:4px 10px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:8px;cursor:pointer;">✅ Mark ready for driver</button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit" data-id="${p.id}" type="button" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;background:none;border:1px solid var(--primary);border-radius:8px;cursor:pointer;">⎘ Split into stops</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>&nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -2087,6 +2128,7 @@
       try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); refreshAwaitingBadge(); }
       catch (e) { alert(e.message); b.disabled = false; b.textContent = '✅ Mark ready for driver'; }
     });
+    box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldDocEdit').forEach(b => b.onclick = () => openStopEdit(byId[b.dataset.id]));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
@@ -2137,6 +2179,97 @@
       await api('/api/pods/' + _stopEditId, { method: 'PUT', body: JSON.stringify({ stopNumber: $('seStop').value.trim(), docType: $('seDocType').value, receiverId: $('seReceiver').value, salesRepUserId: $('seSalesRep').value }) });
       closeStopEdit(); openLoad(curLoad.id);
     } catch (e) { $('seMsg').textContent = e.message; $('seMsg').className = 'umsg-err'; }
+  };
+  // ---- Split a multi-page document into separate per-stop documents ----
+  let _splitPod = null, _splitBuf = null, _splitInputs = [];
+  async function openSplit(p) {
+    if (!p) return;
+    if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
+    _splitPod = p; _splitBuf = null; _splitInputs = [];
+    const box = $('splitPages'); box.innerHTML = 'Loading pages…';
+    $('splitMsg').textContent = ''; $('splitMsg').className = '';
+    if ($('splitSave')) $('splitSave').disabled = false;
+    $('splitModal').classList.remove('hide');
+    try {
+      const resp = await fetch(p.fileUrl, { credentials: 'include' });
+      if (!resp.ok) throw new Error('Could not open that document.');
+      _splitBuf = await resp.arrayBuffer();
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
+      box.innerHTML = '';
+      if (pdf.numPages < 2) {
+        box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>Edit</b> on the document to change its stop number instead.</div>';
+        if ($('splitSave')) $('splitSave').disabled = true;
+        return;
+      }
+      const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;';
+      for (let pi = 0; pi < pdf.numPages; pi++) {
+        const page = await pdf.getPage(pi + 1);
+        const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 120 / vp0.width });
+        const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
+        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;';
+        try { await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise; } catch (e) {}
+        const wrap = document.createElement('div'); wrap.style.cssText = 'width:120px;text-align:center;';
+        const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
+        const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
+        const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(p.stopNumber || 1);
+        inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
+        row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
+        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(row); grid.appendChild(wrap);
+        _splitInputs.push({ pageIdx: pi, inp });
+      }
+      box.appendChild(grid);
+    } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
+  }
+  function closeSplit() { $('splitModal').classList.add('hide'); _splitPod = null; _splitBuf = null; _splitInputs = []; }
+  if ($('splitClose')) $('splitClose').onclick = closeSplit;
+  if ($('splitCancel')) $('splitCancel').onclick = closeSplit;
+  if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) closeSplit(); });
+  if ($('splitSave')) $('splitSave').onclick = async () => {
+    if (!_splitPod || !_splitBuf || !_splitInputs.length) return;
+    // Group pages by the stop number the dispatcher entered, keeping each stop's pages in page order.
+    const groups = {};
+    for (const it of _splitInputs) {
+      let s = parseInt((it.inp.value || '').trim(), 10); if (!Number.isFinite(s) || s < 1) s = 1;
+      (groups[s] = groups[s] || []).push(it.pageIdx);
+    }
+    const stops = Object.keys(groups).map(Number).sort((a, b) => a - b);
+    if (!stops.length) return;
+    if (stops.length < 2) {
+      // Everything landed on one stop — just retag the existing document instead of rebuilding it.
+      try {
+        await api('/api/pods/' + _splitPod.id, { method: 'PUT', body: JSON.stringify({ stopNumber: String(stops[0]) }) });
+        closeSplit(); openLoad(curLoad.id);
+      } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
+      return;
+    }
+    $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = 'Building documents…';
+    try {
+      const p = _splitPod;
+      const src = await PDFLib.PDFDocument.load(_splitBuf, { ignoreEncryption: true });
+      const baseName = (p.filename || 'document.pdf').replace(/\.pdf$/i, '');
+      const buildHdr = p.status === 'awaiting_build' ? 'dispatch' : '';
+      for (const s of stops) {
+        const out = await PDFLib.PDFDocument.create();
+        const pgs = await out.copyPages(src, groups[s]); pgs.forEach(pg => out.addPage(pg));
+        const bytes = await out.save();
+        const headers = { 'Content-Type': 'application/pdf', 'X-Enc': 'uri',
+          'X-PO': encodeURIComponent(p.poNumber || curLoad.poNumber || ''),
+          'X-Load': encodeURIComponent(p.loadNumber || curLoad.loadNumber || ''),
+          'X-Stop': encodeURIComponent(String(s)),
+          'X-DocType': encodeURIComponent(p.docType || 'BOL'),
+          'X-Receiver': encodeURIComponent(p.receiverId || ''),
+          'X-SalesRep': encodeURIComponent(p.salesRepUserId || ''),
+          'X-Filename': encodeURIComponent(baseName + ' - Stop ' + s + '.pdf') };
+        if (buildHdr) headers['X-Build'] = buildHdr;
+        if (user && user.role === 'superadmin' && p.orgId) headers['X-Org'] = encodeURIComponent(p.orgId);
+        const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include', headers, body: bytes });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('Upload failed for Stop ' + s)); }
+      }
+      // Every stop uploaded successfully — now remove the original combined document.
+      await api('/api/pods/' + p.id, { method: 'DELETE' });
+      closeSplit(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
+    } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; if ($('splitSave')) $('splitSave').disabled = false; }
   };
   // Driver & equipment: collapsible section.
   if ($('ldDrvToggle')) $('ldDrvToggle').onclick = () => { const b = $('ldDrvBody'); b.classList.toggle('hide'); $('ldDrvCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; };
@@ -2890,6 +3023,36 @@
       const u = _pwResetUser || {}; u.mustChangePassword = false; _pwResetUser = null;
       enterApp(u);
     } catch (e) { msg.textContent = e.message; }
+  };
+
+  // --- Forgot password / need help (public, no sign-in required) ---
+  function showAuthPanel(which) {
+    ['forgotPwPanel','helpPanel'].forEach(id => { if ($(id)) $(id).classList.add('hide'); });
+    if (which && $(which)) $(which).classList.remove('hide');
+  }
+  if ($('forgotPwLink')) $('forgotPwLink').onclick = (e) => { e.preventDefault(); if ($('email').value) $('fpEmail').value = $('email').value; showAuthPanel('forgotPwPanel'); setTimeout(()=>{ try{ $('fpEmail').focus(); }catch(_){} },30); };
+  if ($('needHelpLink')) $('needHelpLink').onclick = (e) => { e.preventDefault(); if ($('email').value) $('helpEmail').value = $('email').value; showAuthPanel('helpPanel'); setTimeout(()=>{ try{ $('helpEmail').focus(); }catch(_){} },30); };
+  if ($('fpBack')) $('fpBack').onclick = (e) => { e.preventDefault(); showAuthPanel(null); };
+  if ($('helpBack')) $('helpBack').onclick = (e) => { e.preventDefault(); showAuthPanel(null); };
+  if ($('fpSend')) $('fpSend').onclick = async () => {
+    const em = ($('fpEmail').value||'').trim(), msg = $('fpMsg');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { msg.style.color='#c0392b'; msg.textContent='Enter a valid email address'; return; }
+    msg.style.color='var(--muted,#5a6577)'; msg.textContent='Sending…';
+    try {
+      const r = await api('/api/auth/forgot-password', { method:'POST', body: JSON.stringify({ email: em }) });
+      msg.textContent = (r && r.message) || 'If that email has an account, a reset link is on its way.';
+      $('fpSend').disabled = true;
+    } catch (e) { msg.style.color='#c0392b'; msg.textContent = e.message || 'Something went wrong — try again.'; }
+  };
+  if ($('helpSend')) $('helpSend').onclick = async () => {
+    const em = ($('helpEmail').value||'').trim(), note = ($('helpNote').value||'').trim(), msg = $('helpMsg');
+    if (!em && !note) { msg.style.color='#c0392b'; msg.textContent='Add your email or a note so we can help.'; return; }
+    msg.style.color='var(--muted,#5a6577)'; msg.textContent='Sending…';
+    try {
+      const r = await api('/api/auth/help', { method:'POST', body: JSON.stringify({ kind:'password', email: em, note }) });
+      msg.textContent = (r && r.message) || "Thanks — we've sent your request to support.";
+      $('helpSend').disabled = true;
+    } catch (e) { msg.style.color='#c0392b'; msg.textContent = e.message || 'Something went wrong — try again.'; }
   };
 
   // --- Microsoft SSO surfacing + cookie auto-login ---
