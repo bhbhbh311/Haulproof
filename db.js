@@ -184,6 +184,7 @@ addColumn('pods', 'receiverName', 'TEXT');
 addColumn('pods', 'stopNumber', 'INTEGER');   // multi-stop loads: 1st stop, 2nd stop, … under the same PO/Load
 addColumn('pods', 'salesRepUserId', 'TEXT');  // team login who reps this stop → notified when the stop completes
 addColumn('pods', 'originalHash', 'TEXT');    // SHA-256 fingerprint of the pre-signature original (integrity/dispute proof)
+addColumn('pods', 'dupWarn', 'INTEGER NOT NULL DEFAULT 0');  // driver uploaded a doc whose PO already had one waiting for setup → flag for dispatch to confirm/discard
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();

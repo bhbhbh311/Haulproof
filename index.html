@@ -2114,6 +2114,7 @@
         <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
+          ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep" data-id="${p.id}" type="button" style="padding:3px 9px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:6px;cursor:pointer;">Keep it</button> &nbsp;<button class="ldDupDiscard" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button" style="padding:3px 9px;font-size:12px;font-weight:700;color:#fff;background:#c0392b;border:none;border-radius:6px;cursor:pointer;">Discard</button></div>` : ''}
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady" data-id="${p.id}" type="button" style="padding:4px 10px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:8px;cursor:pointer;">✅ Mark ready for driver</button>` : ''}
@@ -2128,6 +2129,17 @@
       try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); refreshAwaitingBadge(); }
       catch (e) { alert(e.message); b.disabled = false; b.textContent = '✅ Mark ready for driver'; }
     });
+    // Possible-duplicate: dispatch confirms it's legit (clears the flag) or discards the upload.
+    box.querySelectorAll('.ldDupKeep').forEach(b => b.onclick = async () => {
+      try { await api('/api/pods/' + b.dataset.id, { method: 'PUT', body: JSON.stringify({ dupWarn: 0 }) }); openLoad(curLoad.id); }
+      catch (e) { alert(e.message); }
+    });
+    box.querySelectorAll('.ldDupDiscard').forEach(b => b.onclick = () => confirmDialog({
+      title: 'Discard this document?',
+      message: 'Remove “' + (b.dataset.name || 'this document') + '”? It looked like a duplicate of another document already waiting on this PO. This can\'t be undone.',
+      okLabel: 'Yes, discard',
+      onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
+    }));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldDocEdit').forEach(b => b.onclick = () => openStopEdit(byId[b.dataset.id]));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({

@@ -247,12 +247,19 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         if (cust) { db.prepare(`UPDATE loads SET customerId = ?, customer = ? WHERE id = ?`).run(cust.id, cust.name, load.id); load.customerId = cust.id; load.customer = cust.name; }
       } catch (e) {}
     }
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, clientId, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@clientId,@status,@uploadedAt)`)
+    // Possible-duplicate guard: when a driver hands a document to dispatch and this load ALREADY has one
+    // waiting for setup (same PO), flag the new one so dispatch can confirm or discard it instead of it
+    // silently stacking up. Only for driver → dispatch uploads; dispatcher-built stops aren't flagged.
+    let dupWarn = 0;
+    if (asPrepared && forDispatch) {
+      try { if (db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ? AND status = 'awaiting_build'`).get(load.id).c > 0) dupWarn = 1; } catch (e) {}
+    }
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, clientId, status, dupWarn, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@clientId,@status,@dupWarn,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
-        status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', uploadedAt: Date.now() });
+        status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', dupWarn, uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // A document created by a named driver is automatically assigned to that driver.
@@ -344,14 +351,16 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
 });
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
-// ---- Count of driver-uploaded documents still waiting for dispatch to set up (for the tab badge). ----
+// ---- Count of LOADS with driver uploads still waiting for dispatch to set up (for the tab badge). ----
+// Counts loads, not documents, so the badge matches the "N loads needing action" list right below it —
+// a load with several waiting documents still counts once.
 router.get('/awaiting-count', requireAuth, (req, res) => {
   try {
     if (req.user.role === 'superadmin') {
-      return res.json({ count: db.prepare(`SELECT COUNT(*) c FROM pods WHERE status = 'awaiting_build'`).get().c });
+      return res.json({ count: db.prepare(`SELECT COUNT(DISTINCT loadId) c FROM pods WHERE status = 'awaiting_build'`).get().c });
     }
     const org = req.user.orgId || null;
-    const c = db.prepare(`SELECT COUNT(*) c FROM pods p LEFT JOIN loads l ON l.id = p.loadId
+    const c = db.prepare(`SELECT COUNT(DISTINCT p.loadId) c FROM pods p LEFT JOIN loads l ON l.id = p.loadId
        WHERE p.status = 'awaiting_build' AND (p.orgId IS ? OR l.carrierId = ?)`).get(org, org).c;
     res.json({ count: c });
   } catch (e) { res.json({ count: 0 }); }
@@ -509,8 +518,10 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
     const rid = (b.salesRepUserId || '').trim() || null;
     salesRepUserId = (rid && db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(rid, row.orgId)) ? rid : null;
   }
-  db.prepare(`UPDATE pods SET stopNumber = ?, docType = ?, receiverId = ?, receiverName = ?, salesRepUserId = ? WHERE id = ?`)
-    .run(stopNumber, docType, receiverId, receiverName, salesRepUserId, row.id);
+  let dupWarn = row.dupWarn ? 1 : 0;
+  if (b.dupWarn !== undefined) dupWarn = b.dupWarn ? 1 : 0;   // dispatch confirmed it's NOT a duplicate → clear the flag
+  db.prepare(`UPDATE pods SET stopNumber = ?, docType = ?, receiverId = ?, receiverName = ?, salesRepUserId = ?, dupWarn = ? WHERE id = ?`)
+    .run(stopNumber, docType, receiverId, receiverName, salesRepUserId, dupWarn, row.id);
   res.json({ ok: true });
 });
 
