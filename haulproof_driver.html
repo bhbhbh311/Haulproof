@@ -657,6 +657,7 @@ window.__startApp=function(){
             "X-POD-CustomerId":he(p.customerId||""),
             "X-POD-Emails":he((p.recipients||[]).join(",")),
             "X-POD-SignedAt":String(p.signedAt||p.createdAt||Date.now()),
+            "X-POD-ClientId":he(p.id||""),
             "X-POD-PrepId":he(p.prepId||"")
           };
           if(key) hdrs["X-Api-Key"]=key;
@@ -1773,6 +1774,7 @@ window.__startApp=function(){
     var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
     var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
     var bytes = origBytes;   // keep a reference; the doc is already in memory
+    var cid = genId();       // stable id so a retried upload (direct now, or queued later) can't duplicate
     // ONLINE: upload straight to the load right now, from the copy in memory. This avoids stuffing a big
     // multi-photo PDF into the phone's limited browser storage (which was silently filling up and dropping
     // saves). No storage dependency = the save reliably reaches "Your loads".
@@ -1783,7 +1785,7 @@ window.__startApp=function(){
         try{
           var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
           var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
-            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-Status":"prepared" };
+            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-ClientId":he(cid),"X-POD-Status":"prepared" };
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
@@ -1794,7 +1796,7 @@ window.__startApp=function(){
       }
     }
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
-    var pod={ id:genId(), name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
+    var pod={ id:cid, name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
       stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
       gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
     var arr=loadPods(); arr.unshift(pod);

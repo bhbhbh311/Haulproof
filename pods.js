@@ -192,6 +192,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       poNumber: dec(h['x-pod-po']) || null,
       consignee: dec(h['x-pod-consignee']) || null,   // don't fall back to the document name — leave blank if none
       customerId: (dec(h['x-pod-customerid']) || '').trim() || null,   // link to the owner org's customer-list entry
+      clientId: (dec(h['x-pod-clientid']) || '').trim() || null,       // the phone's own id for this doc — for idempotent retries
       docType: h['x-pod-type'] || 'POD',
       gps: h['x-pod-gps'] || null,
       signedAt: h['x-pod-signedat'] ? Number(h['x-pod-signedat']) : Date.now(),
@@ -216,10 +217,22 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
       orgId = load ? load.orgId : req.org.id; // assigned → customer; otherwise → the carrier itself
     }
+    // Idempotency: the phone sends a stable clientId per document. If a flaky connection makes it retry an
+    // upload the server already stored, return that same record instead of creating a duplicate copy.
+    if (meta.clientId) {
+      try {
+        const dupe = db.prepare(`SELECT id, loadId FROM pods WHERE clientId = ? AND orgId IS ?`).get(meta.clientId, orgId || null);
+        if (dupe) return res.json({ ok: true, podId: dupe.id, loadId: dupe.loadId, duplicate: true });
+      } catch (e) {}
+    }
     const id = crypto.randomUUID();
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     if (!load) load = findOrCreateLoad({ orgId, ...meta });
+    // Show the driver who signed/created this on the load itself (when dispatch hasn't assigned one).
+    if (req.driver && req.driver.name && !((load.driverName || '').trim())) {
+      try { db.prepare(`UPDATE loads SET driverName = ? WHERE id = ?`).run(req.driver.name, load.id); load.driverName = req.driver.name; } catch (e) {}
+    }
     // Link the load to a customer from its owner org's list, when the driver picked one (and it belongs there).
     if (meta.customerId) {
       try {
@@ -227,11 +240,11 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         if (cust) { db.prepare(`UPDATE loads SET customerId = ?, customer = ? WHERE id = ?`).run(cust.id, cust.name, load.id); load.customerId = cust.id; load.customer = cust.name; }
       } catch (e) {}
     }
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, status, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@status,@uploadedAt)`)
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, clientId, status, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@clientId,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
-        gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver,
+        gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
         status: asPrepared ? 'prepared' : 'signed', uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
