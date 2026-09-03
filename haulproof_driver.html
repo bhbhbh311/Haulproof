@@ -996,6 +996,8 @@ window.__startApp=function(){
     var foot=$("detailsFooter"); if(foot) foot.classList.toggle("hide", !(prepared && editing));
     var from=document.querySelector(".detailsFrom"); if(from) from.classList.toggle("hide", !prepared);
   }
+  // Hide the red "required" tag once a PO # is entered; show it again if the field is emptied.
+  function updatePoReq(){ var r=document.querySelector("#docMeta .poReq"), p=$("poNum"); if(r&&p) r.classList.toggle("hide", !!p.value.trim()); }
   // Fill the block from a load/doc object (prepared doc or a fresh blank).
   function fillDetails(d){
     d=d||{};
@@ -1003,7 +1005,9 @@ window.__startApp=function(){
     if($("ldNum")) $("ldNum").value=d.loadNumber||"";
     if($("consName")) $("consName").value=d.consignee||"";
     drvRenderCustSel(d.customerId||"");
+    updatePoReq();
   }
+  if($("poNum")) $("poNum").addEventListener("input", updatePoReq);
   if($("detailsEdit")) $("detailsEdit").addEventListener("click", function(){ setDetailsMode(true,true); var p=$("poNum"); if(p){ p.focus(); } });
   if($("detailsCancel")) $("detailsCancel").addEventListener("click", function(){ fillDetails(pulledMeta||{}); setDetailsMode(false,true); });
   if($("detailsSave")) $("detailsSave").addEventListener("click", saveDetails);
