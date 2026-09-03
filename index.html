@@ -1038,7 +1038,7 @@
     });
     if (el.value) el.value = formatUSPhone(el.value);
   }
-  ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone'].forEach(attachPhoneFormat);
+  ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone', 'custModalPhone'].forEach(attachPhoneFormat);
   // PIN inputs: digits only, max 6.
   ['ndPin', 'cmdPin', 'edPin'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, '').slice(0, 6); }); });
   // Build a pre-filled text / email so dispatch can send a driver their personal link in one tap.
@@ -1808,7 +1808,7 @@
     set('custModalName', existing && existing.name);
     set('custModalContact', existing && existing.contactName);
     set('custModalEmail', existing && existing.contactEmail);
-    set('custModalPhone', existing && existing.contactPhone);
+    set('custModalPhone', formatUSPhone((existing && existing.contactPhone) || ''));
     set('custModalAddr', existing && existing.address);
     set('custModalMc', existing && existing.mcNumber);
     set('custModalDot', existing && existing.dotNumber);
@@ -1843,7 +1843,7 @@
     const box = $('myCustomerRows'); if (!box) return;
     if (!_myCustomers.length) { box.innerHTML = '<div class="empty">No customers yet. Use “＋ Add / find customer” to add the companies you haul for.</div>'; return; }
     box.innerHTML = _myCustomers.map(c => {
-      const meta = [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactPhone ? esc(c.contactPhone) : ''].filter(Boolean).join(' · ');
+      const meta = [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactPhone ? esc(formatUSPhone(c.contactPhone)) : ''].filter(Boolean).join(' · ');
       const recips = (c.contacts || []).filter(x => x.email && x.receiveDocs !== false);
       const recTxt = recips.length
         ? ('✉ Signed docs → ' + recips.map(x => esc(x.email)).join(', '))
