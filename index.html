@@ -1207,6 +1207,12 @@
   }
   function selectTab(key){
     closeCustManageForTab();
+    // Clicking the Documents / Loads tab closes any open load detail and returns to the list view
+    // (openLoad hides loadsCard to swap in the detail, so restore it — except for super-admin, who has none).
+    if(key==='documents'){
+      var _ld=$('loadDetailCard'); if(_ld) _ld.classList.add('hide'); curLoad=null;
+      if(user && user.role!=='superadmin'){ var _lc=$('loadsCard'); if(_lc) _lc.classList.remove('hide'); }
+    }
     var active={};
     TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
     TAB_DEFS.forEach(function(t){ t.cards.forEach(function(c){ var el=$(c); if(el) el.classList.toggle('tabhidden', !active[c]); }); });
