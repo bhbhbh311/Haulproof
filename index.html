@@ -1146,8 +1146,13 @@
       loadMyCustomersTab();
     }
     buildTabs();
+    refreshAwaitingBadge();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
     if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('documents'); } catch (e) {} openLoad(_dl); }
+  }
+  // Red badge on Documents / Loads showing how many driver uploads are waiting for dispatch to set up.
+  async function refreshAwaitingBadge() {
+    try { const r = await api('/api/pods/awaiting-count'); setTabCount('documents', r.count || 0, true); } catch (e) {}
   }
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
@@ -1212,6 +1217,7 @@
     if(key==='documents'){
       var _ld=$('loadDetailCard'); if(_ld) _ld.classList.add('hide'); curLoad=null;
       if(user && user.role!=='superadmin'){ var _lc=$('loadsCard'); if(_lc) _lc.classList.remove('hide'); }
+      try { refreshAwaitingBadge(); } catch(e) {}
     }
     var active={};
     TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
@@ -2064,7 +2070,7 @@
     // Release a driver-uploaded doc to the driver once dispatch has set it up.
     box.querySelectorAll('.ldReady').forEach(b => b.onclick = async () => {
       b.disabled = true; b.textContent = 'Releasing…';
-      try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); }
+      try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); refreshAwaitingBadge(); }
       catch (e) { alert(e.message); b.disabled = false; b.textContent = '✅ Mark ready for driver'; }
     });
     box.querySelectorAll('.ldDocEdit').forEach(b => b.onclick = () => openStopEdit(byId[b.dataset.id]));

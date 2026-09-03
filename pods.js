@@ -340,6 +340,19 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
 });
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
+// ---- Count of driver-uploaded documents still waiting for dispatch to set up (for the tab badge). ----
+router.get('/awaiting-count', requireAuth, (req, res) => {
+  try {
+    if (req.user.role === 'superadmin') {
+      return res.json({ count: db.prepare(`SELECT COUNT(*) c FROM pods WHERE status = 'awaiting_build'`).get().c });
+    }
+    const org = req.user.orgId || null;
+    const c = db.prepare(`SELECT COUNT(*) c FROM pods p LEFT JOIN loads l ON l.id = p.loadId
+       WHERE p.status = 'awaiting_build' AND (p.orgId IS ? OR l.carrierId = ?)`).get(org, org).c;
+    res.json({ count: c });
+  } catch (e) { res.json({ count: 0 }); }
+});
+
 router.get('/', requireAuth, (req, res) => {
   // Carrier view: every document tied to this carrier — filed directly under it OR signed on a load assigned to it.
   // A logged-in carrier always gets this union of their own account; super-admin can request any via ?carrierId.
