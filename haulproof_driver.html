@@ -283,7 +283,9 @@
   /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
   #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,#eceff3);}
   #pdfViewer.on{display:flex;}
-  #pdfViewer .pv-bar{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#dde4ec);flex:none;box-shadow:0 2px 8px rgba(20,40,80,.06);}
+  /* Top padding must clear the phone's status bar. env(safe-area-inset-top) covers standalone/notch devices,
+     but it resolves to 0 in some Safari states — so guarantee a minimum so Close/Save are never hidden. */
+  #pdfViewer .pv-bar{display:flex;align-items:center;gap:10px;padding:max(calc(env(safe-area-inset-top) + 12px), 48px) 14px 12px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#dde4ec);flex:none;box-shadow:0 2px 8px rgba(20,40,80,.06);position:sticky;top:0;z-index:2;}
   #pdfViewer .pv-title{font-family:"Archivo",sans-serif;font-weight:700;font-size:15px;color:var(--ink,#16202b);flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   #pdfViewer .pv-close,#pdfViewer .pv-dl{font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:9px;padding:10px 15px;cursor:pointer;flex:none;}
   #pdfViewer .pv-close{background:var(--btn-grad,linear-gradient(180deg,#2f6ae4,#1655d1));color:#fff;box-shadow:var(--btn-shadow);}
