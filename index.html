@@ -2883,7 +2883,7 @@
     // PO# section is expanded and blanks the repeated PO cell.
     function docRowHtml(x, childCls) {
       const ownByCarrier = carrier && x.orgId === user.orgId;
-      let action = `<a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>`;
+      let action = `<a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a> <button class="ghost podDel" data-id="${x.id}" type="button" style="padding:4px 9px;font-size:12px;margin-left:6px;color:var(--danger);border-color:var(--danger);">🗑 Delete</button>`;
       if (ownByCarrier) {
         if (x.claimStatus === 'accepted') action += ` <span class="chip signed" style="margin-left:8px;">✓ Sent</span>`;
         else if (x.claimStatus === 'offered') action += ` <span class="chip prepared" style="margin-left:8px;">Offered</span> <button class="ghost podOffer" data-id="${x.id}" style="padding:4px 9px;font-size:12px;margin-left:6px;">Resend</button>`;
@@ -2958,6 +2958,19 @@
     });
     tb.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
     tb.querySelectorAll('.podOffer').forEach(b => b.onclick = () => openOfferModal(b.dataset.id));
+    // Delete a single document — two clicks: first arms ("Are you sure?"), second confirms.
+    tb.querySelectorAll('.podDel').forEach(b => b.onclick = async (e) => {
+      e.stopPropagation();
+      const id = b.dataset.id;
+      if (b.dataset.armed !== '1') {
+        b.dataset.armed = '1'; b.dataset.old = b.textContent; b.textContent = 'Are you sure?';
+        setTimeout(() => { if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.old || '🗑 Delete'; } }, 4000);
+        return;
+      }
+      b.dataset.armed = ''; b.textContent = 'Deleting…'; b.disabled = true;
+      try { await api('/api/pods/' + id, { method: 'DELETE' }); search(); }
+      catch (err) { alert(err.message); b.disabled = false; b.textContent = '🗑 Delete'; }
+    });
     tb.querySelectorAll('.asgBtn').forEach(b => b.onclick = async () => {
       const id = b.dataset.id, sel = tb.querySelector('.asgSel[data-id="'+id+'"]'), msg = tb.querySelector('.asgMsg[data-id="'+id+'"]');
       msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
