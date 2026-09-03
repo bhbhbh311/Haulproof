@@ -2052,14 +2052,21 @@
         <td><span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span></td>
         <td>${esc(p.docType) || 'POD'}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
         <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
-        <td><span class="chip ${p.status}">${p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
+        <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
+          ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady" data-id="${p.id}" type="button" style="padding:4px 10px;font-size:12px;font-weight:700;color:#fff;background:var(--ok,#12784a);border:none;border-radius:8px;cursor:pointer;">✅ Mark ready for driver</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>&nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
     const byId = {}; pods.forEach(p => byId[p.id] = p);
+    // Release a driver-uploaded doc to the driver once dispatch has set it up.
+    box.querySelectorAll('.ldReady').forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Releasing…';
+      try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); }
+      catch (e) { alert(e.message); b.disabled = false; b.textContent = '✅ Mark ready for driver'; }
+    });
     box.querySelectorAll('.ldDocEdit').forEach(b => b.onclick = () => openStopEdit(byId[b.dataset.id]));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
@@ -2915,7 +2922,7 @@
       <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
       <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${x.docType||'POD'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
-      <td><span class="chip ${x.status}">${x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
+      <td><span class="chip ${x.status}">${x.status==='awaiting_build'?'From driver — needs setup':x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
     </tr>`;
     }

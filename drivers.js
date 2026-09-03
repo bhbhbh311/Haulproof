@@ -80,11 +80,13 @@ router.get('/my-loads', (req, res) => {
   // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
   const rows = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
-      WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status = 'prepared' AND p.assignedFulfilledAt IS NULL
+      WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
+  // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     customerId: p.loadCustomerId || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
+    awaiting: p.status === 'awaiting_build',
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ loads });
 });

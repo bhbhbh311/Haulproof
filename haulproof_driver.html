@@ -350,7 +350,8 @@
     </div>
     <h1>Today's route</h1>
     <p class="sub">Work stop by stop, or upload a document to sign right now. Everything runs offline and saves on the phone.</p>
-    <button class="btn primary block" id="oneoffBtn" type="button" style="margin-bottom:12px;">＋ Upload &amp; sign a document</button>
+    <button class="btn primary block" id="oneoffBtn" type="button" style="margin-bottom:8px;">✍ Upload &amp; build/sign it myself</button>
+    <button class="btn ghost block" id="dispatchBtn" type="button" style="margin-bottom:12px;">📤 Upload for dispatch to set up</button>
     <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,#3f74e0);">
       <div class="pulltitle">📋 Your loads <span id="myLoadsCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></div>
       <div id="myLoadsList"></div>
@@ -664,6 +665,7 @@ window.__startApp=function(){
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(p.gps&&p.gps.lat!=null) hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
           if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
+          if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
           if(!res.ok){
             var body=await res.json().catch(function(){return {};});
@@ -786,7 +788,9 @@ window.__startApp=function(){
     route.stops.push({ id:genId(), n:route.stops.length+1, name:nm, addr:$("addAddr").value.trim(), status:"pending" });
     saveRoute(route); $("addName").value=""; $("addAddr").value=""; $("addForm").classList.remove("on"); renderRoute();
   });
-  $("oneoffBtn").addEventListener("click", function(){ pulledMeta=null; enterSign(null); });
+  var _dispatchUpload=false;   // true = driver is just handing the raw doc + PO# to dispatch to set up
+  $("oneoffBtn").addEventListener("click", function(){ _dispatchUpload=false; pulledMeta=null; enterSign(null); });
+  if($("dispatchBtn")) $("dispatchBtn").addEventListener("click", function(){ _dispatchUpload=true; pulledMeta=null; enterSign(null); });
 
   /* ===== Pull a dispatcher-prepared BOL by PO# / Load# ===== */
   var pulledMeta=null;
@@ -867,14 +871,26 @@ window.__startApp=function(){
       $("myLoadsCount").textContent="("+groups.length+")";
       var box=$("myLoadsList"); box.innerHTML="";
       groups.forEach(function(g){
+        var ready = g.docs.filter(function(d){ return !d.awaiting; });
+        var waiting = g.docs.filter(function(d){ return d.awaiting; });
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
-        var sub = g.docs.length>1 ? (g.docs.length+" stops") : (g.consignee||"");
+        var sub = ready.length>1 ? (ready.length+" stops") : (g.consignee||"");
+        var right;
+        if(ready.length){
+          right='<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
+        } else {
+          // All docs on this load are still with dispatch — show a waiting badge, not a sign button.
+          right='<span style="background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
+          sub = "Sent to dispatch — they'll set it up";
+        }
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
-          (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+'</div>'+
-          '<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
-        row.querySelector(".myLoadOpen").addEventListener("click", async function(){
-          var d = g.docs.length>1 ? await chooseStop(g.docs) : g.docs[0];
+          (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+
+          (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' waiting on dispatch</div>' : '')+
+          '</div>'+ right;
+        var ob=row.querySelector(".myLoadOpen");
+        if(ob) ob.addEventListener("click", async function(){
+          var d = ready.length>1 ? await chooseStop(ready) : ready[0];
           if(d) openPreparedDoc(d);
         });
         box.appendChild(row);
@@ -1095,8 +1111,17 @@ window.__startApp=function(){
     fillDetails({ consignee: stop ? (stop.name||"") : "" });
     setDetailsMode(true, false);
     drvLoadCustomers("");
+    // "Upload for dispatch" mode: driver only needs a PO# — hide Load#/Customer/Consignee (dispatch fills them in).
+    applyDispatchMode();
     $("file").value="";
     showView("sign");
+  }
+  // Hide/show the extra detail fields depending on whether this upload is for dispatch to set up.
+  function applyDispatchMode(){
+    var hideExtra = !!_dispatchUpload;
+    [ $("ldNum"), $("drvCustSel"), $("consName") ].forEach(function(el){ if(el){ var lab=el.closest("label"); if(lab) lab.classList.toggle("hide", hideExtra); } });
+    var add=$("drvCustAddBtn"); if(add && hideExtra) add.classList.add("hide");
+    if($("signCtx")) $("signCtx").textContent = _dispatchUpload ? "Upload for dispatch — just add the PO #" : (currentStop ? ("Delivering · Stop "+currentStop.n+" — "+currentStop.name) : "One-off document");
   }
   function role(){ return roles[curRoleIdx]; }
   function sigs(){ return fields.filter(function(f){return f.kind==="sig"||f.kind==="sigdate";}); }
@@ -1513,6 +1538,7 @@ window.__startApp=function(){
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     $("banner").classList.remove("on");                                 // no signing yet — Save is the action
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
+    if($("saveLaterBtn")) $("saveLaterBtn").textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
     window.scrollTo(0,0);
   }
   var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
@@ -1786,6 +1812,7 @@ window.__startApp=function(){
           var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
           var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
             "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-ClientId":he(cid),"X-POD-Status":"prepared" };
+          if(_dispatchUpload) hdrs["X-POD-Build"]="dispatch";
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
@@ -1797,7 +1824,7 @@ window.__startApp=function(){
     }
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
     var pod={ id:cid, name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
-      stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
+      forDispatch:_dispatchUpload, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
       gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
     var arr=loadPods(); arr.unshift(pod);
     if(!savePods(arr)){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); savePods(arr); }   // free space if storage is full
@@ -1820,10 +1847,13 @@ window.__startApp=function(){
     if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
     var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="12px";
-    sb.textContent = online() ? ("✓ Saved to load — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will upload when you have signal");
+    if(_dispatchUpload) sb.textContent = online() ? ("✓ Sent to dispatch — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
+    else sb.textContent = online() ? ("✓ Saved to load — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will upload when you have signal");
     da.appendChild(sb);
     var note=document.createElement("div"); note.style.cssText="font-size:14px;color:var(--muted);margin:0 0 16px;";
-    note.textContent="It's under “Your loads.” Open it there to add signatures whenever you're ready.";
+    note.textContent = _dispatchUpload
+      ? "Dispatch will set it up. It'll appear under “Your loads” as Ready to sign when they're done."
+      : "It's under “Your loads.” Open it there to add signatures whenever you're ready.";
     da.appendChild(note);
     var b1=mkBtn("Go to Your loads","primary",function(){ if(online()) syncOutbox(); showView("route"); setTimeout(loadMyLoads,350); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
     var b2=mkBtn("Save another document","ghost",function(){ enterSign(currentStop); }); b2.classList.remove("sm"); b2.classList.add("block");

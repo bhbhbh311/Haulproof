@@ -206,6 +206,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // PREPARED doc on the load (so it shows up to be signed later by the driver, or organized by dispatch)
     // instead of running the signed-POD + email flow.
     const asPrepared = /^(prepared|unsigned|1|true)$/i.test(String(h['x-pod-status'] || h['x-pod-unsigned'] || '').trim());
+    // "Upload for dispatch": the driver just hands the raw document + PO# to dispatch to set up. It's stored
+    // awaiting dispatch, NOT yet ready for the driver to sign, until dispatch marks it ready.
+    const forDispatch = /^(dispatch|1|true)$/i.test(String(dec(h['x-pod-build']) || '').trim());
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
     // A carrier's driver files the signed POD back to the CUSTOMER that owns the assigned load.
@@ -245,7 +248,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
-        status: asPrepared ? 'prepared' : 'signed', uploadedAt: Date.now() });
+        status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // A document created by a named driver is automatically assigned to that driver.
@@ -254,8 +257,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // cleanup, and no delivery email. It now shows on the load ready to be signed.
     if (asPrepared) {
       try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note',
-        detail: 'Document saved to sign later' + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
-      return res.json({ ok: true, podId: id, loadId: load.id, prepared: true });
+        detail: (forDispatch ? 'Uploaded for dispatch to set up' : 'Document saved to sign later') + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
+      return res.json({ ok: true, podId: id, loadId: load.id, prepared: true, awaiting: forDispatch });
     }
     // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
     // sends the exact prepared-doc id it signed (X-POD-PrepId), match THAT stop precisely; otherwise fall
@@ -491,6 +494,16 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
   }
   db.prepare(`UPDATE pods SET stopNumber = ?, docType = ?, receiverId = ?, receiverName = ?, salesRepUserId = ? WHERE id = ?`)
     .run(stopNumber, docType, receiverId, receiverName, salesRepUserId, row.id);
+  res.json({ ok: true });
+});
+
+// ---- MARK READY FOR DRIVER: release a dispatch-built document so the driver can sign it. ----
+router.post('/:id/ready', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  db.prepare(`UPDATE pods SET status = 'prepared' WHERE id = ?`).run(row.id);
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'prepared',
+    detail: 'Marked ready for driver' + (row.assignedDriverName ? ' — ' + row.assignedDriverName : ''), actor: req.user.email }); } catch (e) {}
   res.json({ ok: true });
 });
 
