@@ -155,6 +155,7 @@
   .tab.current{outline:3px solid var(--primary);outline-offset:2px;}
   .datefield{position:absolute;background:var(--surface);border:1px dashed var(--tab-line);color:var(--ink);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:10.5px;box-shadow:0 2px 6px rgba(0,0,0,.12);overflow:visible;touch-action:none;user-select:none;white-space:nowrap;cursor:grab;}
   .datefield.driver{border-color:var(--driver-line);}
+  .datefield.filled{border-style:solid;font-weight:700;}
   .datefield.dragging{cursor:grabbing;opacity:.92;}
   .tab .content,.datefield .content{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 4px;}
   .tab .content img,.datefield .content img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
@@ -677,6 +678,15 @@ window.__startApp=function(){
 
   function todayStr(){ var d=new Date(); return (d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear(); }
   function timeStr(d){ d=d||new Date(); var h=d.getHours(),m=d.getMinutes(),ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+(m<10?"0":"")+m+" "+ap; }
+  // Color per signer role — matches the dispatcher's setup screen so field colors line up.
+  function roleColor(role){
+    var m={Consignee:"#1655d1",Driver:"#b5731a",Shipper:"#12784a"};
+    if(m[role]) return m[role];
+    var pal=["#7b2ff7","#c2185b","#00838f","#5d4037","#a15c00","#0f6d8c"];
+    var h=0; for(var i=0;i<String(role).length;i++){ h=(h*31+String(role).charCodeAt(i))>>>0; }
+    return pal[h%pal.length];
+  }
+  function initialsFor(role){ var a=adoptedByRole[role], nm=(a&&a.name)||""; if(!nm) return ""; return nm.split(/\s+/).map(function(w){return w[0]||"";}).join("").toUpperCase().slice(0,4); }
   var tT; function toast(m){ var t=$("toast"); t.textContent=m; t.classList.add("on"); clearTimeout(tT); tT=setTimeout(function(){t.classList.remove("on");},2400); }
 
   /* ============ connectivity + sync ============ */
@@ -1040,7 +1050,8 @@ window.__startApp=function(){
     }
     (tpl||[]).forEach(function(f){
       var rec=pageRecs[f.pageIdx]; if(!rec) return;
-      addField(rec, f.kind==="date"?"date":(f.kind==="sigdate"?"sigdate":"sig"), f.role==="Driver"?"Driver":"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf);
+      var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text"].indexOf(k)<0) k="sig";
+      addField(rec, k, f.role||"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf, f.label||"");
     });
     // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
     // so the driver can sign it now that they've reopened it.
@@ -1051,6 +1062,12 @@ window.__startApp=function(){
         placeGroup(rec,"Driver",startX,rec.baseH*0.30);
       });
     }
+    // Build the signing order from the signature fields actually present (Consignee → Shipper → Driver → any custom).
+    var present={}; sigs().forEach(function(f){ present[f.role]=true; });
+    var order=["Consignee","Shipper","Driver"], rs=[];
+    order.forEach(function(r){ if(present[r]){ rs.push(r); delete present[r]; } });
+    Object.keys(present).forEach(function(r){ rs.push(r); });
+    roles = rs.length ? rs : ["Consignee","Driver"]; curRoleIdx=0;
   }
 
   function renderRoute(){
@@ -1755,16 +1772,42 @@ window.__startApp=function(){
   }
   function screenRect(rec,x,y,w,h){ var tl=rec.vp.convertToViewportPoint(x,y+h), br=rec.vp.convertToViewportPoint(x+w,y);
     return {left:Math.min(tl[0],br[0]),top:Math.min(tl[1],br[1]),w:Math.abs(br[0]-tl[0]),h:Math.abs(br[1]-tl[1])}; }
-  function addField(rec,kind,r,x,y,w,h){
+  function esc2(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+  function valueContent(o){
+    var lab=o.label||(o.kind==="time"?"Time":(o.kind==="text"?"Text":"Initials"));
+    if(o.value){ return '<span class="lab">'+esc2(o.value)+'</span>'; }
+    return '<span class="lab">'+(o.kind==="time"?"🕒 ":(o.kind==="initials"?"✎ ":"＋ "))+esc2(lab)+'</span>';
+  }
+  function addField(rec,kind,r,x,y,w,h,label){
     var sr=screenRect(rec,x,y,w,h), el=document.createElement("div");
-    var tappable=(kind==="sig"||kind==="sigdate");
-    el.className=(tappable?"tab":"datefield")+(r==="Driver"?" driver":"");
-    var content=kind==="sigdate"?'<span class="lab">✎ '+r+' — Sign + date</span>':(kind==="sig"?'<span class="lab">✎ '+r+' — Sign</span>':'🗓 '+todayStr());
+    var isSig=(kind==="sig"||kind==="sigdate");
+    var isValue=(kind==="initials"||kind==="time"||kind==="text");   // driver fills these anytime
+    el.className=(isSig?"tab":"datefield")+(r==="Driver"?" driver":"");
+    var o={el:el,rec:rec,pageIdx:rec.idx,stop:(rec&&rec.stop)||null,kind:kind,role:r,label:label||"",value:"",xPdf:x,yPdf:y,wPdf:w,hPdf:h,signed:false,date:todayStr()};
+    var content;
+    if(kind==="sigdate") content='<span class="lab">✎ '+esc2(r)+' — Sign + date</span>';
+    else if(kind==="sig") content='<span class="lab">✎ '+esc2(r)+' — Sign</span>';
+    else if(kind==="date") content='🗓 '+todayStr();
+    else content=valueContent(o);   // initials / time / text
     el.innerHTML='<span class="content">'+content+'</span><span class="rsz"></span>';
     el.style.left=sr.left+"px"; el.style.top=sr.top+"px"; el.style.width=sr.w+"px"; el.style.height=sr.h+"px";
+    // Tint by signer role (Consignee=default blue, Driver has its own class; others get an inline color).
+    if(r!=="Consignee" && r!=="Driver"){ var c=roleColor(r); el.style.borderColor=c; if(isSig){ el.style.background=c; el.style.color="#fff"; } else { el.style.color=c; } }
     rec.div.appendChild(el);
-    var o={el:el,rec:rec,pageIdx:rec.idx,stop:(rec&&rec.stop)||null,kind:kind,role:r,xPdf:x,yPdf:y,wPdf:w,hPdf:h,signed:false,date:todayStr()};
-    fields.push(o); wireDrag(o, tappable?function(){onSign(o);}:null); wireResize(o); return o;
+    fields.push(o);
+    wireDrag(o, isSig?function(){onSign(o);}:(isValue?function(){onValue(o);}:null));
+    wireResize(o); return o;
+  }
+  // Fill a non-signature value field (initials / arrive-leave time / free text). Filled anytime, any order.
+  function onValue(o){
+    var lab=o.label||(o.kind==="time"?"time":(o.kind==="text"?"text":"initials"));
+    var def=o.value;
+    if(!def){ if(o.kind==="time") def=timeStr(new Date()); else if(o.kind==="initials") def=initialsFor(o.role); else def=""; }
+    var v=window.prompt("Enter "+lab+(o.kind==="initials"?" ("+o.role+")":"")+":", def||"");
+    if(v===null) return;                       // cancelled
+    o.value=String(v).trim();
+    o.el.querySelector(".content").innerHTML=valueContent(o);
+    o.el.classList.toggle("filled", !!o.value);
   }
   // One-off (no template): drop a single combined signature+date box per role (wide, for side-by-side).
   function placeGroup(rec,r,x,y){ addField(rec,"sigdate",r,x,y,250,44); }
@@ -1811,15 +1854,23 @@ window.__startApp=function(){
     updateProgress(); var rem=unsigned(role());
     if(rem.length){ curField=rem[0]; } else if(curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null; toast(role()+" — please sign next"); } else { allDone(); } }
   function updateProgress(){
-    var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().length>0&&sigs().every(function(f){return f.signed;});
+    var bn=$("banner"),btn=$("nextBtn");
+    // A doc with only value fields (times/notes/initials, no signatures) — just let the driver fill and finish.
+    if(sigs().length===0){
+      $("roleChip").textContent="Ready"; $("roleChip").classList.remove("driver");
+      $("progText").textContent="Fill any fields, then finish"; $("meterFill").style.width="100%";
+      bn.classList.add("done"); $("progSub").textContent="Tap the fields to fill them, then Finish";
+      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); return;
+    }
+    var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
-    var bn=$("banner"),btn=$("nextBtn");
-    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="Consignee & driver signed"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); }
+    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); }
     else { bn.classList.remove("done"); $("progSub").textContent=adoptedByRole[r]?"Tap next field or use Next":"Tap a "+r+" field to sign"; btn.textContent=(done>0||curRoleIdx>0)?"Next":"Start"; btn.classList.add("primary"); btn.classList.remove("success"); }
   }
   $("nextBtn").addEventListener("click", function(){
-    if(sigs().length>0 && sigs().every(function(f){return f.signed;})){ finish(); return; }
+    if(sigs().length===0){ finish(); return; }
+    if(sigs().every(function(f){return f.signed;})){ finish(); return; }
     var rem=unsigned(role()); if(rem.length===0&&curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); rem=unsigned(role()); }
     var n=rem[0]; if(!n){ finish(); return; } curField=n; highlight(); if(!adoptedByRole[role()]) openModal(); else applyTo(n);
   });
@@ -1925,6 +1976,13 @@ window.__startApp=function(){
           var cap=(t.name?t.name+"  ·  ":"")+timeStr(t.when)+(t.gps?"  "+t.gps.lat.toFixed(3)+","+t.gps.lng.toFixed(3):""); pg.drawText(cap,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)});
         } }
       dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=Math.min(12,Math.max(9,df.hPdf*0.4)),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      // Value fields the driver typed (initials / arrive-leave time / free text) — draw the entered text, shrunk to fit.
+      fields.filter(function(f){ return (f.kind==="initials"||f.kind==="time"||f.kind==="text") && f.value; }).forEach(function(vf){
+        var vp2=pages[vf.pageIdx]; if(!vp2) return;
+        var txt=String(vf.value), size=Math.min(13,Math.max(8,vf.hPdf*0.5));
+        while(size>6 && font.widthOfTextAtSize(txt,size) > (vf.wPdf-4)) size-=0.5;
+        vp2.drawText(txt,{x:vf.xPdf+3,y:vf.yPdf+Math.max(2,(vf.hPdf-size)/2),size:size,font:font,color:PDFLib.rgb(.07,.22,.43)});
+      });
       // audit page
       // Attach a clickable URL (e.g. Google Maps) over a rectangle on a page — pdf-lib has no high-level
       // link helper, so we add the Link annotation to the page's /Annots directly.

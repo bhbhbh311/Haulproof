@@ -5,33 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Set up signatures — HaulProof</title>
 <style>
-  :root{--bg:#f2f4f8;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#dde4ec;--primary:#1655d1;--primary-soft:#e7eefc;--ok:#12784a;--cons:#1655d1;--driver:#b5731a;}
+  :root{--bg:#f2f4f8;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#dde4ec;--primary:#1655d1;--primary-soft:#e7eefc;--ok:#12784a;}
   *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-  .bar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(20,30,50,.05);}
+  .bar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 18px 12px;box-shadow:0 1px 4px rgba(20,30,50,.05);}
+  .barhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
   .brand{font-weight:800;font-size:16px;} .brand b{color:var(--primary);}
   .ctx{color:var(--muted);font-size:13px;margin-right:auto;}
-  .tool{font-family:inherit;font-size:12.5px;font-weight:600;border:1px solid #c6d0db;border-radius:8px;padding:8px 11px;background:var(--surface);color:var(--ink);cursor:pointer;display:inline-flex;gap:6px;align-items:center;}
-  .tool .dot{width:10px;height:10px;border-radius:3px;}
-  .tool.cons .dot{background:var(--cons);} .tool.driver .dot{background:var(--driver);}
-  .tool.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft);background:var(--primary-soft);}
+  .prow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;}
+  .plabel2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);min-width:52px;}
+  .signer,.ftype{font-family:inherit;font-size:12.5px;font-weight:600;border:1.5px solid #c6d0db;border-radius:8px;padding:7px 11px;background:var(--surface);color:var(--ink);cursor:pointer;display:inline-flex;gap:6px;align-items:center;}
+  .signer .dot{width:11px;height:11px;border-radius:3px;}
+  .signer.on{box-shadow:0 0 0 2px var(--primary-soft);}
+  .ftype.on{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+  #fieldLabel{font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;min-width:220px;}
+  .lhint{font-size:11.5px;color:var(--muted);}
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
   .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid #c6d0db;}
   .btn.ok{background:var(--ok);}
-  .hint{max-width:960px;margin:14px auto 0;padding:0 16px;color:var(--muted);font-size:13.5px;}
+  .hint{max-width:960px;margin:12px auto 0;padding:0 16px;color:var(--muted);font-size:13px;line-height:1.5;}
   #pages{max-width:960px;margin:10px auto 60px;padding:0 16px;}
   .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:#fff;}
   .page canvas{display:block;}
   .plabel{position:absolute;top:6px;right:8px;font-size:11px;color:#8a97a6;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;}
-  .fld{position:absolute;border:2px dashed var(--cons);background:rgba(22,85,209,.08);border-radius:6px;cursor:move;touch-action:none;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-  .fld.driver{border-color:var(--driver);background:rgba(181,115,26,.10);}
-  .fld .lab{font-size:11px;font-weight:700;color:var(--cons);pointer-events:none;text-align:center;line-height:1.15;padding:2px;}
-  .fld.driver .lab{color:var(--driver);}
+  .fld{position:absolute;border:2px dashed var(--primary);background:rgba(22,85,209,.08);border-radius:6px;cursor:move;touch-action:none;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .fld .lab{font-size:11px;font-weight:700;pointer-events:none;text-align:center;line-height:1.15;padding:2px;}
   .fld .rsz{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;background:var(--primary);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
-  .fld.driver .rsz{background:var(--driver);}
   .fld .del{position:absolute;right:-14px;top:-14px;width:28px;height:28px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:18px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.4);}
   .fld .del:hover{background:#e0432f;transform:scale(1.08);}
-  .fld.sel{border-style:solid;box-shadow:0 0 0 3px rgba(22,85,209,.30);}
-  .fld.driver.sel{box-shadow:0 0 0 3px rgba(181,115,26,.30);}
+  .fld.sel{border-style:solid;box-shadow:0 0 0 3px rgba(22,85,209,.28);}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#16202b;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:80;}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
   .load{max-width:960px;margin:40px auto;text-align:center;color:var(--muted);}
@@ -39,14 +40,35 @@
 </head>
 <body>
 <div class="bar">
-  <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
-  <span class="ctx" id="ctx"></span>
-  <button class="tool cons on" data-role="Consignee" data-kind="sigdate"><span class="dot"></span>Consignee sign + date</button>
-  <button class="tool driver" data-role="Driver" data-kind="sigdate"><span class="dot"></span>Driver sign + date</button>
-  <button class="btn ok" id="saveBtn" type="button">Save setup</button>
-  <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
+  <div class="barhead">
+    <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
+    <span class="ctx" id="ctx"></span>
+    <button class="btn ok" id="saveBtn" type="button">Save setup</button>
+    <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
+  </div>
+  <div class="prow" id="signerRow">
+    <span class="plabel2">Signer</span>
+    <button class="signer on" data-role="Consignee" type="button"><span class="dot"></span>Consignee</button>
+    <button class="signer" data-role="Driver" type="button"><span class="dot"></span>Driver</button>
+    <button class="signer" data-role="Shipper" type="button"><span class="dot"></span>Shipper / Pickup</button>
+    <button class="signer add" id="addSigner" type="button">＋ Add signer</button>
+  </div>
+  <div class="prow" id="fieldRow">
+    <span class="plabel2">Field</span>
+    <button class="ftype on" data-kind="sigdate" type="button">Sign + date</button>
+    <button class="ftype" data-kind="sig" type="button">Signature</button>
+    <button class="ftype" data-kind="initials" type="button">Initials</button>
+    <button class="ftype" data-kind="date" type="button">Date</button>
+    <button class="ftype" data-kind="time" type="button">Time</button>
+    <button class="ftype" data-kind="text" type="button">Text box</button>
+  </div>
+  <div class="prow">
+    <span class="plabel2">Label</span>
+    <input id="fieldLabel" type="text" placeholder="Optional — e.g. Arrive time, Leave time, Seal #">
+    <span class="lhint">Select a field, then type its label. Handy for Time and Text fields.</span>
+  </div>
 </div>
-<div class="hint" id="hint">Pick a field type above, then <b>click on the document</b> where it should go. Drag to move, pull the corner to resize. To delete: click the red <b>×</b>, or click a field to select it (it gets a blue ring) and press <b>Delete</b>. Save when the layout looks right.</div>
+<div class="hint" id="hint">Pick a <b>signer</b> and a <b>field type</b>, then <b>click on the document</b> where it should go. Drag to move, pull the corner to resize. Click a field to select it (blue ring), give it a <b>label</b> above, or press <b>Delete</b> to remove it. Save when the layout looks right.</div>
 <div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
 <div class="toast" id="toast"></div>
 
@@ -57,26 +79,70 @@
   var params=new URLSearchParams(location.search);
   var DOC_ID=params.get('id');
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
+
+  // Color per signer role — fixed for the built-ins, stable-hashed for custom names. Mirrors the driver app.
+  function roleColor(role){
+    var m={Consignee:'#1655d1',Driver:'#b5731a',Shipper:'#12784a'};
+    if(m[role]) return m[role];
+    var pal=['#7b2ff7','#c2185b','#00838f','#5d4037','#a15c00','#0f6d8c'];
+    var h=0; for(var i=0;i<role.length;i++){ h=(h*31+role.charCodeAt(i))>>>0; }
+    return pal[h%pal.length];
+  }
+  function rgba(hex,a){ var n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+  function labelText(role,kind,label){
+    if(kind==='sigdate') return role+'\nSign + date';
+    if(kind==='sig') return role+'\nSignature';
+    if(kind==='initials') return (label||'Initials')+'\n('+role+')';
+    if(kind==='date') return label||'Date';
+    if(kind==='time') return label||'Time';
+    if(kind==='text') return label||'Text';
+    return role;
+  }
+  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38}};
+
   var activeTool={role:'Consignee',kind:'sigdate'};
-  var pageRecs=[]; var fields=[]; var selected=null; // {pageIdx,kind,role,el,xPdf,yPdf,wPdf,hPdf,baseW,baseH}
-  function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); }
-  function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f) selected=null; }
-  // Delete/Backspace removes the currently-selected field (unless you're typing in a field).
+  var pageRecs=[]; var fields=[]; var selected=null;
+
+  function styleFieldEl(el,role){ var c=roleColor(role); el.style.borderColor=c; el.style.background=rgba(c,0.09); var lab=el.querySelector('.lab'); if(lab) lab.style.color=c; var rsz=el.querySelector('.rsz'); if(rsz) rsz.style.background=c; }
+  function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); $('#fieldLabel').value=(f&&f.label)||''; }
+  function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f){ selected=null; $('#fieldLabel').value=''; } }
   document.addEventListener('keydown',function(e){
     if((e.key==='Delete'||e.key==='Backspace') && selected){
       var t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
       e.preventDefault(); removeField(selected);
     }
   });
-  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},date:{w:120,h:34}};
 
-  // toolbar
-  Array.prototype.forEach.call(document.querySelectorAll('.tool'),function(b){
+  // Signer buttons (built-in + custom). Clicking sets the active role and tints future fields.
+  function wireSigner(b){
+    var dot=b.querySelector('.dot'); if(dot) dot.style.background=roleColor(b.dataset.role);
     b.addEventListener('click',function(){
-      document.querySelectorAll('.tool').forEach(function(x){x.classList.remove('on');});
-      b.classList.add('on'); activeTool={role:b.dataset.role,kind:b.dataset.kind};
+      document.querySelectorAll('.signer').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); activeTool.role=b.dataset.role;
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.signer[data-role]'),wireSigner);
+  $('#addSigner').addEventListener('click',function(){
+    var name=(prompt('Name this signer (e.g. Warehouse Mgr, Lumper):')||'').trim();
+    if(!name) return;
+    if(document.querySelector('.signer[data-role="'+name.replace(/"/g,'')+'"]')){ toast('That signer already exists'); return; }
+    var b=document.createElement('button'); b.className='signer'; b.type='button'; b.dataset.role=name;
+    b.innerHTML='<span class="dot"></span>'+name;
+    $('#addSigner').parentNode.insertBefore(b,$('#addSigner'));
+    wireSigner(b); b.click();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.ftype'),function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('.ftype').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); activeTool.kind=b.dataset.kind;
     });
   });
+  $('#fieldLabel').addEventListener('input',function(){
+    if(!selected) return;
+    selected.label=this.value;
+    var lab=selected.el.querySelector('.lab'); if(lab) lab.innerHTML=labelText(selected.role,selected.kind,selected.label).replace('\n','<br>');
+  });
+
   var backTo='/app';
   $('#backBtn').addEventListener('click',function(){ location.href=backTo; });
 
@@ -116,22 +182,27 @@
     chain.then(function(){ loadExisting(); });
   }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
 
-  function labelText(role,kind){ return role+'\n'+(kind==='sigdate'?'signature + date':(kind==='sig'?'signature':'date')); }
-
-  function addField(rec,e){
-    var r=rec.div.getBoundingClientRect();
-    var d=DEFAULT[activeTool.kind];
-    var left=Math.max(0,Math.min(rec.div.clientWidth-d.w,(e.clientX-r.left)-d.w/2));
-    var top=Math.max(0,Math.min(rec.div.clientHeight-d.h,(e.clientY-r.top)-d.h/2));
-    var f={pageIdx:rec.idx,kind:activeTool.kind,role:activeTool.role,rec:rec};
-    var el=document.createElement('div'); el.className='fld'+(f.role==='Driver'?' driver':'');
-    el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=d.w+'px'; el.style.height=d.h+'px';
-    el.innerHTML='<div class="lab">'+labelText(f.role,f.kind).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
-    rec.div.appendChild(el); f.el=el; fields.push(f);
+  function buildFieldEl(f,left,top,w,h){
+    var el=document.createElement('div'); el.className='fld';
+    el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=w+'px'; el.style.height=h+'px';
+    el.innerHTML='<div class="lab">'+labelText(f.role,f.kind,f.label).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
+    f.rec.div.appendChild(el); f.el=el; styleFieldEl(el,f.role);
     wireDrag(f); wireResize(f); recompute(f);
     el.addEventListener('pointerdown',function(){ selectField(f); });
     el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
+    return el;
+  }
+  function defaultLabel(kind){ return kind==='time'?'Time':(kind==='text'?'Notes':(kind==='initials'?'Initials':'')); }
+
+  function addField(rec,e){
+    var r=rec.div.getBoundingClientRect();
+    var d=DEFAULT[activeTool.kind]||DEFAULT.text;
+    var left=Math.max(0,Math.min(rec.div.clientWidth-d.w,(e.clientX-r.left)-d.w/2));
+    var top=Math.max(0,Math.min(rec.div.clientHeight-d.h,(e.clientY-r.top)-d.h/2));
+    var f={pageIdx:rec.idx,kind:activeTool.kind,role:activeTool.role,label:defaultLabel(activeTool.kind),rec:rec};
+    buildFieldEl(f,left,top,d.w,d.h); fields.push(f);
     selectField(f);
+    if(f.kind==='time'||f.kind==='text'||f.kind==='initials'){ $('#fieldLabel').focus(); $('#fieldLabel').select(); }
   }
 
   function wireDrag(f){
@@ -170,19 +241,18 @@
     var tl=rec.vp.convertToViewportPoint(fd.xPdf, fd.yPdf+fd.hPdf);
     var br=rec.vp.convertToViewportPoint(fd.xPdf+fd.wPdf, fd.yPdf);
     var left=Math.min(tl[0],br[0]), top=Math.min(tl[1],br[1]), w=Math.abs(br[0]-tl[0]), hh=Math.abs(br[1]-tl[1]);
-    var f={pageIdx:fd.pageIdx,kind:fd.kind,role:fd.role,rec:rec};
-    var el=document.createElement('div'); el.className='fld'+(f.role==='Driver'?' driver':'');
-    el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=w+'px'; el.style.height=hh+'px';
-    el.innerHTML='<div class="lab">'+labelText(f.role,f.kind).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
-    rec.div.appendChild(el); f.el=el; fields.push(f);
-    wireDrag(f); wireResize(f); recompute(f);
-    el.addEventListener('pointerdown',function(){ selectField(f); });
-    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
+    var f={pageIdx:fd.pageIdx,kind:fd.kind||'sigdate',role:fd.role||'Consignee',label:fd.label||'',rec:rec};
+    // Any custom signer saved earlier should appear as a chip so it can be reused on this doc.
+    if(f.role && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
+      var b=document.createElement('button'); b.className='signer'; b.type='button'; b.dataset.role=f.role;
+      b.innerHTML='<span class="dot"></span>'+f.role; $('#addSigner').parentNode.insertBefore(b,$('#addSigner')); wireSigner(b);
+    }
+    buildFieldEl(f,left,top,w,hh); fields.push(f);
   }
   function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); }
 
   $('#saveBtn').addEventListener('click',function(){
-    var out=fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
+    var out=fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,label:f.label||'',xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
     fetch('/api/pods/'+DOC_ID+'/fields',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
       .then(function(r){return r.json();}).then(function(j){
         if(j.error){ toast(j.error); return; }
