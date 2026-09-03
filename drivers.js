@@ -68,7 +68,23 @@ router.post('/verify-pin', (req, res) => {
   if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });   // no PIN set — nothing to check
   const pin = String((req.body && req.body.pin) || '');
   if (!bcrypt.compareSync(pin, d.pinHash)) return res.status(401).json({ error: 'That PIN is not correct' });
-  res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
+  res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '', mustChangePin: !!d.mustChangePin });
+});
+
+// The driver sets their OWN PIN (clears a forced first-use reset). Requires the current PIN so only the
+// person who just unlocked can change it.
+router.post('/change-pin', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const d = r.driver;
+  const currentPin = String((req.body && req.body.currentPin) || '');
+  if (d.pinHash && !bcrypt.compareSync(currentPin, d.pinHash)) return res.status(401).json({ error: 'Current PIN is not correct' });
+  const newPin = String((req.body && req.body.newPin) || '').trim();
+  if (!PIN_RE.test(newPin)) return res.status(400).json({ error: 'New PIN must be 4 to 6 digits' });
+  const newHash = bcrypt.hashSync(newPin, 10);
+  db.prepare(`UPDATE drivers SET pinHash = ?, mustChangePin = 0 WHERE id = ?`).run(newHash, d.id);
+  const updated = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id);
+  res.json({ ok: true, unlock: driverUnlockValue(updated) });
 });
 
 // Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
@@ -194,7 +210,8 @@ router.post('/', requireAuth, requireDriverManager, (req, res) => {
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
   if (!PIN_RE.test(pin)) return res.status(400).json({ error: 'Set a 4–6 digit PIN for this driver' });   // a PIN is required for every driver
   const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, createdAt) VALUES (?,?,?,?,?,?,?,1,?)`)
+  // The admin sets the initial PIN, so the driver is prompted to set their own on first use.
+  db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)
     .run(id, orgId, name, phone || null, email || null, pin ? bcrypt.hashSync(pin, 10) : null, newToken(), Date.now());
   res.status(201).json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });
 });
@@ -210,14 +227,15 @@ router.put('/:id', requireAuth, requireDriverManager, (req, res) => {
   const email = (b.email !== undefined ? String(b.email) : (d.email || '')).trim();
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
   // PIN is required and can't be removed. undefined = leave as-is; 4–6 digits = set a new one.
-  let pinHash = d.pinHash;
+  let pinHash = d.pinHash, resetPin = 0;
   if (b.pin !== undefined) {
     const pin = String(b.pin).trim();
     if (!pin) return res.status(400).json({ error: 'A PIN is required — enter a new one to change it' });
     if (!PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits' });
     pinHash = bcrypt.hashSync(pin, 10);
+    resetPin = 1;   // an admin-set PIN — prompt the driver to set their own on next use
   }
-  db.prepare(`UPDATE drivers SET name = ?, phone = ?, email = ?, pinHash = ? WHERE id = ?`).run(name, phone || null, email || null, pinHash, d.id);
+  db.prepare(`UPDATE drivers SET name = ?, phone = ?, email = ?, pinHash = ?${resetPin ? ', mustChangePin = 1' : ''} WHERE id = ?`).run(name, phone || null, email || null, pinHash, d.id);
   res.json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id)) });
 });
 

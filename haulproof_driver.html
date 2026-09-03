@@ -324,6 +324,21 @@
     </div>
   </section>
 
+  <!-- SET YOUR OWN PIN (first use, after the admin-set PIN) -->
+  <section class="view hide" id="viewSetPin">
+    <div class="signon">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
+      <h1>Set your own PIN</h1>
+      <p class="sub">Pick a new 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
+      <div class="fields">
+        <input class="ti" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;margin-bottom:10px;">
+        <input class="ti" id="setPin2" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Confirm PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;">
+      </div>
+      <button class="btn primary block" id="setPinBtn" type="button">Save PIN</button>
+      <p class="note" id="setPinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
+    </div>
+  </section>
+
   <!-- SIGN ON -->
   <section class="view hide" id="viewSignon">
     <div class="signon">
@@ -691,7 +706,7 @@ window.__startApp=function(){
 
   /* ============ views ============ */
   function showView(v){
-    ["Route","Sign","Outbox","Signon","Pin"].forEach(function(n){ $("view"+n).classList.toggle("hide", n.toLowerCase()!==v); });
+    ["Route","Sign","Outbox","Signon","Pin","SetPin"].forEach(function(n){ var el=$("view"+n); if(el) el.classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); if(online()){ loadMyLoads(); loadMyDocuments(); } }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
     window.scrollTo(0,0);
@@ -751,12 +766,32 @@ window.__startApp=function(){
       $("pinBtn").disabled=false;
       if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
       if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
-      var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); setCompany(d.company,d.companyKind); $("pinErr").textContent=""; finishStart();
+      var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); setCompany(d.company,d.companyKind); $("pinErr").textContent="";
+      // First use with an admin-set PIN → make the driver choose their own before going in.
+      if(d.mustChangePin){ _lastPin=pin; showSetPinGate(); return; }
+      finishStart();
     }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
+  }
+  var _lastPin="";   // the PIN the driver just entered, so we can authorize their PIN change
+  function showSetPinGate(){ if($("setPin1"))$("setPin1").value=""; if($("setPin2"))$("setPin2").value=""; if($("setPinErr"))$("setPinErr").textContent=""; showView("setpin"); setTimeout(function(){ try{ $("setPin1").focus(); }catch(e){} },40); }
+  async function saveNewPin(){
+    var p1=($("setPin1").value||"").trim(), p2=($("setPin2").value||"").trim(), err=$("setPinErr");
+    if(!/^\d{4,6}$/.test(p1)){ err.textContent="Enter a 4–6 digit PIN"; return; }
+    if(p1!==p2){ err.textContent="The PINs don't match"; return; }
+    var url=driverApi("/change-pin"); if(!url){ err.textContent="No connection — try again when you're online"; return; }
+    $("setPinBtn").disabled=true; err.textContent="Saving…";
+    try{
+      var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({currentPin:_lastPin,newPin:p1})});
+      $("setPinBtn").disabled=false;
+      if(!r.ok){ var e=await r.json().catch(function(){return{};}); err.textContent=e.error||"Couldn't save the PIN"; return; }
+      var d=await r.json(); saveUnlock(d.unlock||""); _lastPin=""; err.textContent=""; finishStart();
+    }catch(e){ $("setPinBtn").disabled=false; err.textContent="No connection — try again when you're online"; }
   }
   $("pinBtn").addEventListener("click", verifyPin);
   $("pinInput").addEventListener("keydown", function(e){ if(e.key==="Enter"){ verifyPin(); } });
   $("pinInput").addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); });
+  if($("setPinBtn")) $("setPinBtn").addEventListener("click", saveNewPin);
+  ["setPin1","setPin2"].forEach(function(id){ var el=$(id); if(el){ el.addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); }); el.addEventListener("keydown", function(e){ if(e.key==="Enter") saveNewPin(); }); } });
   // On open: pull the driver's name from their link, gate on PIN if needed, then show route + a daily welcome.
   async function initDriver(){
     var key=currentKey(), info=null;

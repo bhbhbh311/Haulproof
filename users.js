@@ -64,8 +64,21 @@ router.post('/', requireAuth, (req, res) => {
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
   try {
     const u = createUser({ email: em, name: name || '', role: r, password: String(password), orgId });
+    // Admin-created logins start with a temporary password — force the user to set their own on first login.
+    try { db.prepare('UPDATE users SET mustChangePassword = 1 WHERE id = ?').run(u.id); } catch (e) {}
     res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r } });
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
+});
+
+// The signed-in user sets their own password — used to clear a forced first-login reset.
+router.post('/change-password', requireAuth, (req, res) => {
+  const pw = (req.body && req.body.password) || '';
+  if (!pw || String(pw).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const uid = req.user.sub || req.user.id;
+  const u = db.prepare('SELECT id FROM users WHERE id = ?').get(uid);
+  if (!u) return res.status(404).json({ error: 'Your login no longer exists' });
+  db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 0 WHERE id = ?').run(bcrypt.hashSync(String(pw), 10), uid);
+  res.json({ ok: true });
 });
 
 // --- Super-admin maintenance: a login is unique by email across the WHOLE system, but logins are only
@@ -117,7 +130,7 @@ router.post('/:id/password', requireAuth, requireAdmin, (req, res) => {
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const target = db.prepare('SELECT id, orgId, role FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
-  db.prepare('UPDATE users SET passHash = ? WHERE id = ?').run(bcrypt.hashSync(String(password), 10), target.id);
+  db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(String(password), 10), target.id);
   res.json({ ok: true });
 });
 
@@ -128,7 +141,7 @@ router.post('/:id/login-link', requireAuth, requireAdmin, (req, res) => {
   const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
-  db.prepare('UPDATE users SET passHash = ? WHERE id = ?').run(bcrypt.hashSync(temp, 10), target.id);
+  db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(temp, 10), target.id);
   const token = crypto.randomBytes(24).toString('hex');
   const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;   // link good for 7 days
   db.prepare('DELETE FROM login_links WHERE userId = ?').run(target.id);   // one active link per user

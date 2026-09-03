@@ -164,6 +164,20 @@
     </div>
   </div>
 
+  <!-- Forced password reset on first login (temp password issued by an admin) -->
+  <div id="pwResetModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:var(--surface,#fff);border-radius:14px;max-width:420px;width:100%;padding:24px;box-shadow:0 14px 46px rgba(0,0,0,.3);">
+      <h1 style="font-size:19px;margin:0 0 4px;">Set your password</h1>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">For your security, choose a new password before you continue.</p>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">New password</label>
+      <input id="pwNew" type="password" placeholder="At least 6 characters" style="width:100%;box-sizing:border-box;margin:4px 0 10px;">
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Confirm password</label>
+      <input id="pwNew2" type="password" placeholder="Re-enter it" style="width:100%;box-sizing:border-box;margin:4px 0 10px;">
+      <div id="pwResetMsg" class="err" style="min-height:16px;"></div>
+      <button id="pwResetSave" type="button" style="width:100%;margin-top:6px;">Save &amp; continue</button>
+    </div>
+  </div>
+
   <!-- SEARCH -->
   <div id="appView" class="hide">
 
@@ -2850,8 +2864,32 @@
     $('loginErr').textContent = '';
     try {
       const r = await api('/api/auth/login', { method:'POST', body: JSON.stringify({ email:$('email').value, password:$('password').value }) });
-      token = r.token; enterApp(r.user);
+      token = r.token;
+      if (r.user && r.user.mustChangePassword) { forcePwReset(r.user); return; }
+      enterApp(r.user);
     } catch (e) { $('loginErr').textContent = e.message; }
+  };
+  // First-login password reset: block entry until the user sets their own password.
+  let _pwResetUser = null;
+  function forcePwReset(u) {
+    _pwResetUser = u;
+    ['pwNew','pwNew2'].forEach(id => { if ($(id)) $(id).value = ''; });
+    if ($('pwResetMsg')) $('pwResetMsg').textContent = '';
+    if ($('loginView')) $('loginView').classList.add('hide');
+    if ($('pwResetModal')) $('pwResetModal').classList.remove('hide');
+    setTimeout(() => { if ($('pwNew')) $('pwNew').focus(); }, 40);
+  }
+  if ($('pwResetSave')) $('pwResetSave').onclick = async () => {
+    const a = $('pwNew').value, b = $('pwNew2').value, msg = $('pwResetMsg');
+    if (!a || a.length < 6) { msg.textContent = 'Password must be at least 6 characters'; return; }
+    if (a !== b) { msg.textContent = 'The two passwords don’t match'; return; }
+    msg.textContent = '';
+    try {
+      await api('/api/users/change-password', { method:'POST', body: JSON.stringify({ password: a }) });
+      $('pwResetModal').classList.add('hide');
+      const u = _pwResetUser || {}; u.mustChangePassword = false; _pwResetUser = null;
+      enterApp(u);
+    } catch (e) { msg.textContent = e.message; }
   };
 
   // --- Microsoft SSO surfacing + cookie auto-login ---
@@ -2875,7 +2913,7 @@
   async function boot() {
     // Check the session FIRST so a logged-in user (e.g. returning from the signature page) never sees a
     // flash of the login screen — it stays hidden until we confirm they're actually signed out.
-    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); enterApp(me.user); return; } } catch(_){}
+    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); if (me.user.mustChangePassword) { forcePwReset(me.user); return; } enterApp(me.user); return; } } catch(_){}
     // Not signed in → now reveal the login screen and decorate it with the SSO options.
     cleanUrl();
     $('loginView').classList.remove('hide');

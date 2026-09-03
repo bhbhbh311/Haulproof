@@ -162,6 +162,8 @@ addColumn('drivers', 'pinHash', 'TEXT'); // optional per-driver PIN (bcrypt) tha
 addColumn('pods', 'assignedDriverId', 'TEXT');   // a prepared doc can be assigned to a specific driver
 addColumn('pods', 'assignedDriverName', 'TEXT');
 addColumn('pods', 'clientId', 'TEXT');   // the phone's stable id per document, so a retried upload can't create a duplicate
+addColumn('users', 'mustChangePassword', 'INTEGER NOT NULL DEFAULT 0');  // force a password reset on first login
+addColumn('drivers', 'mustChangePin', 'INTEGER NOT NULL DEFAULT 0');     // force the driver to set their own PIN on first use
 addColumn('pods', 'assignedFulfilledAt', 'INTEGER');   // set when the assigned prepared doc gets signed → drops off "Your loads"
 addColumn('pods', 'signedByDriverId', 'TEXT');   // which driver (personal token) signed this → powers "your recent documents"
 addColumn('pods', 'offeredToOrgId', 'TEXT');

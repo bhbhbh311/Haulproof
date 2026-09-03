@@ -52,7 +52,12 @@ app.post('/api/auth/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/me', requireAuth, (req, res) => res.json({ user: req.user }));
+app.get('/api/me', requireAuth, (req, res) => {
+  // Surface the forced-password-reset flag so a cookie auto-login enforces it too.
+  let mustChangePassword = false;
+  try { const u = db.prepare('SELECT mustChangePassword FROM users WHERE id = ?').get(req.user.sub); mustChangePassword = !!(u && u.mustChangePassword); } catch (e) {}
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword }) });
+});
 
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.
 // Token comes from an admin generating a login link (POST /api/users/:id/login-link).
