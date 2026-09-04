@@ -1701,6 +1701,10 @@
   function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
   // Clean CURRENT status for the loads list (derived from the latest event). Full history is one click away.
   function loadStatusChip(l) {
+    // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
+    // a driver's upload waiting on dispatch reads "Needs setup" (not a vague "Updated").
+    if (l.needsSetup) return '<span class="chip received">Needs setup</span>';
+    if (l.readyToSign) return '<span class="chip prepared">Ready to sign</span>';
     const t = l.lastEvent && l.lastEvent.type;
     const map = { created: ['received', 'Open'], document_uploaded: ['prepared', 'Doc uploaded'], prepared: ['prepared', 'Ready to sign'],
       broker_assigned: ['prepared', 'With broker'], carrier_assigned: ['prepared', 'Carrier assigned'], driver_assigned: ['prepared', 'Driver assigned'],
@@ -1728,7 +1732,7 @@
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
           <td>${loadStatusChip(l)}</td>
-          <td style="text-align:right;"><button class="ghost ldOpen" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">Open ›</button></td>
+          <td style="text-align:right;"><button class="${l.needsSetup ? 'ldOpen btn-sm' : 'ghost ldOpen'}" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">${l.needsSetup ? '⚙ Set up ›' : 'Open ›'}</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
       box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
@@ -1747,9 +1751,7 @@
       if (newId) {
         // Open the new load straight into edit mode with the add-stop form ready, so stops, receivers,
         // sales reps and documents can all be added right here — the load and its stops in one place.
-        await openLoad(newId);
-        setLoadEditMode(true);
-        if ($('ldAddStopToggle')) $('ldAddStopToggle').click();
+        await openLoad(newId, { setup: true });   // opens the one-page setup form with the add-document area ready
       } else { loadLoads(); }
     } catch (e) { $('nlMsg').textContent = e.message; $('nlMsg').className = 'umsg-err'; }
   };
@@ -1798,7 +1800,11 @@
       ldPageState = []; ldFileBufs = [];
       loadReceiverOptions();
       populateLdCustomer();
-      renderLdView(); setLoadEditMode(false);
+      renderLdView();
+      // Drop straight into the one-page setup form when the load needs setting up (a driver upload is
+      // waiting, or the caller asked for setup) — no hunting for the Edit button.
+      const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
+      setLoadEditMode(!!((opts && opts.setup) || _needsSetup));
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
@@ -2082,6 +2088,8 @@
       // For now, carriers can't hand a load to a broker or another carrier (no broker authority) — hide the
       // assign section for carrier logins. (Revisit once we detect double authority via FMCSA.)
       if (isCarrierUser() && $('ldCarrierSection')) $('ldCarrierSection').classList.add('hide');
+      // New/empty load → open the "add document" area so setup prompts for everything, including the file.
+      if ($('ldStopForm') && (!_lastPods || !_lastPods.length)) $('ldStopForm').classList.remove('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
     } else {
       if ($('ldStopForm')) $('ldStopForm').classList.add('hide');
@@ -2118,9 +2126,15 @@
     }
     box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>' +
       pods.map(p => `<tr>
-        <td><span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span></td>
-        <td>${esc(p.docType) || 'POD'}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
-        <td>${esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>'}</td>
+        <td>${editing
+          ? `<input class="ldStopEdit" data-id="${p.id}" type="number" min="1" step="1" value="${p.stopNumber || 1}" style="width:60px;text-align:center;padding:6px;">`
+          : `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span>`}</td>
+        <td>${editing
+          ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'POD')===t?' selected':''}>${t}</option>`).join('')}</select>`
+          : (esc(p.docType) || 'POD')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
+        <td>${editing
+          ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}</select>`
+          : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
@@ -2128,7 +2142,7 @@
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady btn-ok btn-sm" data-id="${p.id}" type="button">✅ Mark ready for driver</button>` : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button">⎘ Split into stops</button>` : ''}
-          ${editing ? `&nbsp;<button class="ghost ldDocEdit" data-id="${p.id}" style="padding:3px 8px;font-size:12px;">Edit</button>&nbsp;<button class="ghost ldDocRm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" style="padding:3px 8px;font-size:12px;color:#c0392b;">Remove</button>` : ''}
+          ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
     const byId = {}; pods.forEach(p => byId[p.id] = p);
@@ -2403,6 +2417,23 @@
       if ($('ldSubsList')) {
         const ids = Array.prototype.map.call($('ldSubsList').querySelectorAll('.ldSubCb:checked'), c => c.value);
         try { await api('/api/loads/' + curLoad.id + '/subscribers', { method: 'PUT', body: JSON.stringify({ userIds: ids }) }); } catch (e) {}
+      }
+      // 4) Per-document stop # / type / receiver — edited inline in the docs table (no separate Edit clicks)
+      const docBox = $('ldDocs');
+      if (docBox) {
+        const stopInputs = Array.prototype.slice.call(docBox.querySelectorAll('.ldStopEdit'));
+        for (const inp of stopInputs) {
+          const pid = inp.dataset.id;
+          const typeSel = docBox.querySelector('.ldTypeEdit[data-id="' + pid + '"]');
+          const recvSel = docBox.querySelector('.ldRecvEdit[data-id="' + pid + '"]');
+          try {
+            await api('/api/pods/' + pid, { method: 'PUT', body: JSON.stringify({
+              stopNumber: inp.value.trim(),
+              docType: typeSel ? typeSel.value : undefined,
+              receiverId: recvSel ? recvSel.value : undefined
+            }) });
+          } catch (e) {}
+        }
       }
       openLoad(curLoad.id, { back: _ldBackFn });
     } catch (e) { $('ldEditMsg').textContent = e.message; $('ldEditMsg').className = 'umsg-err'; }
@@ -3416,7 +3447,8 @@
     ['uReceiver','ldReceiver','seReceiver'].forEach(function(id){ var s = $(id); if(s){ makeSearchable(s, 'Type to search receivers…'); if(s._ssSync) s._ssSync(); } });
   }
   // Fill just the pickers (for anyone who can file a document).
-  async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); fillReceiverPickers(d.receivers || []); } catch(e){} }
+  let _recvList = [];   // cached receivers, reused for the inline "Delivered to" selects in the docs table
+  async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); _recvList = d.receivers || []; fillReceiverPickers(_recvList); if ($('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){} }
   // Full management list (super-admin).
   async function loadReceivers(){
     const box = $('receiverRows'); if (!box) return;
