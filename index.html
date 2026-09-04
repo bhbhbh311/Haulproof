@@ -1812,6 +1812,7 @@
       if ($('ldPagePicker')) { $('ldPagePicker').innerHTML = ''; $('ldPagePicker').classList.add('hide'); }
       ldPageState = []; ldFileBufs = [];
       loadReceiverOptions();
+      loadRepOptions();
       populateLdCustomer();
       renderLdView();
       // Drop straight into the one-page setup form when the load needs setting up (a driver upload is
@@ -2127,9 +2128,10 @@
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
     if (!pods.length) {
-      box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>'
+      box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Sales rep</th><th>Status</th><th></th></tr></thead><tbody>'
         + '<tr>'
         + '<td><span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop 1</span></td>'
+        + '<td><span class="empty">—</span></td>'
         + '<td><span class="empty">—</span></td>'
         + '<td><span class="empty">—</span></td>'
         + '<td><span class="chip" style="background:var(--surface2,#eef3fb);color:var(--muted);">Awaiting document</span></td>'
@@ -2142,7 +2144,7 @@
       };
       return;
     }
-    box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Status</th><th></th></tr></thead><tbody>' +
+    box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Sales rep</th><th>Status</th><th></th></tr></thead><tbody>' +
       pods.map(p => `<tr>
         <td>${editing
           ? `<input class="ldStopEdit" data-id="${p.id}" type="number" min="1" step="1" value="${p.stopNumber || 1}" style="width:60px;text-align:center;padding:6px;">`
@@ -2153,6 +2155,9 @@
         <td>${editing
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
+        <td>${editing
+          ? `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===p.salesRepUserId?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`
+          : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
@@ -2210,12 +2215,45 @@
         } });
       };
     });
+    wireInlineRepSelects(box);
   }
   // Add a newly-created receiver as a selectable option to every inline "Delivered to" dropdown, without
   // rebuilding the docs table (so unsaved stop/type/receiver edits on the other rows survive).
   function injectInlineRecvOption(id, name) {
     const box = $('ldDocs'); if (!box) return;
     box.querySelectorAll('.ldRecvEdit').forEach(sel => {
+      if (sel.querySelector('option[value="' + id + '"]')) return;
+      const opt = document.createElement('option'); opt.value = id; opt.textContent = name;
+      const addOpt = sel.querySelector('option[value="__add__"]');
+      if (addOpt) sel.insertBefore(opt, addOpt); else sel.appendChild(opt);
+    });
+  }
+  // Inline "Sales rep" — pick an existing team login OR add a new one right here, same pattern as receivers.
+  function wireInlineRepSelects(box) {
+    box.querySelectorAll('.ldRepEdit').forEach(sel => {
+      sel.dataset.prev = sel.value;
+      sel.onchange = () => {
+        if (sel.value !== '__add__') { sel.dataset.prev = sel.value; return; }
+        sel.value = sel.dataset.prev || '';
+        openSalesRepModal({ onDone: (id) => {
+          _suppressDocsRerender = true;
+          loadRepOptions().then(() => {
+            _suppressDocsRerender = false;
+            if (id) {
+              const u = (_repList || []).find(x => x.id === id);
+              injectInlineRepOptions(id, u ? (u.name || u.email) : 'New sales rep');
+              sel.value = id; sel.dataset.prev = id;
+            }
+          });
+        } });
+      };
+    });
+  }
+  // Append a just-added sales rep as an option to every inline "Sales rep" dropdown without a re-render.
+  function injectInlineRepOptions(id, name) {
+    if (!id) return;
+    const box = $('ldDocs'); if (!box) return;
+    box.querySelectorAll('.ldRepEdit').forEach(sel => {
       if (sel.querySelector('option[value="' + id + '"]')) return;
       const opt = document.createElement('option'); opt.value = id; opt.textContent = name;
       const addOpt = sel.querySelector('option[value="__add__"]');
@@ -2478,11 +2516,13 @@
           const pid = inp.dataset.id;
           const typeSel = docBox.querySelector('.ldTypeEdit[data-id="' + pid + '"]');
           const recvSel = docBox.querySelector('.ldRecvEdit[data-id="' + pid + '"]');
+          const repSel = docBox.querySelector('.ldRepEdit[data-id="' + pid + '"]');
           try {
             await api('/api/pods/' + pid, { method: 'PUT', body: JSON.stringify({
               stopNumber: inp.value.trim(),
               docType: typeSel ? typeSel.value : undefined,
-              receiverId: recvSel ? (recvSel.value === '__add__' ? '' : recvSel.value) : undefined
+              receiverId: recvSel ? (recvSel.value === '__add__' ? '' : recvSel.value) : undefined,
+              salesRepUserId: repSel ? (repSel.value === '__add__' ? '' : repSel.value) : undefined
             }) });
           } catch (e) {}
         }
@@ -3517,8 +3557,11 @@
   }
   // Fill just the pickers (for anyone who can file a document).
   let _recvList = [];   // cached receivers, reused for the inline "Delivered to" selects in the docs table
-  let _suppressDocsRerender = false;   // set while injecting a just-added receiver, so in-progress inline edits aren't wiped
+  let _repList = [];    // cached team logins, reused for the inline "Sales rep" selects in the docs table
+  let _suppressDocsRerender = false;   // set while injecting a just-added receiver/rep, so in-progress inline edits aren't wiped
   async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); _recvList = d.receivers || []; fillReceiverPickers(_recvList); if (!_suppressDocsRerender && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){} }
+  // Team logins for the inline "Sales rep" column, scoped to the load's owning org for a Master Admin.
+  async function loadRepOptions(){ try { const scope = ldScopeOrgId(); if (scope) { const r = await api('/api/users?orgId=' + encodeURIComponent(scope)); _repList = r.users || []; } else { _repList = await getTeamUsers(); } if (!_suppressDocsRerender && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){ _repList = []; } }
   // Full management list (super-admin).
   async function loadReceivers(){
     const box = $('receiverRows'); if (!box) return;
