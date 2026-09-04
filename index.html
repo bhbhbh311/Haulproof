@@ -2099,6 +2099,9 @@
       if ($('ldSubsCaret')) $('ldSubsCaret').textContent = '▾';
       if ($('ldDrvBtn')) $('ldDrvBtn').classList.add('hide');
       if ($('ldSubsSave')) $('ldSubsSave').classList.add('hide');
+      // The header "Not set — tap to add" summary is a second "add a driver" prompt — redundant once the
+      // section is open with the driver dropdown + "Add / create driver" button showing. Hide it while editing.
+      if ($('ldDrvSummary')) $('ldDrvSummary').classList.add('hide');
       // For now, carriers can't hand a load to a broker or another carrier (no broker authority) — hide the
       // assign section for carrier logins. (Revisit once we detect double authority via FMCSA.)
       if (isCarrierUser() && $('ldCarrierSection')) $('ldCarrierSection').classList.add('hide');
@@ -2106,6 +2109,7 @@
       if ($('ldStopForm') && (!_lastPods || !_lastPods.length)) $('ldStopForm').classList.remove('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
     } else {
+      if ($('ldDrvSummary')) $('ldDrvSummary').classList.remove('hide');   // view mode: show the driver summary again
       if ($('ldStopForm')) $('ldStopForm').classList.add('hide');
       if ($('ldHistoryWrap')) $('ldHistoryWrap').classList.add('hide');
       if ($('ldHistoryLink')) $('ldHistoryLink').textContent = 'View history ▾';
