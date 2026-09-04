@@ -156,6 +156,9 @@
   .datefield{position:absolute;background:var(--surface);border:1px dashed var(--tab-line);color:var(--ink);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:10.5px;box-shadow:0 2px 6px rgba(0,0,0,.12);overflow:visible;touch-action:none;user-select:none;white-space:nowrap;cursor:grab;}
   .datefield.driver{border-color:var(--driver-line);}
   .datefield.filled{border-style:solid;font-weight:700;}
+  /* "Examples only" boxes around the demo buttons so drivers know they're just for trying the app */
+  .demobox{max-width:420px;margin:12px auto 0;border:1.5px dashed var(--line-strong,#c6d0db);border-radius:12px;padding:10px 12px 12px;text-align:center;background:rgba(120,130,150,.06);}
+  .demolbl{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#5c6b7a);margin-bottom:8px;}
   .datefield.dragging{cursor:grabbing;opacity:.92;}
   .tab .content,.datefield .content{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 4px;}
   .tab .content img,.datefield .content img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
@@ -361,8 +364,8 @@
   <section class="view hide" id="viewSetPin">
     <div class="signon">
       <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
-      <h1>Set your own PIN</h1>
-      <p class="sub">Pick a new 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
+      <h1 id="setPinTitle">Set your own PIN</h1>
+      <p class="sub" id="setPinSub">Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
       <div class="fields">
         <input class="ti" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;margin-bottom:10px;">
         <input class="ti" id="setPin2" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Confirm PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;">
@@ -429,8 +432,11 @@
     </div>
     <div class="rowbtns">
       <button class="btn ghost sm" id="addStopBtn" type="button">＋ Add stop</button>
-      <button class="btn ghost sm" id="sampleRouteBtn" type="button">Load sample route</button>
       <button class="btn ghost sm" id="clearRouteBtn" type="button">Clear route</button>
+    </div>
+    <div class="demobox">
+      <div class="demolbl">Examples only — for trying the app</div>
+      <button class="btn ghost sm" id="sampleRouteBtn" type="button">Load sample route</button>
     </div>
     <p class="note" id="engineNote">Loading signing engine…</p>
   </section>
@@ -495,7 +501,10 @@
         <button class="btn primary sm" id="capDone" type="button">✓ Use these pages</button>
       </div>
     </div>
-    <div class="rowbtns" style="justify-content:center;"><button class="btn ghost sm" id="sampleDocBtn" type="button">Load a sample packet</button></div>
+    <div class="demobox">
+      <div class="demolbl">Examples only — for trying the app</div>
+      <button class="btn ghost sm" id="sampleDocBtn" type="button">Load a sample packet</button>
+    </div>
 
     <div class="banner" id="banner">
       <span class="rolechip" id="roleChip">Consignee</span>
@@ -825,7 +834,10 @@ window.__startApp=function(){
     }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
   }
   var _lastPin="";   // the PIN the driver just entered, so we can authorize their PIN change
-  function showSetPinGate(){ if($("setPin1"))$("setPin1").value=""; if($("setPin2"))$("setPin2").value=""; if($("setPinErr"))$("setPinErr").textContent=""; showView("setpin"); setTimeout(function(){ try{ $("setPin1").focus(); }catch(e){} },40); }
+  function showSetPinGate(isCreate){ if($("setPin1"))$("setPin1").value=""; if($("setPin2"))$("setPin2").value=""; if($("setPinErr"))$("setPinErr").textContent="";
+    if($("setPinTitle")) $("setPinTitle").textContent = isCreate ? "Create your PIN" : "Set your own PIN";
+    if($("setPinSub")) $("setPinSub").textContent = isCreate ? "Welcome! Pick a 4–6 digit PIN only you know — you'll use it to unlock this link on your phone." : "Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.";
+    showView("setpin"); setTimeout(function(){ try{ $("setPin1").focus(); }catch(e){} },40); }
   async function saveNewPin(){
     var p1=($("setPin1").value||"").trim(), p2=($("setPin2").value||"").trim(), err=$("setPinErr");
     if(!/^\d{4,6}$/.test(p1)){ err.textContent="Enter a 4–6 digit PIN"; return; }
@@ -882,6 +894,8 @@ window.__startApp=function(){
     }
     if(info && info.name){ setDriver(info.name); }          // remember the driver's real name for offline opens
     if(info){ setCompany(info.company, info.companyKind); }  // and which company / kind their link belongs to
+    // Brand-new driver with no PIN yet → have them create their own right away (no admin-set PIN to enter first).
+    if(info && info.needsPinCreate && !loadUnlock()){ _lastPin=""; showSetPinGate(true); return; }
     if(info && info.requiresPin && !loadUnlock()){ showPinGate(); return; }
     finishStart();
   }

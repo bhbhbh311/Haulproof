@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createUser, requireAuth, requireAdmin } = require('./auth');
 const { db } = require('./db');
+const { sendMail } = require('./mailer');
 
 const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -58,15 +59,27 @@ router.post('/', requireAuth, (req, res) => {
   const { email, name, role, password } = req.body || {};
   const em = (email || '').toLowerCase().trim();
   if (!EMAIL_RE.test(em)) return res.status(400).json({ error: 'Enter a valid email address' });
-  if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  // Password is OPTIONAL now: leave it blank and we generate a temporary one and a sign-in link — the person
+  // sets their own password the first time they open it. If an admin does type one, it must be 6+ chars.
+  if (password && String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters (or leave it blank to send a set-up link)' });
   let r = role === 'admin' ? 'admin' : (role === 'sales' ? 'sales' : 'dispatcher'); // never create a superadmin here
   if (isDispatcher && r !== 'sales') return res.status(403).json({ error: 'Dispatchers can only add sales reps' });
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
   try {
-    const u = createUser({ email: em, name: name || '', role: r, password: String(password), orgId });
-    // Admin-created logins start with a temporary password — force the user to set their own on first login.
+    const temp = (password && String(password).length >= 6) ? String(password) : crypto.randomBytes(4).toString('hex'); // 8-char temp when none given
+    const u = createUser({ email: em, name: name || '', role: r, password: temp, orgId });
+    // New logins always start on a temporary password — force the user to set their own on first sign-in.
     try { db.prepare('UPDATE users SET mustChangePassword = 1 WHERE id = ?').run(u.id); } catch (e) {}
-    res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r } });
+    // Generate a "here's your login" link (shows the temp password + sign-in) so the admin doesn't invent one.
+    const token = crypto.randomBytes(24).toString('hex');
+    const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;   // link good for 7 days
+    db.prepare('DELETE FROM login_links WHERE userId = ?').run(u.id);
+    db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, u.id, temp, expiresAt, now);
+    const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+    const link = origin + '/login-info?t=' + token;
+    sendMail({ to: em, subject: 'Your HaulProof login is ready',
+      text: `You've been set up on HaulProof${name ? ', ' + name : ''}.\n\nOpen this link to sign in and choose your own password:\n${link}\n\nThis link expires in 7 days.` });
+    res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r }, link, email: em, expiresAt });
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
 

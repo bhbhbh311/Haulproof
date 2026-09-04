@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
-const { sendMail } = require('./mailer');
+const { sendMail, helpEmail } = require('./mailer');
 
 const router = express.Router();
 
@@ -57,7 +57,9 @@ function driverOut(req, d) {
 router.get('/link-info', (req, res) => {
   const r = resolveKey(req);
   if (!r) return res.status(401).json({ error: 'This link is not valid' });
-  res.json({ requiresPin: !!(r.driver && r.driver.pinHash), name: r.driver ? r.driver.name : '',
+  res.json({ requiresPin: !!(r.driver && r.driver.pinHash),
+    needsPinCreate: !!(r.driver && !r.driver.pinHash),   // brand-new driver with no PIN yet → prompt them to create one
+    name: r.driver ? r.driver.name : '',
     company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
 });
 // Exchange the correct PIN for an "unlock" value the app stores and replays on every request.
@@ -85,6 +87,58 @@ router.post('/change-pin', (req, res) => {
   db.prepare(`UPDATE drivers SET pinHash = ?, mustChangePin = 0 WHERE id = ?`).run(newHash, d.id);
   const updated = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id);
   res.json({ ok: true, unlock: driverUnlockValue(updated) });
+});
+
+// Driver "Forgot PIN". The link itself is the driver's credential, so we NEVER show a new PIN on the
+// screen. Instead, if the driver has an email on file we set a fresh temporary PIN (forcing them to
+// pick their own on next unlock) and email it to that address. If there's no email on file we can't
+// deliver it safely, so we route a help request to the support inbox for a human to reset it.
+function maskEmail(e) {
+  const s = String(e || ''); const at = s.indexOf('@');
+  if (at < 1) return s;
+  const name = s.slice(0, at), dom = s.slice(at);
+  return (name[0] || '') + '***' + (name.length > 1 ? name[name.length - 1] : '') + dom;
+}
+router.post('/forgot-pin', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const d = r.driver;
+  const orgName = r.org ? r.org.name : '';
+  if (d.email) {
+    const temp = String(1000 + Math.floor(Math.random() * 9000));   // fresh 4-digit temporary PIN
+    db.prepare(`UPDATE drivers SET pinHash = ?, mustChangePin = 1 WHERE id = ?`).run(bcrypt.hashSync(temp, 10), d.id);
+    sendMail({
+      to: d.email,
+      subject: 'Your HaulProof driver PIN was reset',
+      text: `Hi ${d.name || 'there'},\n\nYou asked to reset the PIN for your HaulProof driver link${orgName ? ' (' + orgName + ')' : ''}.\n\nYour temporary PIN is: ${temp}\n\nOpen your driver link, enter this PIN, and you'll be asked to choose a new PIN only you know.\n\nIf you didn't request this, contact your dispatcher.`,
+    });
+    return res.json({ ok: true, emailed: true, to: maskEmail(d.email) });
+  }
+  // No email on file — hand it to support.
+  sendMail({
+    to: helpEmail(),
+    subject: 'HaulProof help request — driver PIN reset',
+    text: `Driver "${d.name || '(unnamed)'}"${orgName ? ' at ' + orgName : ''} tapped "Forgot PIN" but has no email on file, so an automatic reset couldn't be sent.\n\nPlease reset this driver's PIN from the portal (Drivers → edit → set a new PIN).\n\n— Sent automatically from the HaulProof driver app.`,
+  });
+  res.json({ ok: true, emailed: false, helpSent: true });
+});
+
+// Driver "Still need help" — free-text note routed to the support inbox.
+router.post('/help', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const d = r.driver;
+  const orgName = r.org ? r.org.name : '';
+  const note = String((req.body && req.body.note) || '').trim().slice(0, 2000);
+  sendMail({
+    to: helpEmail(),
+    subject: 'HaulProof help request — driver PIN reset',
+    text: `Driver "${d.name || '(unnamed)'}"${orgName ? ' at ' + orgName : ''} needs help with their PIN.\n\n`
+      + (d.email ? `Their email on file: ${d.email}\n` : `No email on file.\n`)
+      + (note ? `\nWhat they said:\n${note}\n` : `\n(They didn't add a note.)\n`)
+      + `\n— Sent automatically from the HaulProof driver app.`,
+  });
+  res.json({ ok: true, message: "Thanks — we've sent your request to support." });
 });
 
 // Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
@@ -208,9 +262,10 @@ router.post('/', requireAuth, requireDriverManager, (req, res) => {
   const pin = String((req.body && req.body.pin) || '').trim();
   if (!name) return res.status(400).json({ error: "Enter the driver's name" });
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
-  if (!PIN_RE.test(pin)) return res.status(400).json({ error: 'Set a 4–6 digit PIN for this driver' });   // a PIN is required for every driver
+  // PIN is optional now: leave it blank and the driver creates their own the first time they open the link.
+  if (pin && !PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits, or leave it blank so the driver sets it' });
   const id = crypto.randomUUID();
-  // The admin sets the initial PIN, so the driver is prompted to set their own on first use.
+  // Either way the driver is prompted on first use — to change an admin-set PIN, or to create their own when none was set.
   db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)
     .run(id, orgId, name, phone || null, email || null, pin ? bcrypt.hashSync(pin, 10) : null, newToken(), Date.now());
   res.status(201).json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });

@@ -553,7 +553,7 @@
           <div><label>Email</label><input id="cmuEmail" type="email" placeholder="person@customer.com"></div>
           <div><label>Name</label><input id="cmuName" placeholder="Full name"></div>
           <div><label>Role</label><select id="cmuRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
-          <div><label>Temp password</label><input id="cmuPass" placeholder="at least 6 characters"></div>
+          <div><label>Temp password <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank to send a set-up link</span></label><input id="cmuPass" placeholder="Leave blank — they set their own"></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmuBtn" type="button">Add login</button>
@@ -568,7 +568,7 @@
           <div><label>Driver name</label><input id="cmdName" placeholder="e.g. Mike Rowe"></div>
           <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdPhone" placeholder="(555) 555-5555"></div>
           <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdEmail" type="email" placeholder="driver@email.com"></div>
-          <div><label>PIN <span style="color:#c0392b;">*required</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
+          <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank & the driver sets it</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="Leave blank — driver creates their own"></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmdBtn" type="button">Add driver</button>
@@ -967,7 +967,7 @@
         <div><label>Email</label><input id="nuEmail" type="email" placeholder="person@callahantrans.com"></div>
         <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
         <div><label>Role</label><select id="nuRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
-        <div><label>Temp password</label><input id="nuPass" placeholder="at least 6 characters"></div>
+        <div><label>Temp password <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank to send a set-up link</span></label><input id="nuPass" placeholder="Leave blank — they set their own"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="nuBtn" type="button">Create login</button>
@@ -993,7 +993,7 @@
         <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
         <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
         <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndEmail" type="email" placeholder="driver@email.com"></div>
-        <div><label>PIN <span style="color:#c0392b;">*required</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="4–6 digits, locks their link"></div>
+        <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank & the driver sets it</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="Leave blank — driver creates their own"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="ndBtn" type="button">Add driver</button>
@@ -1675,12 +1675,12 @@
   async function addDriver(orgId, nameEl, phoneEl, emailEl, pinEl, msgEl, tbody) {
     const name = nameEl.value.trim(), phone = phoneEl.value.trim(), email = emailEl ? emailEl.value.trim() : '', pin = pinEl ? pinEl.value.trim() : '';
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
-    if (!/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'Set a 4–6 digit PIN for this driver'; msgEl.className = 'umsg-err'; if (pinEl) pinEl.focus(); return; }
+    if (pin && !/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'PIN must be 4–6 digits, or leave it blank so the driver sets their own'; msgEl.className = 'umsg-err'; if (pinEl) pinEl.focus(); return; }
     msgEl.textContent = 'Adding…'; msgEl.className = '';
     try {
       const body = { name, phone, email, pin }; if (orgId) body.orgId = orgId;
       await api('/api/drivers', { method: 'POST', body: JSON.stringify(body) });
-      msgEl.textContent = 'Added ✓ — send them their link from the table'; msgEl.className = 'umsg-ok';
+      msgEl.textContent = pin ? 'Added ✓ — send them their link from the table' : 'Added ✓ — they create their own PIN when they first open their link'; msgEl.className = 'umsg-ok';
       nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; if (pinEl) pinEl.value = ''; loadDrivers(orgId, tbody);
     } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
   }
@@ -2814,12 +2814,13 @@
   $('cmuBtn').onclick = async () => {
     const email = $('cmuEmail').value.trim(), name = $('cmuName').value.trim(), role = $('cmuRole').value, password = $('cmuPass').value;
     if (!email) { cmMsg($('cmuMsg'), 'Enter an email', 'err'); return; }
-    if (!password || password.length < 6) { cmMsg($('cmuMsg'), 'Password must be at least 6 characters', 'err'); return; }
+    if (password && password.length < 6) { cmMsg($('cmuMsg'), 'Password must be at least 6 characters (or leave it blank)', 'err'); return; }
     cmMsg($('cmuMsg'), 'Adding…');
     try {
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password, orgId: cmOrgId }) });
-      cmMsg($('cmuMsg'), 'Added ✓ — give them this email + password', 'ok');
+      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password, orgId: cmOrgId }) });
+      cmMsg($('cmuMsg'), 'Added ✓ — share their sign-in link', 'ok');
       $('cmuEmail').value = ''; $('cmuName').value = ''; $('cmuPass').value = ''; cmLoadUsers();
+      if (r && r.link) showLoginLink(r.link, r.email);
     } catch (e) { cmMsg($('cmuMsg'), e.message, 'err'); }
   };
   $('cmUserRows').addEventListener('click', async (e) => {
@@ -2969,13 +2970,14 @@
   $('nuBtn').onclick = async () => {
     const email = $('nuEmail').value.trim(), name = $('nuName').value.trim(), role = $('nuRole').value, password = $('nuPass').value;
     if (!email) { nuMsg('Enter an email', 'err'); return; }
-    if (!password || password.length < 6) { nuMsg('Password must be at least 6 characters', 'err'); return; }
+    if (password && password.length < 6) { nuMsg('Password must be at least 6 characters (or leave it blank)', 'err'); return; }
     nuMsg('Creating…');
     try {
-      await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password }) });
-      nuMsg('Created ✓ — give them this email and password', 'ok');
+      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, password }) });
+      nuMsg('Created ✓ — share their sign-in link', 'ok');
       $('nuEmail').value = ''; $('nuName').value = ''; $('nuPass').value = '';
       loadUsers();
+      if (r && r.link) showLoginLink(r.link, r.email);   // show the setup link to copy/share; user sets their own password
     } catch (e) { nuMsg(e.message, 'err'); }
   };
   $('userRows').addEventListener('click', async (e) => {
