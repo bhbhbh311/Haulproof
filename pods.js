@@ -9,7 +9,7 @@ const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValu
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 const { descendantOrgIds } = require('./hierarchy');
-const { customerDocEmails } = require('./customers');
+const { customerDocEmails, customerRepEmails } = require('./customers');
 
 const router = express.Router();
 const raw = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '30mb' });
@@ -319,6 +319,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       if (p && p.salesRepUserId) { const u = db.prepare(`SELECT email FROM users WHERE id = ?`).get(p.salesRepUserId); if (u && u.email) notifyEmails.push(u.email); }
       db.prepare(`SELECT u.email FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(load.id).forEach(r => notifyEmails.push(r.email));
       db.prepare(`SELECT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId WHERE onf.orgId IS ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(orgId).forEach(r => notifyEmails.push(r.email));
+      // The load's customer's assigned sales reps also get the stop-completed update (covers customers with
+      // several reps — each of them is notified, not just the single per-stop rep above).
+      if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => notifyEmails.push(e));
     } catch (e) {}
     // The load's assigned customer's contacts who are flagged to receive signed documents.
     let customerEmails = [];

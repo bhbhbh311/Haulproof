@@ -940,6 +940,13 @@
           <div id="custModalContacts"></div>
         </div>
 
+        <!-- Sales reps: which team members own this customer (see its loads by default + get stop updates) -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
+          <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Sales reps for this customer</label>
+          <p style="color:var(--muted);font-size:12px;margin:4px 0 8px;">Reps you check here see this customer's loads in their list by default and are emailed when its stops complete. You can assign more than one.</p>
+          <div id="custModalReps"><div class="empty" style="font-size:12px;">Loading team…</div></div>
+        </div>
+
         <div id="custModalMsg" style="font-size:13px;margin:10px 0 0;"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
           <button class="ghost" id="custModalCancel" type="button">Cancel</button>
@@ -1841,6 +1848,8 @@
     try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
     catch (e) { _myCustomers = []; }
     renderCustomerPick(selectedId);
+    // Now that we know the customers (and their reps), fill in any empty per-stop rep with the customer default.
+    if ($('loadDetailCard') && $('loadDetailCard').classList.contains('editing')) applyCustomerDefaultRep();
   }
   async function populateLdCustomer() {
     const row = $('ldEditCustomerRow'), sel = $('ldEditCustomer'), pickWrap = $('ldEditCustomerPickWrap'), hint = $('ldEditCustomerHint'); if (!row) return;
@@ -1913,6 +1922,7 @@
     const cts = (existing && existing.contacts) || [];
     if (cts.length) cts.forEach(c => custAddContactRow(c.name, c.email, c.receiveDocs));
     else custAddContactRow('', '', true);   // one empty row so it's obvious where to add recipients
+    renderCustModalReps((existing && existing.salesRepUserIds) || []);
     if ($('custModalMatches')) $('custModalMatches').innerHTML = '';
     if ($('custModalDup')) { $('custModalDup').classList.add('hide'); $('custModalDup').innerHTML = ''; }
     if ($('custModalMsg')) { $('custModalMsg').textContent = ''; $('custModalMsg').className = ''; }
@@ -1922,6 +1932,14 @@
       : 'Search your customer list or add a new one. We flag possible duplicates so the same company isn’t entered twice.';
     if ($('custModal')) $('custModal').classList.remove('hide');
     setTimeout(() => { if ($('custModalName')) $('custModalName').focus(); }, 30);
+  }
+  // Fill the "Sales reps for this customer" checkbox list with the org's team logins, checking assigned ones.
+  async function renderCustModalReps(selectedIds) {
+    const box = $('custModalReps'); if (!box) return;
+    const sel = new Set(selectedIds || []);
+    let users = []; try { users = await getTeamUsers(); } catch (e) { users = []; }
+    if (!users.length) { box.innerHTML = '<div class="empty" style="font-size:12px;">No team logins yet — add people under Team logins first, then assign them here.</div>'; return; }
+    box.innerHTML = users.map(u => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:6px;"><input type="checkbox" class="custRepCb" value="${esc(u.id)}" style="width:auto;"${sel.has(u.id) ? ' checked' : ''}> ${esc(u.name || u.email)}${u.role === 'sales' ? ' (sales)' : ''}</label>`).join('');
   }
   function closeCustModal() { if ($('custModal')) $('custModal').classList.add('hide'); }
   // Merge a saved customer into local state, refresh the picker + tab, and close.
@@ -1944,10 +1962,16 @@
       const recTxt = recips.length
         ? ('✉ Signed docs → ' + recips.map(x => esc(x.email)).join(', '))
         : '<span style="color:var(--muted);">No signed-doc recipients yet</span>';
+      const teamById = {}; (_teamUsers || []).forEach(u => teamById[u.id] = u);
+      const repNames = (c.salesRepUserIds || []).map(id => { const u = teamById[id]; return u ? esc(u.name || u.email) : null; }).filter(Boolean);
+      const repTxt = repNames.length
+        ? ('👤 Sales rep' + (repNames.length > 1 ? 's' : '') + ' → ' + repNames.join(', '))
+        : '<span style="color:var(--muted);">No sales rep assigned</span>';
       return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;flex-wrap:wrap;">'
         + '<div style="min-width:0;"><div style="font-weight:700;">' + esc(c.name) + '</div>'
         + (meta ? '<div style="color:var(--muted);font-size:12px;">' + meta + '</div>' : '')
-        + '<div style="font-size:12px;margin-top:2px;">' + recTxt + '</div></div>'
+        + '<div style="font-size:12px;margin-top:2px;">' + recTxt + '</div>'
+        + '<div style="font-size:12px;margin-top:2px;">' + repTxt + '</div></div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
         + '<button class="ghost mcEditBtn" data-id="' + esc(c.id) + '" type="button" style="font-size:12px;">Edit</button>'
         + '<button class="ghost mcRemoveBtn" data-id="' + esc(c.id) + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Remove</button>'
@@ -1973,6 +1997,7 @@
   async function loadMyCustomersTab() {
     try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
     catch (e) { _myCustomers = []; }
+    try { await getTeamUsers(); } catch (e) {}   // so the rows can show rep names
     renderMyCustomerRows();
     setTabCount('mycustomers', _myCustomers.length);
   }
@@ -2008,6 +2033,7 @@
       dotNumber: ($('custModalDot').value || '').trim(),
       note: ($('custModalNote').value || '').trim(),
       contacts: collectContacts(),
+      salesRepUserIds: Array.prototype.map.call(document.querySelectorAll('#custModalReps .custRepCb:checked'), c => c.value),
     };
   }
   // Save. Edit → PUT. Create → POST (server returns existed:true on an exact-name match unless force).
@@ -2043,6 +2069,9 @@
     } catch (e) { if (msg) { msg.textContent = e.message; msg.className = 'umsg-err'; } }
   }
   if ($('ldCustAddBtn')) $('ldCustAddBtn').onclick = () => openCustModal();
+  // Changing the load's customer fills in any empty per-stop Sales rep with that customer's rep (when it has
+  // exactly one). Only the carrier/customer picker maps to a customer-list entry that carries reps.
+  if ($('ldEditCustomerPick')) $('ldEditCustomerPick').addEventListener('change', () => applyCustomerDefaultRep($('ldEditCustomerPick').value));
   if ($('custModalCancel')) $('custModalCancel').onclick = closeCustModal;
   if ($('custModalSave')) $('custModalSave').onclick = () => saveCustModal(false);
   if ($('custModalName')) $('custModalName').addEventListener('input', () => { clearTimeout(_custMatchT); _custMatchT = setTimeout(custLookMatches, 250); });
@@ -2122,6 +2151,21 @@
     const nums = pods.map(p => p.stopNumber).filter(n => n != null);
     return nums.length ? (Math.max.apply(null, nums) + 1) : 1;
   }
+  // The single sales rep to auto-fill new stops with, IF the load's customer has exactly one rep assigned.
+  // (With zero or several reps we don't guess — the dispatcher picks per stop.)
+  function customerDefaultRepId(custId) {
+    const cid = (custId !== undefined) ? custId : (curLoad && curLoad.customerId);
+    if (!cid) return '';
+    const c = (_myCustomers || []).find(x => x.id === cid);
+    return (c && Array.isArray(c.salesRepUserIds) && c.salesRepUserIds.length === 1) ? c.salesRepUserIds[0] : '';
+  }
+  // Fill any still-empty inline "Sales rep" selects with the customer's default rep (used after the customer
+  // list loads or the customer is changed, without re-rendering the table so other inline edits survive).
+  function applyCustomerDefaultRep(custId) {
+    const def = customerDefaultRepId(custId); if (!def) return;
+    const box = $('ldDocs'); if (!box) return;
+    box.querySelectorAll('.ldRepEdit').forEach(sel => { if (!sel.value) { sel.value = def; sel.dataset.prev = def; } });
+  }
   function renderLoadDocs(pods) {
     const box = $('ldDocs'); if (!box) return;
     const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
@@ -2156,7 +2200,7 @@
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
         <td>${editing
-          ? `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===p.salesRepUserId?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`
+          ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">

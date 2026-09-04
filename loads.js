@@ -6,6 +6,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth } = require('./auth');
 const { logEvent } = require('./events');
 const { brokerApproved } = require('./brokers');
+const { customerIdsForRep } = require('./customers');
 
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
@@ -60,6 +61,14 @@ router.get('/', requireAuth, (req, res) => {
   // Brokers see loads a customer handed to them.
   else if (isBroker(req)) { where.push(`(orgId IS ? OR brokerId = ?)`); args.push(req.user.orgId || null, req.user.orgId || ''); }
   else { where.push(`orgId IS ?`); args.push(myOrg(req)); }
+  // A sales rep's DEFAULT list shows only loads for the customers they're assigned to (so they aren't
+  // buried in other reps' work). They can still find anything by searching (q/po/load) — the filter only
+  // applies to the plain, unsearched list.
+  if (req.user.role === 'sales' && !q && !po && !load) {
+    const mine = customerIdsForRep(req.user.sub || req.user.id);
+    if (mine.length) { where.push(`customerId IN (${mine.map(() => '?').join(',')})`); args.push(...mine); }
+    else { where.push('1 = 0'); }   // no customers assigned yet → empty default list (search still works)
+  }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
@@ -73,10 +82,17 @@ router.get('/', requireAuth, (req, res) => {
   const orgName = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
   // A load is "complete" when it has at least one document and EVERY document is signed/emailed. Such loads
   // drop off the default Loads list (still findable via search) so only loads needing action remain.
-  const podStat = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`);
+  const podStat = db.prepare(`SELECT COUNT(*) AS total,
+     SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done,
+     SUM(CASE WHEN status = 'awaiting_build' THEN 1 ELSE 0 END) AS awaiting,
+     SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared
+     FROM pods WHERE loadId = ?`);
   const out = rows.map(l => {
     const o = { ...loadOut(l), lastEvent: lastEv.get(l.id) || null };
     const ps = podStat.get(l.id); o.complete = !!(ps && ps.total > 0 && Number(ps.done) === Number(ps.total));
+    // Actionable document state (drives a clear status pill instead of a vague "Updated"):
+    o.needsSetup = !!(ps && Number(ps.awaiting) > 0);   // a driver uploaded a doc for dispatch to set up
+    o.readyToSign = !!(ps && Number(ps.prepared) > 0);  // dispatch released it — waiting on the driver's signature
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     return o;
   });

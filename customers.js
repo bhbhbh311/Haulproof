@@ -31,12 +31,29 @@ function cleanContacts(arr) {
   return out;
 }
 function parseContacts(s) { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+// The team-login ids assigned to this customer as sales reps.
+function repsFor(customerId) {
+  try { return db.prepare(`SELECT userId FROM customer_reps WHERE customerId = ?`).all(customerId).map(r => r.userId); }
+  catch (e) { return []; }
+}
+// Replace a customer's assigned reps. Only accepts user ids that belong to the customer's owner org.
+function setReps(customerId, ownerOrgId, userIds) {
+  const ids = Array.isArray(userIds) ? userIds.map(x => String(x || '').trim()).filter(Boolean) : [];
+  const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(uid, ownerOrgId));
+  db.transaction(() => {
+    db.prepare(`DELETE FROM customer_reps WHERE customerId = ?`).run(customerId);
+    const ins = db.prepare(`INSERT OR IGNORE INTO customer_reps (customerId, userId, createdAt) VALUES (?,?,?)`);
+    valid.forEach(uid => ins.run(customerId, uid, Date.now()));
+  })();
+  return valid;
+}
 function cOut(c) {
   return {
     id: c.id, name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber,
     contactName: c.contactName, contactEmail: c.contactEmail, contactPhone: c.contactPhone,
     address: c.address, note: c.note, linkedOrgId: c.linkedOrgId,
     contacts: parseContacts(c.contacts),
+    salesRepUserIds: repsFor(c.id),
   };
 }
 // Pull the fields we accept off a request body (used by both create and edit).
@@ -87,6 +104,7 @@ router.post('/', requireAuth, (req, res) => {
   db.prepare(`INSERT INTO customers (id, ownerOrgId, name, mcNumber, dotNumber, contactName, contactEmail, contactPhone, address, contacts, note, createdAt)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, org, name, f.mcNumber, f.dotNumber, f.contactName, f.contactEmail, f.contactPhone, f.address, f.contacts, f.note, Date.now());
+  if (b.salesRepUserIds !== undefined) setReps(id, org, b.salesRepUserIds);
   res.status(201).json({ customer: cOut(db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id)), existed: false });
 });
 
@@ -107,6 +125,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const f = fieldsFrom(b);
   db.prepare(`UPDATE customers SET name = ?, mcNumber = ?, dotNumber = ?, contactName = ?, contactEmail = ?, contactPhone = ?, address = ?, contacts = ?, note = ? WHERE id = ?`)
     .run(name, f.mcNumber, f.dotNumber, f.contactName, f.contactEmail, f.contactPhone, f.address, f.contacts, f.note, row.id);
+  if (b.salesRepUserIds !== undefined) setReps(row.id, org, b.salesRepUserIds);
   // Keep the snapshot name on any of this org's loads pointing here in sync.
   try { db.prepare(`UPDATE loads SET customer = ? WHERE customerId = ? AND orgId IS ?`).run(name, row.id, org); } catch (e) {}
   res.json({ customer: cOut(db.prepare(`SELECT * FROM customers WHERE id = ?`).get(row.id)) });
@@ -134,5 +153,22 @@ function customerDocEmails(customerId) {
   } catch (e) { return []; }
 }
 
+// The customer ids a given team login is assigned to (used to scope a sales rep's loads list).
+function customerIdsForRep(userId) {
+  if (!userId) return [];
+  try { return db.prepare(`SELECT customerId FROM customer_reps WHERE userId = ?`).all(userId).map(r => r.customerId); }
+  catch (e) { return []; }
+}
+// The email addresses of a customer's assigned reps (used for stop-complete notifications).
+function customerRepEmails(customerId) {
+  if (!customerId) return [];
+  try {
+    return db.prepare(`SELECT u.email FROM customer_reps cr JOIN users u ON u.id = cr.userId
+      WHERE cr.customerId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(customerId).map(r => r.email);
+  } catch (e) { return []; }
+}
+
 module.exports = router;
 module.exports.customerDocEmails = customerDocEmails;
+module.exports.customerIdsForRep = customerIdsForRep;
+module.exports.customerRepEmails = customerRepEmails;

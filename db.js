@@ -299,6 +299,17 @@ CREATE TABLE IF NOT EXISTS customers (
   createdAt    INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_customers_owner ON customers(ownerOrgId);
+-- Which team logins (sales reps) are assigned to a customer. A customer can have several reps; a rep can
+-- cover several customers. Reps see their customers' loads by default and are notified when their stops
+-- complete. (Many-to-many between customers.id and users.id.)
+CREATE TABLE IF NOT EXISTS customer_reps (
+  customerId TEXT NOT NULL,
+  userId     TEXT NOT NULL,
+  createdAt  INTEGER,
+  PRIMARY KEY (customerId, userId)
+);
+CREATE INDEX IF NOT EXISTS idx_customer_reps_user ON customer_reps(userId);
+CREATE INDEX IF NOT EXISTS idx_customer_reps_cust ON customer_reps(customerId);
 -- Recipients who have opted out of receiving emailed documents. Legal (CAN-SPAM) compliance: once an
 -- address is here we never email it a document again. Email is stored lower-cased as the primary key.
 CREATE TABLE IF NOT EXISTS email_optouts (
