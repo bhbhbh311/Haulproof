@@ -1760,7 +1760,21 @@
   let curLoad = null;
   let _lastPods = [];      // most recent pods for the open load (so edit-mode re-render has them)
   let _ldBackFn = null;    // where "Back" returns to (set when opened from the Manage view)
+  let _ldDirty = false;    // true once the user has changed something in the open load's edit form
   async function openLoad(id, opts) {
+    opts = opts || {};
+    // Leaving an unsaved edit (Back, or jumping straight to another load) should ask first — don't silently
+    // discard changes. Reloading the SAME load (Save/Cancel) doesn't prompt.
+    if (!opts._confirmedLeave && curLoad && curLoad.id !== id
+        && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && _ldDirty) {
+      confirmDialog({
+        title: 'Leave without saving?',
+        message: 'You have unsaved changes on this load. If you leave now, they’ll be lost.',
+        okLabel: 'Leave without saving',
+        onOk: () => openLoad(id, Object.assign({}, opts, { _confirmedLeave: true }))
+      });
+      return;
+    }
     try {
       const r = await api('/api/loads/' + id);
       curLoad = r.load; _lastPods = r.pods || []; _ldBackFn = (opts && opts.back) || null;
@@ -1804,6 +1818,7 @@
       // waiting, or the caller asked for setup) — no hunting for the Edit button.
       const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
       setLoadEditMode(!!((opts && opts.setup) || _needsSetup));
+      _ldDirty = false;   // fresh load view: nothing changed yet
       window.scrollTo(0, 0);
     } catch (e) { alert(e.message); }
   }
@@ -2132,7 +2147,7 @@
           ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'POD')===t?' selected':''}>${t}</option>`).join('')}</select>`
           : (esc(p.docType) || 'POD')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
         <td>${editing
-          ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}</select>`
+          ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
@@ -2170,6 +2185,38 @@
       okLabel: 'Yes, delete',
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); } catch (e) { alert(e.message); } }
     }));
+    // Inline "Delivered to" — pick an existing receiver OR add a brand-new one right here. Adding one keeps
+    // every other in-progress edit on the row intact (we inject the option instead of re-rendering the table).
+    box.querySelectorAll('.ldRecvEdit').forEach(sel => {
+      sel.dataset.prev = sel.value;   // remember the last real pick so we can restore it if the add is cancelled
+      sel.onchange = () => {
+        if (sel.value !== '__add__') { sel.dataset.prev = sel.value; return; }
+        // Don't leave the box sitting on the "Add new…" placeholder while the modal is open.
+        sel.value = sel.dataset.prev || '';
+        openRecvModal({ onDone: (id) => {
+          _suppressDocsRerender = true;
+          loadReceiverOptions().then(() => {
+            _suppressDocsRerender = false;
+            if (id) {
+              const rc = (_recvList || []).find(r => r.id === id);
+              injectInlineRecvOption(id, rc ? rc.name : 'New receiver');
+              sel.value = id; sel.dataset.prev = id;
+            }
+          });
+        } });
+      };
+    });
+  }
+  // Add a newly-created receiver as a selectable option to every inline "Delivered to" dropdown, without
+  // rebuilding the docs table (so unsaved stop/type/receiver edits on the other rows survive).
+  function injectInlineRecvOption(id, name) {
+    const box = $('ldDocs'); if (!box) return;
+    box.querySelectorAll('.ldRecvEdit').forEach(sel => {
+      if (sel.querySelector('option[value="' + id + '"]')) return;
+      const opt = document.createElement('option'); opt.value = id; opt.textContent = name;
+      const addOpt = sel.querySelector('option[value="__add__"]');
+      if (addOpt) sel.insertBefore(opt, addOpt); else sel.appendChild(opt);
+    });
   }
   // ---- Reusable confirm dialog ----
   let _confirmOnOk = null;
@@ -2323,7 +2370,9 @@
           'X-Load': encodeURIComponent(p.loadNumber || curLoad.loadNumber || ''),
           'X-Stop': encodeURIComponent(String(s)),
           'X-DocType': encodeURIComponent(p.docType || 'BOL'),
-          'X-Receiver': encodeURIComponent(p.receiverId || ''),
+          // Split stops start with NO receiver — the dispatcher picks (or adds) a "Delivered to" for each
+          // new stop afterward. (Don't copy the original document's receiver onto every split piece.)
+          'X-Receiver': '',
           'X-SalesRep': encodeURIComponent(p.salesRepUserId || ''),
           'X-Filename': encodeURIComponent(baseName + ' - Stop ' + s + '.pdf') };
         if (buildHdr) headers['X-Build'] = buildHdr;
@@ -2429,7 +2478,7 @@
             await api('/api/pods/' + pid, { method: 'PUT', body: JSON.stringify({
               stopNumber: inp.value.trim(),
               docType: typeSel ? typeSel.value : undefined,
-              receiverId: recvSel ? recvSel.value : undefined
+              receiverId: recvSel ? (recvSel.value === '__add__' ? '' : recvSel.value) : undefined
             }) });
           } catch (e) {}
         }
@@ -2547,10 +2596,27 @@
       await assignBrokerId(br.broker.id);
     } catch (e) { alert(e.message); }
   }
-  $('ldBack').onclick = () => {
+  // Prompt before leaving an edit with unsaved changes; run `proceed` once it's safe to go.
+  function ldGuardLeave(proceed) {
+    if ($('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && _ldDirty) {
+      confirmDialog({
+        title: 'Leave without saving?',
+        message: 'You have unsaved changes on this load. If you leave now, they’ll be lost.',
+        okLabel: 'Leave without saving',
+        onOk: proceed
+      });
+    } else proceed();
+  }
+  // Any input/change inside the load card while editing means there's something to lose on the way out.
+  if ($('loadDetailCard')) {
+    const _markDirty = () => { if ($('loadDetailCard').classList.contains('editing')) _ldDirty = true; };
+    $('loadDetailCard').addEventListener('input', _markDirty);
+    $('loadDetailCard').addEventListener('change', _markDirty);
+  }
+  $('ldBack').onclick = () => ldGuardLeave(() => {
     if (_ldBackFn) { const f = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); f(); return; }
     $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads();
-  };
+  });
   // Open the shared load detail from the Master-Admin Manage view (returns there on Back).
   function openLoadFromManage(loadId) {
     if (!loadId) return;
@@ -3447,7 +3513,8 @@
   }
   // Fill just the pickers (for anyone who can file a document).
   let _recvList = [];   // cached receivers, reused for the inline "Delivered to" selects in the docs table
-  async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); _recvList = d.receivers || []; fillReceiverPickers(_recvList); if ($('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){} }
+  let _suppressDocsRerender = false;   // set while injecting a just-added receiver, so in-progress inline edits aren't wiped
+  async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); _recvList = d.receivers || []; fillReceiverPickers(_recvList); if (!_suppressDocsRerender && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){} }
   // Full management list (super-admin).
   async function loadReceivers(){
     const box = $('receiverRows'); if (!box) return;
