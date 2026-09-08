@@ -7,6 +7,11 @@ const { unsubToken, filterOptedOut } = require('./optout');
 function portalUrl() {
   return (process.env.PORTAL_URL || 'https://haulproofepod.com').replace(/\/+$/, '');
 }
+// Where "still need help" requests are routed. Configurable so it can move off Brian's inbox later
+// without a code change; defaults to his address for now.
+function helpEmail() {
+  return (process.env.HELP_EMAIL || 'bharris@callahantrans.com').trim();
+}
 function unsubUrl(email) { return portalUrl() + '/unsubscribe?t=' + unsubToken(email); }
 
 // Small footer appended to every emailed document: a one-click unsubscribe and a "view/join" invite.
@@ -92,4 +97,4 @@ async function sendMail({ to, subject, text, html }) {
   } catch (e) { console.error('sendMail', e.message); return { sent: false, error: e.message }; }
 }
 
-module.exports = { emailPodCopy, sendMail };
+module.exports = { emailPodCopy, sendMail, helpEmail, portalUrl };

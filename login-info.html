@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Your HaulProof login</title>
+<style>
+  :root{ --primary:#1655d1; --primary-dark:#0f3fa6; --ink:#0e1a2d; --muted:#5a6b82; --line:#e3e9f2; --bg:#eef3fb; --ok:#12b76a; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .card{background:#fff;width:100%;max-width:440px;border-radius:18px;box-shadow:0 20px 50px -20px rgba(16,44,110,.35);padding:30px 26px;}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:20px;justify-content:center;margin-bottom:6px;}
+  .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:grid;place-items:center;}
+  h1{font-size:19px;margin:14px 0 4px;text-align:center}
+  .sub{color:var(--muted);font-size:14px;text-align:center;margin:0 0 20px}
+  .field{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fbfcff;}
+  .field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
+  .field .row{display:flex;align-items:center;gap:10px}
+  .field .val{flex:1;font-size:16px;font-weight:600;font-family:"SFMono-Regular",Consolas,monospace;word-break:break-all}
+  .copy{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 12px;font-size:13px;font-weight:700;color:var(--primary);cursor:pointer;flex:none}
+  .copy:hover{background:var(--bg)}
+  .copy.done{color:var(--ok);border-color:var(--ok)}
+  .btn{display:block;width:100%;text-align:center;background:var(--primary);color:#fff;font-weight:700;font-size:16px;
+    padding:14px;border-radius:12px;text-decoration:none;margin-top:8px;border:none;cursor:pointer}
+  .btn:hover{background:var(--primary-dark)}
+  .note{font-size:12.5px;color:var(--muted);margin-top:16px;line-height:1.5;text-align:center}
+  .err{color:#c0392b;text-align:center;font-size:15px;padding:16px 0}
+  .muted{color:var(--muted)}
+  #loading{text-align:center;color:var(--muted);padding:20px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="mark" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5V16H3V7.5Z" fill="#fff"/><path d="M15 10h3.2l2.8 3.2V16H15v-6Z" fill="#cfe0ff"/><circle cx="7" cy="17.5" r="2" fill="#0f3fa6"/><circle cx="17" cy="17.5" r="2" fill="#0f3fa6"/></svg></span>HaulProof</div>
+    <div id="loading">Loading your login…</div>
+    <div id="content" style="display:none">
+      <h1>Your login is ready</h1>
+      <p class="sub" id="whoSub">Use the details below to sign in.</p>
+
+      <div class="field">
+        <label>Email</label>
+        <div class="row"><span class="val" id="fEmail">—</span><button class="copy" data-target="fEmail" type="button">Copy</button></div>
+      </div>
+      <div class="field">
+        <label>Temporary password</label>
+        <div class="row"><span class="val" id="fPass">—</span><button class="copy" data-target="fPass" type="button">Copy</button></div>
+      </div>
+
+      <a class="btn" id="signInBtn" href="#">Go to sign in →</a>
+      <p class="note">For your security, change this temporary password after you sign in. This link works for 7 days — don't forward it to anyone else.</p>
+    </div>
+    <div id="error" class="err" style="display:none"></div>
+  </div>
+
+<script>
+  function $(id){ return document.getElementById(id); }
+  function tokenFromUrl(){ try { return new URLSearchParams(location.search).get('t') || ''; } catch(e){ return ''; } }
+  async function copyText(t){ try { await navigator.clipboard.writeText(t); return true; } catch(e){
+    try { var a=document.createElement('textarea'); a.value=t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a); return true; } catch(_){ return false; } } }
+
+  (async function(){
+    var t = tokenFromUrl();
+    if(!t){ showError('This link is missing its code.'); return; }
+    try{
+      var r = await fetch('/api/auth/login-info?t=' + encodeURIComponent(t), { headers:{ 'Accept':'application/json' } });
+      var d = await r.json().catch(function(){ return {}; });
+      if(!r.ok){ showError(d.error || 'This link is not valid.'); return; }
+      $('loading').style.display='none';
+      $('content').style.display='';
+      $('fEmail').textContent = d.email || '';
+      $('fPass').textContent = d.tempPassword || '';
+      $('whoSub').textContent = d.company ? ('Sign in to ' + d.company + ' on HaulProof.') : 'Use the details below to sign in.';
+      $('signInBtn').href = d.signInUrl || '/app';
+    }catch(e){ showError('Something went wrong loading this link. Please try again.'); }
+  })();
+
+  function showError(msg){
+    $('loading').style.display='none';
+    $('content').style.display='none';
+    var el = $('error'); el.style.display=''; el.textContent = msg;
+  }
+
+  document.addEventListener('click', function(e){
+    var b = e.target.closest && e.target.closest('.copy'); if(!b) return;
+    var el = $(b.getAttribute('data-target')); if(!el) return;
+    copyText(el.textContent).then(function(ok){ if(ok){ var o=b.textContent; b.textContent='Copied ✓'; b.classList.add('done'); setTimeout(function(){ b.textContent=o; b.classList.remove('done'); }, 1600); } });
+  });
+</script>
+</body>
+</html>

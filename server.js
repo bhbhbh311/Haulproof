@@ -5,6 +5,8 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const { sendMail, helpEmail } = require('./mailer');
 const { login, requireAuth, requireSuper, createUser } = require('./auth');
 const { db } = require('./db');
 const { verifyUnsub, optOut, optIn, listOptedOut } = require('./optout');
@@ -73,6 +75,54 @@ app.get('/api/auth/login-info', (req, res) => {
   try { db.prepare('UPDATE login_links SET viewedAt = ? WHERE token = ?').run(Date.now(), token); } catch (e) {}
   const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
   res.json({ email: user.email, name: user.name || '', company: org ? org.name : '', tempPassword: row.tempPassword, signInUrl: origin + '/app' });
+});
+
+// PUBLIC: self-service "forgot password". Given an email, if a matching login exists we set a fresh
+// temporary password (forcing a reset on next sign-in) and email that person a link to their new
+// credentials — reusing the same login-link machinery an admin uses. We ALWAYS return the same
+// generic success so this can't be used to probe which emails have accounts.
+app.post('/api/auth/forgot-password', (req, res) => {
+  const em = ((req.body && req.body.email) || '').toLowerCase().trim();
+  const generic = { ok: true, message: 'If that email has an account, a reset link is on its way.' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return res.json(generic);
+  try {
+    const user = db.prepare('SELECT id, email, name FROM users WHERE email = ?').get(em);
+    if (!user) return res.json(generic);   // no such login — say nothing revealing
+    const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
+    db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(temp, 10), user.id);
+    const token = crypto.randomBytes(24).toString('hex');
+    const now = Date.now(), expiresAt = now + 24 * 60 * 60 * 1000;  // reset link good for 24 hours
+    db.prepare('DELETE FROM login_links WHERE userId = ?').run(user.id);
+    db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, user.id, temp, expiresAt, now);
+    const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+    const link = origin + '/login-info?t=' + token;
+    sendMail({
+      to: user.email,
+      subject: 'Reset your HaulProof password',
+      text: `Someone asked to reset the password for your HaulProof login (${user.email}).\n\nOpen this link to see your temporary password and sign in — you'll set a new password right away:\n${link}\n\nThis link expires in 24 hours. If you didn't request this, you can ignore this email; your current password still works until you use the link.`,
+    });
+    res.json(generic);
+  } catch (e) { console.error('forgot-password', e.message); res.json(generic); }
+});
+
+// PUBLIC: "still need help" — routes a support request to the configured help inbox. Used by both the
+// portal login screen and (via the driver route) the driver app when self-service reset isn't enough.
+app.post('/api/auth/help', (req, res) => {
+  const b = req.body || {};
+  const kind = String(b.kind || 'password').toLowerCase() === 'pin' ? 'PIN' : 'password';
+  const em = String(b.email || '').trim();
+  const note = String(b.note || '').trim().slice(0, 2000);
+  const who = em ? em : '(no email given)';
+  const lines = [
+    `A HaulProof user needs help with a ${kind} reset.`,
+    ``,
+    `Their email: ${who}`,
+    note ? `\nWhat they said:\n${note}` : `\n(They didn't add a note.)`,
+    ``,
+    `— Sent automatically from the HaulProof ${kind === 'PIN' ? 'driver app' : 'sign-in page'}.`,
+  ];
+  sendMail({ to: helpEmail(), subject: `HaulProof help request — ${kind} reset`, text: lines.join('\n') });
+  res.json({ ok: true, message: "Thanks — we've sent your request to support. Someone will reach out." });
 });
 
 // --- resources ---
