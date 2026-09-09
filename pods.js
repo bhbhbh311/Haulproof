@@ -503,6 +503,41 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
   res.json({ ok: true, count: fields.length, status });
 });
 
+// ---- Reusable signature LAYOUTS (templates), keyed by the pod's customer + document type. Lets dispatch
+//      save a layout once and apply it to every matching document instead of placing fields by hand. ----
+function tplKeyForPod(row) {
+  const load = (row && row.loadId) ? db.prepare(`SELECT customerId FROM loads WHERE id = ?`).get(row.loadId) : null;
+  return { customerId: (load && load.customerId) || null, docType: (row && row.docType) || 'POD' };
+}
+// Is there a saved layout for this pod's customer + type? If so, return its fields to apply.
+router.get('/:id/template', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  const { customerId, docType } = tplKeyForPod(row);
+  if (!customerId) return res.json({ exists: false, hasCustomer: false, docType });
+  const cust = db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
+  const t = db.prepare(`SELECT fields, updatedAt FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).get(row.orgId || null, customerId, docType);
+  if (!t) return res.json({ exists: false, hasCustomer: true, docType, customerName: cust ? cust.name : null });
+  let fields = []; try { fields = JSON.parse(t.fields) || []; } catch (e) {}
+  res.json({ exists: true, hasCustomer: true, docType, customerName: cust ? cust.name : null, fields, updatedAt: t.updatedAt });
+});
+// Save the current layout as THE template for this pod's customer + document type (replaces any prior one).
+router.post('/:id/save-template', requireAuth, express.json({ limit: '1mb' }), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  const { customerId, docType } = tplKeyForPod(row);
+  if (!customerId) return res.status(400).json({ error: 'Assign a customer to this load first — layouts are saved per customer.' });
+  const fields = Array.isArray(req.body && req.body.fields) ? req.body.fields : [];
+  if (!fields.length) return res.status(400).json({ error: 'Place at least one signature field before saving a layout.' });
+  const orgId = row.orgId || null, now = Date.now(), by = req.user.email || req.user.name || '';
+  const existing = db.prepare(`SELECT id FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).get(orgId, customerId, docType);
+  if (existing) db.prepare(`UPDATE sig_templates SET fields = ?, updatedAt = ?, updatedBy = ? WHERE id = ?`).run(JSON.stringify(fields), now, by, existing.id);
+  else db.prepare(`INSERT INTO sig_templates (id, ownerOrgId, customerId, docType, fields, updatedAt, updatedBy) VALUES (?,?,?,?,?,?,?)`)
+    .run(crypto.randomUUID(), orgId, customerId, docType, JSON.stringify(fields), now, by);
+  const cust = db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
+  res.json({ ok: true, count: fields.length, docType, customerName: cust ? cust.name : null });
+});
+
 // ---- EDIT a stop's details (stop #, doc type, receiver, sales rep) without re-uploading the file. ----
 router.put('/:id', requireAuth, express.json(), (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);

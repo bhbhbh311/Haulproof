@@ -45,6 +45,8 @@
   <div class="barhead">
     <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
     <span class="ctx" id="ctx"></span>
+    <button class="btn" id="applyTplBtn" type="button" style="display:none;" title="Drop this customer's saved signature layout onto the document">↴ Apply saved layout</button>
+    <button class="btn ghost" id="saveTplBtn" type="button" title="Save this layout so you can reuse it for this customer next time">☆ Save as layout</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
   </div>
@@ -157,6 +159,7 @@
     if(m.error){ $('#loadMsg').textContent=m.error; return; }
     meta=m; $('#ctx').textContent='PO '+(m.poNumber||'—')+(m.loadNumber?(' · Load '+m.loadNumber):'')+(m.consignee?(' · '+m.consignee):'');
     if(m.loadId){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn').textContent='← Back to load'; }
+    checkTemplate();   // see if this customer + document type has a saved signature layout to offer
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
     if(!buf) return;
@@ -253,13 +256,46 @@
   }
   function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); }
 
+  // Serialize the placed fields into the storable shape (shared by Save setup + Save-as-layout).
+  function serialize(){
+    return fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,label:f.label||'',xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
+  }
   $('#saveBtn').addEventListener('click',function(){
-    var out=fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,label:f.label||'',xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
+    var out=serialize();
     fetch('/api/pods/'+DOC_ID+'/fields',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
       .then(function(r){return r.json();}).then(function(j){
         if(j.error){ toast(j.error); return; }
         toast('Saved '+j.count+' field'+(j.count===1?'':'s')+' — ready for the driver');
       }).catch(function(){ toast('Save failed'); });
+  });
+
+  // ---- Reusable layouts: apply a saved layout, or save the current one for this customer + doc type ----
+  var _tpl=null;   // { exists, hasCustomer, docType, customerName, fields }
+  function updateTplButtons(){
+    var a=$('#applyTplBtn'); if(a) a.style.display=(_tpl&&_tpl.exists&&(_tpl.fields||[]).length)?'':'none';
+  }
+  function checkTemplate(){
+    fetch('/api/pods/'+DOC_ID+'/template',{credentials:'include'})
+      .then(function(r){return r.json();}).then(function(j){ _tpl=j||null; updateTplButtons(); }).catch(function(){});
+  }
+  $('#applyTplBtn').addEventListener('click',function(){
+    if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
+    if(!pageRecs.length){ toast('Still loading the document — try again in a second'); return; }
+    if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the saved layout for '+(_tpl.customerName||'this customer')+'?')) return;
+    fields.slice().forEach(removeField);
+    _tpl.fields.forEach(placeFromData);
+    selectField(null);
+    toast('Applied saved layout — '+_tpl.fields.length+' field'+(_tpl.fields.length===1?'':'s')+'. Review, then Save setup.');
+  });
+  $('#saveTplBtn').addEventListener('click',function(){
+    var out=serialize();
+    if(!out.length){ toast('Place at least one signature field before saving a layout'); return; }
+    fetch('/api/pods/'+DOC_ID+'/save-template',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
+      .then(function(r){return r.json();}).then(function(j){
+        if(j.error){ toast(j.error); return; }
+        _tpl={exists:true,hasCustomer:true,docType:j.docType,customerName:j.customerName,fields:out}; updateTplButtons();
+        toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — reuse it next time with “Apply saved layout”.');
+      }).catch(function(){ toast('Could not save the layout'); });
   });
 })();
 </script>

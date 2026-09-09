@@ -310,6 +310,19 @@ CREATE TABLE IF NOT EXISTS customer_reps (
 );
 CREATE INDEX IF NOT EXISTS idx_customer_reps_user ON customer_reps(userId);
 CREATE INDEX IF NOT EXISTS idx_customer_reps_cust ON customer_reps(customerId);
+-- Reusable signature layouts: a saved set of signature fields for a given customer + document type, so
+-- dispatch can apply the same layout to every matching document instead of placing fields by hand each time.
+-- One layout per (owner org, customer, document type); re-saving replaces it.
+CREATE TABLE IF NOT EXISTS sig_templates (
+  id         TEXT PRIMARY KEY,
+  ownerOrgId TEXT NOT NULL,
+  customerId TEXT NOT NULL,
+  docType    TEXT NOT NULL,
+  fields     TEXT NOT NULL,   -- JSON array of field defs, same shape as pods.fields
+  updatedAt  INTEGER,
+  updatedBy  TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sigtpl_key ON sig_templates(ownerOrgId, customerId, docType);
 -- Recipients who have opted out of receiving emailed documents. Legal (CAN-SPAM) compliance: once an
 -- address is here we never email it a document again. Email is stored lower-cased as the primary key.
 CREATE TABLE IF NOT EXISTS email_optouts (
