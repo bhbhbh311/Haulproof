@@ -1599,7 +1599,6 @@
       <td>${esc(d.phone) || '—'}</td>
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
-        ${d.phone ? `<a class="linkbtn" href="${driverSmsHref(d.phone, d.link)}" title="Text this link to ${esc(d.phone)}">Text</a>` : ''}
         ${d.email ? `<button class="ghost drvEmail" data-id="${d.id}" title="Email ${esc(d.email)} their link + home-screen steps" style="padding:6px 10px;font-size:12px;">Email</button>` : ''}
         <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
       </div></td>
