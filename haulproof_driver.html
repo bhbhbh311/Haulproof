@@ -1116,12 +1116,28 @@ window.__startApp=function(){
 
   function arrive(s){
     s.status="arrived"; s.arriveAt=Date.now();
-    if(navigator.geolocation){ navigator.geolocation.getCurrentPosition(function(p){ s.arriveGps={lat:p.coords.latitude,lng:p.coords.longitude}; saveRoute(route); renderRoute(); },function(){ saveRoute(route); },{timeout:6000}); }
+    getLoc(function(g){ if(g){ s.arriveGps=g; saveRoute(route); renderRoute(); } });
     saveRoute(route); renderRoute(); toast("Arrived at Stop "+s.n);
   }
 
   /* ============ SIGN flow ============ */
   var origBytes=null, fields=[], pageRecs=[], signedPdfBytes=null, curField=null, lastGps=null, currentStop=null;
+  // --- Single-flight geolocation: one native permission prompt, shared fix reused across the app. ---
+  var _locFixAt=0, _locWaiters=[], _locInflight=false;
+  // getLoc(cb): cb(gpsOrNull). Reuses a fix taken in the last 2 min; never fires a 2nd prompt while one is pending.
+  function getLoc(cb){
+    cb = (typeof cb==="function") ? cb : function(){};
+    if(!navigator.geolocation){ cb(null); return; }
+    if(lastGps && (Date.now()-_locFixAt) < 120000){ cb(lastGps); return; }  // fresh enough — no prompt
+    _locWaiters.push(cb);
+    if(_locInflight) return;                                                // a request is already open
+    _locInflight=true;
+    navigator.geolocation.getCurrentPosition(
+      function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; _locFixAt=Date.now(); _locInflight=false;
+        var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(lastGps);}catch(e){} }); },
+      function(){ _locInflight=false; var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(null);}catch(e){} }); },
+      {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
+  }
   var compBox=null, compPod=null, compCtx=null, compRecips=[];
   var roles=["Consignee","Driver"], curRoleIdx=0, adoptedByRole={}, mode="type", selected=null;
   var SIG_FONTS=["Dancing Script","Great Vibes","Sacramento"];
@@ -1904,13 +1920,7 @@ window.__startApp=function(){
   function setMode(m){ mode=m; $("tabType").classList.toggle("on",m==="type"); $("tabDraw").classList.toggle("on",m==="draw"); $("typePane").classList.toggle("hide",m!=="type"); $("drawPane").classList.toggle("hide",m!=="draw"); }
   // Ask for location permission up front (on app open) so the phone shows its Allow-location prompt.
   function warmLocation(){
-    try{
-      if(!navigator.geolocation) return;
-      navigator.geolocation.getCurrentPosition(
-        function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; },
-        function(){},
-        {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
-    }catch(e){}
+    try{ getLoc(function(){}); }catch(e){}
   }
   // --- Location consent banner: explain WHY, and remember an "always allow" choice so we don't ask again. ---
   function locConsentGet(){ try{ return localStorage.getItem("hp_loc_consent")||""; }catch(e){ return ""; } }
@@ -1933,7 +1943,7 @@ window.__startApp=function(){
     } else { showLocBar(); }
   }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
-    navigator.geolocation.getCurrentPosition(function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; $("locNote").innerHTML="📍 Captured: "+gmap(lastGps.lat.toFixed(5),lastGps.lng.toFixed(5),lastGps.lat.toFixed(4)+", "+lastGps.lng.toFixed(4)); },function(){ $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; },{enableHighAccuracy:true,timeout:8000}); }
+    getLoc(function(g){ if(g){ $("locNote").innerHTML="📍 Captured: "+gmap(g.lat.toFixed(5),g.lng.toFixed(5),g.lat.toFixed(4)+", "+g.lng.toFixed(4)); } else { $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; } }); }
   // Capitalize the first letter of each name part (first, last, hyphenated) without touching the rest.
   function titleCaseName(s){ return String(s==null?"":s).replace(/(^|[\s\-'.])([a-z])/g, function(m,p,c){ return p+c.toUpperCase(); }); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });
