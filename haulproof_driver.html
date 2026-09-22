@@ -954,7 +954,9 @@ window.__startApp=function(){
       var ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
       var sheet=document.createElement("div"); sheet.style.cssText="background:#fff;width:100%;max-width:520px;border-radius:14px 14px 0 0;padding:16px;max-height:80vh;overflow:auto;";
       sheet.innerHTML='<div style="font-weight:800;font-size:16px;margin-bottom:2px;">This load has '+docs.length+' stops</div><div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Pick the stop you’re signing for.</div>';
-      docs.forEach(function(doc){
+      // Show stops in order (Stop 1 first); docs without a stop number fall to the bottom.
+      var ordered=docs.slice().sort(function(a,b){ return (a.stopNumber||9999)-(b.stopNumber||9999); });
+      ordered.forEach(function(doc){
         var b=document.createElement("button"); b.className="btn primary"; b.type="button";
         b.style.cssText="display:block;width:100%;text-align:left;margin-bottom:8px;";
         b.innerHTML="<b>"+(doc.stopNumber?("Stop "+doc.stopNumber):"Document")+"</b> — "+esc(doc.receiverName||doc.consignee||doc.docType||"POD");
@@ -1177,7 +1179,7 @@ window.__startApp=function(){
     d=d||{};
     if($("poNum")) $("poNum").value=d.poNumber||"";
     if($("ldNum")) $("ldNum").value=d.loadNumber||"";
-    if($("consName")) $("consName").value=d.consignee||"";
+    if($("consName")) $("consName").value=d.consignee||d.receiverName||(d.ship&&d.ship.name)||"";
     drvRenderCustSel(d.customerId||"");
     updatePoReq();
   }
@@ -2134,11 +2136,23 @@ window.__startApp=function(){
   function showCompletion(pod){
     compPod=pod; compCtx=getCtx(); compRecips=[];
     $("banner").classList.remove("on"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
+    // Clear "Stop N completed" headline when this signature closes out a route stop.
+    if(currentStop){
+      var done=document.createElement("div");
+      done.style.cssText="display:flex;align-items:center;gap:10px;background:#e7f6ec;border:1px solid #b6e3c4;color:#146c2e;border-radius:12px;padding:14px 16px;margin-bottom:14px;font-weight:800;font-size:17px;";
+      done.innerHTML='<span style="font-size:22px;line-height:1;">✓</span><span>Stop '+currentStop.n+' completed'+(compCtx&&compCtx.name?(' — '+esc(compCtx.name)):'')+'</span>';
+      da.appendChild(done);
+    }
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
     sb.textContent=online()?"✓ Saved on device · uploading…":"✓ Saved on device · will upload when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
     var b1=mkBtn("View signed PDF","primary",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
-    var b2=mkBtn(currentStop?"Back to route":"View outbox","ghost",function(){ if(online()) syncOutbox(); showView(currentStop?"route":"outbox"); }); b2.classList.remove("sm"); b2.classList.add("block");
+    var stopN = currentStop ? currentStop.n : null;
+    var b2=mkBtn(currentStop?"Back to your loads":"View outbox","ghost",function(){
+      if(online()) syncOutbox();
+      showView(currentStop?"route":"outbox");
+      if(stopN!=null){ toast("Stop "+stopN+" completed ✓"); setTimeout(loadMyLoads,350); }
+    }); b2.classList.remove("sm"); b2.classList.add("block");
     da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
   }
   function buildEmailBox(){
