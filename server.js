@@ -271,7 +271,17 @@ function driverHtml() {
       + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">'
       // Register the service worker so the home-screen app always loads the freshest
       // build (network-first) and auto-updates itself instead of serving a stale cache.
-      + '<script>if("serviceWorker" in navigator){try{navigator.serviceWorker.register("/sw.js",{scope:"/driver"});var _hpHad=!!navigator.serviceWorker.controller,_hpRef=false;navigator.serviceWorker.addEventListener("controllerchange",function(){if(_hpRef)return;if(!_hpHad){_hpHad=true;return;}_hpRef=true;location.reload();});}catch(e){}}</script>';
+      // Browsers only check for a new SW on navigation / ~once a day, so an installed
+      // home-screen app can keep running a stale build. We poll reg.update() on a timer and
+      // whenever the app regains focus, so a new deploy is picked up within a minute — but we
+      // never reload while the driver is mid-signature (window.__hpBusy); the update applies
+      // the moment they're back on a safe screen, so no in-progress signature is ever lost.
+      + '<script>if("serviceWorker" in navigator){try{'
+      + 'var _hpHad=!!navigator.serviceWorker.controller,_hpRef=false;'
+      + 'function _hpReload(){if(_hpRef)return;if(window.__hpBusy){setTimeout(_hpReload,4000);return;}_hpRef=true;location.reload();}'
+      + 'navigator.serviceWorker.addEventListener("controllerchange",function(){if(!_hpHad){_hpHad=true;return;}_hpReload();});'
+      + 'navigator.serviceWorker.register("/sw.js",{scope:"/driver"}).then(function(reg){var chk=function(){try{reg.update();}catch(_){}};setInterval(chk,60000);document.addEventListener("visibilitychange",function(){if(!document.hidden)chk();});window.addEventListener("focus",chk);}).catch(function(){});'
+      + '}catch(e){}}</script>';
     // Establish the driver's device key on every open. Priority: ?k= from their personal link → whatever the
     // phone already stored → a durable cookie (survives cleared local storage / a home-screen launch with no ?k=).
     // When a fresh ?k= arrives, also write the year-long cookie so the credential sticks to this device.

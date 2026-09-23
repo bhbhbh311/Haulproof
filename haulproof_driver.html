@@ -769,6 +769,9 @@ window.__startApp=function(){
 
   /* ============ views ============ */
   function showView(v){
+    // While signing, block the service-worker auto-update reload so a new deploy never wipes an
+    // in-progress signature; it applies the moment the driver is back on a safe screen.
+    window.__hpBusy = (v==="sign");
     ["Route","Sign","Outbox","Signon","Pin","SetPin"].forEach(function(n){ var el=$("view"+n); if(el) el.classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); if(online()){ loadMyLoads(); loadMyDocuments(); loadNotices(); } }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
@@ -2242,6 +2245,7 @@ window.__startApp=function(){
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
   function showCompletion(pod){
+    window.__hpBusy=true;   // still in the sign flow (entering emails) — hold any auto-update reload
     compPod=pod; compCtx=getCtx(); compRecips=[];
     $("banner").classList.remove("on"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     // Clear "Stop N completed" headline when this signature closes out a route stop.
