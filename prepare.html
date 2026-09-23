@@ -23,7 +23,7 @@
   .armed{margin-top:10px;background:#0d2a63;color:#fff;border-radius:8px;padding:9px 12px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .armed b{color:#fff;}
   .armdot{width:13px;height:13px;border-radius:3px;display:inline-block;border:1px solid rgba(255,255,255,.5);}
-  .howto{max-width:960px;margin:12px auto 0;padding:0 16px;}
+  .howto{max-width:1200px;margin:12px auto 0;padding:0 16px;}
   .howto-toggle{background:var(--primary-soft);color:var(--primary);border:1px solid #c3d5f5;border-radius:8px;padding:8px 12px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;}
   .howto-steps{margin:10px 0 0;padding:14px 18px 14px 36px;background:var(--surface);border:1px solid var(--line);border-radius:10px;font-size:13.5px;line-height:1.6;color:var(--ink);}
   .howto-steps li{margin-bottom:7px;}
@@ -75,8 +75,8 @@
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
   .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid #c6d0db;}
   .btn.ok{background:var(--ok);}
-  .hint{max-width:960px;margin:12px auto 0;padding:0 16px;color:var(--muted);font-size:13px;line-height:1.5;}
-  #pages{max-width:960px;margin:10px auto 60px;padding:0 16px;}
+  .hint{max-width:1200px;margin:12px auto 0;padding:0 16px;color:var(--muted);font-size:13px;line-height:1.5;}
+  #pages{max-width:1200px;margin:10px auto 60px;padding:0 16px;}
   .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:#fff;}
   .page canvas{display:block;}
   .plabel{position:absolute;top:6px;right:8px;font-size:11px;color:#8a97a6;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;}
@@ -90,7 +90,7 @@
   .fld.sel{border-style:solid;box-shadow:0 0 0 3px rgba(22,85,209,.28);}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#16202b;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:80;}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
-  .load{max-width:960px;margin:40px auto;text-align:center;color:var(--muted);}
+  .load{max-width:1200px;margin:40px auto;text-align:center;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -262,7 +262,7 @@
   }).then(function(pdf){
     if(!pdf) return;
     var wrap=$('#pages'); wrap.innerHTML='';
-    var maxW=Math.min(900,(document.body.clientWidth-40));
+    var maxW=Math.min(1160,(document.body.clientWidth-40));
     var chain=Promise.resolve();
     for(var n=1;n<=pdf.numPages;n++){ (function(n){
       chain=chain.then(function(){ return pdf.getPage(n); }).then(function(page){
