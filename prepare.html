@@ -91,6 +91,14 @@
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#16202b;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:80;}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
   .load{max-width:1200px;margin:40px auto;text-align:center;color:var(--muted);}
+  /* Read-only preview mode (?view=1): show the doc + placed signature boxes, hide all the editing controls. */
+  body.viewonly #signerRow, body.viewonly #fieldRow, body.viewonly #labelRow,
+  body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn,
+  body.viewonly #armed, body.viewonly #howto, body.viewonly #hint { display:none !important; }
+  body.viewonly .fld{ cursor:default; }
+  body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
+  .viewbar{max-width:1200px;margin:12px auto 0;padding:0 16px;}
+  .viewbar .vb{background:#eef4ff;border:1px solid #c3d5f5;color:#12386e;border-radius:10px;padding:11px 14px;font-size:13.5px;line-height:1.4;}
 </style>
 </head>
 <body>
@@ -119,7 +127,7 @@
     <button class="ftype" data-kind="time" type="button">Time</button>
     <button class="ftype" data-kind="text" type="button">Text box</button>
   </div>
-  <div class="prow">
+  <div class="prow" id="labelRow">
     <span class="plabel2">Label</span>
     <input id="fieldLabel" type="text" placeholder="Optional — e.g. Arrive time, Leave time, Seal #">
     <span class="lhint">Select a field, then type its label. Handy for Time and Text fields.</span>
@@ -163,6 +171,15 @@
   var $=function(s){return document.querySelector(s);};
   var params=new URLSearchParams(location.search);
   var DOC_ID=params.get('id');
+  var VIEW = params.get('view')==='1';   // read-only preview: show the doc + placed signature boxes, no editing
+  if(VIEW){ try{
+    document.body.classList.add('viewonly');
+    var _brand=document.querySelector('.brand'); if(_brand) _brand.innerHTML='Haul<b>Proof</b> · Signature preview';
+    document.title='Signature preview — HaulProof';
+    var _vb=document.createElement('div'); _vb.className='viewbar';
+    _vb.innerHTML='<div class="vb"><b>Signature setup preview.</b> The colored boxes show where each signer signs. This is read-only — use <b>✍ Signatures</b> on the load to change it.</div>';
+    var _pg=document.getElementById('pages'); if(_pg&&_pg.parentNode) _pg.parentNode.insertBefore(_vb,_pg);
+  }catch(e){} }
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box'};
@@ -284,7 +301,7 @@
         wrap.appendChild(pd);
         var rec={idx:n-1,div:pd,vp:vp,scale:scale,baseW:base.width,baseH:base.height};
         pageRecs.push(rec);
-        pd.addEventListener('click',function(e){ if(e.target!==pd&&e.target!==cv) return; addField(rec,e); });
+        if(!VIEW) pd.addEventListener('click',function(e){ if(e.target!==pd&&e.target!==cv) return; addField(rec,e); });
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
     })(n); }
@@ -296,9 +313,12 @@
     el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=w+'px'; el.style.height=h+'px';
     el.innerHTML='<div class="lab">'+labelText(f.role,f.kind,f.label).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
     f.rec.div.appendChild(el); f.el=el; styleFieldEl(el,f.role);
-    wireDrag(f); wireResize(f); recompute(f);
-    el.addEventListener('pointerdown',function(){ selectField(f); });
-    el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
+    recompute(f);
+    if(!VIEW){   // editing interactions are skipped in read-only preview mode
+      wireDrag(f); wireResize(f);
+      el.addEventListener('pointerdown',function(){ selectField(f); });
+      el.querySelector('.del').addEventListener('click',function(ev){ ev.stopPropagation(); removeField(f); });
+    }
     return el;
   }
   function defaultLabel(kind){ return kind==='time'?'Time':(kind==='text'?'Notes':(kind==='initials'?'Initials':'')); }

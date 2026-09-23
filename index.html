@@ -2248,7 +2248,9 @@
         <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
-          <a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>
+          ${(p.status === 'signed' || p.status === 'emailed')
+            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>`
+            : `<a class="dl" href="/prepare?id=${encodeURIComponent(p.id)}&view=1" target="_blank" rel="noopener" title="See the document with the signature boxes as they're set up now">👁 View setup ↗</a>`}
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady btn-ok btn-sm" data-id="${p.id}" type="button">✅ Mark ready for driver</button>` : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button">⎘ Split into stops</button>` : ''}
