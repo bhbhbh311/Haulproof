@@ -1276,9 +1276,30 @@
     } catch (e) { return false; }
   }
   function autoRefreshLoads() { if (!loadsAutoRefreshOK()) return; try { loadLoads(); refreshAwaitingBadge(); } catch (e) {} }
-  setInterval(autoRefreshLoads, 25000);                                   // poll every 25s while viewing loads
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshLoads(); });
-  window.addEventListener('focus', autoRefreshLoads);                     // and the moment the window regains focus
+  // When a load's detail card is open and being VIEWED (not edited), keep its stop statuses live so a driver
+  // signing a stop flips it from "Ready to sign" to "Signed" on its own — no manual refresh. We only touch the
+  // read-only stops/documents table and the status line; we never re-run openLoad (which would scroll/reset the
+  // card) and we skip entirely while the dispatcher is editing so we don't stomp on their in-progress changes.
+  async function refreshOpenLoadDetail() {
+    try {
+      if (document.hidden) return;
+      var det = $('loadDetailCard'); if (!det || det.classList.contains('hide')) return;
+      if (det.classList.contains('editing')) return;   // don't disturb an active edit
+      if (!curLoad || !curLoad.id) return;
+      var r = await api('/api/loads/' + curLoad.id);
+      // Bail if the dispatcher opened a different load or started editing while the request was in flight.
+      if (!curLoad || curLoad.id !== r.load.id) return;
+      if (det.classList.contains('editing') || det.classList.contains('hide')) return;
+      curLoad = r.load; _lastPods = r.pods || [];
+      var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
+      renderLdView();
+      renderLoadDocs(_lastPods);
+    } catch (e) {}
+  }
+  function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); }
+  setInterval(autoRefreshTick, 25000);                                   // poll every 25s while viewing loads/detail
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshTick(); });
+  window.addEventListener('focus', autoRefreshTick);                     // and the moment the window regains focus
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
   // Documents view isn't buried under the management sections. Role logic still decides

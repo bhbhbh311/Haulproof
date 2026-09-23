@@ -2254,14 +2254,21 @@ window.__startApp=function(){
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
     sb.textContent=online()?"✓ Saved on device · uploading…":"✓ Saved on device · will upload when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
-    var b1=mkBtn("View signed PDF","primary",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
     var stopN = currentStop ? currentStop.n : null;
-    var b2=mkBtn(currentStop?"Back to your loads":"View outbox","ghost",function(){
-      if(online()) syncOutbox();
+    // PRIMARY action: send the signed document (with any emails just entered) and go back to the loads screen.
+    // This is the clear "I'm done" button — it forces the upload now instead of waiting for a background sync,
+    // shows progress, and then drops the driver back on their available loads.
+    var bSend=mkBtn("✅ Send documents & complete","primary",async function(){
+      bSend.disabled=true; var _t=bSend.textContent;
+      bSend.textContent = online() ? "Sending…" : "Saving…";
+      try{ if(online()) await syncOutbox(); }catch(_){}
+      // Confirm to the driver, then return to their loads (or the outbox when this wasn't a route stop).
+      toast(stopN!=null ? ("Stop "+stopN+" sent & completed ✓") : "Documents sent ✓");
       showView(currentStop?"route":"outbox");
-      if(stopN!=null){ toast("Stop "+stopN+" completed ✓"); setTimeout(loadMyLoads,350); }
-    }); b2.classList.remove("sm"); b2.classList.add("block");
-    da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
+      setTimeout(function(){ if(currentStop) loadMyLoads(); },350);
+    }); bSend.classList.remove("sm"); bSend.classList.add("block"); bSend.style.marginBottom="10px";
+    var b1=mkBtn("View signed PDF","ghost",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block");
+    da.appendChild(bSend); da.appendChild(b1); da.scrollIntoView({behavior:"smooth"});
   }
   function buildEmailBox(){
     var box=document.createElement("div"); box.className="emailbox";
