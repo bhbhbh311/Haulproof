@@ -127,8 +127,8 @@
   <div class="armed" id="armed"></div>
 </div>
 <div class="howto" id="howto">
-  <button class="howto-toggle" id="howtoToggle" type="button">▾ How to set up signatures</button>
-  <div id="howtoBody">
+  <button class="howto-toggle" id="howtoToggle" type="button">❓ NEED HELP? — How to set up signatures ▸</button>
+  <div id="howtoBody" class="collapsed">
   <div class="demo" aria-hidden="true">
     <div class="demo-cap">Pick a signer → pick a field → tap the document</div>
     <div class="demo-stage">
@@ -175,7 +175,7 @@
   // Collapsible how-to steps.
   (function(){ var t=$('#howtoToggle'); if(t) t.addEventListener('click',function(){
     var s=$('#howtoBody'); if(!s) return; var open=!s.classList.toggle('collapsed');
-    t.textContent=(open?'▾':'▸')+' How to set up signatures';
+    t.textContent='❓ NEED HELP? — How to set up signatures '+(open?'▾':'▸');
   }); })();
 
   // Color per signer role — fixed for the built-ins, stable-hashed for custom names. Mirrors the driver app.
@@ -200,10 +200,12 @@
 
   var activeTool={role:'Consignee',kind:'sigdate'};
   var pageRecs=[]; var fields=[]; var selected=null;
+  // Track unsaved changes so we can warn before leaving, and clear it after a Save (or when loading a saved layout).
+  var dirty=false; function markDirty(){ dirty=true; }
 
   function styleFieldEl(el,role){ var c=roleColor(role); el.style.borderColor=c; el.style.background=rgba(c,0.09); var lab=el.querySelector('.lab'); if(lab) lab.style.color=c; var rsz=el.querySelector('.rsz'); if(rsz) rsz.style.background=c; }
   function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); $('#fieldLabel').value=(f&&f.label)||''; }
-  function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f){ selected=null; $('#fieldLabel').value=''; } }
+  function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f){ selected=null; $('#fieldLabel').value=''; } markDirty(); }
   document.addEventListener('keydown',function(e){
     if((e.key==='Delete'||e.key==='Backspace') && selected){
       var t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
@@ -239,11 +241,18 @@
   $('#fieldLabel').addEventListener('input',function(){
     if(!selected) return;
     selected.label=this.value;
-    var lab=selected.el.querySelector('.lab'); if(lab) lab.innerHTML=labelText(selected.role,selected.kind,selected.label).replace('\n','<br>');
+    var lab=selected.el.querySelector('.lab'); if(lab) lab.innerHTML=labelText(selected.role,selected.kind,selected.label).replace('\n','<br>'); markDirty();
   });
 
   var backTo='/app';
-  $('#backBtn').addEventListener('click',function(){ location.href=backTo; });
+  function leaveToLoad(){ dirty=false; location.href=backTo; }   // dirty cleared so beforeunload doesn't double-prompt
+  // Back to the load — but warn first if there are unsaved signature changes.
+  $('#backBtn').addEventListener('click',function(){
+    if(dirty && !confirm('You have signature changes that haven’t been saved. Leave without saving? They will be lost.')) return;
+    leaveToLoad();
+  });
+  // Catch a browser back/refresh/close with unsaved changes too.
+  window.addEventListener('beforeunload',function(e){ if(dirty){ e.preventDefault(); e.returnValue=''; return ''; } });
 
   if(!DOC_ID){ $('#loadMsg').textContent='No document id — open this from the portal.'; return; }
   if(!window.pdfjsLib){ $('#loadMsg').textContent='PDF engine failed to load (needs internet for this preview).'; return; }
@@ -300,7 +309,7 @@
     var left=Math.max(0,Math.min(rec.div.clientWidth-d.w,(e.clientX-r.left)-d.w/2));
     var top=Math.max(0,Math.min(rec.div.clientHeight-d.h,(e.clientY-r.top)-d.h/2));
     var f={pageIdx:rec.idx,kind:activeTool.kind,role:activeTool.role,label:defaultLabel(activeTool.kind),rec:rec};
-    buildFieldEl(f,left,top,d.w,d.h); fields.push(f);
+    buildFieldEl(f,left,top,d.w,d.h); fields.push(f); markDirty();
     selectField(f);
     if(f.kind==='time'||f.kind==='text'||f.kind==='initials'){ $('#fieldLabel').focus(); $('#fieldLabel').select(); }
   }
@@ -314,7 +323,7 @@
       function cl(v,w){return Math.max(0,Math.min(rec.div.clientWidth-w,v));}
       function ct(v,h){return Math.max(0,Math.min(rec.div.clientHeight-h,v));}
       function mv(ev){ el.style.left=cl(ox+(ev.clientX-sx),el.offsetWidth)+'px'; el.style.top=ct(oy+(ev.clientY-sy),el.offsetHeight)+'px'; }
-      function up(){ el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); recompute(f); }
+      function up(){ el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); recompute(f); markDirty(); }
       el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up);
     });
   }
@@ -324,7 +333,7 @@
       var el=f.el,sx=e.clientX,sy=e.clientY,ow=el.offsetWidth,oh=el.offsetHeight;
       try{h.setPointerCapture(e.pointerId);}catch(_){}
       function mv(ev){ el.style.width=Math.max(46,ow+(ev.clientX-sx))+'px'; el.style.height=Math.max(22,oh+(ev.clientY-sy))+'px'; }
-      function up(){ h.removeEventListener('pointermove',mv); h.removeEventListener('pointerup',up); recompute(f); }
+      function up(){ h.removeEventListener('pointermove',mv); h.removeEventListener('pointerup',up); recompute(f); markDirty(); }
       h.addEventListener('pointermove',mv); h.addEventListener('pointerup',up);
     });
   }
@@ -349,7 +358,7 @@
     }
     buildFieldEl(f,left,top,w,hh); fields.push(f);
   }
-  function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); }
+  function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); dirty=false; }   // loading the saved layout isn't an unsaved change
 
   // Serialize the placed fields into the storable shape (shared by Save setup + Save-as-layout).
   function serialize(){
@@ -360,7 +369,9 @@
     fetch('/api/pods/'+DOC_ID+'/fields',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
       .then(function(r){return r.json();}).then(function(j){
         if(j.error){ toast(j.error); return; }
-        toast('Saved '+j.count+' field'+(j.count===1?'':'s')+' — ready for the driver');
+        dirty=false;   // saved — no unsaved changes to warn about
+        toast('Saved '+j.count+' field'+(j.count===1?'':'s')+' — ready for the driver. Returning to the load…');
+        setTimeout(leaveToLoad, 800);   // auto-return to the load after a save
       }).catch(function(){ toast('Save failed'); });
   });
 
@@ -379,7 +390,7 @@
     if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the saved layout for '+(_tpl.customerName||'this customer')+'?')) return;
     fields.slice().forEach(removeField);
     _tpl.fields.forEach(placeFromData);
-    selectField(null);
+    selectField(null); markDirty();
     toast('Applied saved layout — '+_tpl.fields.length+' field'+(_tpl.fields.length===1?'':'s')+'. Review, then Save setup.');
   });
   $('#saveTplBtn').addEventListener('click',function(){
