@@ -96,7 +96,10 @@ function requireDriverManager(req, res, next) {
 // --- Device keys: a shared per-customer key OR a personal per-driver token ---
 // Resolve the X-Api-Key to its customer (org) and, if it's a driver's personal token, that driver.
 function resolveKey(req) {
-  const key = (req.headers['x-api-key'] || '').trim();
+  let key = (req.headers['x-api-key'] || '').trim();
+  // Fall back to the durable per-device cookie (set when the driver first opened their personal link), so API
+  // calls stay authenticated even if the phone's local storage was cleared or a request omits the header.
+  if (!key && req.cookies) key = (req.cookies.hp_driver_key || '').trim();
   if (!key) return null;
   const org = db.prepare(`SELECT * FROM orgs WHERE deviceKey = ? AND active = 1`).get(key);
   if (org) return { org, driver: null };
