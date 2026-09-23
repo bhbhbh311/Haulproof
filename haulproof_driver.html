@@ -42,16 +42,24 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; line-height:1.5; -webkit-font-smoothing:antialiased;}
-  .bar{position:sticky; top:0; z-index:40; background:var(--surface); border-bottom:1px solid var(--line); box-shadow:var(--bar-shadow); padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top)); display:flex; align-items:center; gap:10px;}
+  /* Header: mark + wordmark on the left, then the right cluster (driver badge, Help, sync pill). The wordmark
+     takes the flexible space (margin-right:auto) so the cluster groups tightly on the right with just the gap
+     between items — a single spacer, NOT one auto-margin per pill (which used to spread them out and shove the
+     sync pill off the right edge on a phone). The driver badge shrinks/truncates first; Help + sync never shrink. */
+  .bar{position:sticky; top:0; z-index:40; background:var(--surface); border-bottom:1px solid var(--line); box-shadow:var(--bar-shadow); padding:12px 12px; padding-top:calc(12px + env(safe-area-inset-top)); display:flex; align-items:center; gap:8px; overflow:hidden;}
   .mark{width:30px;height:30px;border-radius:9px;background:var(--mark-grad);box-shadow:var(--btn-shadow);display:grid;place-items:center;flex:none;}
   .mark svg{width:18px;height:18px;}
-  .wordmark{font-family:"Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;}
+  .wordmark{font-family:"Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;margin-right:auto;flex:none;}
   .wordmark b{color:var(--primary);}
-  .pill{margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; border:1px solid var(--line-strong); background:var(--surface-2); color:var(--ink); padding:5px 10px; border-radius:20px; cursor:pointer;}
+  .pill{display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; border:1px solid var(--line-strong); background:var(--surface-2); color:var(--ink); padding:5px 10px; border-radius:20px; cursor:pointer; flex:none; white-space:nowrap;}
   .pill.off{border-color:var(--warn); color:var(--warn); background:var(--warn-soft);}
   .pill.on{border-color:var(--success); color:var(--success); background:var(--success-soft);}
-  .dot{width:8px;height:8px;border-radius:50%;background:currentColor;}
-  .drvbadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;font-weight:600;border:1px solid var(--driver-line);background:var(--primary-soft);color:var(--primary);padding:5px 11px;border-radius:20px;cursor:pointer;max-width:42vw;}
+  .dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;}
+  .drvbadge{display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;font-weight:600;border:1px solid var(--driver-line);background:var(--primary-soft);color:var(--primary);padding:5px 11px;border-radius:20px;cursor:pointer;min-width:0;flex:0 1 auto;max-width:38vw;overflow:hidden;}
+  .drvbadge>span{min-width:0;overflow:hidden;}
+  .drvbadge #drvName,.drvbadge #drvCompany{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+  /* Very narrow phones: drop the wordmark so the badge + Help + sync pill all fit. */
+  @media (max-width:380px){ .wordmark{display:none;} }
   .drvbadge svg{width:13px;height:13px;flex:none;}
   .drvbadge span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .welcome{margin:0 0 16px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,var(--primary),#3f7ae8);color:#fff;box-shadow:var(--btn-shadow);}
@@ -706,7 +714,10 @@ window.__startApp=function(){
     var pill=$("cloudPill"), txt=$("cloudTxt");
     pill.classList.toggle("on", online()&&pend===0);
     pill.classList.toggle("off", !online());
-    txt.textContent = online() ? (pend? "Online · "+pend+" queued" : "Online · synced") : ("Offline · "+pend+" saved");
+    // Keep the pill short so it fits the phone header alongside the driver badge (long "Online · synced" text
+    // used to shove the pill off-screen / squeeze out the driver's name). The green/amber/red color carries
+    // the state; the text just labels it.
+    txt.textContent = online() ? (pend? (pend+" to send") : "Synced") : ("Offline"+(pend? " · "+pend : ""));
   }
   var syncing=false;
   async function syncOutbox(){

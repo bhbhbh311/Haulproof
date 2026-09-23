@@ -232,12 +232,26 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // If the carrier ISN'T assigned that PO, the driver is filing it on their own — keep it under the
     // carrier so they can view it and later offer it to a customer. (No more silent rejection.)
     let load;
+    // STRONGEST signal: the driver opened a specific prepared stop (X-POD-PrepId). Bind the signed POD to THAT
+    // stop's exact load, ahead of any PO-based matching — so it fulfils the right stop even when several loads
+    // share the same PO # (e.g. a duplicate "OKC827"). Without this, a PO match can attach the signed POD to
+    // the wrong OKC827 and the real stop stays "Ready to sign" forever.
+    const _prepId = (dec(h['x-pod-prepid']) || '').trim() || null;
+    if (_prepId && !asPrepared) {
+      try {
+        const prepPod = db.prepare(`SELECT loadId FROM pods WHERE id = ?`).get(_prepId);
+        if (prepPod && prepPod.loadId) {
+          const byPrep = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(prepPod.loadId);
+          if (byPrep) { load = byPrep; orgId = byPrep.orgId; }
+        }
+      } catch (e) {}
+    }
     // A carrier's driver files a SIGNED / sign-later doc back onto the assigned load (match by PO/Load). But an
     // "upload for dispatch" is a brand-new hand-off — never merge it onto an existing load (see the PO uniquing below).
     // Only a SIGNED POD files back onto an existing assigned load (matching its stop). A driver-originated
     // NEW document (save-to-sign-later or upload-for-dispatch, both asPrepared) must become its OWN load — so
     // we skip this pre-match for those and let the PO-uniquing below create a fresh PO.1 / PO.2 load instead.
-    if (req.org.kind === 'carrier' && !forDispatch && !asPrepared) {
+    if (!load && req.org.kind === 'carrier' && !forDispatch && !asPrepared) {
       if (meta.poNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(poNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.poNumber);
       if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
       orgId = load ? load.orgId : req.org.id; // assigned → customer; otherwise → the carrier itself
