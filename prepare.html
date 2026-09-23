@@ -29,6 +29,47 @@
   .howto-steps li{margin-bottom:7px;}
   .howto-steps li:last-child{margin-bottom:0;}
   .howto-steps.collapsed{display:none;}
+  #howtoBody.collapsed{display:none;}
+  /* Inline animated demo: a looping walkthrough (pick signer → pick field → tap doc → box appears). */
+  .demo{margin:10px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;}
+  .demo-cap{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:8px;}
+  .demo-stage{position:relative;width:300px;max-width:100%;height:230px;margin:0 auto;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .demo-lbl{position:absolute;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+  .demo-chip{position:absolute;font-size:11px;font-weight:700;border:1.5px solid #c6d0db;border-radius:7px;padding:5px 8px;background:#fff;color:var(--ink);white-space:nowrap;}
+  #dChipCons{animation:dCons 9s infinite;}
+  #dChipField{animation:dField 9s infinite;}
+  .demo-doc{position:absolute;left:10px;top:84px;right:10px;bottom:10px;background:#fff;border:1px dashed #c6d0db;border-radius:6px;}
+  .demo-box{position:absolute;left:26px;top:34px;width:150px;height:40px;border:2px dashed var(--primary);background:rgba(22,85,209,.09);border-radius:6px;color:var(--primary);font-size:10.5px;font-weight:800;line-height:1.15;text-align:center;display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.6);animation:dBox 9s infinite;}
+  .demo-cursor{position:absolute;left:0;top:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));animation:dCur 9s infinite;}
+  @keyframes dCur{
+    0%{transform:translate(250px,10px);}   10%{transform:translate(96px,26px);}
+    20%{transform:translate(96px,26px);}   24%{transform:translate(92px,22px);}   26%{transform:translate(96px,26px);}
+    36%{transform:translate(104px,64px);}  46%{transform:translate(104px,64px);}  50%{transform:translate(100px,60px);} 52%{transform:translate(104px,64px);}
+    64%{transform:translate(120px,150px);} 70%{transform:translate(120px,156px);} 73%{transform:translate(120px,150px);}
+    92%{transform:translate(120px,150px);} 100%{transform:translate(250px,10px);}
+  }
+  @keyframes dCons{
+    0%,13%{border-color:#c6d0db;background:#fff;box-shadow:none;}
+    16%,95%{border-color:var(--primary);background:var(--primary-soft);box-shadow:0 0 0 3px rgba(22,85,209,.25);}
+    100%{border-color:#c6d0db;background:#fff;box-shadow:none;}
+  }
+  @keyframes dField{
+    0%,36%{border-color:#c6d0db;background:#fff;color:var(--ink);box-shadow:none;}
+    40%,95%{border-color:var(--primary);background:var(--primary);color:#fff;box-shadow:0 0 0 3px rgba(22,85,209,.22);}
+    100%{border-color:#c6d0db;background:#fff;color:var(--ink);box-shadow:none;}
+  }
+  @keyframes dBox{
+    0%,62%{opacity:0;transform:scale(.6);}
+    68%{opacity:1;transform:scale(1.06);}
+    72%,92%{opacity:1;transform:scale(1);}
+    98%,100%{opacity:0;transform:scale(.6);}
+  }
+  @media(prefers-reduced-motion:reduce){
+    #dCursor{animation:none;transform:translate(120px,150px);}
+    #dChipCons{animation:none;border-color:var(--primary);background:var(--primary-soft);}
+    #dChipField{animation:none;border-color:var(--primary);background:var(--primary);color:#fff;}
+    .demo-box{animation:none;opacity:1;transform:none;}
+  }
   #fieldLabel{font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;min-width:220px;}
   .lhint{font-size:11.5px;color:var(--muted);}
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
@@ -87,6 +128,22 @@
 </div>
 <div class="howto" id="howto">
   <button class="howto-toggle" id="howtoToggle" type="button">▾ How to set up signatures</button>
+  <div id="howtoBody">
+  <div class="demo" aria-hidden="true">
+    <div class="demo-cap">Pick a signer → pick a field → tap the document</div>
+    <div class="demo-stage">
+      <span class="demo-lbl" style="left:10px;top:14px;">Signer</span>
+      <span class="demo-chip" id="dChipCons" style="left:64px;top:8px;">Consignee</span>
+      <span class="demo-chip" style="left:172px;top:8px;">Driver</span>
+      <span class="demo-lbl" style="left:10px;top:52px;">Field</span>
+      <span class="demo-chip" id="dChipField" style="left:64px;top:46px;">Sign + date</span>
+      <span class="demo-chip" style="left:176px;top:46px;">Signature</span>
+      <div class="demo-doc">
+        <div class="demo-box" id="dBox">Consignee<br>Sign + date</div>
+      </div>
+      <svg class="demo-cursor" id="dCursor" viewBox="0 0 24 24" width="22" height="22"><path d="M4 2 L4 20 L9 15 L12.5 22 L15 21 L11.5 14 L18 14 Z" fill="#16202b" stroke="#fff" stroke-width="1.3"/></svg>
+    </div>
+  </div>
   <ol class="howto-steps" id="howtoSteps">
     <li><b>Pick who signs.</b> Tap a <b>Signer</b> at the top — Consignee, Driver, Shipper/Pickup, or <b>＋ Add signer</b> for anyone else. The selected one shows a ✓.</li>
     <li><b>Pick what they do.</b> Tap a <b>Field</b> — Sign + date, Signature, Initials, Date, Time, or Text box. The selected one shows a ✓.</li>
@@ -94,6 +151,7 @@
     <li><b>Adjust it.</b> Drag the box to move it, pull the corner dot to resize, or tap the red × to remove it.</li>
     <li><b>Repeat</b> for each signer and field, then tap <b>Save setup</b> (top right). It's now ready for the driver to sign.</li>
   </ol>
+  </div>
 </div>
 <div class="hint" id="hint">Tip: click a placed field to select it (blue ring), then type its <b>label</b> above, or press <b>Delete</b> to remove it.</div>
 <div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
@@ -116,7 +174,7 @@
   }
   // Collapsible how-to steps.
   (function(){ var t=$('#howtoToggle'); if(t) t.addEventListener('click',function(){
-    var s=$('#howtoSteps'); if(!s) return; var open=!s.classList.toggle('collapsed');
+    var s=$('#howtoBody'); if(!s) return; var open=!s.classList.toggle('collapsed');
     t.textContent=(open?'▾':'▸')+' How to set up signatures';
   }); })();
 
