@@ -179,10 +179,23 @@ router.get('/my-loads', (req, res) => {
   if (!r || !r.driver) return res.json({ loads: [] });
   // Prepared docs the driver should sign: ones dispatch assigned to them, PLUS ones this driver saved
   // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
-  const rows = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
+  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
       WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
+  // For any LOAD the driver is engaged on, also surface its OTHER stops that aren't ready yet (still being
+  // set up by dispatch), so a partly-ready multi-stop load clearly shows "Stop X not ready yet".
+  const rows = own.slice();
+  const seen = new Set(own.map(p => p.id));
+  const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
+  if (loadIds.length) {
+    const ph = loadIds.map(() => '?').join(',');
+    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
+        LEFT JOIN loads l ON l.id = p.loadId
+        WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
+        ORDER BY (p.stopNumber IS NULL), p.stopNumber ASC, p.uploadedAt ASC`).all(...loadIds);
+    mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
+  }
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,

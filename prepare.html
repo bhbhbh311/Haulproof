@@ -407,6 +407,8 @@
   $('#applyTplBtn').addEventListener('click',function(){
     if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
     if(!pageRecs.length){ toast('Still loading the document — try again in a second'); return; }
+    // Nothing to do if the document already matches the saved layout (e.g. right after "Save as layout").
+    if(JSON.stringify(serialize())===JSON.stringify(_tpl.fields||[])){ toast('This document already matches the saved layout — nothing to change.'); return; }
     if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the saved layout for '+(_tpl.customerName||'this customer')+'?')) return;
     fields.slice().forEach(removeField);
     _tpl.fields.forEach(placeFromData);

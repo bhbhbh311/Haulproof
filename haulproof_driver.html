@@ -1104,7 +1104,7 @@ window.__startApp=function(){
         }
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+
-          (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' waiting on dispatch</div>' : '')+
+          (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>' : '')+
           '</div>'+ right;
         var ob=row.querySelector(".myLoadOpen");
         if(ob) ob.addEventListener("click", async function(){
