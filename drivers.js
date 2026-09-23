@@ -143,6 +143,21 @@ router.post('/help', (req, res) => {
 
 // Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
 // Only a personal driver token carries assignments; the shared org key returns nothing.
+// Does this PO # already exist on a load for the driver's org? Lets the app warn a driver, BEFORE an
+// "upload for dispatch", that it'll be filed as a new separate load (PO.1, PO.2, …) rather than merged.
+router.get('/po-check', (req, res) => {
+  const r = resolveKey(req);
+  if (!r) return res.status(401).json({ error: 'This link is not valid' });
+  const po = (req.query.po || '').trim();
+  const org = r.org.id;
+  if (!po) return res.json({ exists: false, suggestion: po });
+  const taken = (cand) => !!db.prepare(`SELECT 1 FROM loads WHERE orgId IS ? AND TRIM(poNumber) = ? COLLATE NOCASE LIMIT 1`).get(org, cand);
+  const exists = taken(po);
+  let suggestion = po;
+  if (exists) { let n = 1, c; do { c = po + '.' + n; n++; } while (taken(c) && n < 100000); suggestion = c; }
+  res.json({ exists, suggestion });
+});
+
 router.get('/my-loads', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ loads: [] });

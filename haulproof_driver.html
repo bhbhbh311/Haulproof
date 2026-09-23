@@ -752,7 +752,7 @@ window.__startApp=function(){
             if(res.status>=500) break;   // server trouble — stop and retry everything later
             continue;                     // this one document has its own problem — keep trying the rest
           }
-          try{ var ok=await res.json(); if(ok&&ok.podId) p.serverId=ok.podId; }catch(_){}
+          try{ var ok=await res.json(); if(ok&&ok.podId) p.serverId=ok.podId; if(ok&&ok.poRenamed&&ok.poNumber){ p.poNumber=ok.poNumber; toast("PO "+(ok.originalPo||p.poNumber)+" was in use — sent as new load "+ok.poNumber); } }catch(_){}
           // Free the heavy PDF bytes now that it's safely on the server — this keeps the phone's storage
           // from filling up (which was silently dropping later saves). View re-fetches it from the server.
           delete p.b64; p.freed=true;
@@ -906,6 +906,25 @@ window.__startApp=function(){
     }catch(e){}
   }
   function isLinkError(status, msg){ return status===401 && /device key|not valid|link/i.test(msg||""); }
+  // Simple yes/no confirm sheet (returns a Promise<boolean>) — used to warn before an action that changes
+  // what gets saved (e.g. a PO # that already exists becoming a new, separate load).
+  function confirmDialog(title, message, okLabel){
+    return new Promise(function(resolve){
+      var ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(8,12,20,.55);z-index:10080;display:flex;align-items:center;justify-content:center;padding:18px;";
+      var card=document.createElement("div");
+      card.style.cssText="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:22px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);";
+      card.innerHTML='<div style="font-weight:800;font-size:17px;margin-bottom:8px;color:#12386e;">'+esc(title)+'</div><div style="font-size:14px;color:#42526b;line-height:1.45;margin-bottom:18px;">'+esc(message)+'</div>';
+      var row=document.createElement("div"); row.style.cssText="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
+      var cancel=document.createElement("button"); cancel.type="button"; cancel.className="btn ghost"; cancel.textContent="Cancel";
+      var ok=document.createElement("button"); ok.type="button"; ok.className="btn primary"; ok.textContent=okLabel||"Continue";
+      function done(v){ if(ov.parentNode) document.body.removeChild(ov); resolve(v); }
+      cancel.addEventListener("click",function(){ done(false); });
+      ok.addEventListener("click",function(){ done(true); });
+      ov.addEventListener("click",function(e){ if(e.target===ov) done(false); });
+      row.appendChild(cancel); row.appendChild(ok); card.appendChild(row); ov.appendChild(card); document.body.appendChild(ov);
+    });
+  }
   // On open: pull the driver's name from their link, gate on PIN if needed, then show route + a daily welcome.
   async function initDriver(){
     var key=currentKey(), info=null, linkBad=false;
@@ -2090,6 +2109,21 @@ window.__startApp=function(){
     }
     if($("poNum")) $("poNum").parentElement.classList.remove("missing");
     if(!origBytes || !origBytes.length){ toast("Photograph or choose a document first"); return; }
+    // "Upload for dispatch": warn the driver BEFORE sending if this PO # is already in use — it will be filed
+    // as a NEW, separate load (PO.1, PO.2 …) rather than merged onto the existing one.
+    if(_dispatchUpload && online() && serverOrigin()){
+      try{
+        var chk=await fetch(driverApi("/po-check?po="+encodeURIComponent(poNum)),{headers:drvHeaders()});
+        if(chk.ok){ var ci=await chk.json();
+          if(ci && ci.exists){
+            var goOn=await confirmDialog("This PO # is already in use",
+              "PO “"+poNum+"” already has a load. To keep them separate, this will be sent to dispatch as a new load “"+(ci.suggestion||poNum)+"”. You can change the PO # instead if this should be a different number.",
+              "Send as "+(ci.suggestion||poNum));
+            if(!goOn){ if($("poNum")){ $("poNum").focus(); $("poNum").select&&$("poNum").select(); } return; }
+          }
+        }
+      }catch(_){}
+    }
     var consInput = $("consName") ? $("consName").value.trim() : "";
     var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
     var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
@@ -2112,7 +2146,7 @@ window.__startApp=function(){
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
-          if(res.ok){ try{ loadMyLoads(); }catch(_){} showSavedConfirmation(poNum); return; }
+          if(res.ok){ var okj=await res.json().catch(function(){return {};}); try{ loadMyLoads(); }catch(_){} showSavedConfirmation(okj.poNumber||poNum, okj.poRenamed?(okj.originalPo||poNum):null); return; }
           var eb=await res.json().catch(function(){return {};});
           if(isLinkError(res.status, eb.error)){ showLinkExpired(); toast("Driver link expired — reconnect to upload"); return; }
           toast(eb.error||("Save failed ("+res.status+")")); return;
@@ -2138,7 +2172,7 @@ window.__startApp=function(){
   }
   // After a save-for-later: a clear confirmation with a button that takes the driver straight to the
   // "Your loads" list where the saved doc waits to be signed.
-  function showSavedConfirmation(poNum){
+  function showSavedConfirmation(poNum, renamedFrom){
     captureMode=false;
     $("banner").classList.remove("on");
     if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
@@ -2147,6 +2181,13 @@ window.__startApp=function(){
     if(_dispatchUpload) sb.textContent = online() ? ("✓ Sent to dispatch — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
     else sb.textContent = online() ? ("✓ Saved to load — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will upload when you have signal");
     da.appendChild(sb);
+    // If dispatch upload found the PO already in use, the server filed it as a new PO — tell the driver clearly.
+    if(renamedFrom && renamedFrom!==poNum){
+      var rn=document.createElement("div");
+      rn.style.cssText="background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;border-radius:10px;padding:11px 13px;margin:0 0 14px;font-size:13.5px;line-height:1.4;";
+      rn.innerHTML='PO <b>'+esc(renamedFrom)+'</b> was already in use, so this was filed as a new, separate load <b>'+esc(poNum)+'</b>.';
+      da.appendChild(rn);
+    }
     var note=document.createElement("div"); note.style.cssText="font-size:14px;color:var(--muted);margin:0 0 16px;";
     note.textContent = _dispatchUpload
       ? "Dispatch will set it up. It'll appear under “Your loads” as Ready to sign when they're done."

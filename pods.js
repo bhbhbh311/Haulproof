@@ -93,6 +93,19 @@ function uniquePoForOrg(orgId, po) {
   return cand;
 }
 
+// For a driver's "upload for dispatch": keep each hand-off as its OWN load. If a load with this PO already
+// exists for the org, find the next free "PO.1", "PO.2", … so we create a NEW load instead of merging the
+// new document onto the old (possibly already-completed) load.
+function uniqueLoadPo(orgId, po) {
+  po = (po || '').trim();
+  if (!po) return po;
+  const exists = (cand) => !!db.prepare(`SELECT 1 FROM loads WHERE orgId IS ? AND TRIM(poNumber) = ? COLLATE NOCASE LIMIT 1`).get(orgId || null, cand);
+  if (!exists(po)) return po;
+  let n = 1, cand;
+  do { cand = po + '.' + n; n++; } while (exists(cand) && n < 100000);
+  return cand;
+}
+
 // A signing location is stored as a plain "lat,lng" string. Turn it into a Google Maps link.
 function gpsUrl(s) {
   if (!s) return null;
@@ -219,10 +232,20 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // If the carrier ISN'T assigned that PO, the driver is filing it on their own — keep it under the
     // carrier so they can view it and later offer it to a customer. (No more silent rejection.)
     let load;
-    if (req.org.kind === 'carrier') {
+    // A carrier's driver files a SIGNED / sign-later doc back onto the assigned load (match by PO/Load). But an
+    // "upload for dispatch" is a brand-new hand-off — never merge it onto an existing load (see the PO uniquing below).
+    if (req.org.kind === 'carrier' && !forDispatch) {
       if (meta.poNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(poNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.poNumber);
       if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
       orgId = load ? load.orgId : req.org.id; // assigned → customer; otherwise → the carrier itself
+    }
+    // "Upload for dispatch": if this PO # is already on a load for this org, give this hand-off a unique
+    // suffixed PO ("OKC827" → "OKC827.1" → "OKC827.2" …) so it becomes its OWN new load instead of stacking
+    // onto the existing one. poRenamed lets the driver app tell the driver what happened.
+    let poRenamed = false; const originalPo = meta.poNumber;
+    if (forDispatch && meta.poNumber) {
+      const uniq = uniqueLoadPo(orgId, meta.poNumber);
+      if (uniq !== meta.poNumber) { meta.poNumber = uniq; poRenamed = true; }
     }
     // Idempotency: the phone sends a stable clientId per document. If a flaky connection makes it retry an
     // upload the server already stored, return that same record instead of creating a duplicate copy.
@@ -269,7 +292,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (asPrepared) {
       try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note',
         detail: (forDispatch ? 'Uploaded for dispatch to set up' : 'Document saved to sign later') + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
-      return res.json({ ok: true, podId: id, loadId: load.id, prepared: true, awaiting: forDispatch });
+      return res.json({ ok: true, podId: id, loadId: load.id, prepared: true, awaiting: forDispatch, poNumber: meta.poNumber, poRenamed, originalPo });
     }
     // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
     // sends the exact prepared-doc id it signed (X-POD-PrepId), match THAT stop precisely; otherwise fall
