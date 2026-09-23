@@ -97,6 +97,9 @@ router.get('/', requireAuth, (req, res) => {
     // Actionable document state (drives a clear status pill instead of a vague "Updated"):
     o.needsSetup = !!(ps && Number(ps.awaiting) > 0);   // a driver uploaded a doc for dispatch to set up
     o.readyToSign = !!(ps && Number(ps.prepared) > 0);  // dispatch released it — waiting on the driver's signature
+    // Per-stop signing progress so the list can show "1 of 2 signed" and a "✓ Completed" state.
+    o.stopsTotal = ps ? Number(ps.total || 0) : 0;      // documents/stops filed on this load
+    o.stopsDone = ps ? Number(ps.done || 0) : 0;        // how many are signed/emailed
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     return o;
   });
