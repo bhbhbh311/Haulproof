@@ -183,7 +183,9 @@ router.get('/:id/layouts', requireAuth, (req, res) => {
   const cust = db.prepare(`SELECT id, name FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
   if (!cust) return res.status(404).json({ error: 'Customer not found in your list' });
   const rows = db.prepare(`SELECT docType, fields, updatedAt, updatedBy FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? ORDER BY docType`).all(org, cust.id);
-  const layouts = rows.map(t => { let n = 0; try { const a = JSON.parse(t.fields); n = Array.isArray(a) ? a.length : 0; } catch (e) {} return { docType: t.docType, count: n, updatedAt: t.updatedAt, updatedBy: t.updatedBy || null }; });
+  // Include the field array itself (small) so the signature-setup screen can APPLY a chosen layout, not just
+  // list/delete it. Falls back to an empty array if the stored JSON is somehow unparseable.
+  const layouts = rows.map(t => { let a = []; try { const p = JSON.parse(t.fields); if (Array.isArray(p)) a = p; } catch (e) {} return { docType: t.docType, count: a.length, fields: a, updatedAt: t.updatedAt, updatedBy: t.updatedBy || null }; });
   res.json({ customer: { id: cust.id, name: cust.name }, layouts });
 });
 router.delete('/:id/layouts/:docType', requireAuth, requireCap('manage_customers'), (req, res) => {

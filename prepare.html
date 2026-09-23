@@ -427,15 +427,28 @@
       .then(function(r){return r.json();}).then(function(j){ renderLayouts((j&&j.layouts)||[]); })
       .catch(function(){ $('#layoutsList').innerHTML='<div style="color:#c0392b;">Couldn’t load layouts.</div>'; });
   }
+  var _layoutCache={};   // docType -> fields, so the "Use" button can apply without another round-trip
   function renderLayouts(list){
     var box=$('#layoutsList');
     if(!list.length){ box.innerHTML='<div style="color:#5c6b7a;">No saved layouts for this customer yet. Place your fields, then tap <b>☆ Save as layout</b>.</div>'; return; }
+    _layoutCache={};
+    list.forEach(function(t){ _layoutCache[t.docType||'POD']=t.fields||[]; });
     box.innerHTML='<div style="border:1px solid #dde4ec;border-radius:8px;overflow:hidden;">'+list.map(function(t){
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f7;">'
         +'<div><b>'+esc(t.docType||'POD')+'</b><div style="color:#5c6b7a;font-size:12px;">'+t.count+' field'+(t.count===1?'':'s')+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
+        +'<div style="display:flex;gap:6px;">'
+        +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="padding:6px 12px;font-size:12px;">↴ Use</button>'
         +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
+        +'</div>'
         +'</div>';
     }).join('')+'</div>';
+    // "Use" drops the chosen layout's fields onto THIS document (replacing whatever is there), then closes the
+    // manager so the driver setup is ready to review + save. Works for any of the customer's saved layouts.
+    Array.prototype.forEach.call(box.querySelectorAll('.lyUse'),function(b){ b.addEventListener('click',function(){
+      var dt=b.dataset.doctype, arr=_layoutCache[dt]||[];
+      if(!arr.length){ toast('That layout has no fields'); return; }
+      if(applyLayoutFields(arr, dt)) $('#layoutsModal').style.display='none';
+    }); });
     Array.prototype.forEach.call(box.querySelectorAll('.lyDel'),function(b){ b.addEventListener('click',function(){
       var dt=b.dataset.doctype;
       if(!confirm('Delete the saved '+dt+' layout for '+(_tpl.customerName||'this customer')+'? This can’t be undone.')) return;
@@ -443,6 +456,19 @@
         .then(function(r){return r.json();}).then(function(j){ if(j&&j.error){ toast(j.error); return; } toast('Deleted the '+dt+' layout'); openLayouts(); if(dt===(_tpl.docType||'POD')){ _tpl.exists=false; _tpl.fields=[]; updateTplButtons(); } })
         .catch(function(){ toast('Delete failed'); });
     }); });
+  }
+  // Shared apply: drop a saved layout's fields onto the current document (used by "Apply saved layout" and the
+  // per-row "Use" buttons). Returns true when it actually applied, false if cancelled / nothing to do.
+  function applyLayoutFields(arr, dtName){
+    if(!arr||!arr.length){ toast('That layout has no fields'); return false; }
+    if(!pageRecs.length){ toast('Still loading the document — try again in a second'); return false; }
+    if(JSON.stringify(serialize())===JSON.stringify(arr)){ toast('This document already matches that layout — nothing to change.'); return false; }
+    if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the “'+(dtName||'saved')+'” layout?')) return false;
+    fields.slice().forEach(removeField);
+    arr.forEach(placeFromData);
+    selectField(null); markDirty();
+    toast('Applied layout — '+arr.length+' field'+(arr.length===1?'':'s')+'. Review, then Save setup.');
+    return true;
   }
   if($('#layoutsBtn')) $('#layoutsBtn').addEventListener('click', openLayouts);
   if($('#layoutsClose')) $('#layoutsClose').addEventListener('click', function(){ $('#layoutsModal').style.display='none'; });
@@ -454,14 +480,7 @@
   }
   $('#applyTplBtn').addEventListener('click',function(){
     if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
-    if(!pageRecs.length){ toast('Still loading the document — try again in a second'); return; }
-    // Nothing to do if the document already matches the saved layout (e.g. right after "Save as layout").
-    if(JSON.stringify(serialize())===JSON.stringify(_tpl.fields||[])){ toast('This document already matches the saved layout — nothing to change.'); return; }
-    if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the saved layout for '+(_tpl.customerName||'this customer')+'?')) return;
-    fields.slice().forEach(removeField);
-    _tpl.fields.forEach(placeFromData);
-    selectField(null); markDirty();
-    toast('Applied saved layout — '+_tpl.fields.length+' field'+(_tpl.fields.length===1?'':'s')+'. Review, then Save setup.');
+    applyLayoutFields(_tpl.fields, _tpl.docType||_tpl.customerName||'saved');
   });
   $('#saveTplBtn').addEventListener('click',function(){
     var out=serialize();
