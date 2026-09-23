@@ -83,6 +83,37 @@ router.post('/', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
 
+// ---- Bulk import team logins (email, name, role). Each new login gets a temporary password and a
+//      "here's your login" link (returned so the admin can hand them out). Existing emails are skipped.
+//      Not auto-emailed, to avoid a burst of mail on a bulk import. ----
+router.post('/import', requireAuth, requireAdmin, (req, res) => {
+  const orgId = scopeOrgId(req);
+  if (!orgId) return res.status(400).json({ error: 'No organization on this login' });
+  const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];
+  if (!records.length) return res.status(400).json({ error: 'No records to import' });
+  const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+  let created = 0, skipped = 0; const links = []; const errors = [];
+  for (const r of records) {
+    try {
+      const em = String(r && r.email || '').toLowerCase().trim();
+      if (!EMAIL_RE.test(em)) { skipped++; continue; }
+      if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) { skipped++; continue; }   // already has a login
+      const role = (r && r.role === 'admin') ? 'admin' : ((r && r.role === 'sales') ? 'sales' : 'dispatcher');
+      const name = String(r && r.name || '').trim();
+      const temp = crypto.randomBytes(4).toString('hex');
+      const u = createUser({ email: em, name, role, password: temp, orgId });
+      try { db.prepare('UPDATE users SET mustChangePassword = 1 WHERE id = ?').run(u.id); } catch (e) {}
+      const token = crypto.randomBytes(24).toString('hex');
+      const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+      db.prepare('DELETE FROM login_links WHERE userId = ?').run(u.id);
+      db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, u.id, temp, expiresAt, now);
+      links.push({ email: em, name, role, link: origin + '/login-info?t=' + token });
+      created++;
+    } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
+  }
+  res.json({ ok: true, total: records.length, created, skipped, links, errors });
+});
+
 // The signed-in user sets their own password — used to clear a forced first-login reset.
 router.post('/change-password', requireAuth, (req, res) => {
   const pw = (req.body && req.body.password) || '';

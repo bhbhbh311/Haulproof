@@ -302,6 +302,36 @@ router.post('/', requireAuth, requireDriverManager, (req, res) => {
   res.status(201).json({ driver: driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });
 });
 
+// ---- Bulk import drivers (name, phone, email). Each new driver gets a personal link (returned so the
+//      admin can hand them out). No PIN — the driver sets their own on first use. Dedup on name. ----
+router.post('/import', requireAuth, requireDriverManager, (req, res) => {
+  const orgId = scopeOrgId(req);
+  if (!orgId) return res.status(400).json({ error: 'No customer specified' });
+  const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];
+  if (!records.length) return res.status(400).json({ error: 'No records to import' });
+  const insert = db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`);
+  const existsName = db.prepare(`SELECT id FROM drivers WHERE orgId = ? AND active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))`);
+  let created = 0, skipped = 0; const drivers = []; const errors = [];
+  const run = db.transaction((rows) => {
+    for (const r of rows) {
+      try {
+        const name = String(r && r.name || '').trim();
+        if (!name) { skipped++; continue; }
+        const email = String(r && r.email || '').trim();
+        if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { skipped++; continue; }
+        if (existsName.get(orgId, name)) { skipped++; continue; }   // a driver with this name already exists
+        const phone = String(r && r.phone || '').trim();
+        const id = crypto.randomUUID();
+        insert.run(id, orgId, name, phone || null, email || null, null, newToken(), Date.now());
+        drivers.push(driverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)));
+        created++;
+      } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
+    }
+  });
+  run(records);
+  res.json({ ok: true, total: records.length, created, skipped, drivers, errors });
+});
+
 // Edit a driver's details (fix input mistakes). Same org only.
 router.put('/:id', requireAuth, requireDriverManager, (req, res) => {
   const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);

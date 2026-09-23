@@ -143,6 +143,38 @@ router.delete('/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Bulk import customers into THIS org's list (e.g. a CSV/JSON export). De-duplicates on the
+//      normalized name so re-importing updates the existing entry instead of creating a duplicate. ----
+router.post('/import', requireAuth, (req, res) => {
+  const org = ownerOrg(req);
+  if (!org) return res.status(400).json({ error: 'No organization on this login' });
+  const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];
+  if (!records.length) return res.status(400).json({ error: 'No records to import' });
+  const byNorm = new Map();
+  db.prepare(`SELECT id, name FROM customers WHERE ownerOrgId = ?`).all(org).forEach(r => byNorm.set(norm(r.name), r));
+  const insert = db.prepare(`INSERT INTO customers (id, ownerOrgId, name, mcNumber, dotNumber, contactName, contactEmail, contactPhone, address, contacts, note, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const update = db.prepare(`UPDATE customers SET mcNumber=?, dotNumber=?, contactName=?, contactEmail=?, contactPhone=?, address=?, note=? WHERE id=?`);
+  let created = 0, updated = 0, skipped = 0; const errors = [];
+  const run = db.transaction((rows) => {
+    for (const r of rows) {
+      try {
+        const name = String(r && r.name || '').trim();
+        if (!name) { skipped++; continue; }
+        const f = fieldsFrom({ mcNumber: r.mcNumber, dotNumber: r.dotNumber,
+          contactName: r.contactName || r.contact, contactEmail: r.contactEmail || r.email,
+          contactPhone: r.contactPhone || r.phone, address: r.address, note: r.note, contacts: r.contacts });
+        const key = norm(name);
+        const existing = byNorm.get(key);
+        if (existing) { update.run(f.mcNumber, f.dotNumber, f.contactName, f.contactEmail, f.contactPhone, f.address, f.note, existing.id); updated++; }
+        else { const id = crypto.randomUUID(); insert.run(id, org, name, f.mcNumber, f.dotNumber, f.contactName, f.contactEmail, f.contactPhone, f.address, f.contacts, f.note, Date.now()); byNorm.set(key, { id, name }); created++; }
+      } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
+    }
+  });
+  run(records);
+  res.json({ ok: true, total: records.length, created, updated, skipped, errors });
+});
+
 // Used by the signed-doc email flow: the customer's contacts flagged to receive documents.
 function customerDocEmails(customerId) {
   if (!customerId) return [];

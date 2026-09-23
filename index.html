@@ -289,6 +289,26 @@
       </div>
     </div>
 
+    <!-- Generic import modal reused by Customers / Team logins / Drivers -->
+    <div id="genImportModal" class="histOverlay hide">
+      <div class="histBox">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;" id="genImpTitle">Import</h1><button id="genImpClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" style="margin-top:6px;" id="genImpDesc"></p>
+        <div style="margin-top:14px;">
+          <label>Data file (.json / .csv)</label>
+          <input id="genImpFile" type="file" accept=".json,.csv,application/json,text/csv" style="display:block;margin-top:4px;">
+          <div style="font-size:11px;color:var(--muted);margin-top:5px;" id="genImpHint">…or paste rows below. JSON array, or CSV with a header row.</div>
+          <textarea id="genImpText" placeholder="" style="width:100%;height:130px;margin-top:6px;font-family:monospace;font-size:12px;"></textarea>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="genImpRun" type="button">Import</button>
+          <span id="genImpCount" style="font-size:12px;color:var(--muted);"></span>
+          <span id="genImpMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="genImpResult" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
     <!-- Generic confirm dialog -->
     <div id="confirmModal" class="histOverlay hide">
       <div class="histBox" style="max-width:420px;">
@@ -419,6 +439,7 @@
         <div><h1 style="margin-bottom:0;">Customers</h1><p class="sub" style="margin-bottom:0;">Each customer is a private, walled-off account. Add one, and it gets its own admin login and its own driver link.</p></div>
         <div style="display:flex;align-items:center;gap:14px;">
           <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;margin:0;"><input type="checkbox" id="custShowInactive" style="width:auto;margin:0;"> Show inactive</label>
+          <button class="ghost" id="custImportBtn" type="button">⇪ Import</button>
           <button class="ghost" id="ncToggle" type="button">＋ Add customer</button>
         </div>
       </div>
@@ -953,7 +974,10 @@
 
     <!-- TEAM LOGINS (admin only) -->
     <div class="card hide" id="teamCard">
-      <h1>Team logins</h1><p class="sub">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Team logins</h1><p class="sub" style="margin-bottom:0;">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p></div>
+        <button class="ghost" id="teamImportBtn" type="button">⇪ Import</button>
+      </div>
       <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;align-items:end;">
         <div><label>Email</label><input id="nuEmail" type="email" placeholder="person@callahantrans.com"></div>
         <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
@@ -979,7 +1003,10 @@
 
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
-      <h1>Drivers</h1><p class="sub">Add each driver once with a PIN. They get their own link to open on their phone — the PIN locks it to them, their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Drivers</h1><p class="sub" style="margin-bottom:0;">Add each driver once with a PIN. They get their own link to open on their phone — the PIN locks it to them, their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p></div>
+        <button class="ghost" id="drvImportBtn" type="button">⇪ Import</button>
+      </div>
       <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
         <div><label>Driver name</label><input id="ndName" placeholder="e.g. Mike Rowe"></div>
         <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndPhone" placeholder="(555) 555-5555"></div>
@@ -3662,6 +3689,97 @@
         + '</div>';
       loadReceivers();
     } catch(e){ $('recvImpMsg').textContent = e.message; $('recvImpMsg').className = 'umsg-err'; }
+  };
+
+  // ===== Generic bulk import (Customers / Team logins / Drivers) =====
+  function _impHeaderKey(h){
+    var m={ name:'name', companyname:'name', company:'name', customer:'name',
+      email:'email', emailaddress:'email', 'e-mail':'email', contactemail:'contactEmail',
+      phone:'phone', phonenumber:'phone', 'phone#':'phone', contactphone:'contactPhone',
+      contactname:'contactName', contact:'contactName', role:'role',
+      address:'address', note:'note', notes:'note',
+      mc:'mcNumber', mcnumber:'mcNumber', 'mc#':'mcNumber', dot:'dotNumber', dotnumber:'dotNumber', 'dot#':'dotNumber' };
+    return m[h] || h;
+  }
+  function _impParseCSV(text){
+    var lines = text.replace(/\r\n?/g,'\n').split('\n').filter(function(l){ return l.trim() !== ''; });
+    if (lines.length < 2) return null;
+    function cells(line){ var out=[], cur='', q=false; for (var i=0;i<line.length;i++){ var c=line[i];
+      if (q){ if (c === '"'){ if (line[i+1] === '"'){ cur+='"'; i++; } else q=false; } else cur+=c; }
+      else { if (c === '"') q=true; else if (c === ','){ out.push(cur); cur=''; } else cur+=c; } }
+      out.push(cur); return out.map(function(s){ return s.trim(); }); }
+    var head = cells(lines[0]).map(function(h){ return _impHeaderKey(h.toLowerCase().replace(/\s+/g,'')); });
+    var rows=[];
+    for (var i=1;i<lines.length;i++){ var c=cells(lines[i]); var o={}; head.forEach(function(h,idx){ if(h) o[h]=c[idx]||''; }); rows.push(o); }
+    return rows;
+  }
+  function _impParse(text){
+    text=(text||'').trim(); if(!text) return null;
+    if (text[0]==='[' || text[0]==='{'){ try{ var a=JSON.parse(text); return Array.isArray(a)?a:(a?[a]:null); }catch(e){ return null; } }
+    return _impParseCSV(text);
+  }
+  function _impLinkList(list, label){
+    if(!list || !list.length) return '';
+    return '<div style="margin-top:12px;font-size:12px;font-weight:700;">'+label+'</div>'
+      + '<div style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px;">'
+      + list.map(function(x){ var who=esc(x.name||x.email||'—'); var sub=esc((x.email||'')+(x.role?(' · '+x.role):''));
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px;">'
+            + '<div style="min-width:0;"><b>'+who+'</b><div style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;">'+sub+'</div></div>'
+            + '<button class="ghost genCopyLink" data-link="'+esc(x.link||'')+'" style="padding:5px 9px;font-size:12px;white-space:nowrap;">Copy link</button>'
+            + '</div>'; }).join('')
+      + '</div>';
+  }
+  var IMPORT_KINDS = {
+    customer: { title:'Import customers', endpoint:'/api/customers/import',
+      desc:'Add customers to your list in bulk. Matched on name — re-importing updates an existing customer instead of duplicating it.',
+      placeholder:'[{"name":"Brown Strauss","contactName":"Jane Doe","contactEmail":"ap@brownstrauss.com","contactPhone":"918-555-1000","address":"Tulsa, OK"}]\n\n…or CSV:\nname,contactName,contactEmail,contactPhone,address',
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> new · <b>'+j.updated+'</b> updated'+(j.skipped?(' · '+j.skipped+' skipped (no name)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'; },
+      refresh:function(){ try{ loadCustomers(); }catch(e){} } },
+    team: { title:'Import team logins', endpoint:'/api/users/import',
+      desc:'Create portal logins in bulk. Each new person gets a set-up link (below) to choose their own password. Existing emails are skipped. Role: dispatcher, sales, or admin (default dispatcher).',
+      placeholder:'[{"email":"jane@callahantrans.com","name":"Jane Doe","role":"dispatcher"}]\n\n…or CSV:\nemail,name,role',
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> created'+(j.skipped?(' · '+j.skipped+' skipped (bad or existing email)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.links,'Set-up links — send each person theirs:'); },
+      refresh:function(){ try{ loadUsers(); }catch(e){} } },
+    driver: { title:'Import drivers', endpoint:'/api/drivers/import',
+      desc:'Add drivers in bulk. Each gets a personal link (below) to open on their phone — they set their own PIN on first use. A driver whose name is already on your roster is skipped.',
+      placeholder:'[{"name":"Mike Rowe","phone":"555-555-5555","email":"mike@email.com"}]\n\n…or CSV:\nname,phone,email',
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> added'+(j.skipped?(' · '+j.skipped+' skipped (duplicate name or bad email)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.drivers,'Driver links — send each driver theirs:'); },
+      refresh:function(){ try{ loadDrivers('', $('driverRows')); }catch(e){} } }
+  };
+  var _impKind=null, _impParsed=null;
+  function _impCountShow(){
+    _impParsed=_impParse($('genImpText').value);
+    if(_impParsed && _impParsed.length){ $('genImpCount').textContent=_impParsed.length+' record'+(_impParsed.length===1?'':'s')+' ready'; $('genImpMsg').textContent=''; $('genImpMsg').className=''; }
+    else { $('genImpCount').textContent=''; if(($('genImpText').value||'').trim()){ $('genImpMsg').textContent='Could not read that — use a JSON array or CSV with a header row'; $('genImpMsg').className='umsg-err'; } else { $('genImpMsg').textContent=''; $('genImpMsg').className=''; } }
+  }
+  function openImport(kind){
+    var cfg=IMPORT_KINDS[kind]; if(!cfg) return;
+    _impKind=kind; _impParsed=null;
+    $('genImpTitle').textContent=cfg.title; $('genImpDesc').textContent=cfg.desc;
+    $('genImpText').value=''; $('genImpText').placeholder=cfg.placeholder;
+    if($('genImpFile')) $('genImpFile').value='';
+    $('genImpCount').textContent=''; $('genImpMsg').textContent=''; $('genImpMsg').className=''; $('genImpResult').innerHTML='';
+    $('genImportModal').classList.remove('hide');
+  }
+  if($('custImportBtn')) $('custImportBtn').onclick=function(){ openImport('customer'); };
+  if($('teamImportBtn')) $('teamImportBtn').onclick=function(){ openImport('team'); };
+  if($('drvImportBtn')) $('drvImportBtn').onclick=function(){ openImport('driver'); };
+  if($('genImpClose')) $('genImpClose').onclick=function(){ $('genImportModal').classList.add('hide'); };
+  if($('genImportModal')) $('genImportModal').addEventListener('click',function(e){ if(e.target===$('genImportModal')) $('genImportModal').classList.add('hide'); });
+  if($('genImpText')) $('genImpText').addEventListener('input', _impCountShow);
+  if($('genImpFile')) $('genImpFile').addEventListener('change',function(e){ var f=e.target.files&&e.target.files[0]; if(!f) return; var rd=new FileReader(); rd.onload=function(){ $('genImpText').value=rd.result; _impCountShow(); }; rd.readAsText(f); });
+  if($('genImpRun')) $('genImpRun').onclick=async function(){
+    _impCountShow();
+    if(!_impParsed || !_impParsed.length){ $('genImpMsg').textContent='Load some rows first'; $('genImpMsg').className='umsg-err'; return; }
+    var cfg=IMPORT_KINDS[_impKind]; if(!cfg) return;
+    $('genImpMsg').textContent='Importing '+_impParsed.length+'…'; $('genImpMsg').className='';
+    try{
+      var j=await api(cfg.endpoint,{ method:'POST', body:JSON.stringify({ records:_impParsed }) });
+      $('genImpMsg').textContent='Done ✓'; $('genImpMsg').className='umsg-ok';
+      $('genImpResult').innerHTML=cfg.result(j);
+      document.querySelectorAll('.genCopyLink').forEach(function(b){ b.onclick=async function(){ try{ await navigator.clipboard.writeText(b.dataset.link); var o=b.textContent; b.textContent='Copied ✓'; setTimeout(function(){ b.textContent=o; },1400); }catch(_){} }; });
+      cfg.refresh();
+    }catch(e){ $('genImpMsg').textContent=e.message; $('genImpMsg').className='umsg-err'; }
   };
 
   if ($('nrToggle')) $('nrToggle').onclick = () => $('nrForm').classList.toggle('hide');
