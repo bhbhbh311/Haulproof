@@ -720,6 +720,7 @@ window.__startApp=function(){
     var pods=loadPods(), changed=false;
     for(var i=0;i<pods.length;i++){
       if(pods[i].status!=="pending") continue;
+      if(holdPodId && pods[i].id===holdPodId) continue;   // driver is still adding emails on the completion screen
       var p=pods[i];
       try{
         if(ep){
@@ -772,6 +773,7 @@ window.__startApp=function(){
     // While signing, block the service-worker auto-update reload so a new deploy never wipes an
     // in-progress signature; it applies the moment the driver is back on a safe screen.
     window.__hpBusy = (v==="sign");
+    holdPodId=null;   // leaving the completion screen releases any held stop for upload
     ["Route","Sign","Outbox","Signon","Pin","SetPin"].forEach(function(n){ var el=$("view"+n); if(el) el.classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); if(online()){ loadMyLoads(); loadMyDocuments(); loadNotices(); } }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
@@ -1228,6 +1230,11 @@ window.__startApp=function(){
       {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
   }
   var compBox=null, compPod=null, compCtx=null, compRecips=[];
+  // While the driver is on the completion screen entering consignee emails, hold THIS stop's upload so a
+  // background sync (e.g. connectivity flapping) can't push it — and fire its per-stop email — before they've
+  // finished adding recipients. Cleared the instant they tap "Send documents & complete", which then uploads
+  // this stop immediately so its designated emails go out right away, independent of the load's other stops.
+  var holdPodId=null;
   var roles=["Consignee","Driver"], curRoleIdx=0, adoptedByRole={}, mode="type", selected=null;
   var SIG_FONTS=["Dancing Script","Great Vibes","Sacramento"];
 
@@ -2246,6 +2253,7 @@ window.__startApp=function(){
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
   function showCompletion(pod){
     window.__hpBusy=true;   // still in the sign flow (entering emails) — hold any auto-update reload
+    holdPodId=pod.id;       // hold this stop's upload until they tap Send, so their emails are included
     compPod=pod; compCtx=getCtx(); compRecips=[];
     $("banner").classList.remove("on"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     // Clear "Stop N completed" headline when this signature closes out a route stop.
@@ -2256,7 +2264,7 @@ window.__startApp=function(){
       da.appendChild(done);
     }
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
-    sb.textContent=online()?"✓ Saved on device · uploading…":"✓ Saved on device · will upload when you have signal"; da.appendChild(sb);
+    sb.textContent=online()?"✓ Signed & saved on device":"✓ Saved on device · will send when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
     var stopN = currentStop ? currentStop.n : null;
     // PRIMARY action: send the signed document (with any emails just entered) and go back to the loads screen.
@@ -2265,6 +2273,7 @@ window.__startApp=function(){
     var bSend=mkBtn("✅ Send documents & complete","primary",async function(){
       bSend.disabled=true; var _t=bSend.textContent;
       bSend.textContent = online() ? "Sending…" : "Saving…";
+      holdPodId=null;   // release THIS stop so it uploads now — its consignee emails go out immediately
       try{ if(online()) await syncOutbox(); }catch(_){}
       // Confirm to the driver, then return to their loads (or the outbox when this wasn't a route stop).
       toast(stopN!=null ? ("Stop "+stopN+" sent & completed ✓") : "Documents sent ✓");
