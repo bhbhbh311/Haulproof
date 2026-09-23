@@ -86,11 +86,46 @@ function requireAdmin(req, res, next) { // super-admin OR a customer admin
   if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) return res.status(403).json({ error: 'Admins only' });
   next();
 }
-// Managing the driver roster (add/edit/remove drivers) is an operational task, so dispatchers may do it
-// too — not just admins. Still scoped to the caller's own org (see scopeOrgId in drivers.js).
+// ---- Per-user capabilities: admins can grant specific powers to a dispatcher/sales login on top of their
+//      role. The four grantable powers, plus what each role gets by default. Admins/super always have all. ----
+const ALL_CAPS = ['manage_users', 'manage_drivers', 'manage_customers', 'delete_loadsdocs'];
+const ROLE_DEFAULT_CAPS = {
+  superadmin: ALL_CAPS.slice(),
+  admin: ALL_CAPS.slice(),
+  dispatcher: ['manage_drivers', 'manage_customers', 'delete_loadsdocs'], // dispatchers keep their operational powers
+  sales: [],                                                              // sales gets only what an admin grants
+};
+// Extra capabilities an admin explicitly granted this login (stored as a JSON array on the user row).
+function grantedCaps(userId) {
+  try { const r = db.prepare('SELECT capabilities FROM users WHERE id = ?').get(userId); if (!r || !r.capabilities) return [];
+    const a = JSON.parse(r.capabilities); return Array.isArray(a) ? a.filter(c => ALL_CAPS.includes(c)) : []; } catch (e) { return []; }
+}
+// The full set of capabilities a login effectively has (role defaults + admin-granted extras).
+function effectiveCaps(user) {
+  if (!user) return [];
+  const base = (ROLE_DEFAULT_CAPS[user.role] || []).slice();
+  const extra = grantedCaps(user.sub || user.id);
+  extra.forEach(c => { if (base.indexOf(c) < 0) base.push(c); });
+  return base;
+}
+function userHasCap(req, cap) {
+  if (!req.user) return false;
+  if (req.user.role === 'admin' || req.user.role === 'superadmin') return true;
+  if ((ROLE_DEFAULT_CAPS[req.user.role] || []).includes(cap)) return true;
+  return grantedCaps(req.user.sub || req.user.id).includes(cap);
+}
+// Middleware factory: allow the request only if the caller has this capability.
+function requireCap(cap) {
+  return function (req, res, next) {
+    if (userHasCap(req, cap)) return next();
+    return res.status(403).json({ error: "You don't have permission to do that" });
+  };
+}
+// Managing the driver roster is operational, so dispatchers do it by default; admins may also grant the
+// 'manage_drivers' capability to another login (e.g. a sales user). Still scoped to the caller's own org.
 function requireDriverManager(req, res, next) {
-  if (!req.user || !['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
-  next();
+  if (req.user && (['admin', 'superadmin', 'dispatcher'].includes(req.user.role) || userHasCap(req, 'manage_drivers'))) return next();
+  return res.status(403).json({ error: 'Not allowed' });
 }
 
 // --- Device keys: a shared per-customer key OR a personal per-driver token ---
@@ -133,5 +168,6 @@ module.exports = {
   requireAuth, requireApiKey, hasValidApiKey, orgForApiKey, resolveKey,
   driverUnlockValue,
   isSuper, requireSuper, requireAdmin, requireDriverManager,
+  requireCap, userHasCap, effectiveCaps, ALL_CAPS,
   JWT_SECRET, LEGACY_INGEST_KEY,
 };

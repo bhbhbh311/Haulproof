@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
 const { db, DATA_DIR } = require('./db');
-const { requireAuth } = require('./auth');
+const { requireAuth, requireCap } = require('./auth');
 const { logEvent } = require('./events');
 const { brokerApproved } = require('./brokers');
 const { customerIdsForRep } = require('./customers');
@@ -188,7 +188,7 @@ router.put('/:id', requireAuth, (req, res) => {
 });
 
 // Delete a load and all its documents. Owner (or super) only. Irreversible — the app confirms twice first.
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) => {
   const load = ownedLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   try {

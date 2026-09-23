@@ -7,7 +7,7 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { sendMail, helpEmail } = require('./mailer');
-const { login, requireAuth, requireSuper, createUser } = require('./auth');
+const { login, requireAuth, requireSuper, createUser, effectiveCaps } = require('./auth');
 const { db } = require('./db');
 const { verifyUnsub, optOut, optIn, listOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
@@ -58,7 +58,9 @@ app.get('/api/me', requireAuth, (req, res) => {
   // Surface the forced-password-reset flag so a cookie auto-login enforces it too.
   let mustChangePassword = false;
   try { const u = db.prepare('SELECT mustChangePassword FROM users WHERE id = ?').get(req.user.sub); mustChangePassword = !!(u && u.mustChangePassword); } catch (e) {}
-  res.json({ user: Object.assign({}, req.user, { mustChangePassword }) });
+  // Effective capabilities (role defaults + admin-granted) so the UI can show the controls this login may use.
+  let capabilities = []; try { capabilities = effectiveCaps(req.user); } catch (e) {}
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities }) });
 });
 
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.

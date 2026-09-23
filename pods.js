@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { db, DATA_DIR } = require('./db');
-const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue } = require('./auth');
+const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue, requireCap } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 const { descendantOrgIds } = require('./hierarchy');
@@ -597,7 +597,7 @@ router.post('/:id/ready', requireAuth, (req, res) => {
 });
 
 // ---- DELETE a document (remove a wrong/duplicate upload so a corrected one can be filed). ----
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
   // If a driver was waiting on this doc (they uploaded it for dispatch, or it was assigned to them to sign),

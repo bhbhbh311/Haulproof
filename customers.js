@@ -5,7 +5,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
-const { requireAuth } = require('./auth');
+const { requireAuth, requireCap } = require('./auth');
 
 const router = express.Router();
 // The org whose list we're reading/writing. Super-admin may target one via ?orgId=; everyone else is
@@ -90,7 +90,7 @@ router.get('/match', requireAuth, (req, res) => {
 
 // Add a customer to this org's list. Exact-name dedup: if one already exists, return it (existed:true)
 // instead of creating a duplicate — unless force is set (the user confirmed it's a different company).
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
   const org = ownerOrg(req);
   if (!org) return res.status(400).json({ error: 'No organization on this login' });
   const b = req.body || {};
@@ -109,7 +109,7 @@ router.post('/', requireAuth, (req, res) => {
 });
 
 // Edit a customer in this org's list — details + the signed-doc contacts.
-router.put('/:id', requireAuth, (req, res) => {
+router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
   const org = ownerOrg(req);
   if (!org) return res.status(400).json({ error: 'No organization on this login' });
   const row = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
@@ -132,7 +132,7 @@ router.put('/:id', requireAuth, (req, res) => {
 });
 
 // Remove a customer from this org's list. The load's snapshot name stays, so past loads still read fine.
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
   const org = ownerOrg(req);
   if (!org) return res.status(400).json({ error: 'No organization on this login' });
   const row = db.prepare(`SELECT * FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
@@ -145,7 +145,7 @@ router.delete('/:id', requireAuth, (req, res) => {
 
 // ---- Bulk import customers into THIS org's list (e.g. a CSV/JSON export). De-duplicates on the
 //      normalized name so re-importing updates the existing entry instead of creating a duplicate. ----
-router.post('/import', requireAuth, (req, res) => {
+router.post('/import', requireAuth, requireCap('manage_customers'), (req, res) => {
   const org = ownerOrg(req);
   if (!org) return res.status(400).json({ error: 'No organization on this login' });
   const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];

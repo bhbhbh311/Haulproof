@@ -901,7 +901,10 @@
     <div class="card hide" id="myCustomersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Customers</h1><p class="sub" style="margin-bottom:0;">The companies you haul for. Assign one to a load's Customer field. We check for duplicates so the same company isn't added twice.</p></div>
-        <button id="mcCustAddBtn" type="button">＋ Add / find customer</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="ghost" id="mcCustImportBtn" type="button">⇪ Import</button>
+          <button id="mcCustAddBtn" type="button">＋ Add / find customer</button>
+        </div>
       </div>
       <div id="myCustomerRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
     </div>
@@ -1033,6 +1036,17 @@
     <label>Email</label><input id="euEmail" type="email" style="margin-bottom:10px;">
     <label>Name</label><input id="euName" style="margin-bottom:10px;">
     <label>Role</label><select id="euRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select>
+    <div id="euCaps" style="margin-top:14px;">
+      <label style="display:block;">Extra permissions</label>
+      <p class="sub" style="margin:2px 0 8px;">Grant this person specific admin powers on top of their role. Admins already have everything.</p>
+      <div id="euCapNote" style="font-size:12px;color:var(--muted);margin-bottom:8px;display:none;">This user is an Admin — they already have every permission.</div>
+      <div id="euCapList" style="display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" class="euCap" value="manage_users" style="width:auto;margin:0;"> Manage team logins (add / edit / remove users)</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" class="euCap" value="manage_drivers" style="width:auto;margin:0;"> Manage drivers (add / edit / remove / import)</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" class="euCap" value="manage_customers" style="width:auto;margin:0;"> Manage customers &amp; receivers</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;"><input type="checkbox" class="euCap" value="delete_loadsdocs" style="width:auto;margin:0;"> Delete loads &amp; documents</label>
+      </div>
+    </div>
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
       <button id="euSave" type="button">Save changes</button>
       <button class="ghost" id="euCancel" type="button">Cancel</button>
@@ -1140,6 +1154,9 @@
     if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
     return res.json();
   }
+  // Does the signed-in user have this capability? Admins/super have all; others get role defaults + grants
+  // (the effective set the server sends in /api/me as user.capabilities).
+  function hasCap(c){ return !!(user && (user.role === 'admin' || user.role === 'superadmin' || ((user.capabilities || []).indexOf(c) > -1))); }
   function enterApp(u) {
     user = u;
     const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -1183,7 +1200,7 @@
       show('brokerCarriersCard', true); loadApprovedCarriers();
       ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
-      if (u.role === 'admin') { show('teamCard', true); loadUsers(); }
+      if (u.role === 'admin' || hasCap('manage_users')) { show('teamCard', true); loadUsers(); }
     } else if (u.orgKind === 'carrier') {
       // Carrier's walled-off space: their own + assigned loads, their own documents, drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
@@ -1192,7 +1209,7 @@
       show('loadsCard', true); loadLoads();
       ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
-      if (u.role === 'admin') { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
+      if (u.role === 'admin' || hasCap('manage_users')) { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
     } else {
       SUPER_CARDS.forEach(id => show(id, false));
       ['findCard','resultsCard','loadsCard'].forEach(id => show(id, true));
@@ -1200,17 +1217,15 @@
       if ($('nlToggle')) $('nlToggle').classList.remove('hide');
       loadLoads();
       show('offeredCard', true); loadOffered();   // carrier-offered documents inbox
-      if (u.role === 'admin') {
-        show('driverCard', true); loadDriverLink();
-        show('teamCard', true); loadUsers();
-        show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
-      } else { show('driverCard', false); show('teamCard', false); show('driversCard', false); }
+      if (u.role === 'admin') { show('driverCard', true); loadDriverLink(); } else { show('driverCard', false); }
+      if (u.role === 'admin' || hasCap('manage_users')) { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
+      if (u.role === 'admin' || hasCap('manage_drivers')) { show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), ''); } else { show('driversCard', false); }
     }
     // A customer/carrier/broker that is ALSO a receiver gets the "delivered to us" view too.
     if (!pureReceiver && roles.indexOf('receiver') > -1) { show('receivedCard', true); loadReceived(); }
     // Customer / carrier / broker admins AND dispatchers get their own Receivers tab — only the receivers
     // their org has linked. Both roles tag documents with receivers, so both can view/add/edit them.
-    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher') && ['customer','carrier','broker'].some(r => roles.indexOf(r) > -1)) {
+    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher' || hasCap('manage_customers')) && ['customer','carrier','broker'].some(r => roles.indexOf(r) > -1)) {
       show('receiversCard', true);
       if ($('nrToggle')) $('nrToggle').classList.add('hide');
       if ($('nrForm')) $('nrForm').classList.add('hide');
@@ -1222,7 +1237,7 @@
     }
     // Carrier / broker admins & dispatchers get their own Customers tab — their private list of the
     // companies they haul for (used by the load's Customer picker). Deduped within their org.
-    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher')
+    if (!pureReceiver && (u.role === 'admin' || u.role === 'dispatcher' || hasCap('manage_customers'))
         && (u.orgKind === 'carrier' || u.orgKind === 'broker' || ['carrier','broker'].some(r => roles.indexOf(r) > -1))) {
       show('myCustomersCard', true);
       loadMyCustomersTab();
@@ -3143,7 +3158,7 @@
         <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
         <td style="text-align:right;white-space:nowrap;">
-          <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
+          <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" data-caps="${esc(JSON.stringify(u.capabilities||[]))}" style="padding:6px 10px;font-size:12px;">Edit</button>
           <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
           <button class="ghost nuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
           ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
@@ -3167,7 +3182,7 @@
   $('userRows').addEventListener('click', async (e) => {
     const ed = e.target.closest('.nuEdit'), rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel'), lk = e.target.closest('.nuLink');
     if (lk) { genLoginLink(lk.dataset.id); return; }
-    if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role }, '', loadUsers); return; }
+    if (ed) { openEditUser({ id: ed.dataset.id, email: ed.dataset.email, name: ed.dataset.name, role: ed.dataset.role, capabilities: ed.dataset.caps }, '', loadUsers); return; }
     if (rb) {
       const np = randPass();
       try { await api('/api/users/' + rb.dataset.id + '/password', { method: 'POST', body: JSON.stringify({ password: np }) }); nuMsg('New password for ' + rb.dataset.email + ':  ' + np + '   (copy it now — it won\'t show again)', 'ok'); }
@@ -3185,14 +3200,31 @@
     euState = { id: u.id, orgId: orgId || '', reload: reload };
     $('euEmail').value = u.email || ''; $('euName').value = (u.name && u.name !== '—') ? u.name : '';
     $('euRole').value = (u.role === 'admin' || u.role === 'sales') ? u.role : 'dispatcher';
+    // Capability checkboxes: only a real admin/super may grant them. Parse the user's current grants.
+    var caps = []; try { caps = Array.isArray(u.capabilities) ? u.capabilities : JSON.parse(u.capabilities || '[]'); } catch (e) { caps = []; }
+    var canGrant = (user && (user.role === 'admin' || user.role === 'superadmin'));
+    if ($('euCaps')) $('euCaps').style.display = canGrant ? '' : 'none';
+    document.querySelectorAll('.euCap').forEach(function(cb){ cb.checked = caps.indexOf(cb.value) > -1; });
+    euUpdateCapVis();
     $('euMsg').textContent = ''; $('euMsg').className = ''; $('euModal').classList.remove('hide');
   }
+  // When the edited user is an Admin, capabilities are moot (admins have all) — show a note, hide the boxes.
+  function euUpdateCapVis(){
+    var isAdmin = $('euRole') && $('euRole').value === 'admin';
+    if ($('euCapNote')) $('euCapNote').style.display = isAdmin ? '' : 'none';
+    if ($('euCapList')) $('euCapList').style.display = isAdmin ? 'none' : '';
+  }
+  if ($('euRole')) $('euRole').addEventListener('change', euUpdateCapVis);
   $('euCancel').onclick = () => { $('euModal').classList.add('hide'); euState = null; };
   $('euModal').addEventListener('click', (e) => { if (e.target === $('euModal')) { $('euModal').classList.add('hide'); euState = null; } });
   $('euSave').onclick = async () => {
     if (!euState) return;
     const body = { email: $('euEmail').value.trim(), name: $('euName').value.trim(), role: $('euRole').value };
     if (euState.orgId) body.orgId = euState.orgId;
+    // Send capability grants only when the caller may set them (a real admin/super) and the target isn't an admin.
+    if (user && (user.role === 'admin' || user.role === 'superadmin') && body.role !== 'admin') {
+      body.capabilities = Array.prototype.map.call(document.querySelectorAll('.euCap:checked'), function(cb){ return cb.value; });
+    }
     if (!body.email) { $('euMsg').textContent = 'Email is required'; $('euMsg').className = 'umsg-err'; return; }
     $('euMsg').textContent = 'Saving…'; $('euMsg').className = '';
     try {
@@ -3734,7 +3766,7 @@
       desc:'Add customers to your list in bulk. Matched on name — re-importing updates an existing customer instead of duplicating it.',
       placeholder:'[{"name":"Brown Strauss","contactName":"Jane Doe","contactEmail":"ap@brownstrauss.com","contactPhone":"918-555-1000","address":"Tulsa, OK"}]\n\n…or CSV:\nname,contactName,contactEmail,contactPhone,address',
       result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> new · <b>'+j.updated+'</b> updated'+(j.skipped?(' · '+j.skipped+' skipped (no name)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'; },
-      refresh:function(){ try{ loadCustomers(); }catch(e){} } },
+      refresh:function(){ try{ if(typeof loadCustomers==='function') loadCustomers(); }catch(e){} try{ if(typeof loadMyCustomersTab==='function') loadMyCustomersTab(); }catch(e){} } },
     team: { title:'Import team logins', endpoint:'/api/users/import',
       desc:'Create portal logins in bulk. Each new person gets a set-up link (below) to choose their own password. Existing emails are skipped. Role: dispatcher, sales, or admin (default dispatcher).',
       placeholder:'[{"email":"jane@callahantrans.com","name":"Jane Doe","role":"dispatcher"}]\n\n…or CSV:\nemail,name,role',
@@ -3762,6 +3794,7 @@
     $('genImportModal').classList.remove('hide');
   }
   if($('custImportBtn')) $('custImportBtn').onclick=function(){ openImport('customer'); };
+  if($('mcCustImportBtn')) $('mcCustImportBtn').onclick=function(){ openImport('customer'); };
   if($('teamImportBtn')) $('teamImportBtn').onclick=function(){ openImport('team'); };
   if($('drvImportBtn')) $('drvImportBtn').onclick=function(){ openImport('driver'); };
   if($('genImpClose')) $('genImpClose').onclick=function(){ $('genImportModal').classList.add('hide'); };

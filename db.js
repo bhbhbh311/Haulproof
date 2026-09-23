@@ -151,6 +151,7 @@ function addColumn(table, col, decl) {
   if (!hasColumn(table, col)) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`); } catch (e) {} }
 }
 addColumn('users', 'orgId', 'TEXT');
+addColumn('users', 'capabilities', 'TEXT');   // JSON array of extra capabilities an admin granted this login
 addColumn('loads', 'orgId', 'TEXT');
 addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column

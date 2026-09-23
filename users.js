@@ -2,7 +2,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { createUser, requireAuth, requireAdmin } = require('./auth');
+const { createUser, requireAuth, requireCap, userHasCap, ALL_CAPS } = require('./auth');
 const { db } = require('./db');
 const { sendMail } = require('./mailer');
 
@@ -25,19 +25,21 @@ router.get('/', requireAuth, (req, res) => {
   // Admins/super manage the team; dispatchers may read it too (to pick a sales rep for a stop).
   if (!['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
-  const users = db.prepare(
-    `SELECT id, email, name, role, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
+  const rows = db.prepare(
+    `SELECT id, email, name, role, capabilities, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
   ).all(orgId);
+  const users = rows.map(u => { let caps = []; try { caps = u.capabilities ? JSON.parse(u.capabilities) : []; } catch (e) { caps = []; }
+    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
   res.json({ users });
 });
 
 // Master notify list: team logins who always get an update email when a load's stops complete.
-router.get('/notify', requireAuth, requireAdmin, (req, res) => {
+router.get('/notify', requireAuth, requireCap('manage_users'), (req, res) => {
   const orgId = scopeOrgId(req);
   const rows = db.prepare(`SELECT userId FROM org_notify WHERE orgId IS ?`).all(orgId);
   res.json({ userIds: rows.map(r => r.userId) });
 });
-router.put('/notify', requireAuth, requireAdmin, (req, res) => {
+router.put('/notify', requireAuth, requireCap('manage_users'), (req, res) => {
   const orgId = scopeOrgId(req);
   const ids = Array.isArray(req.body && req.body.userIds) ? req.body.userIds : [];
   const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(uid, orgId));
@@ -51,10 +53,12 @@ router.put('/notify', requireAuth, requireAdmin, (req, res) => {
 
 // Create a login in this customer.
 router.post('/', requireAuth, (req, res) => {
-  // Admins/super-admins create any team login; a dispatcher may add a SALES REP only (not admins/dispatchers).
+  // Admins (and anyone granted the 'manage_users' capability) create any team login; a plain dispatcher may
+  // add a SALES REP only (not admins/dispatchers).
   const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  const canManage = isAdmin || userHasCap(req, 'manage_users');
   const isDispatcher = req.user.role === 'dispatcher';
-  if (!isAdmin && !isDispatcher) return res.status(403).json({ error: 'Not allowed' });
+  if (!canManage && !isDispatcher) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
   const { email, name, role, password } = req.body || {};
   const em = (email || '').toLowerCase().trim();
@@ -63,7 +67,7 @@ router.post('/', requireAuth, (req, res) => {
   // sets their own password the first time they open it. If an admin does type one, it must be 6+ chars.
   if (password && String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters (or leave it blank to send a set-up link)' });
   let r = role === 'admin' ? 'admin' : (role === 'sales' ? 'sales' : 'dispatcher'); // never create a superadmin here
-  if (isDispatcher && r !== 'sales') return res.status(403).json({ error: 'Dispatchers can only add sales reps' });
+  if (isDispatcher && !canManage && r !== 'sales') return res.status(403).json({ error: 'Dispatchers can only add sales reps' });
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
   try {
     const temp = (password && String(password).length >= 6) ? String(password) : crypto.randomBytes(4).toString('hex'); // 8-char temp when none given
@@ -86,7 +90,7 @@ router.post('/', requireAuth, (req, res) => {
 // ---- Bulk import team logins (email, name, role). Each new login gets a temporary password and a
 //      "here's your login" link (returned so the admin can hand them out). Existing emails are skipped.
 //      Not auto-emailed, to avoid a burst of mail on a bulk import. ----
-router.post('/import', requireAuth, requireAdmin, (req, res) => {
+router.post('/import', requireAuth, requireCap('manage_users'), (req, res) => {
   const orgId = scopeOrgId(req);
   if (!orgId) return res.status(400).json({ error: 'No organization on this login' });
   const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];
@@ -150,7 +154,7 @@ router.delete('/by-email', requireAuth, (req, res) => {
 });
 
 // Edit a login's email / name / role (fix input mistakes). Same customer only.
-router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+router.put('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   const b = req.body || {};
@@ -164,12 +168,21 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   let role = target.role;
   if (!isSelf && (b.role === 'admin' || b.role === 'sales' || b.role === 'dispatcher')) role = b.role;
   const name = b.name !== undefined ? String(b.name) : target.name;
-  db.prepare('UPDATE users SET email = ?, name = ?, role = ? WHERE id = ?').run(email || target.email, name || '', role, target.id);
-  res.json({ user: { id: target.id, email: email || target.email, name: name || '', role } });
+  // Capabilities: only a real admin/super may grant or change them (a delegate can manage people but not
+  // widen anyone's powers, including their own). Ignored for admins (they already have everything).
+  let capsJson = target.capabilities || null;
+  const callerIsAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  if (b.capabilities !== undefined && callerIsAdmin) {
+    const caps = Array.isArray(b.capabilities) ? b.capabilities.filter(c => ALL_CAPS.includes(c)) : [];
+    capsJson = JSON.stringify(caps);
+  }
+  db.prepare('UPDATE users SET email = ?, name = ?, role = ?, capabilities = ? WHERE id = ?').run(email || target.email, name || '', role, capsJson, target.id);
+  let outCaps = []; try { outCaps = capsJson ? JSON.parse(capsJson) : []; } catch (e) {}
+  res.json({ user: { id: target.id, email: email || target.email, name: name || '', role, capabilities: outCaps } });
 });
 
 // Reset a login's password (same customer only).
-router.post('/:id/password', requireAuth, requireAdmin, (req, res) => {
+router.post('/:id/password', requireAuth, requireCap('manage_users'), (req, res) => {
   const { password } = req.body || {};
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const target = db.prepare('SELECT id, orgId, role FROM users WHERE id = ?').get(req.params.id);
@@ -181,7 +194,7 @@ router.post('/:id/password', requireAuth, requireAdmin, (req, res) => {
 // Generate (or regenerate) a shareable "here's your login" link for a user. Sets a fresh temporary
 // password and returns a link whose page shows that password + the login email. The user changes the
 // password after signing in. Admin/super, same org only. Regenerating replaces any previous link.
-router.post('/:id/login-link', requireAuth, requireAdmin, (req, res) => {
+router.post('/:id/login-link', requireAuth, requireCap('manage_users'), (req, res) => {
   const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
@@ -195,7 +208,7 @@ router.post('/:id/login-link', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Remove a login (same customer only; you cannot remove yourself).
-router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
+router.delete('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   if (req.params.id === (req.user.sub || req.user.id)) return res.status(400).json({ error: 'You cannot remove your own login' });
   const target = db.prepare('SELECT id, orgId, role FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });

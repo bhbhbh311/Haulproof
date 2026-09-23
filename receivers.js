@@ -5,7 +5,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
-const { createUser, requireAuth, requireSuper } = require('./auth');
+const { createUser, requireAuth, requireSuper, requireCap, userHasCap } = require('./auth');
 
 const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -81,7 +81,7 @@ router.get('/match', requireAuth, (req, res) => {
 
 // ---- ADD or LINK. body.receiverId → link an existing global receiver to this customer.
 //      Otherwise create a new global receiver and link it. ----
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
   const b = req.body || {};
   const isSuper = req.user.role === 'superadmin';
   const ownerOrg = ownerOrgOf(req, b);
@@ -122,7 +122,7 @@ router.post('/', requireAuth, (req, res) => {
 //      externalId (e.g. "hubspot:12345") so re-running never duplicates. customerId optional:
 //      omit/blank => receivers land UNLINKED in the global registry (each customer claims their own);
 //      set => also link every imported receiver to that customer. ----
-router.post('/import', requireAuth, requireSuper, (req, res) => {
+router.post('/import', requireAuth, requireCap('manage_customers'), (req, res) => {
   const b = req.body || {};
   const records = Array.isArray(b.records) ? b.records : [];
   if (!records.length) return res.status(400).json({ error: 'No records to import' });
@@ -160,7 +160,7 @@ router.post('/import', requireAuth, requireSuper, (req, res) => {
 });
 
 // ---- Unlink a receiver from a customer (does NOT delete the global record). ----
-router.post('/:id/unlink', requireAuth, (req, res) => {
+router.post('/:id/unlink', requireAuth, requireCap('manage_customers'), (req, res) => {
   const ownerOrg = ownerOrgOf(req, req.body || {});
   if (!ownerOrg) return res.status(400).json({ error: 'No customer to unlink from' });
   db.prepare(`DELETE FROM customer_receivers WHERE orgId = ? AND receiverId = ?`).run(ownerOrg, req.params.id);
@@ -169,11 +169,11 @@ router.post('/:id/unlink', requireAuth, (req, res) => {
 
 // ---- Edit the receiver record. Master admin can edit any; a customer admin can edit a
 //      receiver they've linked (customer_receivers). ----
-router.put('/:id', requireAuth, (req, res) => {
+router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Receiver not found' });
   if (req.user.role !== 'superadmin') {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+    if (req.user.role !== 'admin' && !userHasCap(req, 'manage_customers')) return res.status(403).json({ error: 'Admins only' });
     const linked = db.prepare(`SELECT 1 FROM customer_receivers WHERE orgId = ? AND receiverId = ?`).get(req.user.orgId || '', o.id);
     if (!linked) return res.status(403).json({ error: 'You can only edit receivers you have added' });
   }
