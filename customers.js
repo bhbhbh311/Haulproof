@@ -175,6 +175,26 @@ router.post('/import', requireAuth, requireCap('manage_customers'), (req, res) =
   res.json({ ok: true, total: records.length, created, updated, skipped, errors });
 });
 
+// ---- Saved signature layouts for a customer (one per document type). List + delete, so layouts can be
+//      managed from the Customers area, not only from a document's signature-setup screen. ----
+router.get('/:id/layouts', requireAuth, (req, res) => {
+  const org = ownerOrg(req);
+  if (!org) return res.json({ layouts: [] });
+  const cust = db.prepare(`SELECT id, name FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
+  if (!cust) return res.status(404).json({ error: 'Customer not found in your list' });
+  const rows = db.prepare(`SELECT docType, fields, updatedAt, updatedBy FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? ORDER BY docType`).all(org, cust.id);
+  const layouts = rows.map(t => { let n = 0; try { const a = JSON.parse(t.fields); n = Array.isArray(a) ? a.length : 0; } catch (e) {} return { docType: t.docType, count: n, updatedAt: t.updatedAt, updatedBy: t.updatedBy || null }; });
+  res.json({ customer: { id: cust.id, name: cust.name }, layouts });
+});
+router.delete('/:id/layouts/:docType', requireAuth, requireCap('manage_customers'), (req, res) => {
+  const org = ownerOrg(req);
+  if (!org) return res.status(400).json({ error: 'No organization on this login' });
+  const cust = db.prepare(`SELECT id FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
+  if (!cust) return res.status(404).json({ error: 'Customer not found in your list' });
+  db.prepare(`DELETE FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).run(org, cust.id, req.params.docType);
+  res.json({ ok: true });
+});
+
 // Used by the signed-doc email flow: the customer's contacts flagged to receive documents.
 function customerDocEmails(customerId) {
   if (!customerId) return [];

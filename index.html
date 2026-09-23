@@ -964,6 +964,18 @@
       </div>
     </div>
 
+    <!-- Saved signature layouts for a customer -->
+    <div id="custLayoutsModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10001;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
+      <div style="background:var(--surface,#fff);border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <h1 style="font-size:17px;margin:0;" id="custLayoutsTitle">Saved signature layouts</h1>
+          <button class="ghost" id="custLayoutsClose" type="button">✕ Close</button>
+        </div>
+        <p class="sub" style="margin:6px 0 14px;">Signature layouts saved for this customer, one per document type. They're applied on a document's signature-setup screen; delete any you no longer need here.</p>
+        <div id="custLayoutsList" style="font-size:13.5px;">Loading…</div>
+      </div>
+    </div>
+
     <!-- DRIVER LINK (admin only) -->
     <div class="card hide" id="driverCard">
       <h1>Driver link</h1><p class="sub">Send this one link to a driver. They open it on their phone and the app is ready — no setup, no device key to type. Then they pull a load by PO # or Load # and sign.</p>
@@ -2016,12 +2028,16 @@
         + '<div style="font-size:12px;margin-top:2px;">' + recTxt + '</div>'
         + '<div style="font-size:12px;margin-top:2px;">' + repTxt + '</div></div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+        + '<button class="ghost mcLayoutsBtn" data-id="' + esc(c.id) + '" data-name="' + esc(c.name) + '" type="button" style="font-size:12px;">🗂 Layouts</button>'
         + '<button class="ghost mcEditBtn" data-id="' + esc(c.id) + '" type="button" style="font-size:12px;">Edit</button>'
         + '<button class="ghost mcRemoveBtn" data-id="' + esc(c.id) + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Remove</button>'
         + '</div></div>';
     }).join('');
     Array.prototype.forEach.call(box.querySelectorAll('.mcEditBtn'), function (b) {
       b.onclick = function () { const c = _myCustomers.find(x => x.id === b.getAttribute('data-id')); if (c) openCustModal(c); };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('.mcLayoutsBtn'), function (b) {
+      b.onclick = function () { openCustLayouts(b.getAttribute('data-id'), b.getAttribute('data-name')); };
     });
     Array.prototype.forEach.call(box.querySelectorAll('.mcRemoveBtn'), function (b) {
       b.onclick = async function () {
@@ -2037,6 +2053,35 @@
       };
     });
   }
+  // ---- Saved signature layouts for a customer (view + delete), opened from the Customers tab. ----
+  let _custLayoutsId = null, _custLayoutsName = '';
+  async function openCustLayouts(id, name) {
+    _custLayoutsId = id; _custLayoutsName = name || '';
+    $('custLayoutsTitle').textContent = 'Saved layouts — ' + (name || 'customer');
+    $('custLayoutsList').innerHTML = 'Loading…';
+    $('custLayoutsModal').classList.remove('hide');
+    try { const r = await api('/api/customers/' + encodeURIComponent(id) + '/layouts'); renderCustLayouts(r.layouts || []); }
+    catch (e) { $('custLayoutsList').innerHTML = '<div style="color:var(--danger);">' + esc(e.message) + '</div>'; }
+  }
+  function renderCustLayouts(list) {
+    const box = $('custLayoutsList');
+    if (!list.length) { box.innerHTML = '<div class="empty">No saved layouts for this customer yet. They’re created from a document’s signature-setup screen with “☆ Save as layout”.</div>'; return; }
+    box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;">' + list.map(t =>
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);">'
+      + '<div><b>' + esc(t.docType || 'POD') + '</b><div style="color:var(--muted);font-size:12px;">' + t.count + ' field' + (t.count === 1 ? '' : 's') + (t.updatedAt ? (' · updated ' + new Date(t.updatedAt).toLocaleDateString()) : '') + (t.updatedBy ? (' · by ' + esc(t.updatedBy)) : '') + '</div></div>'
+      + '<button class="ghost clDel" data-doctype="' + esc(t.docType || 'POD') + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Delete</button>'
+      + '</div>').join('') + '</div>';
+    Array.prototype.forEach.call(box.querySelectorAll('.clDel'), function (b) {
+      b.onclick = async function () {
+        const dt = b.getAttribute('data-doctype');
+        if (!confirm('Delete the saved ' + dt + ' layout for ' + (_custLayoutsName || 'this customer') + '? This can’t be undone.')) return;
+        try { await api('/api/customers/' + encodeURIComponent(_custLayoutsId) + '/layouts/' + encodeURIComponent(dt), { method: 'DELETE' }); openCustLayouts(_custLayoutsId, _custLayoutsName); }
+        catch (e) { alert(e.message); }
+      };
+    });
+  }
+  if ($('custLayoutsClose')) $('custLayoutsClose').onclick = () => $('custLayoutsModal').classList.add('hide');
+  if ($('custLayoutsModal')) $('custLayoutsModal').addEventListener('click', e => { if (e.target === $('custLayoutsModal')) $('custLayoutsModal').classList.add('hide'); });
   async function loadMyCustomersTab() {
     try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
     catch (e) { _myCustomers = []; }

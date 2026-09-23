@@ -540,9 +540,9 @@ router.get('/:id/template', requireAuth, (req, res) => {
   if (!customerId) return res.json({ exists: false, hasCustomer: false, docType });
   const cust = db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
   const t = db.prepare(`SELECT fields, updatedAt FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).get(row.orgId || null, customerId, docType);
-  if (!t) return res.json({ exists: false, hasCustomer: true, docType, customerName: cust ? cust.name : null });
+  if (!t) return res.json({ exists: false, hasCustomer: true, docType, customerId, customerName: cust ? cust.name : null });
   let fields = []; try { fields = JSON.parse(t.fields) || []; } catch (e) {}
-  res.json({ exists: true, hasCustomer: true, docType, customerName: cust ? cust.name : null, fields, updatedAt: t.updatedAt });
+  res.json({ exists: true, hasCustomer: true, docType, customerId, customerName: cust ? cust.name : null, fields, updatedAt: t.updatedAt });
 });
 // Save the current layout as THE template for this pod's customer + document type (replaces any prior one).
 router.post('/:id/save-template', requireAuth, express.json({ limit: '1mb' }), (req, res) => {
