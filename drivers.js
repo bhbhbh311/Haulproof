@@ -158,6 +158,22 @@ router.get('/po-check', (req, res) => {
   res.json({ exists, suggestion });
 });
 
+// Notices for this driver (e.g. dispatch removed a doc they were waiting on). Unseen only.
+router.get('/notices', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.json({ notices: [] });
+  const rows = db.prepare(`SELECT id, kind, poNumber, loadNumber, message, actorName, actorEmail, createdAt
+     FROM driver_notices WHERE driverId = ? AND seen = 0 ORDER BY createdAt DESC LIMIT 50`).all(r.driver.id);
+  res.json({ notices: rows });
+});
+// Dismiss (mark seen) one of this driver's notices.
+router.post('/notices/:id/seen', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  try { db.prepare(`UPDATE driver_notices SET seen = 1 WHERE id = ? AND driverId = ?`).run(req.params.id, r.driver.id); } catch (e) {}
+  res.json({ ok: true });
+});
+
 router.get('/my-loads', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ loads: [] });

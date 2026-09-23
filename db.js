@@ -124,6 +124,22 @@ CREATE TABLE IF NOT EXISTS templates (
   createdAt  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_templates_org ON templates(orgId);
+
+-- Notices shown to a driver in their app (e.g. dispatch removed a document they were waiting on).
+CREATE TABLE IF NOT EXISTS driver_notices (
+  id         TEXT PRIMARY KEY,
+  driverId   TEXT NOT NULL,
+  orgId      TEXT,
+  kind       TEXT,
+  poNumber   TEXT,
+  loadNumber TEXT,
+  message    TEXT,
+  actorName  TEXT,
+  actorEmail TEXT,
+  seen       INTEGER NOT NULL DEFAULT 0,
+  createdAt  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_driver_notices_driver ON driver_notices(driverId);
 `);
 
 // --- Migrations for databases created before multi-customer support ---

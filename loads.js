@@ -192,7 +192,20 @@ router.delete('/:id', requireAuth, (req, res) => {
   const load = ownedLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   try {
-    const pods = db.prepare(`SELECT id, filepath FROM pods WHERE loadId = ?`).all(load.id);
+    const pods = db.prepare(`SELECT id, filepath, status, poNumber, loadNumber, docType, orgId, signedByDriverId, assignedDriverId FROM pods WHERE loadId = ?`).all(load.id);
+    // Leave a notice for any driver who was waiting on a doc on this load (uploaded or assigned, not yet done).
+    pods.forEach(p => {
+      try {
+        const drvId = p.signedByDriverId || p.assignedDriverId || null;
+        if (drvId && (p.status === 'awaiting_build' || p.status === 'prepared')) {
+          db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
+            VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(
+            crypto.randomUUID(), drvId, p.orgId || null, 'removed', p.poNumber || null, p.loadNumber || null,
+            'The load' + (p.poNumber ? ' for PO ' + p.poNumber : '') + ' was deleted by dispatch.',
+            (req.user && req.user.name) || null, (req.user && req.user.email) || null, Date.now());
+        }
+      } catch (e) {}
+    });
     pods.forEach(p => { if (p.filepath) { try { fs.unlinkSync(p.filepath); } catch (e) {} } });
     db.prepare(`DELETE FROM pods WHERE loadId = ?`).run(load.id);
     try { db.prepare(`DELETE FROM load_subscribers WHERE loadId = ?`).run(load.id); } catch (e) {}

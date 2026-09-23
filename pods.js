@@ -600,6 +600,18 @@ router.post('/:id/ready', requireAuth, (req, res) => {
 router.delete('/:id', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  // If a driver was waiting on this doc (they uploaded it for dispatch, or it was assigned to them to sign),
+  // leave them a notice — with WHO removed it — so it doesn't just silently vanish from their app.
+  try {
+    const drvId = row.signedByDriverId || row.assignedDriverId || null;
+    if (drvId && (row.status === 'awaiting_build' || row.status === 'prepared')) {
+      db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(
+        crypto.randomUUID(), drvId, row.orgId || null, 'removed', row.poNumber || null, row.loadNumber || null,
+        (row.docType || 'Document') + (row.poNumber ? ' for PO ' + row.poNumber : '') + ' was removed by dispatch before it was set up.',
+        req.user.name || null, req.user.email || null, Date.now());
+    }
+  } catch (e) {}
   try { if (row.filepath && fs.existsSync(row.filepath)) fs.unlinkSync(row.filepath); } catch (e) {}
   db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_removed',
