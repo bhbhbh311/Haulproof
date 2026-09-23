@@ -193,7 +193,17 @@ router.put('/:id', requireAuth, (req, res) => {
 // Delete a load and all its documents. Owner (or super) only. Irreversible — the app confirms twice first.
 router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) => {
   const load = ownedLoad(req, req.params.id);
-  if (!load) return res.status(404).json({ error: 'Load not found' });
+  if (!load) {
+    // Distinguish "doesn't exist" from "exists but a DIFFERENT company owns it". A carrier/broker can see a
+    // load assigned to them (so it shows in their list and opens), but only the OWNING org (or a master admin)
+    // may delete it. Returning a plain "Load not found" here made that look like a bug — say who owns it instead.
+    const any = db.prepare(`SELECT l.id, l.orgId, o.name AS ownerName FROM loads l LEFT JOIN orgs o ON o.id = l.orgId WHERE l.id = ?`).get(req.params.id);
+    if (any) {
+      const who = any.ownerName ? ('“' + any.ownerName + '”') : 'another company';
+      return res.status(403).json({ error: 'This load belongs to ' + who + ' — your company is only the assigned carrier, so it can’t be deleted from your account. It has to be removed by ' + who + ' (or a master admin).' });
+    }
+    return res.status(404).json({ error: 'Load not found' });
+  }
   try {
     const pods = db.prepare(`SELECT id, filepath, status, poNumber, loadNumber, docType, orgId, signedByDriverId, assignedDriverId FROM pods WHERE loadId = ?`).all(load.id);
     // Leave a notice for any driver who was waiting on a doc on this load (uploaded or assigned, not yet done).
