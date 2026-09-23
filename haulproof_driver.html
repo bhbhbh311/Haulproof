@@ -748,6 +748,7 @@ window.__startApp=function(){
             var body=await res.json().catch(function(){return {};});
             p.error = body.error || ("Upload failed ("+res.status+")");
             p.errorAt = Date.now(); changed=true;
+            if(isLinkError(res.status, p.error)){ showLinkExpired(); break; }  // dead link — stop; reconnect fixes all of them
             if(res.status>=500) break;   // server trouble — stop and retry everything later
             continue;                     // this one document has its own problem — keep trying the rest
           }
@@ -887,11 +888,32 @@ window.__startApp=function(){
   if($("pinHelpSend")) $("pinHelpSend").addEventListener("click", sendPinHelp);
   if($("setPinBtn")) $("setPinBtn").addEventListener("click", saveNewPin);
   ["setPin1","setPin2"].forEach(function(id){ var el=$(id); if(el){ el.addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); }); el.addEventListener("keydown", function(e){ if(e.key==="Enter") saveNewPin(); }); } });
+  // The phone's saved driver link is no longer valid on the server (the link was regenerated, the driver was
+  // turned off, or this device never got a real link). Show ONE clear, persistent notice so uploads don't just
+  // fail later with a cryptic "Invalid device key".
+  var _linkBar=null;
+  function showLinkExpired(){
+    try{
+      if(_linkBar) return;                                   // already showing — don't stack
+      var bar=document.createElement("div");
+      bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:10070;background:#b3261e;color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 12px;box-shadow:0 6px 18px rgba(0,0,0,.28);font-size:14px;line-height:1.4;";
+      bar.innerHTML='<div><b>This device isn’t linked anymore.</b> Open your personal HaulProof link again (from the text or email your dispatcher sent) to reconnect — until then, documents can’t upload.</div>';
+      var x=document.createElement("button"); x.type="button"; x.textContent="Got it";
+      x.style.cssText="display:block;margin-top:10px;background:#fff;color:#b3261e;border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:13px;";
+      x.addEventListener("click",function(){ if(_linkBar&&_linkBar.parentNode) _linkBar.parentNode.removeChild(_linkBar); _linkBar=null; });
+      bar.appendChild(x);
+      document.body.appendChild(bar); _linkBar=bar;
+    }catch(e){}
+  }
+  function isLinkError(status, msg){ return status===401 && /device key|not valid|link/i.test(msg||""); }
   // On open: pull the driver's name from their link, gate on PIN if needed, then show route + a daily welcome.
   async function initDriver(){
-    var key=currentKey(), info=null;
+    var key=currentKey(), info=null, linkBad=false;
     if(key && serverOrigin() && online()){
-      try{ var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}}); if(r.ok) info=await r.json(); }catch(e){}
+      try{ var r=await fetch(driverApi("/link-info"),{headers:{"X-Api-Key":key}});
+        if(r.ok){ info=await r.json(); }
+        else if(r.status===401){ linkBad=true; }             // server rejected this device's link
+      }catch(e){}
     }
     if(info && info.name){ setDriver(info.name); }          // remember the driver's real name for offline opens
     if(info){ setCompany(info.company, info.companyKind); }  // and which company / kind their link belongs to
@@ -899,6 +921,7 @@ window.__startApp=function(){
     if(info && info.needsPinCreate && !loadUnlock()){ _lastPin=""; showSetPinGate(true); return; }
     if(info && info.requiresPin && !loadUnlock()){ showPinGate(); return; }
     finishStart();
+    if(linkBad) showLinkExpired();                           // online + key present but rejected → tell them plainly
   }
 
   /* ============ route / stops ============ */
@@ -2090,7 +2113,9 @@ window.__startApp=function(){
           if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
           if(res.ok){ try{ loadMyLoads(); }catch(_){} showSavedConfirmation(poNum); return; }
-          var eb=await res.json().catch(function(){return {};}); toast(eb.error||("Save failed ("+res.status+")")); return;
+          var eb=await res.json().catch(function(){return {};});
+          if(isLinkError(res.status, eb.error)){ showLinkExpired(); toast("Driver link expired — reconnect to upload"); return; }
+          toast(eb.error||("Save failed ("+res.status+")")); return;
         }catch(e){ /* network hiccup — fall through to queue it for later */ }
       }
     }
