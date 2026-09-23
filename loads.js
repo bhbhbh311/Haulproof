@@ -72,7 +72,11 @@ router.get('/', requireAuth, (req, res) => {
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  const rows = db.prepare(`SELECT * FROM loads WHERE ${where.join(' AND ')} ORDER BY createdAt DESC LIMIT 200`).all(...args);
+  // Sort by most-recent ACTIVITY (newest first): the later of the load's creation and its latest document
+  // upload. So a fresh driver upload floats its load to the top even when the load record itself is older.
+  const rows = db.prepare(`SELECT * FROM loads WHERE ${where.join(' AND ')}
+     ORDER BY max(loads.createdAt, COALESCE((SELECT MAX(uploadedAt) FROM pods WHERE pods.loadId = loads.id), 0)) DESC
+     LIMIT 200`).all(...args);
   // Attach ONLY the latest history event to each load (the list shows the current step;
   // the full timeline lives in the load's detail view).
   const lastEv = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt DESC LIMIT 1`);

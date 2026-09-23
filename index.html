@@ -1204,6 +1204,22 @@
   async function refreshAwaitingBadge() {
     try { const r = await api('/api/pods/awaiting-count'); setTabCount('documents', r.count || 0, true); } catch (e) {}
   }
+  // Keep the dispatch view live so a driver's upload shows up on its own — no manual page refresh. We only
+  // auto-refresh when it's safe: the loads list is on screen, the tab is visible, no search is in progress,
+  // and no load's detail/setup panel is open (so we never yank a card out from under the dispatcher).
+  function loadsAutoRefreshOK() {
+    try {
+      if (document.hidden) return false;
+      var lc = $('loadsCard'); if (!lc || lc.classList.contains('hide')) return false;
+      var det = $('loadDetailCard'); if (det && !det.classList.contains('hide')) return false;
+      var s = $('lSearch'); if (s && s.value.trim()) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+  function autoRefreshLoads() { if (!loadsAutoRefreshOK()) return; try { loadLoads(); refreshAwaitingBadge(); } catch (e) {} }
+  setInterval(autoRefreshLoads, 25000);                                   // poll every 25s while viewing loads
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshLoads(); });
+  window.addEventListener('focus', autoRefreshLoads);                     // and the moment the window regains focus
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
   // Documents view isn't buried under the management sections. Role logic still decides
