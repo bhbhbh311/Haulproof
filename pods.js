@@ -234,16 +234,21 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     let load;
     // A carrier's driver files a SIGNED / sign-later doc back onto the assigned load (match by PO/Load). But an
     // "upload for dispatch" is a brand-new hand-off — never merge it onto an existing load (see the PO uniquing below).
-    if (req.org.kind === 'carrier' && !forDispatch) {
+    // Only a SIGNED POD files back onto an existing assigned load (matching its stop). A driver-originated
+    // NEW document (save-to-sign-later or upload-for-dispatch, both asPrepared) must become its OWN load — so
+    // we skip this pre-match for those and let the PO-uniquing below create a fresh PO.1 / PO.2 load instead.
+    if (req.org.kind === 'carrier' && !forDispatch && !asPrepared) {
       if (meta.poNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(poNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.poNumber);
       if (!load && meta.loadNumber) load = db.prepare(`SELECT * FROM loads WHERE carrierId = ? AND TRIM(loadNumber) = ? COLLATE NOCASE`).get(req.org.id, meta.loadNumber);
       orgId = load ? load.orgId : req.org.id; // assigned → customer; otherwise → the carrier itself
     }
-    // "Upload for dispatch": if this PO # is already on a load for this org, give this hand-off a unique
-    // suffixed PO ("OKC827" → "OKC827.1" → "OKC827.2" …) so it becomes its OWN new load instead of stacking
-    // onto the existing one. poRenamed lets the driver app tell the driver what happened.
+    // A driver-originated NEW document (upload-for-dispatch OR save-to-sign-later — both asPrepared): if this
+    // PO # is already on a load for this org, give this hand-off a unique suffixed PO ("OKC827" → "OKC827.1"
+    // → "OKC827.2" …) so it becomes its OWN new load instead of stacking onto the existing (maybe already
+    // completed) one. Signed PODs are exempt — they file back onto their assigned load's stop. poRenamed lets
+    // the driver app tell the driver what happened.
     let poRenamed = false; const originalPo = meta.poNumber;
-    if (forDispatch && meta.poNumber) {
+    if (asPrepared && meta.poNumber) {
       const uniq = uniqueLoadPo(orgId, meta.poNumber);
       if (uniq !== meta.poNumber) { meta.poNumber = uniq; poRenamed = true; }
     }

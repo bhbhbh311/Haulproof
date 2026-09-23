@@ -2161,16 +2161,19 @@ window.__startApp=function(){
     }
     if($("poNum")) $("poNum").parentElement.classList.remove("missing");
     if(!origBytes || !origBytes.length){ toast("Photograph or choose a document first"); return; }
-    // "Upload for dispatch": warn the driver BEFORE sending if this PO # is already in use — it will be filed
-    // as a NEW, separate load (PO.1, PO.2 …) rather than merged onto the existing one.
-    if(_dispatchUpload && online() && serverOrigin()){
+    // New document (upload-for-dispatch OR save-to-sign-later): warn the driver BEFORE sending if this PO # is
+    // already in use — it will be filed as a NEW, separate load (PO.1, PO.2 …) rather than merged onto the
+    // existing (maybe already completed) one. Skipped when signing a stop dispatch already prepared (pulledMeta),
+    // since that legitimately belongs to the existing load.
+    if(!pulledMeta && online() && serverOrigin()){
       try{
         var chk=await fetch(driverApi("/po-check?po="+encodeURIComponent(poNum)),{headers:drvHeaders()});
         if(chk.ok){ var ci=await chk.json();
           if(ci && ci.exists){
+            var newPo=ci.suggestion||poNum;
             var goOn=await confirmDialog("This PO # is already in use",
-              "PO “"+poNum+"” already has a load. To keep them separate, this will be sent to dispatch as a new load “"+(ci.suggestion||poNum)+"”. You can change the PO # instead if this should be a different number.",
-              "Send as "+(ci.suggestion||poNum));
+              "PO “"+poNum+"” already has a load. To keep them separate, this will be filed as a new load “"+newPo+"”"+(_dispatchUpload?" and sent to dispatch":"")+". Tap Cancel and change the PO # instead if this should be a different number.",
+              "File as "+newPo);
             if(!goOn){ if($("poNum")){ $("poNum").focus(); $("poNum").select&&$("poNum").select(); } return; }
           }
         }
