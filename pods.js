@@ -364,6 +364,15 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       // The load's customer's assigned sales reps also get the stop-completed update (covers customers with
       // several reps — each of them is notified, not just the single per-stop rep above).
       if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => notifyEmails.push(e));
+      // Dispatch ALWAYS gets a copy: the admins of every org on this load (its owner, plus the assigned
+      // carrier and broker) and whoever created it. This guarantees a completed stop reaches a real person
+      // even when no sales rep / subscriber / notify list was set up. Duplicates are removed by the Set below.
+      const notifyOrgs = [load.orgId, load.carrierId, load.brokerId].filter(Boolean);
+      if (notifyOrgs.length) {
+        const ph = notifyOrgs.map(() => '?').join(',');
+        db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != ''`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
+      }
+      if (load.createdBy && /@/.test(load.createdBy)) notifyEmails.push(load.createdBy);
     } catch (e) {}
     // The load's assigned customer's contacts who are flagged to receive signed documents.
     let customerEmails = [];
