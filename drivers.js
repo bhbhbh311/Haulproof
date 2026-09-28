@@ -197,10 +197,22 @@ router.get('/my-loads', (req, res) => {
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
   }
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
+  // Per-load signing progress so the phone can show "1 of 2 signed — Stop 2 still needs signing". total counts
+  // every stop on the load (signed + ready + awaiting); signed counts the ones already completed.
+  const prog = {};
+  if (loadIds.length) {
+    const ph2 = loadIds.map(() => '?').join(',');
+    db.prepare(`SELECT loadId,
+        SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS signed,
+        SUM(CASE WHEN status IN ('prepared','awaiting_build','signed','emailed') THEN 1 ELSE 0 END) AS total
+      FROM pods WHERE loadId IN (${ph2}) GROUP BY loadId`).all(...loadIds)
+      .forEach(r => { prog[r.loadId] = { signed: Number(r.signed || 0), total: Number(r.total || 0) }; });
+  }
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     customerId: p.loadCustomerId || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
+    loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ loads });
 });

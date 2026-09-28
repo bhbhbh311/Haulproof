@@ -1116,7 +1116,10 @@ window.__startApp=function(){
         var waiting = g.docs.filter(function(d){ return d.awaiting; });
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
-        var sub = ready.length>1 ? (ready.length+" stops") : (g.consignee||"");
+        // Signing progress: total stops on the load and how many are already signed (from the server).
+        var total = g.docs.reduce(function(m,d){ return Math.max(m, d.loadTotal||0); }, 0) || (ready.length+waiting.length);
+        var signed = g.docs.reduce(function(m,d){ return Math.max(m, d.loadSigned||0); }, 0);
+        var sub = ready.length>1 ? (ready.length+" stop"+(ready.length===1?"":"s")+" to sign") : (g.consignee||"");
         var right;
         if(ready.length){
           right='<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
@@ -1125,8 +1128,14 @@ window.__startApp=function(){
           right='<span style="background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
           sub = "Sent to dispatch — they'll set it up";
         }
+        // Once at least one stop is signed, show the progress + how many still need signing so the driver knows
+        // to come back for the rest (e.g. after signing Stop 1 of 2).
+        var progLine = (signed>0 && total>0)
+          ? '<div style="color:#146c2e;font-size:12px;font-weight:700;margin-top:2px;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed'+(ready.length? ' · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing':'')+'</div>'
+          : '';
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+
+          progLine+
           (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>' : '')+
           '</div>'+ right;
         var ob=row.querySelector(".myLoadOpen");
