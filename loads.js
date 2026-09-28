@@ -11,6 +11,8 @@ const { customerIdsForRep } = require('./customers');
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
 function actorOf(req) { return req.user.email || req.user.name || 'admin'; }
+// Stable per-user id for personal preferences (archived loads). JWT carries the user id as `sub`.
+function userId(req) { return req.user.sub || req.user.id || req.user.email || ''; }
 function isCarrier(req) { return req.user.orgKind === 'carrier'; }
 function isBroker(req) { return req.user.orgKind === 'broker'; }
 // A load the caller's org OWNS (super sees any). A carrier owns loads it created for itself.
@@ -72,6 +74,20 @@ router.get('/', requireAuth, (req, res) => {
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
+  // Per-user archiving: each user can hide loads from their own list. The default list drops archived loads;
+  // `?archived=1` shows ONLY the archived ones (the "Show archived" cleanup view). A search still looks across
+  // everything (archived rows come back flagged so they can be found) so nothing is ever truly lost.
+  const uid = userId(req);
+  const archIds = uid ? db.prepare(`SELECT loadId FROM load_archives WHERE userId = ?`).all(uid).map(r => r.loadId) : [];
+  const archSet = new Set(archIds);
+  const archivedOnly = req.query.archived === '1' || req.query.archived === 'true';
+  const searching = !!(q || po || load);
+  if (archivedOnly) {
+    if (archIds.length) { where.push(`id IN (${archIds.map(() => '?').join(',')})`); args.push(...archIds); }
+    else { where.push('1 = 0'); }   // nothing archived yet → empty archived view
+  } else if (!searching && archIds.length) {
+    where.push(`id NOT IN (${archIds.map(() => '?').join(',')})`); args.push(...archIds);
+  }
   // Sort by most-recent ACTIVITY (newest first): the later of the load's creation and its latest document
   // upload. So a fresh driver upload floats its load to the top even when the load record itself is older.
   const rows = db.prepare(`SELECT * FROM loads WHERE ${where.join(' AND ')}
@@ -101,9 +117,10 @@ router.get('/', requireAuth, (req, res) => {
     o.stopsTotal = ps ? Number(ps.total || 0) : 0;      // documents/stops filed on this load
     o.stopsDone = ps ? Number(ps.done || 0) : 0;        // how many are signed/emailed
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
+    o.archived = archSet.has(l.id);   // this user has hidden this load from their own list
     return o;
   });
-  res.json({ count: out.length, results: out, viewerKind: req.user.orgKind || null });
+  res.json({ count: out.length, results: out, viewerKind: req.user.orgKind || null, archivedCount: archIds.length });
 });
 
 // One load plus its documents.
@@ -113,6 +130,22 @@ router.get('/:id', requireAuth, (req, res) => {
   const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   res.json({ load: loadOut(load), pods });
+});
+
+// Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).
+// Body { archived: true } hides it from this user's Loads list; { archived: false } brings it back.
+router.put('/:id/archive', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);   // must be a load this user can actually see
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const uid = userId(req);
+  if (!uid) return res.status(400).json({ error: 'No user' });
+  const on = req.body && (req.body.archived === true || req.body.archived === 'true' || req.body.archived === 1);
+  if (on) {
+    db.prepare(`INSERT OR IGNORE INTO load_archives (userId, loadId, createdAt) VALUES (?,?,?)`).run(uid, load.id, Date.now());
+  } else {
+    db.prepare(`DELETE FROM load_archives WHERE userId = ? AND loadId = ?`).run(uid, load.id);
+  }
+  res.json({ ok: true, archived: !!on });
 });
 
 // Who gets update emails for THIS load (chosen from the customer's own team logins).

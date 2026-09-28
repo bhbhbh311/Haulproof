@@ -349,6 +349,16 @@ CREATE TABLE IF NOT EXISTS email_optouts (
   source    TEXT,        -- 'unsubscribe-link' | 'admin' | 'reply' etc.
   note      TEXT
 );
+-- Per-user archived loads: each portal user can hide loads from their OWN Loads list to clean up their
+-- view, without affecting what anyone else sees. Keyed by (userId, loadId); deleting the row un-archives.
+-- This is only a personal view filter — the load and its documents are never touched or deleted.
+CREATE TABLE IF NOT EXISTS load_archives (
+  userId    TEXT NOT NULL,
+  loadId    TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (userId, loadId)
+);
+CREATE INDEX IF NOT EXISTS idx_loadarch_user ON load_archives(userId);
 CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
