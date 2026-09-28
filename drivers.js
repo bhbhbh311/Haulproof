@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
-const { sendMail, helpEmail } = require('./mailer');
+const { sendMail, helpEmail, emailPodCopy } = require('./mailer');
+let logEvent = function(){}; try { logEvent = require('./events').logEvent || logEvent; } catch (e) {}
 
 const router = express.Router();
 
@@ -217,19 +218,49 @@ router.get('/my-loads', (req, res) => {
   res.json({ loads });
 });
 
-// This driver's own recent signed documents (for the "Recent documents" list in their app).
+// This driver's own signed documents — recent by default, or a full-history search when ?q= is given.
+// Read-only: the app lets the driver VIEW / SEND / DOWNLOAD these; it never re-opens them for signing.
 router.get('/my-documents', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ docs: [] });
+  const q = (req.query.q || '').trim();
+  const args = [r.driver.id, r.driver.name || '', r.driver.orgId || null];
+  let where = '', lim = 30;
+  if (q) {
+    where = ` AND (poNumber LIKE ? OR loadNumber LIKE ? OR consignee LIKE ? OR receiverName LIKE ? OR filename LIKE ?)`;
+    const like = '%' + q + '%'; args.push(like, like, like, like, like); lim = 200;
+  }
   const rows = db.prepare(`SELECT id, loadId, poNumber, loadNumber, consignee, receiverName, stopNumber, filename, docType, status, uploadedAt, signedAt
       FROM pods
       WHERE status IN ('signed','emailed')
-        AND (signedByDriverId = ? OR (driver = ? AND orgId IS ?))
-      ORDER BY uploadedAt DESC LIMIT 30`).all(r.driver.id, r.driver.name || '', r.driver.orgId || null);
+        AND (signedByDriverId = ? OR (driver = ? AND orgId IS ?))${where}
+      ORDER BY uploadedAt DESC LIMIT ${lim}`).all(...args);
   const docs = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     filename: p.filename, when: p.uploadedAt || p.signedAt, fileUrl: '/api/pods/' + p.id + '/file' }));
-  res.json({ docs });
+  res.json({ docs, query: q || null });
+});
+
+// Driver re-sends a copy of one of their OWN completed documents to typed email address(es). View/send/download
+// only — this does not alter or re-sign the document. Opt-outs are honored by the mailer.
+router.post('/my-documents/:id/send', express.json(), async (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ? AND status IN ('signed','emailed')
+      AND (signedByDriverId = ? OR (driver = ? AND orgId IS ?))`).get(req.params.id, r.driver.id, r.driver.name || '', r.driver.orgId || null);
+  if (!row) return res.status(404).json({ error: 'Document not found' });
+  const emails = Array.isArray(req.body && req.body.emails)
+    ? req.body.emails.map(e => String(e).trim().toLowerCase()).filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+    : [];
+  if (!emails.length) return res.status(400).json({ error: 'Add at least one valid email address' });
+  try {
+    const mail = await emailPodCopy({ to: emails, pod: { id: row.id, poNumber: row.poNumber, loadNumber: row.loadNumber, consignee: row.consignee, docType: row.docType, filename: row.filename, signedAt: row.signedAt }, filePath: row.filepath });
+    const sentTo = mail.sentTo || emails, blocked = mail.blocked || [];
+    try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'emailed',
+      detail: (row.stopNumber ? ('Stop ' + row.stopNumber + ' — ') : '') + 'Copy re-sent by driver to ' + sentTo.join(', ') + (blocked.length ? ' (skipped opted-out: ' + blocked.join(', ') + ')' : ''),
+      actor: r.driver.name || 'driver' }); } catch (e) {}
+    res.json({ ok: true, sent: !!mail.sent, sentTo, blocked });
+  } catch (e) { res.status(500).json({ error: 'Could not send the document' }); }
 });
 
 // --- Driver-app load details: pick/add a customer + edit a load's details (device-key auth) ---
