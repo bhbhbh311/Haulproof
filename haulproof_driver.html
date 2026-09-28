@@ -416,6 +416,7 @@
     </div>
     <h1>Today's route</h1>
     <p class="sub">Work stop by stop, or upload a document to sign right now. Everything runs offline and saves on the phone.</p>
+    <button class="locpill" id="locPill" type="button" aria-live="polite" style="display:none;width:100%;box-sizing:border-box;text-align:left;border:1px solid #ffd7a3;border-radius:12px;padding:11px 13px;margin-bottom:12px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;line-height:1.35;-webkit-tap-highlight-color:transparent;"></button>
     <button class="btn primary block" id="dispatchBtn" type="button" style="margin-bottom:8px;">📤 Upload for dispatch to set up</button>
     <button class="btn ghost block" id="oneoffBtn" type="button" style="margin-bottom:12px;">✍ Upload &amp; build/sign it myself</button>
     <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,#3f74e0);">
@@ -621,6 +622,16 @@
     <button class="btn ghost sm" id="locLater" type="button">Not now</button>
   </div>
 </div>
+<div id="locHelp" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:1300;display:flex;align-items:center;justify-content:center;padding:18px;">
+  <div style="background:var(--surface,#fff);border-radius:16px;max-width:430px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.32);max-height:88vh;overflow:auto;">
+    <div style="font-family:'Archivo',sans-serif;font-weight:800;font-size:18px;margin-bottom:8px;">Turn location back on</div>
+    <div id="locHelpBody" style="font-size:14px;line-height:1.55;color:var(--ink,#1a2b45);"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn primary" id="locHelpRetry" type="button" style="flex:1;">Check again</button>
+      <button class="btn ghost" id="locHelpClose" type="button">Close</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script id="lib-data">
@@ -765,7 +776,8 @@ window.__startApp=function(){
           };
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
-          if(p.gps&&p.gps.lat!=null) hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
+          if(p.gps&&p.gps.lat!=null){ hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
+            if(p.gps.source) hdrs["X-POD-Gps-Source"]=p.gps.source; if(p.gps.acc!=null) hdrs["X-POD-Gps-Acc"]=String(p.gps.acc); }
           if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
           if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
@@ -2101,6 +2113,50 @@ window.__startApp=function(){
       }).catch(function(){ showLocBar(); });
     } else { showLocBar(); }
   }
+  // ---- Always-visible location status the driver can see and fix in one tap. ----
+  function locPermState(cb){
+    if(!navigator.geolocation){ cb("unavailable"); return; }
+    if(navigator.permissions && navigator.permissions.query){
+      navigator.permissions.query({name:"geolocation"}).then(function(st){ cb(st.state); }).catch(function(){ cb("unknown"); });
+    } else { cb("unknown"); }
+  }
+  function renderLocPill(){
+    var el=$("locPill"); if(!el) return;
+    if(!navigator.geolocation){ el.style.display="none"; return; }
+    locPermState(function(state){
+      el.style.display="";
+      if(state==="granted"){
+        el.style.background="#e7f6ec"; el.style.color="#116b34"; el.style.borderColor="#b7e4c7";
+        el.innerHTML="📍 Location is on — your signatures get GPS proof";
+      } else {
+        el.style.background="#fff4e5"; el.style.color="#8a4b00"; el.style.borderColor="#ffd7a3";
+        el.innerHTML="⚠️ Location is off — tap to turn it on so deliveries get GPS proof";
+      }
+    });
+  }
+  function isIOSDevice(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1); }
+  function showLocHelp(){
+    var body=$("locHelpBody");
+    if(body){ body.innerHTML = isIOSDevice()
+      ? "Your phone is blocking location for HaulProof. To turn it back on:<br><br><b>1.</b> Open <b>Settings</b> on your iPhone<br><b>2.</b> Tap <b>Privacy &amp; Security → Location Services</b> — make sure it's <b>On</b><br><b>3.</b> Scroll to your browser (<b>Safari</b> or <b>Chrome</b>) and choose <b>While Using the App</b><br><br>If you opened HaulProof in Safari, you can also tap <b>“aA”</b> at the left of the address bar → <b>Website Settings → Location → Allow</b>.<br><br>Then come back here and tap <b>Check again</b>."
+      : "Your phone is blocking location for HaulProof. To turn it back on:<br><br><b>1.</b> Open <b>Settings → Location</b> and make sure it's <b>On</b><br><b>2.</b> In <b>Chrome</b>, tap <b>⋮ → Settings → Site settings → Location</b><br><b>3.</b> Allow location for <b>haulproofepod.com</b><br><br>Then come back here and tap <b>Check again</b>."; }
+    var m=$("locHelp"); if(m) m.classList.remove("hide");
+  }
+  // One-tap fix from the status pill: re-prompt if the browser still allows it, otherwise guide to Settings.
+  function fixLocation(){
+    if(!navigator.geolocation){ toast("This device can't provide location"); return; }
+    locPermState(function(state){
+      if(state==="granted"){ warmLocation(); toast("Location is already on ✓"); setTimeout(renderLocPill,300); return; }
+      if(state==="denied"){ showLocHelp(); return; }   // browser won't re-prompt once denied — send them to Settings
+      // 'prompt'/'unknown' → we can still trigger the native permission prompt directly.
+      locConsentSet("always");
+      getLoc(function(g){
+        renderLocPill();
+        if(g){ toast("Location on ✓"); }
+        else { locPermState(function(s2){ if(s2==="denied") showLocHelp(); else toast("Couldn't get a fix — try again, ideally near a door"); }); }
+      });
+    });
+  }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
     getLoc(function(g){
       if(g){ var tag = g.source==="network" ? " (approx · network)" : (g.acc!=null && g.acc>150 ? " (approx)" : "");
@@ -2275,7 +2331,8 @@ window.__startApp=function(){
           if(_dispatchUpload) hdrs["X-POD-Build"]="dispatch";
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
-          if(lastGps&&lastGps.lat!=null) hdrs["X-POD-Gps"]=lastGps.lat+","+lastGps.lng;
+          var _ug=lastGps||bestGps(); if(_ug&&_ug.lat!=null){ hdrs["X-POD-Gps"]=_ug.lat+","+_ug.lng;
+            if(_ug.source) hdrs["X-POD-Gps-Source"]=_ug.source; if(_ug.acc!=null) hdrs["X-POD-Gps-Acc"]=String(_ug.acc); }
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
           if(res.ok){ var okj=await res.json().catch(function(){return {};}); try{ loadMyLoads(); }catch(_){} showSavedConfirmation(okj.poNumber||poNum, okj.poRenamed?(okj.originalPo||poNum):null); return; }
           var eb=await res.json().catch(function(){return {};});
@@ -2602,6 +2659,15 @@ window.__startApp=function(){
   renderCloud(); renderRoute(); renderDrvBadge();
   initDriver();                 // auto-load the driver's name from their link → PIN (if needed) → route + welcome
   initLocationConsent();        // show the "why we need location" banner (or warm silently if already allowed)
+  // Persistent location-status pill: render it, let the driver fix permission in one tap, and keep it live so
+  // it updates the moment they change the setting and come back (or the browser reports a permission change).
+  if($("locPill")) $("locPill").addEventListener("click", fixLocation);
+  if($("locHelpClose")) $("locHelpClose").addEventListener("click", function(){ $("locHelp").classList.add("hide"); });
+  if($("locHelpRetry")) $("locHelpRetry").addEventListener("click", function(){ locPermState(function(s){ if(s==="granted"){ $("locHelp").classList.add("hide"); warmLocation(); toast("Location on ✓"); renderLocPill(); } else { toast("Still off — follow the steps above"); } }); });
+  renderLocPill();
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) renderLocPill(); });
+  window.addEventListener("focus", renderLocPill);
+  if(navigator.permissions && navigator.permissions.query){ try{ navigator.permissions.query({name:"geolocation"}).then(function(st){ st.onchange=function(){ renderLocPill(); }; }).catch(function(){}); }catch(e){} }
 };
 if(window.__LIBS) window.__startApp();
 </script>

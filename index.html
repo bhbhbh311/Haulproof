@@ -1827,6 +1827,13 @@
   }
   const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
   function statusChip(s) { const map = { open: ['warn', 'Open'], assigned: ['prepared', 'Assigned'], signed: ['signed', 'Signed'] }; const m = map[s] || ['received', s || 'Open']; return `<span class="chip ${m[0] === 'warn' ? 'received' : m[0]}">${m[1]}</span>`; }
+  // How the signing GPS was obtained → a small muted note next to the Map pin. Precise GPS shows nothing.
+  function gpsSrcLabel(x) {
+    if (x.gpsSource === 'network') return ' <span style="color:var(--muted);font-size:11px;" title="Located from WiFi/cell — approximate">(approx · network)</span>';
+    if (x.gpsSource === 'arrival') return ' <span style="color:var(--muted);font-size:11px;" title="Location captured when the driver arrived at the stop">(on arrival)</span>';
+    if (x.gpsAcc && x.gpsAcc > 150) return ' <span style="color:var(--muted);font-size:11px;" title="Approximate location">(approx)</span>';
+    return '';
+  }
   // Clean CURRENT status for the loads list (derived from the latest event). Full history is one click away.
   function loadStatusChip(l) {
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
@@ -3712,7 +3719,7 @@
       return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
       <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
       <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${x.docType||'BOL'}</td>
-      <td>${(x.status==='signed'||x.status==='emailed')?(x.signedAt?new Date(x.signedAt).toLocaleString():'—')+(x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''):'<span style="color:var(--muted);">Not signed yet</span>'}</td>
+      <td>${(x.status==='signed'||x.status==='emailed')?(x.signedAt?new Date(x.signedAt).toLocaleString():'—')+(x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps${x.gpsAcc?(' · ~'+x.gpsAcc+'m accuracy'):''}" style="white-space:nowrap;">📍 Map</a>${gpsSrcLabel(x)}`:''):'<span style="color:var(--muted);">Not signed yet</span>'}</td>
       <td><span class="chip ${x.status}">${x.status==='awaiting_build'?'From driver — needs setup':x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
     </tr>`;

@@ -214,6 +214,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       clientId: (dec(h['x-pod-clientid']) || '').trim() || null,       // the phone's own id for this doc — for idempotent retries
       docType: h['x-pod-type'] || 'BOL',
       gps: h['x-pod-gps'] || null,
+      gpsSource: (h['x-pod-gps-source'] || '').trim() || null,   // 'gps' (precise) | 'network' (WiFi/cell) | 'arrival'
+      gpsAcc: h['x-pod-gps-acc'] ? Math.round(Number(h['x-pod-gps-acc'])) : null,   // approx accuracy in meters
       signedAt: h['x-pod-signedat'] ? Number(h['x-pod-signedat']) : Date.now(),
       driver: dec(h['x-pod-driver']) || null,
       recipients: (dec(h['x-pod-emails']) || '').split(',').map(s => s.trim()).filter(Boolean),
@@ -298,11 +300,11 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (asPrepared && forDispatch) {
       try { if (db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ? AND status = 'awaiting_build'`).get(load.id).c > 0) dupWarn = 1; } catch (e) {}
     }
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, signedAt, recipients, driver, clientId, status, dupWarn, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@signedAt,@recipients,@driver,@clientId,@status,@dupWarn,@uploadedAt)`)
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, gpsSource, gpsAcc, signedAt, recipients, driver, clientId, status, dupWarn, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@gpsSource,@gpsAcc,@signedAt,@recipients,@driver,@clientId,@status,@dupWarn,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
         consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
-        gps: meta.gps, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
+        gps: meta.gps, gpsSource: meta.gpsSource, gpsAcc: meta.gpsAcc, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
         status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', dupWarn, uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
@@ -437,7 +439,7 @@ router.get('/', requireAuth, (req, res) => {
     const where = [`(pods.orgId IS ? OR loads.carrierId = ?)`], args = [carrierId, carrierId];
     if (req.query.po) { where.push(`pods.poNumber LIKE ?`); args.push(`%${req.query.po}%`); }
     if (req.query.q) { where.push(`(pods.poNumber LIKE ? OR pods.loadNumber LIKE ? OR pods.consignee LIKE ? OR pods.filename LIKE ?)`); args.push(`%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`, `%${req.query.q}%`); }
-    const rows = db.prepare(`SELECT pods.id, pods.orgId, pods.loadId, pods.loadNumber, pods.poNumber, pods.consignee, pods.stopNumber, pods.receiverName, pods.docType, pods.filename, pods.sizeBytes, pods.gps, pods.signedAt, pods.recipients, pods.driver, pods.status, pods.claimStatus, pods.offeredToOrgId, pods.assignedDriverId, pods.assignedDriverName, pods.uploadedAt
+    const rows = db.prepare(`SELECT pods.id, pods.orgId, pods.loadId, pods.loadNumber, pods.poNumber, pods.consignee, pods.stopNumber, pods.receiverName, pods.docType, pods.filename, pods.sizeBytes, pods.gps, pods.gpsSource, pods.gpsAcc, pods.signedAt, pods.recipients, pods.driver, pods.status, pods.claimStatus, pods.offeredToOrgId, pods.assignedDriverId, pods.assignedDriverName, pods.uploadedAt
       FROM pods LEFT JOIN loads ON loads.id = pods.loadId
       WHERE ${where.join(' AND ')} ORDER BY pods.uploadedAt DESC LIMIT 200`).all(...args).map(rowOut);
     return res.json({ count: rows.length, results: rows });
@@ -451,7 +453,7 @@ router.get('/', requireAuth, (req, res) => {
   if (from) { where.push(`uploadedAt >= ?`); args.push(Number(from)); }
   if (to) { where.push(`uploadedAt <= ?`); args.push(Number(to)); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR consignee LIKE ? OR filename LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, receiverName, docType, filename, sizeBytes, gps, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt
+  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, receiverName, docType, filename, sizeBytes, gps, gpsSource, gpsAcc, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt
                FROM pods WHERE ${where.join(' AND ')} ORDER BY uploadedAt DESC LIMIT 200`;
   const rows = db.prepare(sql).all(...args).map(rowOut);
   res.json({ count: rows.length, results: rows });
