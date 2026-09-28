@@ -304,6 +304,12 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
 router.post('/:id/assign-driver', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
+  // If every stop on this load is already signed/emailed, the load is complete — the driver can't be changed.
+  // (A partially-complete load can still be reassigned: only its unsigned stops get restamped below.)
+  try {
+    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`).get(load.id);
+    if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) return res.status(409).json({ error: 'Every stop on this load is already signed and completed — the driver can no longer be changed.' });
+  } catch (e) {}
   let driverName = (req.body && req.body.driverName || '').trim();
   const truck = (req.body && req.body.truck || '').trim();
   const trailer = (req.body && req.body.trailer || '').trim();

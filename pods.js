@@ -9,6 +9,7 @@ const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValu
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 const { stashDoc } = require('./trash');
+const { filterOptedOut } = require('./optout');
 const { descendantOrgIds } = require('./hierarchy');
 const { customerDocEmails, customerRepEmails } = require('./customers');
 
@@ -492,6 +493,53 @@ router.get('/storage', requireAuth, (req, res) => {
   const limitBytes = Number(process.env.DISK_LIMIT_BYTES || (1024 * 1024 * 1024)); // Render disk is ~1 GB
   res.json({ count: row.count, bytes: Number(row.bytes) || 0, limitBytes });
 });
+// Suggested recipient emails for a document — everyone plausibly associated with it, so "Send Document" can
+// offer them instead of making the user retype addresses. Sources: addresses this doc was already sent to, the
+// receiver's BOL contacts, the customer's document contacts and sales reps, the org's always-CC list, and the
+// people subscribed to the load. Deduped; opted-out addresses are flagged (still shown, but the server skips them).
+router.get('/:id/recipients-suggest', requireAuth, (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  const out = new Map();   // lowercased email -> { email, label }
+  const add = (email, label) => {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return;
+    if (!out.has(e)) out.set(e, { email: e, label: label || '' });
+  };
+  try { (safeJson(pod.recipients) || []).forEach(e => add(e, 'Previously sent')); } catch (e) {}
+  try { if (pod.receiverId) db.prepare(`SELECT name, email FROM receiver_contacts WHERE receiverId = ? AND email IS NOT NULL AND TRIM(email) != ''`).all(pod.receiverId).forEach(c => add(c.email, (c.name ? c.name + ' · ' : '') + (pod.receiverName || 'Receiver'))); } catch (e) {}
+  const load = pod.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(pod.loadId) : null;
+  try { if (load && load.customerId) customerDocEmails(load.customerId).forEach(e => add(e, load.customer || 'Customer')); } catch (e) {}
+  try { if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => add(e, 'Sales rep')); } catch (e) {}
+  try { const org = db.prepare(`SELECT notifyEmails FROM orgs WHERE id = ?`).get(pod.orgId); if (org && org.notifyEmails) String(org.notifyEmails).split(/[,;\s]+/).forEach(e => add(e, 'Always CC')); } catch (e) {}
+  try { if (pod.loadId) db.prepare(`SELECT u.email, u.name FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ?`).all(pod.loadId).forEach(u => add(u.email, (u.name || 'Team member') + ' · on this load')); } catch (e) {}
+  let blocked = new Set();
+  try { const r = filterOptedOut([...out.keys()]); (r.blocked || []).forEach(e => blocked.add(String(e).toLowerCase())); } catch (e) {}
+  const suggestions = [...out.values()].map(s => ({ ...s, optedOut: blocked.has(s.email) }));
+  res.json({ suggestions, consignee: pod.consignee || pod.receiverName || null, poNumber: pod.poNumber || null, stopNumber: pod.stopNumber || null, docType: pod.docType || 'BOL' });
+});
+
+// Email a copy of this document to one or more addresses (the "Send Document" action). Opt-outs are honored by
+// emailPodCopy. Recipients are remembered on the document so they surface as suggestions next time.
+router.post('/:id/send', requireAuth, express.json(), async (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  if (!pod.filepath || !fs.existsSync(pod.filepath)) return res.status(404).json({ error: 'The document file is not available' });
+  const emails = Array.isArray(req.body && req.body.emails)
+    ? req.body.emails.map(e => String(e).trim().toLowerCase()).filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+    : [];
+  if (!emails.length) return res.status(400).json({ error: 'Add at least one valid email address' });
+  try {
+    const mail = await emailPodCopy({ to: emails, pod: { id: pod.id, poNumber: pod.poNumber, loadNumber: pod.loadNumber, consignee: pod.consignee, docType: pod.docType, filename: pod.filename, signedAt: pod.signedAt }, filePath: pod.filepath });
+    const sentTo = mail.sentTo || (mail.simulated ? emails : []), blocked = mail.blocked || [];
+    try { const prev = safeJson(pod.recipients) || []; const merged = Array.from(new Set([...prev, ...emails])); db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(merged), pod.id); } catch (e) {}
+    try { logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'emailed',
+      detail: (pod.stopNumber ? ('Stop ' + pod.stopNumber + ' — ') : '') + 'Document sent to ' + (sentTo.length ? sentTo.join(', ') : emails.join(', ')) + (blocked.length ? ' (skipped opted-out: ' + blocked.join(', ') + ')' : ''),
+      actor: req.user.email }); } catch (e) {}
+    res.json({ ok: true, sent: !!mail.sent, simulated: !!mail.simulated, sentTo, blocked });
+  } catch (e) { console.error('pod send', e); res.status(500).json({ error: 'Could not send the document' }); }
+});
+
 // A carrier offers one of its own documents to a customer it has worked with.
 router.post('/:id/offer', requireAuth, express.json(), (req, res) => {
   const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
@@ -679,6 +727,9 @@ router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
   if (req.user.role !== 'superadmin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
   const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  // Once a document is signed (or its copy emailed) it's a completed legal record — the driver who signed it
+  // can no longer be changed. Guarded on the server so no stale UI can reassign a finished document.
+  if (pod.status === 'signed' || pod.status === 'emailed') return res.status(409).json({ error: 'This document is already signed and completed — the driver can no longer be changed.' });
   const driverId = (req.body && req.body.driverId || '').trim();
   if (!driverId) {   // clear assignment
     db.prepare(`UPDATE pods SET assignedDriverId = NULL, assignedDriverName = NULL WHERE id = ?`).run(pod.id);
