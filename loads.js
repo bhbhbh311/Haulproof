@@ -7,6 +7,7 @@ const { requireAuth, requireCap } = require('./auth');
 const { logEvent } = require('./events');
 const { brokerApproved } = require('./brokers');
 const { customerIdsForRep } = require('./customers');
+const { stashDoc, stashLoad } = require('./trash');
 
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
@@ -129,7 +130,9 @@ router.get('/:id', requireAuth, (req, res) => {
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
-  res.json({ load: loadOut(load), pods });
+  const uid = userId(req);
+  const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
+  res.json({ load: { ...loadOut(load), archived }, pods });
 });
 
 // Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).
@@ -238,7 +241,7 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
     return res.status(404).json({ error: 'Load not found' });
   }
   try {
-    const pods = db.prepare(`SELECT id, filepath, status, poNumber, loadNumber, docType, orgId, signedByDriverId, assignedDriverId FROM pods WHERE loadId = ?`).all(load.id);
+    const pods = db.prepare(`SELECT * FROM pods WHERE loadId = ?`).all(load.id);
     // Leave a notice for any driver who was waiting on a doc on this load (uploaded or assigned, not yet done).
     pods.forEach(p => {
       try {
@@ -252,11 +255,14 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
         }
       } catch (e) {}
     });
-    pods.forEach(p => { if (p.filepath) { try { fs.unlinkSync(p.filepath); } catch (e) {} } });
+    // Recoverable delete: snapshot the load and each of its documents into the recovery bin, then remove the
+    // live rows but KEEP the PDF files on disk so an admin can restore the whole load exactly. Subscribers are
+    // left in place so a restore brings back who was watching the load; they're cleaned up on permanent purge.
+    try { stashLoad(load, pods.length, actorOf(req)); pods.forEach(p => { try { stashDoc(p, 'load', actorOf(req)); } catch (e) {} }); }
+    catch (e) { console.error('stash on load delete', e.message); }
     db.prepare(`DELETE FROM pods WHERE loadId = ?`).run(load.id);
-    try { db.prepare(`DELETE FROM load_subscribers WHERE loadId = ?`).run(load.id); } catch (e) {}
     db.prepare(`DELETE FROM loads WHERE id = ?`).run(load.id);
-    logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'deleted', detail: 'Load and its ' + pods.length + ' document(s) deleted', actor: actorOf(req) });
+    logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'deleted', detail: 'Load and its ' + pods.length + ' document(s) deleted (recoverable)', actor: actorOf(req) });
     res.json({ ok: true, deletedPods: pods.length });
   } catch (e) { console.error('delete load', e); res.status(500).json({ error: 'Could not delete this load' }); }
 });

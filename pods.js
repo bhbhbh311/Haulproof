@@ -8,6 +8,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue, requireCap } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
+const { stashDoc } = require('./trash');
 const { descendantOrgIds } = require('./hierarchy');
 const { customerDocEmails, customerRepEmails } = require('./customers');
 
@@ -648,10 +649,19 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
         req.user.name || null, req.user.email || null, Date.now());
     }
   } catch (e) {}
-  try { if (row.filepath && fs.existsSync(row.filepath)) fs.unlinkSync(row.filepath); } catch (e) {}
-  db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
+  // Recoverable delete: snapshot the document into the recovery bin and KEEP its file, so an admin can
+  // restore it (retained per the app's retention window, then purged for good). EXCEPT a "split into stops"
+  // replacement (?replaced=1) — that original combined upload is being superseded, not deleted by a person,
+  // so it's hard-removed as before and doesn't clutter the recovery bin.
+  if (replaced) {
+    try { if (row.filepath && fs.existsSync(row.filepath)) fs.unlinkSync(row.filepath); } catch (e) {}
+    db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
+  } else {
+    try { stashDoc(row, 'doc', req.user.email); } catch (e) { console.error('stashDoc', e.message); }
+    db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);   // file is intentionally kept for restore
+  }
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_removed',
-    detail: (row.docType || 'Document') + (replaced ? ' split into per-stop documents' : ' removed') + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
+    detail: (row.docType || 'Document') + (replaced ? ' split into per-stop documents' : ' removed (recoverable)') + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
   res.json({ ok: true });
 });
 

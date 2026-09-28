@@ -663,6 +663,7 @@
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
         <div style="display:flex;gap:8px;">
           <button class="ld-viewonly btn-sm" id="ldEditBtn" type="button">✎ Edit load / stops</button>
+          <button class="ghost ld-viewonly" id="ldArchiveBtn" type="button" title="Hide this load from your list (does not delete it)">🗄 Archive</button>
           <button class="ld-editonly hide" id="ldSaveAll" type="button">Save</button>
           <button class="ghost ld-editonly hide" id="ldCancelAll" type="button">Cancel</button>
           <button class="ghost" id="ldBack" type="button">← Back</button>
@@ -1299,7 +1300,7 @@
       return true;
     } catch (e) { return false; }
   }
-  function autoRefreshLoads() { if (!loadsAutoRefreshOK()) return; try { loadLoads(); refreshAwaitingBadge(); } catch (e) {} }
+  function autoRefreshLoads() { if (!loadsAutoRefreshOK()) return; if (_inTrashView) { refreshAwaitingBadge(); return; } try { loadLoads(); refreshAwaitingBadge(); } catch (e) {} }
   // When a load's detail card is open and being VIEWED (not edited), keep its stop statuses live so a driver
   // signing a stop flips it from "Ready to sign" to "Signed" on its own — no manual refresh. We only touch the
   // read-only stops/documents table and the status line; we never re-run openLoad (which would scroll/reset the
@@ -1317,6 +1318,7 @@
       curLoad = r.load; _lastPods = r.pods || [];
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
+      updateLdArchiveBtn();
       renderLoadDocs(_lastPods);
     } catch (e) {}
   }
@@ -1823,6 +1825,7 @@
     return `<span class="chip ${m[0]}">${m[1]}</span>`;
   }
   let _showArchived = false;   // when true, the Loads list shows this user's archived (hidden) loads instead
+  let _inTrashView = false;    // when true, the box is showing the recovery bin — auto-refresh must not clobber it
   async function archiveLoad(id, on) {
     try {
       await api('/api/loads/' + id + '/archive', { method: 'PUT', body: JSON.stringify({ archived: !!on }) });
@@ -1830,6 +1833,7 @@
     } catch (e) { alert(e.message || 'Could not update'); }
   }
   async function loadLoads() {
+    _inTrashView = false;
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
       const params = [];
@@ -1850,16 +1854,20 @@
       }
       const all = active, showing = (q || _showArchived) ? all : all.slice(0, 15);
       const needAction = all.filter(l => !l.complete).length;
-      // A small right-aligned toggle to jump between the active list and this user's archived (hidden) loads.
+      // A small right-aligned toggle to jump between the active list and this user's archived (hidden) loads,
+      // plus (for admins) a link into the recovery bin of deleted loads/documents.
       const archToggle = _showArchived
         ? `<a href="#" id="lArchBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to active loads</a>`
         : (archCount ? `<a href="#" id="lArchShow" style="color:var(--muted);text-decoration:none;font-weight:600;">🗄 Archived (${archCount})</a>` : '');
+      const trashLink = (!_showArchived && !q && isAdmin())
+        ? `<a href="#" id="lTrashShow" style="color:var(--muted);text-decoration:none;font-weight:600;">🗑 Recovery bin</a>` : '';
+      const rightLinks = [archToggle, trashLink].filter(Boolean).map(x => '<span>' + x + '</span>').join('<span style="color:var(--divider);">·</span>');
       const headText = _showArchived
         ? `${all.length} archived load${all.length === 1 ? '' : 's'} · hidden from your list only`
         : (q
           ? `${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"`
           : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' needing action' : ' · all signed ✓'}${all.length > showing.length ? ' — search above to find older ones' : ''}`);
-      const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${archToggle ? '<span>' + archToggle + '</span>' : ''}</div>`;
+      const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${rightLinks ? '<span style="display:flex;gap:10px;align-items:center;">' + rightLinks + '</span>' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr>
@@ -1878,7 +1886,76 @@
       box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
       const showBtn = $('lArchShow'); if (showBtn) showBtn.onclick = (e) => { e.preventDefault(); _showArchived = true; loadLoads(); };
       const backBtn = $('lArchBack'); if (backBtn) backBtn.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
+      const trashBtn = $('lTrashShow'); if (trashBtn) trashBtn.onclick = (e) => { e.preventDefault(); loadTrash(); };
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  // Recovery bin: deleted loads + documents an admin can restore (or a master admin can purge for good).
+  async function loadTrash() {
+    _inTrashView = true;
+    const box = $('loadList');
+    box.innerHTML = '<div class="empty">Loading recovery bin…</div>';
+    try {
+      const r = await api('/api/trash');
+      const loads = r.loads || [], docs = r.docs || [], canPurge = user && user.role === 'superadmin';
+      const days = r.retentionDays || 365;
+      const when = (ts) => { try { return new Date(ts).toLocaleDateString(); } catch (e) { return ''; } };
+      const left = (purgeAfter) => { const d = Math.max(0, Math.ceil((purgeAfter - Date.now()) / 86400000)); return d + ' day' + (d === 1 ? '' : 's') + ' left'; };
+      let html = `<div class="sub" style="margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">`
+        + `<span>Deleted items are kept for ${days} days, then permanently removed. Restore brings them back exactly.</span>`
+        + `<span><a href="#" id="lTrashBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to loads</a></span></div>`;
+      if (!loads.length && !docs.length) {
+        html += '<div class="empty">Recovery bin is empty. Deleted loads and documents will show up here.</div>';
+        box.innerHTML = html;
+        const bb = $('lTrashBack'); if (bb) bb.onclick = (e) => { e.preventDefault(); loadLoads(); };
+        return;
+      }
+      const purgeBtn = (kind, id) => canPurge ? `<button class="ghost trPurge" data-kind="${kind}" data-id="${id}" title="Permanently delete — cannot be undone" style="padding:6px 9px;font-size:12px;color:var(--danger);border-color:var(--danger);margin-left:6px;">🗑 Delete permanently</button>` : '';
+      if (loads.length) {
+        html += '<h1 style="font-size:15px;margin:6px 0 6px;">Deleted loads</h1><table><thead><tr><th class="mono">PO #</th><th>Documents</th><th>Deleted</th><th>By</th><th></th></tr></thead><tbody>' +
+          loads.map(l => `<tr>
+            <td class="mono">${esc(l.poNumber) || '—'}</td>
+            <td>${l.docCount} document${l.docCount === 1 ? '' : 's'}</td>
+            <td title="${left(l.purgeAfter)}">${when(l.deletedAt)}</td>
+            <td>${esc(l.deletedBy) || '—'}</td>
+            <td style="text-align:right;white-space:nowrap;">
+              <button class="ghost trRestoreLoad" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">↩ Restore load</button>${purgeBtn('load', l.id)}
+            </td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+      if (docs.length) {
+        html += '<h1 style="font-size:15px;margin:16px 0 6px;">Deleted documents</h1><table><thead><tr><th class="mono">PO #</th><th>Document</th><th>Deleted</th><th>By</th><th></th></tr></thead><tbody>' +
+          docs.map(d => `<tr>
+            <td class="mono">${esc(d.poNumber) || '—'}</td>
+            <td>${esc(d.docType) || 'Document'}${d.stopNumber ? ' · Stop ' + d.stopNumber : ''}${d.filename ? ' · ' + esc(d.filename) : ''}</td>
+            <td title="${left(d.purgeAfter)}">${when(d.deletedAt)}</td>
+            <td>${esc(d.deletedBy) || '—'}</td>
+            <td style="text-align:right;white-space:nowrap;">
+              <button class="ghost trRestoreDoc" data-id="${d.id}" style="padding:6px 10px;font-size:12px;">↩ Restore</button>${purgeBtn('doc', d.id)}
+            </td>
+          </tr>`).join('') + '</tbody></table>';
+      }
+      box.innerHTML = html;
+      const bb = $('lTrashBack'); if (bb) bb.onclick = (e) => { e.preventDefault(); loadLoads(); };
+      box.querySelectorAll('.trRestoreLoad').forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        try { await api('/api/trash/load/' + b.dataset.id + '/restore', { method: 'POST' }); loadTrash(); }
+        catch (e) { b.disabled = false; alert(e.message || 'Could not restore'); }
+      });
+      box.querySelectorAll('.trRestoreDoc').forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        try { await api('/api/trash/doc/' + b.dataset.id + '/restore', { method: 'POST' }); loadTrash(); }
+        catch (e) { b.disabled = false; alert(e.message || 'Could not restore'); }
+      });
+      box.querySelectorAll('.trPurge').forEach(b => b.onclick = () => {
+        const kind = b.dataset.kind, id = b.dataset.id;
+        confirmDialog({
+          title: 'Delete permanently?',
+          message: 'This will permanently delete ' + (kind === 'load' ? 'this load and all its documents' : 'this document') + '. It cannot be undone.',
+          okLabel: 'Delete permanently',
+          onOk: async () => { try { await api('/api/trash/' + kind + '/' + id, { method: 'DELETE' }); loadTrash(); } catch (e) { alert(e.message || 'Could not delete'); } }
+        });
+      });
+    } catch (e) { box.innerHTML = '<div class="empty">' + (e.message || 'Could not load the recovery bin') + '<div style="margin-top:8px;"><a href="#" id="lTrashBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to loads</a></div></div>'; const bb = $('lTrashBack'); if (bb) bb.onclick = (ev) => { ev.preventDefault(); loadLoads(); }; }
   }
   $('nlToggle').onclick = () => { $('nlForm').classList.toggle('hide'); if (!$('nlForm').classList.contains('hide')) $('nlPo').focus(); };
   $('nlBtn').onclick = async () => {
@@ -1958,6 +2035,7 @@
       loadRepOptions();
       populateLdCustomer();
       renderLdView();
+      updateLdArchiveBtn();
       // Drop straight into the one-page setup form when the load needs setting up (a driver upload is
       // waiting, or the caller asked for setup) — no hunting for the Edit button.
       const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
@@ -2678,6 +2756,24 @@
   };
   // View → Edit toggle. Edit unlocks every field; one Save writes them all; Cancel discards.
   if ($('ldEditBtn')) $('ldEditBtn').onclick = () => setLoadEditMode(true);
+  // Reflect the open load's archived state on the header button (label + tooltip).
+  function updateLdArchiveBtn() {
+    const b = $('ldArchiveBtn'); if (!b || !curLoad) return;
+    const on = !!curLoad.archived;
+    b.textContent = on ? '↩ Unarchive' : '🗄 Archive';
+    b.title = on ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)';
+  }
+  if ($('ldArchiveBtn')) $('ldArchiveBtn').onclick = async () => {
+    if (!curLoad) return;
+    const turnOn = !curLoad.archived;
+    try {
+      await api('/api/loads/' + curLoad.id + '/archive', { method: 'PUT', body: JSON.stringify({ archived: turnOn }) });
+      curLoad.archived = turnOn;
+      updateLdArchiveBtn();
+      // Archiving from the detail view: pop back to the list so the row is gone (matches the list button).
+      if (turnOn) { const back = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); if (back) back(); else { $('loadsCard').classList.remove('hide'); loadLoads(); } }
+    } catch (e) { alert(e.message || 'Could not update'); }
+  };
   if ($('ldCancelAll')) $('ldCancelAll').onclick = () => { if (curLoad) openLoad(curLoad.id, { back: _ldBackFn }); };
   if ($('ldHistoryLink')) $('ldHistoryLink').onclick = (e) => {
     e.preventDefault();

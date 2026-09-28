@@ -359,6 +359,40 @@ CREATE TABLE IF NOT EXISTS load_archives (
   PRIMARY KEY (userId, loadId)
 );
 CREATE INDEX IF NOT EXISTS idx_loadarch_user ON load_archives(userId);
+-- Recoverable delete ("recovery bin"): when a document or a whole load is deleted, its full row is
+-- snapshotted here as JSON and the PDF file is KEPT on disk, so an admin can restore it exactly. Rows past
+-- purgeAfter are permanently purged (row removed + file unlinked). Retention window is set by the app.
+CREATE TABLE IF NOT EXISTS deleted_docs (
+  id          TEXT PRIMARY KEY,      -- the original pods.id
+  loadId      TEXT,
+  orgId       TEXT,
+  poNumber    TEXT,
+  loadNumber  TEXT,
+  docType     TEXT,
+  filename    TEXT,
+  filepath    TEXT,                  -- the kept PDF on disk (not unlinked until permanent purge)
+  stopNumber  INTEGER,
+  status      TEXT,                  -- the status the doc had when it was deleted
+  snapshot    TEXT NOT NULL,         -- JSON of the full pods row, for an exact restore
+  deletedKind TEXT NOT NULL,         -- 'doc' (deleted on its own) | 'load' (removed as part of a load delete)
+  deletedAt   INTEGER NOT NULL,
+  deletedBy   TEXT,
+  purgeAfter  INTEGER NOT NULL       -- deletedAt + retention window; auto-purged after this moment
+);
+CREATE INDEX IF NOT EXISTS idx_deldocs_org  ON deleted_docs(orgId);
+CREATE INDEX IF NOT EXISTS idx_deldocs_load ON deleted_docs(loadId);
+CREATE TABLE IF NOT EXISTS deleted_loads (
+  id         TEXT PRIMARY KEY,       -- the original loads.id
+  orgId      TEXT,
+  poNumber   TEXT,
+  loadNumber TEXT,
+  snapshot   TEXT NOT NULL,          -- JSON of the full loads row
+  docCount   INTEGER NOT NULL DEFAULT 0,
+  deletedAt  INTEGER NOT NULL,
+  deletedBy  TEXT,
+  purgeAfter INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_delloads_org ON deleted_loads(orgId);
 CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
