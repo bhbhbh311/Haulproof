@@ -689,7 +689,10 @@ window.__startApp=function(){
   function kmBetween(a,b){ var R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180,l1=a.lat*Math.PI/180,l2=b.lat*Math.PI/180; var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(l1)*Math.cos(l2)*Math.sin(dLng/2)*Math.sin(dLng/2); return 2*R*Math.asin(Math.min(1,Math.sqrt(h))); }
   function matchConsignee(ctx){ var list=loadConsignees(),i;
     if(ctx.name){ for(i=0;i<list.length;i++){ if(norm(list[i].name)===norm(ctx.name)) return list[i]; } }
-    if(ctx.gps){ for(i=0;i<list.length;i++){ if(list[i].gps && kmBetween(list[i].gps,ctx.gps)<0.2) return list[i]; } }
+    // GPS fallback ONLY when there's no name to match on, or the nearby saved record shares (or lacks) the name.
+    // Never surface a DIFFERENTLY-named consignee's emails just because it's physically close — that was leaking
+    // one company's recipient list onto another's stop when both were signed from the same location.
+    if(ctx.gps){ for(i=0;i<list.length;i++){ if(list[i].gps && kmBetween(list[i].gps,ctx.gps)<0.2 && (!ctx.name || !list[i].name || norm(list[i].name)===norm(ctx.name))) return list[i]; } }
     return null; }
   function upsertConsignee(ctx,emails){ var list=loadConsignees(),rec=null,i;
     if(ctx.name){ for(i=0;i<list.length;i++){ if(norm(list[i].name)===norm(ctx.name)){ rec=list[i]; break; } } }
@@ -2318,8 +2321,10 @@ window.__startApp=function(){
     box.innerHTML='<div class="lbl">Email a copy to the consignee</div><div class="hint2">They receive the signed BOL, and this is remembered for '+(compCtx.name?("“"+esc(compCtx.name)+"”"):"this location")+' next time.</div>';
     var match=matchConsignee(compCtx);
     if(match && match.emails.length){
-      var sl=document.createElement("div"); sl.className="saved-lab"; sl.textContent="Saved for "+(match.name?("“"+match.name+"”"):"this location")+" — tap to add:"; box.appendChild(sl);
-      var sug=document.createElement("div"); sug.className="suggest"; box.appendChild(sug); box._sug=sug; box._match=match;
+      // Auto-include the emails we remembered for THIS consignee, shown as removable chips below — so a saved
+      // recipient goes out every time without the driver re-adding it. Tap × on a chip to drop one for this stop.
+      match.emails.forEach(function(e){ if(e && compRecips.indexOf(e)<0) compRecips.push(e); });
+      var sl=document.createElement("div"); sl.className="saved-lab"; sl.textContent="Saved for "+(match.name?("“"+match.name+"”"):"this location")+" — added below (tap × to remove):"; box.appendChild(sl);
     }
     var row=document.createElement("div"); row.className="reciprow";
     var inp=document.createElement("input"); inp.className="ti"; inp.type="email"; inp.placeholder="name@company.com"; inp.autocomplete="email";
@@ -2328,7 +2333,10 @@ window.__startApp=function(){
     row.appendChild(inp); row.appendChild(add); box.appendChild(row);
     var chips=document.createElement("div"); chips.className="chips"; box.appendChild(chips); box._chips=chips;
     var note=document.createElement("div"); note.className="emailnote"; box.appendChild(note); box._note=note;
-    compBox=box; renderSuggest(); renderChips(); renderNote(); return box;
+    compBox=box; renderSuggest(); renderChips(); renderNote();
+    // Persist any auto-added saved emails onto the POD now, so they upload even if the driver touches nothing.
+    if(match && match.emails.length) persistRecips();
+    return box;
   }
   function tryAddRecip(v){ v=(v||"").trim().toLowerCase(); if(!validEmail(v)){ toast("Enter a valid email"); return; } if(compRecips.indexOf(v)>=0) return; compRecips.push(v); persistRecips(); renderChips(); renderSuggest(); }
   function removeRecip(v){ var i=compRecips.indexOf(v); if(i>=0) compRecips.splice(i,1); persistRecips(); renderChips(); renderSuggest(); }

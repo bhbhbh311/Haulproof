@@ -198,6 +198,30 @@ app.put('/api/org/notify-emails', requireAuth, (req, res) => {
   res.json({ ok: true, emails: val });
 });
 
+// --- Admin-scoped opt-out tools: an org admin can check WHEN a teammate opted out of document emails and
+//     resume them (re-consent). Scoped to team logins in the admin's own org so an admin can't override an
+//     unrelated person's unsubscribe — master admin still manages everything from the Dashboard. ---
+app.get('/api/org/optout-check', requireAuth, (req, res) => {
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const row = db.prepare('SELECT email, createdAt, source, note FROM email_optouts WHERE lower(email) = ?').get(email);
+  const isTeam = !!db.prepare('SELECT 1 FROM users WHERE lower(email) = ? AND orgId IS ?').get(email, req.user.orgId || null);
+  res.json({ email, optedOut: !!row, createdAt: row ? row.createdAt : null, source: row ? row.source : null, isTeam });
+});
+app.post('/api/org/optout-remove', requireAuth, (req, res) => {
+  if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Admins only' });
+  const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  // Only a team login in the admin's own org (or any address for a master admin). Prevents re-subscribing an
+  // unrelated recipient who unsubscribed.
+  const isTeam = !!db.prepare('SELECT 1 FROM users WHERE lower(email) = ? AND orgId IS ?').get(email, req.user.orgId || null);
+  if (req.user.role !== 'superadmin' && !isTeam) {
+    return res.status(403).json({ error: 'You can only resume emails for a team login in your own company. Ask a master admin to resume anyone else.' });
+  }
+  db.prepare('DELETE FROM email_optouts WHERE lower(email) = ?').run(email);
+  res.json({ ok: true });
+});
+
 // --- Boot migration + seeding: make the single-tenant install multi-customer safely ---
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 try {

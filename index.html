@@ -993,6 +993,25 @@
         <div><h1 style="margin-bottom:0;">Team logins</h1><p class="sub" style="margin-bottom:0;">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p></div>
         <button class="ghost" id="teamImportBtn" type="button">⇪ Import</button>
       </div>
+      <div id="orgNotifyBox" style="margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface2,#f7f9fc);">
+        <label style="display:block;">📧 Email a copy of every completed delivery to</label>
+        <p class="sub" style="margin:2px 0 8px;">Comma-separated addresses. These get a copy of <b>every</b> signed stop on your loads — no matter which consignee email the driver enters at signing. Use this for a dispatch inbox you always want copied.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input id="orgNotifyInput" type="text" placeholder="dispatch@yourcompany.com, you@yourcompany.com" style="flex:1;min-width:240px;">
+          <button id="orgNotifySave" type="button">Save</button>
+          <span id="orgNotifyMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+      <div id="optoutToolBox" style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;">
+        <label style="display:block;">🚫 Someone not getting emails?</label>
+        <p class="sub" style="margin:2px 0 8px;">Check whether an address unsubscribed (and when), then resume it if they’ve asked to receive documents again. You can resume team logins in your own company; a master admin handles anyone else.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input id="optoutEmail" type="email" placeholder="person@yourcompany.com" style="flex:1;min-width:240px;">
+          <button class="ghost" id="optoutCheck" type="button">Check</button>
+          <button id="optoutResume" type="button" style="display:none;">Resume emails</button>
+        </div>
+        <div id="optoutResult" style="font-size:13px;font-weight:600;margin-top:8px;"></div>
+      </div>
       <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;align-items:end;">
         <div><label>Email</label><input id="nuEmail" type="email" placeholder="person@callahantrans.com"></div>
         <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
@@ -3254,8 +3273,44 @@
     card.querySelector('.llClose').onclick = close;
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
   }
+  // Org-wide "always CC" completion addresses (Team logins card).
+  async function loadOrgNotify() {
+    const inp = $('orgNotifyInput'); if (!inp) return;
+    try { const r = await api('/api/org/notify-emails'); inp.value = r.emails || ''; } catch (e) {}
+  }
+  if ($('orgNotifySave')) $('orgNotifySave').onclick = async () => {
+    const m = $('orgNotifyMsg'); m.textContent = 'Saving…'; m.style.color = 'var(--muted)';
+    try {
+      const r = await api('/api/org/notify-emails', { method: 'PUT', body: JSON.stringify({ emails: $('orgNotifyInput').value }) });
+      $('orgNotifyInput').value = r.emails || '';
+      m.textContent = 'Saved ✓'; m.style.color = 'var(--ok, green)'; setTimeout(() => { m.textContent = ''; }, 1800);
+    } catch (e) { m.textContent = e.message; m.style.color = 'var(--danger)'; }
+  };
+  // "Someone not getting emails?" — check an address against the unsubscribe list and resume it if asked.
+  if ($('optoutCheck')) $('optoutCheck').onclick = async () => {
+    const e = ($('optoutEmail').value || '').trim(); const out = $('optoutResult'); const rb = $('optoutResume');
+    rb.style.display = 'none';
+    if (!e) { out.textContent = 'Enter an email to check.'; out.style.color = 'var(--muted)'; return; }
+    out.textContent = 'Checking…'; out.style.color = 'var(--muted)';
+    try {
+      const r = await api('/api/org/optout-check?email=' + encodeURIComponent(e));
+      if (!r.optedOut) { out.textContent = '✓ ' + r.email + ' is NOT unsubscribed — they should be getting document emails. (If not, check the address is on the load or your "always CC" list.)'; out.style.color = 'var(--ok, green)'; return; }
+      const when = r.createdAt ? new Date(r.createdAt).toLocaleString() : 'an unknown date';
+      out.innerHTML = '⚠ <b>' + esc(r.email) + '</b> unsubscribed on ' + esc(when) + (r.source ? (' (via ' + esc(r.source) + ')') : '') + '. They won\'t receive document emails until resumed.';
+      out.style.color = 'var(--danger)';
+      rb.style.display = ''; rb.dataset.email = r.email; rb.disabled = !r.isTeam;
+      rb.title = r.isTeam ? '' : 'Only a master admin can resume someone who isn\'t a team login in your company.';
+    } catch (err) { out.textContent = err.message; out.style.color = 'var(--danger)'; }
+  };
+  if ($('optoutResume')) $('optoutResume').onclick = async () => {
+    const e = $('optoutResume').dataset.email; const out = $('optoutResult'); if (!e) return;
+    if (!confirm('Resume document emails to ' + e + '? Only do this if they asked to start receiving emails again.')) return;
+    try { await api('/api/org/optout-remove', { method: 'POST', body: JSON.stringify({ email: e }) }); out.textContent = '✓ ' + e + ' resumed — they\'ll get document emails again.'; out.style.color = 'var(--ok, green)'; $('optoutResume').style.display = 'none'; }
+    catch (err) { out.textContent = err.message; out.style.color = 'var(--danger)'; }
+  };
   async function loadUsers() {
     try {
+      loadOrgNotify();
       const r = await api('/api/users');
       _teamUsers = r.users || [];
       loadMasterNotify();
