@@ -629,10 +629,13 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
   // If a driver was waiting on this doc (they uploaded it for dispatch, or it was assigned to them to sign),
-  // leave them a notice — with WHO removed it — so it doesn't just silently vanish from their app.
+  // leave them a notice — with WHO removed it — so it doesn't just silently vanish from their app. EXCEPT when
+  // this delete is a REPLACEMENT (?replaced=1): the setup "Split into stops" flow creates per-stop docs and then
+  // deletes the original combined upload — that's not a cancellation, so no "removed" alarm should reach the driver.
+  const replaced = /^(1|true)$/i.test(String((req.query && req.query.replaced) || ''));
   try {
     const drvId = row.signedByDriverId || row.assignedDriverId || null;
-    if (drvId && (row.status === 'awaiting_build' || row.status === 'prepared')) {
+    if (!replaced && drvId && (row.status === 'awaiting_build' || row.status === 'prepared')) {
       db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
         VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(
         crypto.randomUUID(), drvId, row.orgId || null, 'removed', row.poNumber || null, row.loadNumber || null,
@@ -643,7 +646,7 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
   try { if (row.filepath && fs.existsSync(row.filepath)) fs.unlinkSync(row.filepath); } catch (e) {}
   db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_removed',
-    detail: (row.docType || 'Document') + ' removed' + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
+    detail: (row.docType || 'Document') + (replaced ? ' split into per-stop documents' : ' removed') + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
   res.json({ ok: true });
 });
 

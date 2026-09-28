@@ -2567,8 +2567,10 @@
         const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include', headers, body: bytes });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('Upload failed for Stop ' + s)); }
       }
-      // Every stop uploaded successfully — now remove the original combined document.
-      await api('/api/pods/' + p.id, { method: 'DELETE' });
+      // Every stop uploaded successfully — now remove the original combined document. Mark it as a REPLACEMENT
+      // (?replaced=1) so the driver isn't sent a false "dispatch removed your upload" notice — their document
+      // wasn't cancelled, it was split into the per-stop docs we just created.
+      await api('/api/pods/' + p.id + '?replaced=1', { method: 'DELETE' });
       closeSplit(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; if ($('splitSave')) $('splitSave').disabled = false; }
   };
@@ -2629,12 +2631,15 @@
     w.classList.toggle('hide', !show);
     $('ldHistoryLink').textContent = show ? 'Hide history ▴' : 'View history ▾';
   };
-  if ($('ldSaveAll')) $('ldSaveAll').onclick = async () => {
-    if (!curLoad) return;
+  // Save every edit on the open load (basic fields incl. customer, driver, subscribers, per-stop). Throws on a
+  // real failure so callers can decide what to do next; does NOT navigate, so it's reusable by both the Save
+  // button and the "Signatures" link (which auto-saves before leaving so added inputs aren't lost).
+  async function saveLoadEdits() {
+    if (!curLoad) return false;
     const po = $('ldEditPo').value.trim();
-    if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; return; }
+    if (!po) { $('ldEditMsg').textContent = 'PO # is required'; $('ldEditMsg').className = 'umsg-err'; throw new Error('PO # is required'); }
     $('ldEditMsg').textContent = 'Saving…'; $('ldEditMsg').className = '';
-    try {
+    {
       // 1) Basic fields (+ customer reassignment when a Master Admin picked a different one)
       const body1 = { poNumber: po, loadNumber: $('ldEditLoad').value.trim() };   // consignee is per-stop now (via each stop's receiver)
       const custRowShown = $('ldEditCustomerRow') && !$('ldEditCustomerRow').classList.contains('hide');
@@ -2672,9 +2677,25 @@
           } catch (e) {}
         }
       }
-      openLoad(curLoad.id, { back: _ldBackFn });
-    } catch (e) { $('ldEditMsg').textContent = e.message; $('ldEditMsg').className = 'umsg-err'; }
+    }
+    _ldDirty = false;
+    return true;
+  }
+  if ($('ldSaveAll')) $('ldSaveAll').onclick = async () => {
+    try { await saveLoadEdits(); openLoad(curLoad.id, { back: _ldBackFn }); }
+    catch (e) { $('ldEditMsg').textContent = e.message; $('ldEditMsg').className = 'umsg-err'; }
   };
+  // "✍ Signatures" is a same-tab link. If the load is mid-edit with unsaved changes (e.g. a customer just added),
+  // save the load FIRST so those inputs persist and the signature page sees the customer, THEN follow the link.
+  if ($('loadDetailCard')) $('loadDetailCard').addEventListener('click', async (e) => {
+    const a = e.target.closest ? e.target.closest('a.ldSign') : null;
+    if (!a) return;
+    if (!($('loadDetailCard').classList.contains('editing') && _ldDirty)) return;   // nothing unsaved → let it navigate
+    e.preventDefault();
+    const href = a.getAttribute('href');
+    try { await saveLoadEdits(); window.location.href = href; }
+    catch (err) { $('ldEditMsg').textContent = err.message || 'Could not save before opening signatures'; $('ldEditMsg').className = 'umsg-err'; }
+  });
   // Add a stop / upload documents to this load.
   if ($('ldAddStopToggle')) $('ldAddStopToggle').onclick = () => { $('ldStopForm').classList.toggle('hide'); if (!$('ldStopForm').classList.contains('hide')) $('ldStop').focus(); };
   if ($('ldStopCancel')) $('ldStopCancel').onclick = () => $('ldStopForm').classList.add('hide');
