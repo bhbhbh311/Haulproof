@@ -194,6 +194,7 @@ addColumn('orgs', 'city', 'TEXT');
 addColumn('orgs', 'state', 'TEXT');
 addColumn('orgs', 'zip', 'TEXT');
 addColumn('orgs', 'externalId', 'TEXT');  // e.g. "hubspot:12345" — for import de-dupe / sync
+addColumn('orgs', 'notifyEmails', 'TEXT'); // comma-separated addresses that ALWAYS get a copy of every completed stop on this org's loads (dispatch copies)
 // Receiver/consignee link on a signed document, so a receiver can look up what was delivered to them
 // even when the load was created by a different customer.
 addColumn('pods', 'receiverId', 'TEXT');

@@ -182,6 +182,22 @@ app.get('/api/driver-link', requireAuth, (req, res) => {
   res.json({ key: org.deviceKey, driverUrl: origin + '/driver', link: origin + '/driver?k=' + encodeURIComponent(org.deviceKey) });
 });
 
+// --- Completion-email copies: addresses that ALWAYS get a copy of every completed stop on this org's loads,
+//     regardless of the consignee. This is how dispatch guarantees a copy reaches an inbox they actually check. ---
+app.get('/api/org/notify-emails', requireAuth, (req, res) => {
+  const org = req.user.orgId ? db.prepare('SELECT notifyEmails FROM orgs WHERE id = ?').get(req.user.orgId) : null;
+  res.json({ emails: (org && org.notifyEmails) || '' });
+});
+app.put('/api/org/notify-emails', requireAuth, (req, res) => {
+  if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Admins only' });
+  if (!req.user.orgId) return res.status(400).json({ error: 'Your login is not attached to a company' });
+  const raw = String((req.body && req.body.emails) || '');
+  const emails = raw.split(/[,;\s]+/).map(s => s.trim()).filter(s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+  const val = emails.join(', ');
+  db.prepare('UPDATE orgs SET notifyEmails = ? WHERE id = ?').run(val || null, req.user.orgId);
+  res.json({ ok: true, emails: val });
+});
+
 // --- Boot migration + seeding: make the single-tenant install multi-customer safely ---
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 try {
