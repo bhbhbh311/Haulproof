@@ -113,7 +113,10 @@
   .rowbtns{display:flex;gap:10px;margin:6px 0 14px;flex-wrap:wrap;}
   .addform{display:none;gap:8px;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;padding:12px;margin-bottom:12px;flex-direction:column;}
   .addform.on{display:flex;}
-  input.ti{width:100%;font-family:inherit;font-size:15px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:9px;padding:10px 11px;outline:none;}
+  /* 16px minimum: iOS Safari auto-zooms into any input smaller than 16px on focus and doesn't zoom back out,
+     which left the whole app shifted/cut off after tapping a field. 16px stops that entirely. */
+  input.ti{width:100%;font-family:inherit;font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:9px;padding:10px 11px;outline:none;}
+  input,select,textarea{font-size:16px;}
   input.ti:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
   /* sign view (drop + pages) */
   .signctx{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
@@ -479,10 +482,10 @@
         <div style="font-size:17px;font-weight:800;margin-bottom:4px;">Add or find a customer</div>
         <div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Type the customer name. We check your list so the same company isn't added twice.</div>
         <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
-        <input id="drvCustName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:15px;">
+        <input id="drvCustName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:16px;">
         <div id="drvCustDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px;margin:0 0 10px;font-size:13px;color:#7c2d12;"></div>
         <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Contact email <span style="font-weight:400;text-transform:none;">optional</span></label>
-        <input id="drvCustEmail" type="email" placeholder="ops@customer.com" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:15px;">
+        <input id="drvCustEmail" type="email" placeholder="ops@customer.com" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:16px;">
         <div id="drvCustMsg" style="font-size:13px;margin:6px 0;"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
           <button type="button" id="drvCustCancel" class="btn ghost sm">Cancel</button>
