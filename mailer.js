@@ -53,9 +53,9 @@ async function emailPodCopy({ to, pod, filePath }) {
     console.log(`[mailer] POD ${pod.id}: all ${blocked.length} recipient(s) opted out — nothing sent`);
     return { sent: false, reason: 'all recipients opted out', blocked };
   }
-  const from = process.env.MAIL_FROM || 'documents@callahantrans.com';
+  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
   const subject = `Signed delivery receipt — ${pod.poNumber ? 'PO ' + pod.poNumber : 'Load ' + (pod.loadNumber || pod.id)}`;
-  const body = `Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.\n\nThank you,\nCallahan Transportation`;
+  const body = `Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.\n\nThank you,\nHaulProof`;
 
   if (!process.env.SMTP_HOST) {
     console.log(`[mailer:simulated] would email POD ${pod.id} to ${allowed.join(', ')}` + (blocked.length ? ` (skipped opted-out: ${blocked.join(', ')})` : ''));
@@ -70,7 +70,7 @@ async function emailPodCopy({ to, pod, filePath }) {
         to: rcpt,
         subject,
         text: body + footerText(rcpt),
-        html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.</p><p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thank you,<br>Callahan Transportation</p>` + footerHtml(rcpt),
+        html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.</p><p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thank you,<br>HaulProof</p>` + footerHtml(rcpt),
         attachments: [{ filename: (pod.filename || 'POD') + '.pdf', path: filePath }],
         headers: {
           'List-Unsubscribe': `<${unsubUrl(rcpt)}>`,
@@ -89,7 +89,7 @@ async function emailPodCopy({ to, pod, filePath }) {
 async function sendMail({ to, subject, text, html }) {
   const list = (Array.isArray(to) ? to : [to]).map(s => String(s || '').trim()).filter(Boolean);
   if (!list.length) return { sent: false, reason: 'no recipients' };
-  const from = process.env.MAIL_FROM || 'documents@callahantrans.com';
+  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
   try {
     const info = await getTransport().sendMail({ from, to: list.join(', '), subject: subject || 'HaulProof', text, html });
     if (!process.env.SMTP_HOST) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}`); return { sent: false, simulated: true }; }
