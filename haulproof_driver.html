@@ -40,7 +40,10 @@
     --mark-grad:linear-gradient(135deg,#6f9dff,#5a8dff); --btn-grad:linear-gradient(180deg,#6f9dff,#5a8dff);
     --btn-shadow:0 2px 8px rgba(0,0,0,.5); --btn-shadow-h:0 6px 16px rgba(0,0,0,.55); --bar-shadow:0 6px 18px rgba(0,0,0,.35);}
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  /* Lock the app to the device width: never allow a sideways scroll or drift, and never let any element push
+     the page wider than the screen. Keeps everything centered and fully fitting on every phone. */
+  html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;}
+  img,canvas,svg,table{max-width:100%;}
   body{background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; line-height:1.5; -webkit-font-smoothing:antialiased;}
   /* Header: mark + wordmark on the left, then the right cluster (driver badge, Help, sync pill). The wordmark
      takes the flexible space (margin-right:auto) so the cluster groups tightly on the right with just the gap
