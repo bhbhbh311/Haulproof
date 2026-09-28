@@ -431,21 +431,13 @@
       <div id="recentDocsList"></div>
       <div class="pullnote">Documents you've recently signed — tap View to open one.</div>
     </div>
-    <div class="routeprog"><div class="rbar"><i id="rbarFill"></i></div><span class="rprog" id="rprog">0 of 0 delivered</span></div>
+    <div class="routeprog hide" id="routeProg"><div class="rbar"><i id="rbarFill"></i></div><span class="rprog" id="rprog">0 of 0 delivered</span></div>
     <div class="stepper" id="stepper"></div>
     <div id="stopList"></div>
-    <div class="addform" id="addForm">
-      <input class="ti" id="addName" placeholder="Consignee / stop name">
-      <input class="ti" id="addAddr" placeholder="City, ST">
-      <div class="rowbtns" style="margin:0;"><button class="btn primary sm" id="addSave" type="button">Add stop</button><button class="btn ghost sm" id="addCancel" type="button">Cancel</button></div>
-    </div>
-    <div class="rowbtns">
-      <button class="btn ghost sm" id="addStopBtn" type="button">＋ Add stop</button>
-      <button class="btn ghost sm" id="clearRouteBtn" type="button">Clear route</button>
-    </div>
     <div class="demobox">
       <div class="demolbl">Examples only — for trying the app</div>
       <button class="btn ghost sm" id="sampleRouteBtn" type="button">Load sample route</button>
+      <button class="btn ghost sm hide" id="clearRouteBtn" type="button">Clear sample route</button>
     </div>
     <p class="note" id="engineNote">Loading signing engine…</p>
   </section>
@@ -1018,18 +1010,12 @@ window.__startApp=function(){
     {name:"Columbus Hydraulics", addr:"Columbus, NE"},
     {name:"Grand Island Foods", addr:"Grand Island, NE"}
   ];
-  $("sampleRouteBtn").addEventListener("click", function(){
+  // Sample route is a "try the app" demo only — dispatch-assigned loads are the real workflow (Your loads).
+  if($("sampleRouteBtn")) $("sampleRouteBtn").addEventListener("click", function(){
     route={stops:SAMPLE.map(function(s,i){ return {id:genId(), n:i+1, name:s.name, addr:s.addr, status:"pending"}; })};
     saveRoute(route); renderRoute();
   });
-  $("clearRouteBtn").addEventListener("click", function(){ route={stops:[]}; saveRoute(route); renderRoute(); });
-  $("addStopBtn").addEventListener("click", function(){ $("addForm").classList.add("on"); $("addName").focus(); });
-  $("addCancel").addEventListener("click", function(){ $("addForm").classList.remove("on"); });
-  $("addSave").addEventListener("click", function(){
-    var nm=$("addName").value.trim(); if(!nm){ $("addName").focus(); return; }
-    route.stops.push({ id:genId(), n:route.stops.length+1, name:nm, addr:$("addAddr").value.trim(), status:"pending" });
-    saveRoute(route); $("addName").value=""; $("addAddr").value=""; $("addForm").classList.remove("on"); renderRoute();
-  });
+  if($("clearRouteBtn")) $("clearRouteBtn").addEventListener("click", function(){ route={stops:[]}; saveRoute(route); renderRoute(); });
   var _dispatchUpload=false;   // true = driver is just handing the raw doc + PO# to dispatch to set up
   $("oneoffBtn").addEventListener("click", function(){ _dispatchUpload=false; pulledMeta=null; enterSign(null); });
   if($("dispatchBtn")) $("dispatchBtn").addEventListener("click", function(){ _dispatchUpload=true; pulledMeta=null; enterSign(null); });
@@ -1208,7 +1194,13 @@ window.__startApp=function(){
 
   function renderRoute(){
     var stops=route.stops, delivered=stops.filter(function(s){return s.status==="delivered";}).length;
-    $("rbarFill").style.width=(stops.length?Math.round(delivered/stops.length*100):0)+"%";
+    var has=stops.length>0;
+    // The route progress + stops only appear once a sample route is loaded. "Load sample route" shows when
+    // empty; "Clear sample route" replaces it once loaded. No manual route builder — real work is Your loads.
+    if($("routeProg")) $("routeProg").classList.toggle("hide", !has);
+    if($("sampleRouteBtn")) $("sampleRouteBtn").classList.toggle("hide", has);
+    if($("clearRouteBtn")) $("clearRouteBtn").classList.toggle("hide", !has);
+    $("rbarFill").style.width=(has?Math.round(delivered/stops.length*100):0)+"%";
     $("rprog").textContent=delivered+" of "+stops.length+" delivered";
     // stepper
     var st=$("stepper"); st.innerHTML="";
@@ -1216,7 +1208,7 @@ window.__startApp=function(){
       d.innerHTML='<div class="scircle">'+(s.status==="delivered"?"✓":s.n)+'</div><div class="sl">Stop '+s.n+'</div>'; st.appendChild(d); });
     // list
     var list=$("stopList"); list.innerHTML="";
-    if(!stops.length){ list.innerHTML='<div class="empty">No stops yet. Load the sample route or add your stops.</div>'; return; }
+    if(!stops.length){ return; }   // nothing loaded → no empty-state clutter
     stops.forEach(function(s){
       var c=document.createElement("div"); c.className="stopcard "+s.status;
       var statTxt = s.status==="delivered" ? '<div class="sstat d">✓ Delivered '+timeStr(new Date(s.deliveredAt))+(s.deliveredGps?" · 📍 "+gmap(s.deliveredGps.lat.toFixed(5),s.deliveredGps.lng.toFixed(5),s.deliveredGps.lat.toFixed(3)+","+s.deliveredGps.lng.toFixed(3)):"")+'</div>'
