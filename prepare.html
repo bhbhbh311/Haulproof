@@ -435,7 +435,7 @@
     list.forEach(function(t){ _layoutCache[t.docType||'POD']=t.fields||[]; });
     box.innerHTML='<div style="border:1px solid #dde4ec;border-radius:8px;overflow:hidden;">'+list.map(function(t){
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f7;">'
-        +'<div><b>'+esc(t.docType||'POD')+'</b><div style="color:#5c6b7a;font-size:12px;">'+t.count+' field'+(t.count===1?'':'s')+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
+        +'<div><b>'+esc(t.docType||'POD')+'</b><div style="color:#5c6b7a;font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
         +'<div style="display:flex;gap:6px;">'
         +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="padding:6px 12px;font-size:12px;">↴ Use</button>'
         +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
@@ -457,17 +457,33 @@
         .catch(function(){ toast('Delete failed'); });
     }); });
   }
-  // Shared apply: drop a saved layout's fields onto the current document (used by "Apply saved layout" and the
-  // per-row "Use" buttons). Returns true when it actually applied, false if cancelled / nothing to do.
+  // A layout is a PER-PAGE pattern: the fields for a single page, which we then repeat on every page of the
+  // document being set up. So a "2 fields per page" layout drops 2 fields whether the stop is 1 page or 5.
+  // The pattern is taken from the saved page that has the most fields (pages are normally identical anyway).
+  function layoutPerPage(arr){
+    arr = arr || [];
+    var byPage = {};
+    arr.forEach(function(f){ var p = (f.pageIdx || 0); (byPage[p] = byPage[p] || []).push(f); });
+    var keys = Object.keys(byPage); if(!keys.length) return { pattern: [], perPage: 0 };
+    var best = keys[0];
+    keys.forEach(function(k){ if(byPage[k].length > byPage[best].length || (byPage[k].length === byPage[best].length && (+k) < (+best))) best = k; });
+    return { pattern: byPage[best], perPage: byPage[best].length };
+  }
+  // Shared apply: stamp a saved layout's per-page pattern onto EVERY page of the current document (used by
+  // "Apply saved layout" and the per-row "Use" buttons). Returns true when applied, false if cancelled.
   function applyLayoutFields(arr, dtName){
-    if(!arr||!arr.length){ toast('That layout has no fields'); return false; }
+    var lp = layoutPerPage(arr);
+    if(!lp.perPage){ toast('That layout has no fields'); return false; }
     if(!pageRecs.length){ toast('Still loading the document — try again in a second'); return false; }
-    if(JSON.stringify(serialize())===JSON.stringify(arr)){ toast('This document already matches that layout — nothing to change.'); return false; }
-    if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the “'+(dtName||'saved')+'” layout?')) return false;
+    var pages = pageRecs.length;
+    if(fields.length && !confirm('Replace the '+fields.length+' field'+(fields.length===1?'':'s')+' currently on this document with the “'+(dtName||'saved')+'” layout — '+lp.perPage+' field'+(lp.perPage===1?'':'s')+' per page across '+pages+' page'+(pages===1?'':'s')+'?')) return false;
     fields.slice().forEach(removeField);
-    arr.forEach(placeFromData);
+    for(var t=0; t<pages; t++){
+      lp.pattern.forEach(function(f){ var c={}; for(var k in f){ c[k]=f[k]; } c.pageIdx=t; placeFromData(c); });
+    }
     selectField(null); markDirty();
-    toast('Applied layout — '+arr.length+' field'+(arr.length===1?'':'s')+'. Review, then Save setup.');
+    var total = lp.perPage * pages;
+    toast('Applied '+lp.perPage+' field'+(lp.perPage===1?'':'s')+' per page across '+pages+' page'+(pages===1?'':'s')+' — '+total+' total. Review, then Save setup.');
     return true;
   }
   if($('#layoutsBtn')) $('#layoutsBtn').addEventListener('click', openLayouts);
