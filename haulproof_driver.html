@@ -1262,11 +1262,35 @@ window.__startApp=function(){
     _locWaiters.push(cb);
     if(_locInflight) return;                                                // a request is already open
     _locInflight=true;
+    var finish=function(g){ _locInflight=false; if(g){ lastGps=g; _locFixAt=Date.now(); }
+      var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(g);}catch(e){} }); };
+    var fix=function(p,source){ finish({ lat:p.coords.latitude, lng:p.coords.longitude,
+      acc:(p.coords.accuracy!=null?Math.round(p.coords.accuracy):null), source:source }); };
+    // Two tiers so we still get a location where satellite GPS can't reach:
+    //  Tier 1 — precise GPS (satellite). Short timeout so we fail fast indoors instead of stalling.
+    //  Tier 2 — network location (WiFi + cell towers). Works inside warehouses/docks; coarser accuracy.
+    // A recent cached network fix (up to 5 min old) is accepted on tier 2 so a quick signature isn't blocked.
     navigator.geolocation.getCurrentPosition(
-      function(p){ lastGps={lat:p.coords.latitude,lng:p.coords.longitude}; _locFixAt=Date.now(); _locInflight=false;
-        var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(lastGps);}catch(e){} }); },
-      function(){ _locInflight=false; var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(null);}catch(e){} }); },
-      {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
+      function(p){ fix(p,"gps"); },
+      function(){
+        navigator.geolocation.getCurrentPosition(
+          function(p){ fix(p,"network"); },
+          function(){ finish(null); },
+          {enableHighAccuracy:false,timeout:20000,maximumAge:300000});
+      },
+      {enableHighAccuracy:true,timeout:9000,maximumAge:60000});
+  }
+  // Best location available for stamping a signature: the live fix if we have one, otherwise the fix taken
+  // OUTSIDE when the driver tapped "Arrive" at this stop (good signal in the yard) — labeled so the audit
+  // trail is honest that it came from arrival, not the moment of signing.
+  function bestGps(){
+    if(lastGps) return lastGps;
+    var s=currentStop;
+    if(s){
+      if(s.arriveGps) return { lat:s.arriveGps.lat, lng:s.arriveGps.lng, acc:s.arriveGps.acc||null, source:"arrival", at:s.arriveAt||null };
+      if(s.deliveredGps) return { lat:s.deliveredGps.lat, lng:s.deliveredGps.lng, acc:s.deliveredGps.acc||null, source:"arrival", at:s.deliveredAt||null };
+    }
+    return null;
   }
   var compBox=null, compPod=null, compCtx=null, compRecips=[];
   // While the driver is on the completion screen entering consignee emails, hold THIS stop's upload so a
@@ -2078,7 +2102,14 @@ window.__startApp=function(){
     } else { showLocBar(); }
   }
   function requestLoc(){ if(!navigator.geolocation){ $("locNote").textContent="📍 Location: not available"; return; }
-    getLoc(function(g){ if(g){ $("locNote").innerHTML="📍 Captured: "+gmap(g.lat.toFixed(5),g.lng.toFixed(5),g.lat.toFixed(4)+", "+g.lng.toFixed(4)); } else { $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; } }); }
+    getLoc(function(g){
+      if(g){ var tag = g.source==="network" ? " (approx · network)" : (g.acc!=null && g.acc>150 ? " (approx)" : "");
+        $("locNote").innerHTML="📍 Captured"+tag+": "+gmap(g.lat.toFixed(5),g.lng.toFixed(5),g.lat.toFixed(4)+", "+g.lng.toFixed(4)); return; }
+      // No live fix — fall back to the location taken when the driver arrived at this stop, if we have it.
+      var fb=bestGps();
+      if(fb){ $("locNote").innerHTML="📍 Using arrival location"+(fb.at?(" ("+timeStr(new Date(fb.at))+")"):"")+": "+gmap(fb.lat.toFixed(5),fb.lng.toFixed(5),fb.lat.toFixed(4)+", "+fb.lng.toFixed(4)); }
+      else { $("locNote").textContent="📍 Location unavailable (recorded as not captured)"; }
+    }); }
   // Capitalize the first letter of each name part (first, last, hyphenated) without touching the rest.
   function titleCaseName(s){ return String(s==null?"":s).replace(/(^|[\s\-'.])([a-z])/g, function(m,p,c){ return p+c.toUpperCase(); }); }
   var nameT; $("signerName").addEventListener("input", function(){ clearTimeout(nameT); nameT=setTimeout(buildSigOptions,120); });
@@ -2099,7 +2130,7 @@ window.__startApp=function(){
     $("signerName").value=name;
     if(mode==="draw"){ if(!padHasInk()){toast("Now draw the signature");return;} png=trimPad(); style="Drawn"; }
     else { if(!selected) buildSigOptions(); if(!selected){toast("Pick a style");return;} png=selected.png; style=selected.style; }
-    adoptedByRole[role()]={png:png,name:name,style:style,gps:lastGps}; closeModal(); if(curField) applyTo(curField); });
+    adoptedByRole[role()]={png:png,name:name,style:style,gps:bestGps()}; closeModal(); if(curField) applyTo(curField); });
 
   /* finish → build pdf → save to outbox → mark stop delivered */
   async function finish(){
@@ -2170,6 +2201,12 @@ window.__startApp=function(){
           ap.drawText(gstr,{x:gx,y:y,size:9,font:font,color:PDFLib.rgb(.086,.333,.82)});
           ap.drawLine({start:{x:gx,y:y-1.5},end:{x:gx+gw,y:y-1.5},thickness:.6,color:PDFLib.rgb(.086,.333,.82)});
           addUriLink(ap, gx, y-2.5, gw, 12, "https://www.google.com/maps?q="+gstr);
+          // Honest label of how the location was obtained: precise satellite, approximate network fix, or the
+          // fix taken on arrival at the stop. Precise GPS gets no suffix (it's the default/best case).
+          var srcTxt = f.gps.source==="network" ? "  approx · network"
+            : f.gps.source==="arrival" ? ("  on arrival"+(f.gps.at?(" "+timeStr(new Date(f.gps.at))):""))
+            : (f.gps.acc!=null && f.gps.acc>150 ? "  approx" : "");
+          if(srcTxt) ap.drawText(srcTxt,{x:gx+gw,y:y,size:8,font:font,color:PDFLib.rgb(.45,.5,.56)});
         } else {
           ap.drawText("not captured",{x:gx,y:y,size:9,font:font,color:PDFLib.rgb(.3,.35,.4)});
         }
@@ -2179,7 +2216,7 @@ window.__startApp=function(){
       var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
       var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
       var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
-      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:lastGps, size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
+      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:(lastGps||bestGps()), size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
       var pods=loadPods(); pods.unshift(pod);
       if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pod); savePods(pods); }   // free space if the phone's storage is full so a signed POD is never silently dropped
       if(currentStop){ currentStop.status="delivered"; currentStop.deliveredAt=Date.now(); currentStop.deliveredGps=lastGps; currentStop.podId=pod.id; saveRoute(route); }
