@@ -432,13 +432,13 @@
     var box=$('#layoutsList');
     if(!list.length){ box.innerHTML='<div style="color:#5c6b7a;">No saved layouts for this customer yet. Place your fields, then tap <b>☆ Save as layout</b>.</div>'; return; }
     _layoutCache={};
-    list.forEach(function(t){ _layoutCache[t.docType||'POD']=t.fields||[]; });
+    list.forEach(function(t){ _layoutCache[t.docType||'BOL']=t.fields||[]; });
     box.innerHTML='<div style="border:1px solid #dde4ec;border-radius:8px;overflow:hidden;">'+list.map(function(t){
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f7;">'
-        +'<div><b>'+esc(t.docType||'POD')+'</b><div style="color:#5c6b7a;font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
+        +'<div><b>'+esc(t.docType||'BOL')+'</b><div style="color:#5c6b7a;font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
         +'<div style="display:flex;gap:6px;">'
-        +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="padding:6px 12px;font-size:12px;">↴ Use</button>'
-        +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'POD')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
+        +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="padding:6px 12px;font-size:12px;">↴ Use</button>'
+        +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
         +'</div>'
         +'</div>';
     }).join('')+'</div>';
@@ -453,7 +453,7 @@
       var dt=b.dataset.doctype;
       if(!confirm('Delete the saved '+dt+' layout for '+(_tpl.customerName||'this customer')+'? This can’t be undone.')) return;
       fetch('/api/customers/'+encodeURIComponent(_tpl.customerId)+'/layouts/'+encodeURIComponent(dt),{method:'DELETE',credentials:'include'})
-        .then(function(r){return r.json();}).then(function(j){ if(j&&j.error){ toast(j.error); return; } toast('Deleted the '+dt+' layout'); openLayouts(); if(dt===(_tpl.docType||'POD')){ _tpl.exists=false; _tpl.fields=[]; updateTplButtons(); } })
+        .then(function(r){return r.json();}).then(function(j){ if(j&&j.error){ toast(j.error); return; } toast('Deleted the '+dt+' layout'); openLayouts(); if(dt===(_tpl.docType||'BOL')){ _tpl.exists=false; _tpl.fields=[]; updateTplButtons(); } })
         .catch(function(){ toast('Delete failed'); });
     }); });
   }

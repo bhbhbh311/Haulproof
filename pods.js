@@ -129,7 +129,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     let poNumber = (dec(h['x-po']) || '').trim();
     const loadNumber = (dec(h['x-load']) || '').trim();
     const consignee = (dec(h['x-consignee']) || '').trim();
-    const docType = (dec(h['x-doctype']) || 'POD').trim();
+    const docType = (dec(h['x-doctype']) || 'BOL').trim();
     const filename = (dec(h['x-filename']) || 'document.pdf').trim();
     // Optional: tag this document with the receiver/consignee it's being delivered to, so that
     // receiver can later look it up regardless of which customer owns the load.
@@ -162,7 +162,7 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), status, uploadedAt: Date.now() });
-    logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'POD') + ' uploaded: ' + (filename || 'document.pdf') + (stopNumber ? ' (Stop ' + stopNumber + ')' : ''), actor: req.user.email });
+    logEvent({ orgId, loadId: load.id, poNumber, type: 'document_uploaded', detail: (docType || 'BOL') + ' uploaded: ' + (filename || 'document.pdf') + (stopNumber ? ' (Stop ' + stopNumber + ')' : ''), actor: req.user.email });
     res.json({ ok: true, id, poNumber, stopNumber });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
 });
@@ -210,7 +210,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       consignee: dec(h['x-pod-consignee']) || null,   // don't fall back to the document name — leave blank if none
       customerId: (dec(h['x-pod-customerid']) || '').trim() || null,   // link to the owner org's customer-list entry
       clientId: (dec(h['x-pod-clientid']) || '').trim() || null,       // the phone's own id for this doc — for idempotent retries
-      docType: h['x-pod-type'] || 'POD',
+      docType: h['x-pod-type'] || 'BOL',
       gps: h['x-pod-gps'] || null,
       signedAt: h['x-pod-signedat'] ? Number(h['x-pod-signedat']) : Date.now(),
       driver: dec(h['x-pod-driver']) || null,
@@ -563,7 +563,7 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
 //      save a layout once and apply it to every matching document instead of placing fields by hand. ----
 function tplKeyForPod(row) {
   const load = (row && row.loadId) ? db.prepare(`SELECT customerId FROM loads WHERE id = ?`).get(row.loadId) : null;
-  return { customerId: (load && load.customerId) || null, docType: (row && row.docType) || 'POD' };
+  return { customerId: (load && load.customerId) || null, docType: (row && row.docType) || 'BOL' };
 }
 // Is there a saved layout for this pod's customer + type? If so, return its fields to apply.
 router.get('/:id/template', requireAuth, (req, res) => {
@@ -601,7 +601,7 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
   const b = req.body || {};
   let stopNumber = row.stopNumber;
   if (b.stopNumber !== undefined) { const n = parseInt(b.stopNumber, 10); stopNumber = (Number.isFinite(n) && n > 0) ? n : null; }
-  const docType = (b.docType !== undefined) ? (String(b.docType || '').trim() || 'POD') : row.docType;
+  const docType = (b.docType !== undefined) ? (String(b.docType || '').trim() || 'BOL') : row.docType;
   let receiverId = row.receiverId, receiverName = row.receiverName;
   if (b.receiverId !== undefined) {
     receiverId = (b.receiverId || '').trim() || null;
@@ -660,7 +660,7 @@ router.get('/:id/file', requireAuthOrKey, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row) || !row || !fs.existsSync(row.filepath)) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'POD').replace(/[^\w.\- ]+/g, '_')}.pdf"`);
+  res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'BOL').replace(/[^\w.\- ]+/g, '_')}.pdf"`);
   fs.createReadStream(row.filepath).pipe(res);
 });
 

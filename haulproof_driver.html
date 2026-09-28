@@ -1055,7 +1055,7 @@ window.__startApp=function(){
       ordered.forEach(function(doc){
         var b=document.createElement("button"); b.className="btn primary"; b.type="button";
         b.style.cssText="display:block;width:100%;text-align:left;margin-bottom:8px;";
-        b.innerHTML="<b>"+(doc.stopNumber?("Stop "+doc.stopNumber):"Document")+"</b> — "+esc(doc.receiverName||doc.consignee||doc.docType||"POD");
+        b.innerHTML="<b>"+(doc.stopNumber?("Stop "+doc.stopNumber):"Document")+"</b> — "+esc(doc.receiverName||doc.consignee||doc.docType||"BOL");
         b.addEventListener("click",function(){ document.body.removeChild(ov); resolve(doc); });
         sheet.appendChild(b);
       });
@@ -2419,7 +2419,7 @@ window.__startApp=function(){
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0 9px "+(isChild?"14px":"0")+";border-top:1px solid var(--line);"+(isChild?"background:#fafcff;":"");
         var title = isChild ? (d.stopNumber?("Stop "+d.stopNumber):"Document") : ("PO "+esc(d.poNumber||"—"));
-        var sub = isChild ? (esc(d.receiverName||d.consignee||d.docType||"POD")) : ((d.consignee?esc(d.consignee)+" · ":"")+(d.when?new Date(d.when).toLocaleDateString():""));
+        var sub = isChild ? (esc(d.receiverName||d.consignee||d.docType||"BOL")) : ((d.consignee?esc(d.consignee)+" · ":"")+(d.when?new Date(d.when).toLocaleDateString():""));
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;">'+title+'</div>'+
           '<div style="color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+sub+'</div></div>'+
           '<button class="btn ghost sm recentView" type="button">View</button>';

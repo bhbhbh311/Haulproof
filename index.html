@@ -2113,8 +2113,8 @@
     if (!list.length) { box.innerHTML = '<div class="empty">No saved layouts for this customer yet. They’re created from a document’s signature-setup screen with “☆ Save as layout”.</div>'; return; }
     box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;">' + list.map(t =>
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);">'
-      + '<div><b>' + esc(t.docType || 'POD') + '</b><div style="color:var(--muted);font-size:12px;">' + t.count + ' field' + (t.count === 1 ? '' : 's') + (t.updatedAt ? (' · updated ' + new Date(t.updatedAt).toLocaleDateString()) : '') + (t.updatedBy ? (' · by ' + esc(t.updatedBy)) : '') + '</div></div>'
-      + '<button class="ghost clDel" data-doctype="' + esc(t.docType || 'POD') + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Delete</button>'
+      + '<div><b>' + esc(t.docType || 'BOL') + '</b><div style="color:var(--muted);font-size:12px;">' + t.count + ' field' + (t.count === 1 ? '' : 's') + (t.updatedAt ? (' · updated ' + new Date(t.updatedAt).toLocaleDateString()) : '') + (t.updatedBy ? (' · by ' + esc(t.updatedBy)) : '') + '</div></div>'
+      + '<button class="ghost clDel" data-doctype="' + esc(t.docType || 'BOL') + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Delete</button>'
       + '</div>').join('') + '</div>';
     Array.prototype.forEach.call(box.querySelectorAll('.clDel'), function (b) {
       b.onclick = async function () {
@@ -2340,8 +2340,8 @@
           ? `<input class="ldStopEdit" data-id="${p.id}" type="number" min="1" step="1" value="${p.stopNumber || 1}" style="width:60px;text-align:center;padding:6px;">`
           : `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span>`}</td>
         <td>${editing
-          ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'POD')===t?' selected':''}>${t}</option>`).join('')}</select>`
-          : (esc(p.docType) || 'POD')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
+          ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'BOL')===t?' selected':''}>${t}</option>`).join('')}</select>`
+          : (esc(p.docType) || 'BOL')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
         <td>${editing
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
@@ -3042,7 +3042,7 @@
           : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—'));
         return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
           <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber) || '—')}</td>
-          <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${esc(x.docType) || 'POD'}</td>
+          <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${esc(x.docType) || 'BOL'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
@@ -3559,7 +3559,7 @@
         : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—'));
       return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
       <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
-      <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${x.docType||'POD'}</td>
+      <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${x.docType||'BOL'}</td>
       <td>${x.signedAt?new Date(x.signedAt).toLocaleString():'—'}${x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps" style="white-space:nowrap;">📍 Map</a>`:''}</td>
       <td><span class="chip ${x.status}">${x.status==='awaiting_build'?'From driver — needs setup':x.status==='prepared'?'Ready to sign':x.status==='signed'?'Signed':x.status==='emailed'?'Emailed':'On file'}</span></td>
       <td style="white-space:nowrap;">${action}</td>
