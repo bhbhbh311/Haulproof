@@ -660,8 +660,15 @@ window.__startApp=function(){
   function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ toast("Storage full — clear old PODs"); return false; } }
   function loadRoute(){ return lsGet("hp_route",{stops:[]}); }
   function saveRoute(r){ lsSet("hp_route",r); }
-  function loadPods(){ return lsGet("hp_pods",[]); }
-  function savePods(a){ lsSet("hp_pods",a); }
+  function loadPods(){
+    var a=lsGet("hp_pods",[]); if(!Array.isArray(a)) return [];
+    // Self-heal any duplicates left by the earlier double-save bug: keep the first entry per id, drop repeats.
+    var seen={}, out=[], dup=false;
+    for(var i=0;i<a.length;i++){ var id=a[i]&&a[i].id; if(id&&seen[id]){ dup=true; continue; } if(id) seen[id]=1; out.push(a[i]); }
+    if(dup){ try{ lsSet("hp_pods",out); }catch(e){} }
+    return out;
+  }
+  function savePods(a){ return lsSet("hp_pods",a); }   // return lsSet's success flag so the "storage full" retry only fires on a REAL failure (otherwise every POD got saved — and shown — twice)
   function loadCfg(){ return lsGet("hp_cfg",{endpoint:"",apikey:""}); }
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
