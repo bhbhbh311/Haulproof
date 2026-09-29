@@ -427,7 +427,9 @@
       <div id="myLoadsList"></div>
       <div class="pullnote">Loads dispatch assigned to you — tap one to open it and sign.</div>
     </div>
-    <div class="pullcard">
+    <!-- "Pull a prepared BOL" hidden for now — drivers open assigned loads from "Your loads" above. Kept in the
+         DOM (its inputs/handlers stay wired) so it can be re-enabled later by removing the `hide` class. -->
+    <div class="pullcard hide" id="pullCard">
       <div class="pulltitle">Pull a prepared BOL from dispatch</div>
       <div class="pullrow">
         <input class="ti" id="pullPo" placeholder="PO #" autocomplete="off">
