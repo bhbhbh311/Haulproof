@@ -2482,7 +2482,7 @@
           : `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span>`}</td>
         <td>${editing
           ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'BOL')===t?' selected':''}>${t}</option>`).join('')}</select>`
-          : (esc(p.docType) || 'BOL')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}</div></td>
+          : (esc(p.docType) || 'BOL')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}<span class="ldPages" data-id="${p.id}"></span></div></td>
         <td>${editing
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
@@ -2497,7 +2497,7 @@
             : `<a class="dl" href="/prepare?id=${encodeURIComponent(p.id)}&view=1" target="_blank" rel="noopener" title="See the document with the signature boxes as they're set up now">👁 View setup ↗</a>`}
           ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
           ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady btn-ok btn-sm" data-id="${p.id}" type="button">✅ Mark ready for driver</button>` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button">⎘ Split into stops</button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -2548,6 +2548,32 @@
       };
     });
     wireInlineRepSelects(box);
+    annotatePageCounts(pods);
+  }
+  // Show each document's page count next to its filename, and only reveal "Split into stops" when a document
+  // actually has 2+ pages (you can't split a single page). Counts are read with PDF.js and cached by pod id so
+  // the periodic auto-refresh doesn't re-download the files. If a file can't be read, we reveal Split anyway so
+  // a load hiccup never blocks a legitimate split.
+  const _pageCountCache = {};
+  async function annotatePageCounts(pods) {
+    const box = $('ldDocs'); if (!box) return;
+    const btns = {}; box.querySelectorAll('.ldSplit').forEach(b => { btns[b.dataset.id] = b; });
+    const apply = (p, n) => {
+      const span = box.querySelector('.ldPages[data-id="' + p.id + '"]');
+      if (span) span.textContent = ' · ' + n + ' page' + (n === 1 ? '' : 's');
+      const b = btns[p.id]; if (b) b.style.display = (n >= 2) ? '' : 'none';
+    };
+    if (!window.pdfjsLib) { Object.keys(btns).forEach(id => { btns[id].style.display = ''; }); return; }
+    try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
+    for (const p of pods) {
+      if (_pageCountCache[p.id] != null) { apply(p, _pageCountCache[p.id]); continue; }
+      try {
+        const resp = await fetch(p.fileUrl, { credentials: 'include' }); if (!resp.ok) throw 0;
+        const buf = await resp.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        _pageCountCache[p.id] = pdf.numPages; apply(p, pdf.numPages);
+      } catch (e) { const b = btns[p.id]; if (b) b.style.display = ''; }   // unreadable → leave Split available
+    }
   }
   // Add a newly-created receiver as a selectable option to every inline "Delivered to" dropdown, without
   // rebuilding the docs table (so unsaved stop/type/receiver edits on the other rows survive).
