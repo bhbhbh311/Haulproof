@@ -659,7 +659,8 @@
     <b style="font-family:'Archivo',system-ui,sans-serif;font-size:17px;">Split into stops</b>
     <button id="stopSplitAdd" type="button" class="btn ghost sm" style="margin-left:auto;">＋ Add stop</button>
   </div>
-  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap a page's tag to move it to another stop. Each stop becomes its own document to sign.</div>
+  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap a page's tag to move it to another stop, and enter who each stop is delivered to. Each stop becomes its own document to sign.</div>
+  <div id="stopSplitStops" style="flex:none;padding:4px 16px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);max-height:34vh;overflow:auto;"></div>
   <div id="stopSplitPages" style="flex:1;min-height:0;overflow:auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#0b1017;"></div>
   <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,#fff);border-top:1px solid var(--line,#e2e8f0);">
     <button id="stopSplitCancel" type="button" class="btn ghost" style="flex:1;">Cancel</button>
@@ -2051,7 +2052,19 @@ window.__startApp=function(){
   var captureMode = false;   // true = review-and-save screen (no signing); false = signing a (re)opened load
 
   // ===== Split ONE multi-page upload into separate per-stop documents (driver, build/sign it myself) =====
-  var _ssAssign=[], _ssCount=1, _ssThumbs=[];
+  var _ssAssign=[], _ssCount=1, _ssThumbs=[], _ssConsignee={};
+  // Per-stop consignee inputs — rendered in their own section so tapping a page's stop tag (which re-draws the
+  // grid) never steals focus from a field the driver is typing in. Values persist in _ssConsignee.
+  function renderStopConsignees(){
+    var box=$("stopSplitStops"); if(!box) return; box.innerHTML="";
+    for(var s=1;s<=_ssCount;s++){ (function(s){
+      var row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:8px;margin-top:8px;";
+      var tag=document.createElement("span"); tag.textContent="Stop "+s; tag.style.cssText="flex:none;font-weight:800;font-size:12px;color:#fff;background:"+stopColor(s)+";border-radius:999px;padding:5px 11px;";
+      var inp=document.createElement("input"); inp.className="ti"; inp.type="text"; inp.placeholder="Delivered to (consignee)"; inp.value=_ssConsignee[s]||"";
+      inp.style.cssText="flex:1;min-width:0;font-size:16px;"; inp.addEventListener("input",function(){ _ssConsignee[s]=inp.value; });
+      row.appendChild(tag); row.appendChild(inp); box.appendChild(row);
+    })(s); }
+  }
   async function openStopSplit(){
     var po=$("poNum")?$("poNum").value.trim():"";
     if(!po){ toast("Enter the Customer PO # first"); if($("poNum")){$("poNum").parentElement.classList.add("missing");$("poNum").focus();} return; }
@@ -2063,13 +2076,14 @@ window.__startApp=function(){
     try{
       var doc=await pdfjsLib.getDocument({data:origBytes.slice(0)}).promise;
       _ssAssign=[]; for(var i=0;i<doc.numPages;i++) _ssAssign.push(1); _ssCount=1;
+      _ssConsignee={ 1: ($("consName")&&$("consName").value.trim())||"" };   // prefill Stop 1 with any consignee typed on the build screen
       for(var n=1;n<=doc.numPages;n++){
         var page=await doc.getPage(n); var vp0=page.getViewport({scale:1}); var sc=110/vp0.width; var vp=page.getViewport({scale:sc});
         var c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height;
         await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
         _ssThumbs.push(c.toDataURL("image/jpeg",0.7));
       }
-      renderStopSplit();
+      renderStopConsignees(); renderStopSplit();
     }catch(e){ console.error(e); toast("Couldn't read the pages"); $("stopSplit").classList.add("hide"); }
   }
   function renderStopSplit(){
@@ -2088,23 +2102,25 @@ window.__startApp=function(){
   function stopColor(s){ var c=["#1f6feb","#12a150","#c026d3","#ea580c","#0891b2","#ca8a04","#db2777","#4f46e5","#65a30d","#dc2626","#0d9488","#7c3aed"]; return c[(s-1)%c.length]; }
   async function confirmStopSplit(){
     // Build page-index lists per stop, in page order, skipping stops with no pages assigned.
-    var groups=[]; for(var s=1;s<=_ssCount;s++){ var idx=[]; for(var i=0;i<_ssAssign.length;i++){ if((_ssAssign[i]||1)===s) idx.push(i); } if(idx.length) groups.push(idx); }
+    var groups=[]; for(var s=1;s<=_ssCount;s++){ var idx=[]; for(var i=0;i<_ssAssign.length;i++){ if((_ssAssign[i]||1)===s) idx.push(i); } if(idx.length) groups.push({stop:s, idx:idx}); }
     if(groups.length<2){ toast("Put pages on at least 2 different stops (tap a page's tag to change it)"); return; }
     var btn=$("stopSplitDone"); btn.disabled=true; var _t=btn.textContent; btn.textContent="Creating…";
     try{
       var po=$("poNum")?$("poNum").value.trim():"";
       var loadNo=($("ldNum")&&$("ldNum").value.trim())||"";
       var custId=($("drvCustSel")&&$("drvCustSel").value)||"";
-      var cons=($("consName")&&$("consName").value.trim())||"";
+      var fallbackCons=($("consName")&&$("consName").value.trim())||"";
       var src=await PDFLib.PDFDocument.load(origBytes);
       var pods=loadPods();
       for(var gi=0; gi<groups.length; gi++){
+        var g=groups[gi];
         var out=await PDFLib.PDFDocument.create();
-        var copied=await out.copyPages(src, groups[gi]);
+        var copied=await out.copyPages(src, g.idx);
         copied.forEach(function(pg){ out.addPage(pg); });
         var bytes=await out.save();
         var stopNo=gi+1;
-        pods.unshift({ id:genId(), name:"PO "+po+" · Stop "+stopNo, poNumber:po, loadNumber:loadNo, consignee:cons, customerId:custId,
+        var cons=((_ssConsignee[g.stop]||"").trim()) || fallbackCons;   // the consignee the driver typed for THIS stop
+        pods.unshift({ id:genId(), name:"PO "+po+" · Stop "+stopNo+(cons?(" — "+cons):""), poNumber:po, loadNumber:loadNo, consignee:cons, customerId:custId,
           stopNum:stopNo, createdAt:Date.now(), signedAt:Date.now(), size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) });
       }
       if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); }
@@ -2119,7 +2135,7 @@ window.__startApp=function(){
     finally{ btn.disabled=false; btn.textContent=_t; }
   }
   if($("splitStopsBtn")) $("splitStopsBtn").addEventListener("click", openStopSplit);
-  if($("stopSplitAdd")) $("stopSplitAdd").addEventListener("click", function(){ if(_ssCount>=12){ toast("12 stops max"); return; } _ssCount++; toast("Stop "+_ssCount+" added — tag pages to it"); renderStopSplit(); });
+  if($("stopSplitAdd")) $("stopSplitAdd").addEventListener("click", function(){ if(_ssCount>=12){ toast("12 stops max"); return; } _ssCount++; toast("Stop "+_ssCount+" added — tag pages to it"); renderStopConsignees(); renderStopSplit(); });
   if($("stopSplitCancel")) $("stopSplitCancel").addEventListener("click", function(){ $("stopSplit").classList.add("hide"); });
   if($("stopSplitDone")) $("stopSplitDone").addEventListener("click", confirmStopSplit);
   async function renderPages(bytes){
