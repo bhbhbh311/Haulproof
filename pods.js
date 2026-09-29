@@ -220,6 +220,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       driver: dec(h['x-pod-driver']) || null,
       recipients: (dec(h['x-pod-emails']) || '').split(',').map(s => s.trim()).filter(Boolean),
       filename: dec(h['x-pod-name']) || 'Signed POD',
+      stopNumber: h['x-pod-stop'] ? (Math.max(1, parseInt(h['x-pod-stop'], 10) || 0) || null) : null,   // driver split one upload into per-stop docs
     };
     // If a named driver's personal token was used, attribute the signature to them automatically.
     if (req.driver && req.driver.name) meta.driver = req.driver.name;
@@ -266,7 +267,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // completed) one. Signed PODs are exempt — they file back onto their assigned load's stop. poRenamed lets
     // the driver app tell the driver what happened.
     let poRenamed = false; const originalPo = meta.poNumber;
-    if (asPrepared && meta.poNumber) {
+    // A driver splitting ONE upload into per-stop documents sends X-POD-Stop on each — those intentionally
+    // share the same PO on ONE load (separate stops), so don't rename the PO to a new load for them.
+    if (asPrepared && meta.poNumber && !meta.stopNumber) {
       const uniq = uniqueLoadPo(orgId, meta.poNumber);
       if (uniq !== meta.poNumber) { meta.poNumber = uniq; poRenamed = true; }
     }
@@ -300,10 +303,10 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (asPrepared && forDispatch) {
       try { if (db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ? AND status = 'awaiting_build'`).get(load.id).c > 0) dupWarn = 1; } catch (e) {}
     }
-    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, docType, filename, filepath, sizeBytes, fields, gps, gpsSource, gpsAcc, signedAt, recipients, driver, clientId, status, dupWarn, uploadedAt)
-       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@gpsSource,@gpsAcc,@signedAt,@recipients,@driver,@clientId,@status,@dupWarn,@uploadedAt)`)
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, docType, filename, filepath, sizeBytes, fields, gps, gpsSource, gpsAcc, signedAt, recipients, driver, clientId, status, dupWarn, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@stopNumber,@docType,@filename,@filepath,@sizeBytes,'[]',@gps,@gpsSource,@gpsAcc,@signedAt,@recipients,@driver,@clientId,@status,@dupWarn,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: meta.loadNumber || load.loadNumber, poNumber: meta.poNumber || load.poNumber,
-        consignee: meta.consignee, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
+        consignee: meta.consignee, stopNumber: meta.stopNumber || null, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, gpsSource: meta.gpsSource, gpsAcc: meta.gpsAcc, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
         status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', dupWarn, uploadedAt: Date.now() });
     // Remember which driver signed this, so their app can list their own recent documents.

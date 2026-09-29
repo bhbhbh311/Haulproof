@@ -531,8 +531,9 @@
       <div class="meter"><i id="meterFill"></i></div>
       <button class="btn primary sm" id="nextBtn" type="button">Start</button>
     </div>
-    <div class="rowbtns hide" id="saveLaterRow" style="justify-content:center;margin:0 0 12px;">
+    <div class="rowbtns hide" id="saveLaterRow" style="justify-content:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;">
       <button class="btn ghost sm" id="saveLaterBtn" type="button">💾 Save to load — sign later</button>
+      <button class="btn ghost sm hide" id="splitStopsBtn" type="button">✂️ Split into stops</button>
     </div>
     <div id="pages"></div>
     <div id="doneActions" class="hide" style="margin-top:18px;"></div>
@@ -652,6 +653,19 @@
 <!-- Camera fallback: iOS won't open a file input from a click that happens after an async getUserMedia call, so
      when the in-app camera is blocked we show this and let the driver tap to open their phone's camera (a real
      user gesture), plus steps to unblock the in-app camera. -->
+<!-- Split a multi-page upload into separate per-stop documents (each becomes its own doc on the load to sign). -->
+<div id="stopSplit" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.6);z-index:1300;display:flex;flex-direction:column;">
+  <div style="flex:none;padding:calc(14px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);">
+    <b style="font-family:'Archivo',system-ui,sans-serif;font-size:17px;">Split into stops</b>
+    <button id="stopSplitAdd" type="button" class="btn ghost sm" style="margin-left:auto;">＋ Add stop</button>
+  </div>
+  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap a page's tag to move it to another stop. Each stop becomes its own document to sign.</div>
+  <div id="stopSplitPages" style="flex:1;min-height:0;overflow:auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#0b1017;"></div>
+  <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,#fff);border-top:1px solid var(--line,#e2e8f0);">
+    <button id="stopSplitCancel" type="button" class="btn ghost" style="flex:1;">Cancel</button>
+    <button id="stopSplitDone" type="button" class="btn primary" style="flex:2;">Create stops</button>
+  </div>
+</div>
 <div id="camHelp" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:1300;display:flex;align-items:center;justify-content:center;padding:20px;">
   <div style="background:var(--surface,#fff);border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);max-height:88vh;overflow:auto;">
     <div style="font-size:40px;line-height:1;margin-bottom:8px;">📷</div>
@@ -811,6 +825,7 @@ window.__startApp=function(){
             if(p.gps.source) hdrs["X-POD-Gps-Source"]=p.gps.source; if(p.gps.acc!=null) hdrs["X-POD-Gps-Acc"]=String(p.gps.acc); }
           if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
           if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
+          if(p.stopNum) hdrs["X-POD-Stop"]=String(p.stopNum); // one upload split into per-stop docs on the same load
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
           if(!res.ok){
             var body=await res.json().catch(function(){return {};});
@@ -1805,36 +1820,52 @@ window.__startApp=function(){
   function detectQuad(imgData,W,H){
     try{
       var data=imgData.data;
-      var gw=Math.min(200,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
+      var gw=Math.min(240,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
       var gray=new Float32Array(gw*gh);
       for(var y=0;y<gh;y++){ var sy=Math.min(H-1,Math.floor(y/scl));
         for(var x=0;x<gw;x++){ var sx=Math.min(W-1,Math.floor(x/scl)); var o=(sy*W+sx)*4;
           gray[y*gw+x]=0.299*data[o]+0.587*data[o+1]+0.114*data[o+2]; } }
-      var thr=otsu(gray);
+      // Paper is the bright region. Otsu picks the split; nudge it up a touch so mid-tone surfaces (granite,
+      // wood, cardboard) don't sneak into the mask with the white page.
+      var thr=Math.max(otsu(gray), 130);
       var mask=new Uint8Array(gw*gh); for(var i=0;i<gray.length;i++) mask[i]=gray[i]>=thr?1:0;
-      var labels=new Int32Array(gw*gh), stack=new Int32Array(gw*gh), lab=0, best=null;
+      // Erode once (a pixel survives only if its 4 neighbours are also bright) — kills speckle and the thin
+      // bright bridges that used to fuse the document to other papers/highlights in the frame.
+      var er=new Uint8Array(gw*gh);
+      for(var y=1;y<gh-1;y++){ for(var x=1;x<gw-1;x++){ var idx=y*gw+x;
+        er[idx]=(mask[idx]&&mask[idx-1]&&mask[idx+1]&&mask[idx-gw]&&mask[idx+gw])?1:0; } }
+      mask=er;
+      // Largest connected bright blob = the document. Collect its pixel coords.
+      var labels=new Uint8Array(gw*gh), stack=new Int32Array(gw*gh), best=null;
       for(var start=0;start<mask.length;start++){
         if(mask[start] && !labels[start]){
-          lab++; var sp=0; stack[sp++]=start; labels[start]=lab;
-          var count=0,sMin=1e9,sMax=-1e9,dMin=1e9,dMax=-1e9,TL,TR,BR,BL;
-          while(sp>0){ var idx=stack[--sp]; count++;
-            var x=idx%gw, y=(idx-x)/gw, s=x+y, dd=x-y;
-            if(s<sMin){sMin=s;TL=[x,y];} if(s>sMax){sMax=s;BR=[x,y];}
-            if(dd>dMax){dMax=dd;TR=[x,y];} if(dd<dMin){dMin=dd;BL=[x,y];}
-            if(x>0){var n=idx-1; if(mask[n]&&!labels[n]){labels[n]=lab;stack[sp++]=n;}}
-            if(x<gw-1){var n2=idx+1; if(mask[n2]&&!labels[n2]){labels[n2]=lab;stack[sp++]=n2;}}
-            if(y>0){var n3=idx-gw; if(mask[n3]&&!labels[n3]){labels[n3]=lab;stack[sp++]=n3;}}
-            if(y<gh-1){var n4=idx+gw; if(mask[n4]&&!labels[n4]){labels[n4]=lab;stack[sp++]=n4;}}
+          var sp=0; stack[sp++]=start; labels[start]=1; var xs=[], ys=[];
+          while(sp>0){ var idx=stack[--sp]; var x=idx%gw, y=(idx-x)/gw; xs.push(x); ys.push(y);
+            if(x>0){var n=idx-1; if(mask[n]&&!labels[n]){labels[n]=1;stack[sp++]=n;}}
+            if(x<gw-1){var n2=idx+1; if(mask[n2]&&!labels[n2]){labels[n2]=1;stack[sp++]=n2;}}
+            if(y>0){var n3=idx-gw; if(mask[n3]&&!labels[n3]){labels[n3]=1;stack[sp++]=n3;}}
+            if(y<gh-1){var n4=idx+gw; if(mask[n4]&&!labels[n4]){labels[n4]=1;stack[sp++]=n4;}}
           }
-          if(!best||count>best.count) best={count:count,TL:TL,TR:TR,BR:BR,BL:BL};
+          if(!best || xs.length>best.xs.length) best={xs:xs,ys:ys};
         }
       }
-      if(!best || best.count < gw*gh*0.12) throw 0;
-      var corners=[best.TL,best.TR,best.BR,best.BL].map(function(p){return {x:p[0]/scl,y:p[1]/scl};});
+      if(!best || best.xs.length < gw*gh*0.10) throw 0;
+      // Robust bounds: use the 2nd/98th percentile of the blob's pixels instead of absolute min/max, so a few
+      // stray bright pixels can't stretch the box into the wild diagonal we used to get.
+      var xs=best.xs.slice().sort(function(a,b){return a-b;}), ys=best.ys.slice().sort(function(a,b){return a-b;});
+      function pct(a,p){ return a[Math.min(a.length-1,Math.max(0,Math.round(p*(a.length-1))))]; }
+      var x0=pct(xs,0.02), x1=pct(xs,0.98), y0=pct(ys,0.02), y1=pct(ys,0.98);
+      if((x1-x0) < gw*0.15 || (y1-y0) < gh*0.15) throw 0;   // too small to be the page → let the fallback pad it
+      // Rotation-aware nudge: pull each box corner to the nearest blob pixel so a tilted page stays snug, while
+      // the percentile box keeps outliers from dragging a corner away.
+      var cor=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]], bd=[1e9,1e9,1e9,1e9], pk=[null,null,null,null];
+      for(var k=0;k<best.xs.length;k++){ var px=best.xs[k], py=best.ys[k];
+        for(var c=0;c<4;c++){ var dx=px-cor[c][0], dy=py-cor[c][1], d=dx*dx+dy*dy; if(d<bd[c]){bd[c]=d; pk[c]=[px,py];} } }
+      var corners=[0,1,2,3].map(function(c){ var p=pk[c]||cor[c]; return {x:p[0]/scl, y:p[1]/scl}; });
       var a=quadArea(corners);
-      if(a < W*H*0.10 || a > W*H*0.999) throw 0;
+      if(a < W*H*0.06 || a > W*H*0.999) throw 0;
       return corners;
-    }catch(e){ return insetRect(W,H,0.06); }
+    }catch(e){ return insetRect(W,H,0.08); }
   }
   function otsu(gray){
     var hist=new Uint32Array(256), n=gray.length;
@@ -2011,10 +2042,86 @@ window.__startApp=function(){
     $("banner").classList.remove("on");                                 // no signing yet — Save is the action
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
     if($("saveLaterBtn")) $("saveLaterBtn").textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
+    // Offer "Split into stops" only for a multi-page doc the driver is building for themselves (not a
+    // send-to-dispatch upload) — each stop becomes its own document on the load, ready to sign.
+    if($("splitStopsBtn")) $("splitStopsBtn").classList.toggle("hide", !(pageRecs.length>1 && !_dispatchUpload));
     window.scrollTo(0,0);
   }
   var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
   var captureMode = false;   // true = review-and-save screen (no signing); false = signing a (re)opened load
+
+  // ===== Split ONE multi-page upload into separate per-stop documents (driver, build/sign it myself) =====
+  var _ssAssign=[], _ssCount=1, _ssThumbs=[];
+  async function openStopSplit(){
+    var po=$("poNum")?$("poNum").value.trim():"";
+    if(!po){ toast("Enter the Customer PO # first"); if($("poNum")){$("poNum").parentElement.classList.add("missing");$("poNum").focus();} return; }
+    if(!origBytes||!origBytes.length){ toast("Load a document first"); return; }
+    if(!window.PDFLib||!window.pdfjsLib){ toast("Still loading — try again in a moment"); return; }
+    var box=$("stopSplitPages"); box.innerHTML='<div style="color:#9fb2cc;font-size:13px;padding:8px;">Loading pages…</div>';
+    $("stopSplit").classList.remove("hide");
+    _ssThumbs=[];
+    try{
+      var doc=await pdfjsLib.getDocument({data:origBytes.slice(0)}).promise;
+      _ssAssign=[]; for(var i=0;i<doc.numPages;i++) _ssAssign.push(1); _ssCount=1;
+      for(var n=1;n<=doc.numPages;n++){
+        var page=await doc.getPage(n); var vp0=page.getViewport({scale:1}); var sc=110/vp0.width; var vp=page.getViewport({scale:sc});
+        var c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height;
+        await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
+        _ssThumbs.push(c.toDataURL("image/jpeg",0.7));
+      }
+      renderStopSplit();
+    }catch(e){ console.error(e); toast("Couldn't read the pages"); $("stopSplit").classList.add("hide"); }
+  }
+  function renderStopSplit(){
+    var box=$("stopSplitPages"); box.innerHTML="";
+    _ssThumbs.forEach(function(url,i){
+      var cell=document.createElement("div"); cell.style.cssText="display:flex;flex-direction:column;align-items:center;gap:6px;";
+      var img=document.createElement("img"); img.src=url; img.style.cssText="width:110px;border-radius:6px;border:1px solid #2b3a4d;display:block;";
+      var s=_ssAssign[i]||1; if(s>_ssCount) s=_ssCount; _ssAssign[i]=s;
+      var tag=document.createElement("button"); tag.type="button"; tag.textContent="Stop "+s;
+      tag.style.cssText="font-family:inherit;font-weight:800;font-size:12px;border:none;border-radius:999px;padding:5px 12px;cursor:pointer;background:"+stopColor(s)+";color:#fff;";
+      tag.addEventListener("click",function(){ _ssAssign[i]=((_ssAssign[i]||1)%_ssCount)+1; renderStopSplit(); });
+      var lbl=document.createElement("div"); lbl.style.cssText="color:#9fb2cc;font-size:11px;"; lbl.textContent="Page "+(i+1);
+      cell.appendChild(img); cell.appendChild(tag); cell.appendChild(lbl); box.appendChild(cell);
+    });
+  }
+  function stopColor(s){ var c=["#1f6feb","#12a150","#c026d3","#ea580c","#0891b2","#ca8a04","#db2777","#4f46e5","#65a30d","#dc2626","#0d9488","#7c3aed"]; return c[(s-1)%c.length]; }
+  async function confirmStopSplit(){
+    // Build page-index lists per stop, in page order, skipping stops with no pages assigned.
+    var groups=[]; for(var s=1;s<=_ssCount;s++){ var idx=[]; for(var i=0;i<_ssAssign.length;i++){ if((_ssAssign[i]||1)===s) idx.push(i); } if(idx.length) groups.push(idx); }
+    if(groups.length<2){ toast("Put pages on at least 2 different stops (tap a page's tag to change it)"); return; }
+    var btn=$("stopSplitDone"); btn.disabled=true; var _t=btn.textContent; btn.textContent="Creating…";
+    try{
+      var po=$("poNum")?$("poNum").value.trim():"";
+      var loadNo=($("ldNum")&&$("ldNum").value.trim())||"";
+      var custId=($("drvCustSel")&&$("drvCustSel").value)||"";
+      var cons=($("consName")&&$("consName").value.trim())||"";
+      var src=await PDFLib.PDFDocument.load(origBytes);
+      var pods=loadPods();
+      for(var gi=0; gi<groups.length; gi++){
+        var out=await PDFLib.PDFDocument.create();
+        var copied=await out.copyPages(src, groups[gi]);
+        copied.forEach(function(pg){ out.addPage(pg); });
+        var bytes=await out.save();
+        var stopNo=gi+1;
+        pods.unshift({ id:genId(), name:"PO "+po+" · Stop "+stopNo, poNumber:po, loadNumber:loadNo, consignee:cons, customerId:custId,
+          stopNum:stopNo, createdAt:Date.now(), signedAt:Date.now(), size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) });
+      }
+      if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); }
+      $("stopSplit").classList.add("hide");
+      toast(groups.length+" stops created — sign each from Your loads");
+      // Reset the build screen and jump to Your loads, where each stop now shows ready to sign.
+      origBytes=null; docPageStops=null; $("pages").innerHTML=""; if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
+      showView("route");
+      if(online()){ await syncOutbox(); try{ loadMyLoads(); }catch(e){} }
+      setTimeout(function(){ try{ loadMyLoads(); }catch(e){} }, 800);
+    }catch(e){ console.error(e); toast("Couldn't split the document"); }
+    finally{ btn.disabled=false; btn.textContent=_t; }
+  }
+  if($("splitStopsBtn")) $("splitStopsBtn").addEventListener("click", openStopSplit);
+  if($("stopSplitAdd")) $("stopSplitAdd").addEventListener("click", function(){ if(_ssCount>=12){ toast("12 stops max"); return; } _ssCount++; toast("Stop "+_ssCount+" added — tag pages to it"); renderStopSplit(); });
+  if($("stopSplitCancel")) $("stopSplitCancel").addEventListener("click", function(){ $("stopSplit").classList.add("hide"); });
+  if($("stopSplitDone")) $("stopSplitDone").addEventListener("click", confirmStopSplit);
   async function renderPages(bytes){
     var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
     var wrapW=Math.min(760, (($("pages").clientWidth||document.querySelector("main").clientWidth)-4));
