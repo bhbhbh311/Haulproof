@@ -1280,7 +1280,7 @@ window.__startApp=function(){
     _locWaiters.push(cb);
     if(_locInflight) return;                                                // a request is already open
     _locInflight=true;
-    var finish=function(g){ _locInflight=false; if(g){ lastGps=g; _locFixAt=Date.now(); }
+    var finish=function(g){ _locInflight=false; if(g){ lastGps=g; _locFixAt=Date.now(); try{ localStorage.setItem("hp_loc_ok","1"); }catch(e){} }
       var w=_locWaiters; _locWaiters=[]; w.forEach(function(f){ try{f(g);}catch(e){} }); };
     var fix=function(p,source){ finish({ lat:p.coords.latitude, lng:p.coords.longitude,
       acc:(p.coords.accuracy!=null?Math.round(p.coords.accuracy):null), source:source }); };
@@ -2159,19 +2159,35 @@ window.__startApp=function(){
       navigator.permissions.query({name:"geolocation"}).then(function(st){ cb(st.state); }).catch(function(){ cb("unknown"); });
     } else { cb("unknown"); }
   }
+  // Have we ever gotten a real location fix on this device? iOS Safari's Permissions API often reports
+  // "prompt"/unknown for geolocation even when it's actually granted, so we can't trust it alone — a remembered
+  // success (or a live fix) is a more reliable "location is on" signal.
+  function locOkGet(){ try{ return localStorage.getItem("hp_loc_ok")||""; }catch(e){ return ""; } }
+  function locOkSet(on){ try{ if(on) localStorage.setItem("hp_loc_ok","1"); else localStorage.removeItem("hp_loc_ok"); }catch(e){} }
+  function pillOn(el){ el.style.background="#e7f6ec"; el.style.color="#116b34"; el.style.borderColor="#b7e4c7"; el.innerHTML="📍 Location is on — your signatures get GPS proof"; }
+  function pillOff(el){ el.style.background="#fff4e5"; el.style.color="#8a4b00"; el.style.borderColor="#ffd7a3"; el.innerHTML="⚠️ Location is off — tap to turn it on so deliveries get GPS proof"; }
+  function pillCheck(el){ el.style.background="#eef3fb"; el.style.color="#1c3d70"; el.style.borderColor="#c7d6ee"; el.innerHTML="📍 Tap to turn on location for GPS proof on your signatures"; }
   function renderLocPill(){
     var el=$("locPill"); if(!el) return;
     if(!navigator.geolocation){ el.style.display="none"; return; }
     locPermState(function(state){
       el.style.display="";
-      if(state==="granted"){
-        el.style.background="#e7f6ec"; el.style.color="#116b34"; el.style.borderColor="#b7e4c7";
-        el.innerHTML="📍 Location is on — your signatures get GPS proof";
-      } else {
-        el.style.background="#fff4e5"; el.style.color="#8a4b00"; el.style.borderColor="#ffd7a3";
-        el.innerHTML="⚠️ Location is off — tap to turn it on so deliveries get GPS proof";
-      }
+      var known = (lastGps!=null) || (locOkGet()==="1");   // location has actually worked here before
+      if(state==="granted"){ locOkSet(true); pillOn(el); }
+      else if(state==="denied"){ locOkSet(false); pillOff(el); }
+      else if(known){ pillOn(el); confirmLocSilently(); }   // API is vague (typical on iOS) but we know it works
+      else { pillCheck(el); }                                // truly unknown & never worked → neutral, not a false "off"
     });
+  }
+  // When the permission API is vague but we believe location works, quietly confirm with a cached/quick fix
+  // (won't prompt when already granted). If it comes back as an explicit denial, flip the pill to "off".
+  var _locConfirming=false;
+  function confirmLocSilently(){
+    if(_locConfirming || !navigator.geolocation) return; _locConfirming=true;
+    navigator.geolocation.getCurrentPosition(
+      function(p){ _locConfirming=false; lastGps={lat:p.coords.latitude,lng:p.coords.longitude,acc:(p.coords.accuracy!=null?Math.round(p.coords.accuracy):null),source:"gps"}; _locFixAt=Date.now(); locOkSet(true); var el=$("locPill"); if(el) pillOn(el); },
+      function(err){ _locConfirming=false; if(err && err.code===1){ locOkSet(false); renderLocPill(); } },   // code 1 = permission denied
+      {enableHighAccuracy:false,timeout:8000,maximumAge:600000});
   }
   function isIOSDevice(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1); }
   function showLocHelp(){
