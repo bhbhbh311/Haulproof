@@ -2205,23 +2205,31 @@ window.__startApp=function(){
   function renderLocPill(){
     var el=$("locPill"); if(!el) return;
     if(!navigator.geolocation){ el.style.display="none"; return; }
+    el.style.display="";
+    var known=(lastGps!=null)||(locOkGet()==="1");
+    // Paint an optimistic first state from what we already know, then VERIFY with a real position check below —
+    // the Permissions API is unreliable on iOS (it can report a stale "denied"/"prompt" even when location works),
+    // so we never show "off" based on that API alone.
+    if(known) pillOn(el); else pillCheck(el);
     locPermState(function(state){
-      el.style.display="";
-      var known = (lastGps!=null) || (locOkGet()==="1");   // location has actually worked here before
-      if(state==="granted"){ locOkSet(true); pillOn(el); }
-      else if(state==="denied"){ locOkSet(false); pillOff(el); }
-      else if(known){ pillOn(el); confirmLocSilently(); }   // API is vague (typical on iOS) but we know it works
-      else { pillCheck(el); }                                // truly unknown & never worked → neutral, not a false "off"
+      var undecided=(state==="prompt"||state==="unknown"||state==="unavailable");
+      // Only case we DON'T probe: the API says it's undecided AND we've never gotten a fix here — probing then
+      // could pop an unexpected permission prompt on load. Show the neutral "tap to turn on" instead.
+      if(undecided && !known){ pillCheck(el); return; }
+      locProbe();   // granted, denied(maybe stale), or known → confirm against an actual position result
     });
   }
-  // When the permission API is vague but we believe location works, quietly confirm with a cached/quick fix
-  // (won't prompt when already granted). If it comes back as an explicit denial, flip the pill to "off".
-  var _locConfirming=false;
-  function confirmLocSilently(){
-    if(_locConfirming || !navigator.geolocation) return; _locConfirming=true;
+  // The reliable "is location really on?" check: attempt an actual fix (cached is fine, so it won't prompt when
+  // already granted and won't spin up GPS). Success → on. Explicit denial (code 1) → off. Timeout/unavailable →
+  // keep the optimistic state (don't flip a working phone to "off" just because there's no signal right now).
+  var _locProbing=false;
+  function locProbe(){
+    if(_locProbing || !navigator.geolocation) return; _locProbing=true;
     navigator.geolocation.getCurrentPosition(
-      function(p){ _locConfirming=false; lastGps={lat:p.coords.latitude,lng:p.coords.longitude,acc:(p.coords.accuracy!=null?Math.round(p.coords.accuracy):null),source:"gps"}; _locFixAt=Date.now(); locOkSet(true); var el=$("locPill"); if(el) pillOn(el); },
-      function(err){ _locConfirming=false; if(err && err.code===1){ locOkSet(false); renderLocPill(); } },   // code 1 = permission denied
+      function(p){ _locProbing=false; lastGps={lat:p.coords.latitude,lng:p.coords.longitude,acc:(p.coords.accuracy!=null?Math.round(p.coords.accuracy):null),source:"gps"}; _locFixAt=Date.now(); locOkSet(true); var el=$("locPill"); if(el) pillOn(el); },
+      function(err){ _locProbing=false; var el=$("locPill"); if(!el) return;
+        if(err && err.code===1){ locOkSet(false); pillOff(el); }                              // truly denied → off
+        else { if(lastGps!=null||locOkGet()==="1") pillOn(el); else pillCheck(el); } },        // timeout/unavailable → don't false-alarm
       {enableHighAccuracy:false,timeout:8000,maximumAge:600000});
   }
   function isIOSDevice(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1); }
