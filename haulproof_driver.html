@@ -120,7 +120,7 @@
   input.ti:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
   /* sign view (drop + pages) */
   .signctx{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
-  .signctx .back{background:none;border:none;color:var(--primary);font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;padding:0;}
+  .signctx .back{background:var(--primary-soft,#e8f0fe);border:1px solid var(--tab-line,#c7d6ee);color:var(--primary);font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;padding:9px 16px;border-radius:11px;-webkit-tap-highlight-color:transparent;white-space:nowrap;}
   .signctx .ctxt{font-size:13px;color:var(--muted);}
   .docmeta{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;box-shadow:var(--shadow);padding:14px;margin-bottom:14px;}
   @media(max-width:560px){.docmeta{grid-template-columns:1fr;}}
@@ -461,7 +461,7 @@
 
   <!-- SIGN -->
   <section class="view hide" id="viewSign">
-    <div class="signctx"><button class="back" id="signBack" type="button">‹ Route</button><span class="ctxt" id="signCtx"></span></div>
+    <div class="signctx"><button class="back" id="signBack" type="button">🏠 Home</button><span class="ctxt" id="signCtx"></span></div>
     <div class="docmeta" id="docMeta">
       <div id="detailsHead" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
         <span style="font-weight:800;font-size:14px;">Load details <em class="opt detailsFrom hide" style="margin-left:4px;">from dispatch</em></span>
@@ -540,7 +540,7 @@
 
   <!-- OUTBOX -->
   <section class="view hide" id="viewOutbox">
-    <div class="signctx"><button class="back" id="obBack" type="button">‹ Route</button></div>
+    <div class="signctx"><button class="back" id="obBack" type="button">🏠 Home</button></div>
     <h1>Outbox</h1>
     <p class="sub">Signed PODs are saved on the phone and upload automatically when you have signal.</p>
     <div class="connbanner" id="connBanner"></div>
@@ -636,6 +636,16 @@
       <button class="btn primary" id="locHelpRetry" type="button" style="flex:1;">Check again</button>
       <button class="btn ghost" id="locHelpClose" type="button">Close</button>
     </div>
+  </div>
+</div>
+<!-- Signer hand-off gate: shown when signing moves from one signer to the next (e.g. Consignee → Driver), so the
+     phone is deliberately handed over and the current signer can't accidentally keep signing as the next person. -->
+<div id="handoffModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.58);z-index:1250;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--surface,#fff);border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);">
+    <div style="font-size:42px;line-height:1;margin-bottom:8px;">✋</div>
+    <div id="handoffTitle" style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:20px;margin-bottom:6px;color:var(--ink,#12386e);">Consignee signature complete</div>
+    <div id="handoffMsg" style="font-size:15px;color:var(--muted,#5c6b7a);line-height:1.5;margin-bottom:20px;">Please hand the phone to the <b>Driver</b> to sign next.</div>
+    <button class="btn primary block" id="handoffStart" type="button" style="font-size:16px;">I'm the Driver — start signing</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -1167,7 +1177,7 @@ window.__startApp=function(){
   }
   async function startDocTemplate(bytes, tpl){
     if(!ready){ toast("Engine not loaded"); return; }
-    origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
+    origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     captureMode = false;   // reopening a saved/prepared load → this is the signing screen
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     try{ await renderPagesTemplate(bytes, tpl); }catch(e){
@@ -1431,7 +1441,7 @@ window.__startApp=function(){
   function enterSign(stop){
     currentStop=stop;
     $("signCtx").textContent = stop ? ("Delivering · Stop "+stop.n+" — "+stop.name) : "One-off document";
-    origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
+    origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
     $("drop").classList.remove("hide"); $("sampleDocBtn").parentElement.classList.remove("hide");
     if($("uploadTools")) $("uploadTools").classList.remove("hide");
@@ -1967,7 +1977,7 @@ window.__startApp=function(){
 
   async function startDoc(bytes, pageStops){
     if(!ready){ toast("Engine not loaded"); return; }
-    origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={};
+    origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     docPageStops = (pageStops && pageStops.length) ? pageStops : null;
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
     captureMode = true;   // a freshly scanned/uploaded doc: review & SAVE first — signing happens on reopen
@@ -2078,7 +2088,7 @@ window.__startApp=function(){
     });
   }
   function refreshActive(){ sigs().forEach(function(f){ if(f.signed) return; f.el.classList.toggle("muted", f.role!==role()); }); }
-  function onSign(f){ if(f.signed) return; if(f.role!==role()){ toast(role()+" signs first"); return; } curField=f; highlight(); if(!adoptedByRole[f.role]) openModal(); else applyTo(f); }
+  function onSign(f){ if(handoffPending) return; if(f.signed) return; if(f.role!==role()){ toast(role()+" signs first"); return; } curField=f; highlight(); if(!adoptedByRole[f.role]) openModal(); else applyTo(f); }
   function highlight(){ sigs().forEach(function(f){ f.el.classList.toggle("current", f===curField&&!f.signed); }); if(curField) curField.el.scrollIntoView({behavior:"smooth",block:"center"}); }
   function applyTo(f){ var a=adoptedByRole[f.role]; if(!a) return;
     f.signed=true; f.png=a.png; f.name=a.name; f.style=a.style; f.when=new Date(); f.gps=a.gps;
@@ -2089,8 +2099,22 @@ window.__startApp=function(){
     //  • the next signer (Consignee → Driver) → scroll to their first field
     //  • everything signed → bring the Finish button into view
     if(rem.length){ curField=rem[0]; highlight(); toast("Next — tap the highlighted box to sign"); }
-    else if(curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null; toast(role()+" — tap the highlighted box to sign"); highlight(); }
+    else if(curRoleIdx<roles.length-1){ var prevRole=role(); curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null;
+      // A DIFFERENT person signs next — gate the hand-off so the current signer can't keep signing by accident.
+      showHandoff(prevRole, role()); }
     else { allDone(); } }
+  // Signer hand-off: block further signing and put up a clear "hand the phone to <next signer>" prompt until the
+  // next person explicitly starts. Only then do we highlight their field.
+  var handoffPending=false;
+  function showHandoff(prevRole, nextRole){
+    handoffPending=true;
+    try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){}
+    var t=$("handoffTitle"), m=$("handoffMsg"), b=$("handoffStart");
+    if(t) t.textContent=(prevRole||"Consignee")+" signature complete";
+    if(m) m.innerHTML="Please hand the phone to the <b>"+esc(nextRole||"Driver")+"</b> to sign next.";
+    if(b) b.textContent="I'm the "+(nextRole||"Driver")+" — start signing";
+    var mod=$("handoffModal"); if(mod) mod.classList.remove("hide");
+  }
   function updateProgress(){
     var bn=$("banner"),btn=$("nextBtn");
     // A doc with only value fields (times/notes/initials, no signatures) — just let the driver fill and finish.
@@ -2111,6 +2135,10 @@ window.__startApp=function(){
     if(sigs().every(function(f){return f.signed;})){ finish(); return; }
     var rem=unsigned(role()); if(rem.length===0&&curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); rem=unsigned(role()); }
     var n=rem[0]; if(!n){ finish(); return; } curField=n; highlight(); if(!adoptedByRole[role()]) openModal(); else applyTo(n);
+  });
+  // The next signer taps "start signing" on the hand-off prompt — only now do we activate their first field.
+  if($("handoffStart")) $("handoffStart").addEventListener("click", function(){
+    handoffPending=false; var mod=$("handoffModal"); if(mod) mod.classList.add("hide"); updateProgress(); highlight();
   });
   function allDone(){ updateProgress(); toast("All signed — tap Finish");
     // Everything's signed — scroll the whole sign screen back to the very top so the green Finish button in the

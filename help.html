@@ -64,6 +64,13 @@ kbd{background:#eef2f8;border:1px solid var(--line);border-bottom-width:2px;bord
     <p>Short, step-by-step guides for everyone who touches a load — dispatchers, drivers, and the customers who receive signed documents. Pick your role below.</p>
   </div>
 
+  <div class="hsearch" style="margin:0 0 22px;">
+    <input id="helpSearch" type="search" placeholder="🔍 Search help — e.g. blurry, location, split, login" autocomplete="off" aria-label="Search help"
+      style="width:100%;box-sizing:border-box;font-size:16px;padding:14px 16px;border:1.5px solid #cdd7e3;border-radius:12px;outline:none;font-family:inherit;background:#fff;box-shadow:0 1px 3px rgba(16,42,82,.06);">
+    <div id="helpSearchCount" style="display:none;margin-top:8px;font-size:13px;color:#5c6b7a;font-weight:600;"></div>
+    <div id="helpNoResults" style="display:none;margin-top:12px;padding:16px;border:1px dashed #cdd7e3;border-radius:12px;color:#5c6b7a;font-size:14px;">No help articles match that search. Try a different word, or <a href="#support" style="color:#1f6feb;">contact support</a> below.</div>
+  </div>
+
   <nav class="toc">
     <a href="#setup"><b>&#128640; New-company setup</b><span>Get your account, team, drivers &amp; customers going</span></a>
     <a href="#dispatch"><b>&#128203; Dispatchers &amp; admins</b><span>Loads, signatures, splitting stops</span></a>
@@ -169,5 +176,52 @@ kbd{background:#eef2f8;border:1px solid var(--line);border-bottom-width:2px;bord
 
   <footer>HaulProof &middot; Proof of delivery, signed on the road. &middot; <a href="https://haulproofepod.com/app">Open the portal</a></footer>
 </div>
+<style>mark.hlt{background:#fff3a3;color:inherit;border-radius:2px;padding:0 1px;}</style>
+<script>
+(function(){
+  var q=document.getElementById('helpSearch'); if(!q) return;
+  var toc=document.querySelector('nav.toc');
+  var cards=Array.prototype.slice.call(document.querySelectorAll('section.card'));
+  var noRes=document.getElementById('helpNoResults');
+  var count=document.getElementById('helpSearchCount');
+  // Cache original markup so each new query starts clean (no stacked highlights / stale hides).
+  cards.forEach(function(c){ c.setAttribute('data-orig', c.innerHTML); });
+  function escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+  function mark(node,re){
+    if(node.nodeType===3){
+      if(re.test(node.nodeValue)){ re.lastIndex=0; var sp=document.createElement('span');
+        sp.innerHTML=node.nodeValue.replace(re,function(m){return '<mark class="hlt">'+m+'</mark>';});
+        node.parentNode.replaceChild(sp,node); }
+      re.lastIndex=0;
+    } else if(node.nodeType===1 && !/^(MARK|SCRIPT|STYLE|INPUT|TEXTAREA)$/.test(node.tagName)){
+      Array.prototype.slice.call(node.childNodes).forEach(function(ch){ mark(ch,re); });
+    }
+  }
+  function run(){
+    var term=(q.value||'').trim();
+    cards.forEach(function(c){ c.innerHTML=c.getAttribute('data-orig'); c.style.display=''; });
+    if(!term){ if(toc)toc.style.display=''; if(noRes)noRes.style.display='none'; if(count)count.style.display='none'; return; }
+    if(toc) toc.style.display='none';
+    var low=term.toLowerCase(), hits=0;
+    cards.forEach(function(c){
+      var faqs=c.querySelectorAll('.faq');
+      if(!(c.textContent.toLowerCase().indexOf(low)>=0)){ c.style.display='none'; return; }
+      if(faqs.length){
+        var shown=0;
+        Array.prototype.slice.call(faqs).forEach(function(f){
+          if(f.textContent.toLowerCase().indexOf(low)>=0){ f.style.display=''; shown++; } else { f.style.display='none'; }
+        });
+        if(shown===0){ /* card matched only in its intro text, keep it visible */ }
+      }
+      hits++;
+      try{ mark(c, new RegExp(escRe(term),'gi')); }catch(e){}
+    });
+    if(noRes) noRes.style.display = hits? 'none':'';
+    if(count){ count.style.display=''; count.textContent = hits? (hits+' section'+(hits>1?'s':'')+' match “'+term+'”') : ''; }
+  }
+  q.addEventListener('input', run);
+  q.addEventListener('search', run);
+})();
+</script>
 </body>
 </html>
