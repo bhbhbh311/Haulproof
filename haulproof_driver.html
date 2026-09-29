@@ -646,6 +646,7 @@
     <div id="handoffTitle" style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:20px;margin-bottom:6px;color:var(--ink,#12386e);">Consignee signature complete</div>
     <div id="handoffMsg" style="font-size:15px;color:var(--muted,#5c6b7a);line-height:1.5;margin-bottom:20px;">Please hand the phone to the <b>Driver</b> to sign next.</div>
     <button class="btn primary block" id="handoffStart" type="button" style="font-size:16px;">I'm the Driver — start signing</button>
+    <button class="btn ghost block" id="handoffBack" type="button" style="font-size:14px;margin-top:8px;">‹ Go back</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -2139,6 +2140,12 @@ window.__startApp=function(){
   // The next signer taps "start signing" on the hand-off prompt — only now do we activate their first field.
   if($("handoffStart")) $("handoffStart").addEventListener("click", function(){
     handoffPending=false; var mod=$("handoffModal"); if(mod) mod.classList.add("hide"); updateProgress(); highlight();
+  });
+  // "Go back" — the phone was handed off by mistake. Close the prompt and return to Home without finishing;
+  // the load stays on the list to reopen and sign again. (Nothing has uploaded yet at this point.)
+  if($("handoffBack")) $("handoffBack").addEventListener("click", function(){
+    handoffPending=false; var mod=$("handoffModal"); if(mod) mod.classList.add("hide");
+    showView("route"); if(online()){ try{ loadMyLoads(); }catch(e){} }
   });
   function allDone(){ updateProgress(); toast("All signed — tap Finish");
     // Everything's signed — scroll the whole sign screen back to the very top so the green Finish button in the
