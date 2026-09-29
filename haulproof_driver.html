@@ -649,6 +649,20 @@
     <button class="btn ghost block" id="handoffBack" type="button" style="font-size:14px;margin-top:8px;">‹ Go back</button>
   </div>
 </div>
+<!-- Camera fallback: iOS won't open a file input from a click that happens after an async getUserMedia call, so
+     when the in-app camera is blocked we show this and let the driver tap to open their phone's camera (a real
+     user gesture), plus steps to unblock the in-app camera. -->
+<div id="camHelp" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:1300;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--surface,#fff);border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);max-height:88vh;overflow:auto;">
+    <div style="font-size:40px;line-height:1;margin-bottom:8px;">📷</div>
+    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;margin-bottom:6px;color:var(--ink,#12386e);">Use your phone's camera</div>
+    <div style="font-size:14.5px;color:var(--muted,#5c6b7a);line-height:1.5;margin-bottom:18px;">The in-app camera is blocked, but you can still take the photo with your phone's camera. Tap below.</div>
+    <button class="btn primary block" id="camHelpNative" type="button" style="font-size:16px;">📷 Open my phone's camera</button>
+    <button class="btn ghost block" id="camHelpSteps" type="button" style="font-size:14px;margin-top:8px;">How to allow the in-app camera</button>
+    <div id="camHelpStepsBody" class="hide" style="text-align:left;font-size:13.5px;color:var(--ink,#1a2b45);line-height:1.5;margin-top:12px;border-top:1px solid var(--line,#e2e8f0);padding-top:12px;"></div>
+    <button class="btn ghost block" id="camHelpClose" type="button" style="font-size:14px;margin-top:8px;">Cancel</button>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script id="lib-data">
@@ -1518,11 +1532,22 @@ window.__startApp=function(){
       try{ await v.play(); }catch(e){}
       cam.running=true; setHint(false); scheduleCloseness();
     }catch(e){
-      // permission denied / no camera / insecure context → use the phone's own camera app
-      if(e && (e.name==="NotAllowedError"||e.name==="SecurityError")) toast("Camera blocked — using your phone's camera");
-      startNativeCamera();
+      // getUserMedia failed (permission denied / no camera / insecure context). We can't just programmatically
+      // click the native file input here — iOS ignores a file-input click that happens after this await (the user
+      // gesture is gone), so it would silently do nothing. Instead show a prompt with a button the driver taps.
+      showCamHelp();
     }
   }
+  function showCamHelp(){
+    var body=$("camHelpStepsBody");
+    if(body){ body.innerHTML = isIOSDevice()
+      ? "<b>iPhone:</b> open <b>Settings → Apps → Safari</b> (or Chrome) → <b>Camera → Allow</b>. Or, in Safari, tap <b>“aA”</b> in the address bar → <b>Website Settings → Camera → Allow</b>. Then reopen HaulProof."
+      : "<b>Android:</b> in <b>Chrome</b>, tap <b>⋮ → Settings → Site settings → Camera</b> and allow it for <b>haulproofepod.com</b>. Then reopen HaulProof."; }
+    var m=$("camHelp"); if(m) m.classList.remove("hide");
+  }
+  if($("camHelpNative")) $("camHelpNative").addEventListener("click", function(){ var m=$("camHelp"); if(m) m.classList.add("hide"); startNativeCamera(); });
+  if($("camHelpSteps")) $("camHelpSteps").addEventListener("click", function(){ var b=$("camHelpStepsBody"); if(b) b.classList.toggle("hide"); });
+  if($("camHelpClose")) $("camHelpClose").addEventListener("click", function(){ var m=$("camHelp"); if(m) m.classList.add("hide"); });
   function closeInAppCamera(){
     cam.running=false; if(cam.tick){ clearTimeout(cam.tick); cam.tick=0; }
     try{ if(cam.stream) cam.stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
