@@ -594,6 +594,7 @@
     <button class="sc-chip" type="button" data-mode="gray">Grayscale</button>
     <button class="sc-chip" type="button" data-mode="bw">B&amp;W</button>
   </div>
+  <div class="sc-hint" id="scModeHint" style="padding-top:0;"></div>
   <div class="sc-foot">
     <button class="btn ghost" id="scCancel" type="button">Retake</button>
     <button class="btn primary" id="scNext" type="button">Next ›</button>
@@ -1632,7 +1633,7 @@ window.__startApp=function(){
   function openScanEditor(url, editIndex, priorCorners, priorMode, done, reopen){
     var img = new Image();
     img.onload = function(){
-      var maxWork = 2500;   // longest edge of the working image — higher = sharper text (esp. photos shot from a bit farther back)
+      var maxWork = 3000;   // longest edge of the working image — higher = sharper text (esp. photos shot from a bit farther back)
       var nW = img.naturalWidth||img.width, nH = img.naturalHeight||img.height;
       var ws = Math.min(1, maxWork/Math.max(nW,nH));
       var wW = Math.max(1,Math.round(nW*ws)), wH = Math.max(1,Math.round(nH*ws));
@@ -1707,7 +1708,14 @@ window.__startApp=function(){
     $("scQuad").querySelector("polygon").setAttribute("points","0,0 0,0 0,0 0,0");
     syncChips(); renderFilterPreview();
   }
-  function syncChips(){ Array.prototype.slice.call($("scFilters").querySelectorAll(".sc-chip")).forEach(function(b){ b.classList.toggle("on", b.dataset.mode===scan.mode); }); }
+  var SCAN_MODE_HINTS={
+    auto:"Auto — sharpened &amp; brightened. Best for most BOLs.",
+    color:"Color — keeps stamps/colored labels; lightly sharpened.",
+    gray:"Grayscale — smaller file, lightly sharpened.",
+    bw:"B&amp;W — crispest for printed text; may drop very faint pencil/handwriting."
+  };
+  function syncChips(){ Array.prototype.slice.call($("scFilters").querySelectorAll(".sc-chip")).forEach(function(b){ b.classList.toggle("on", b.dataset.mode===scan.mode); });
+    var hint=$("scModeHint"); if(hint) hint.innerHTML=SCAN_MODE_HINTS[scan&&scan.mode]||""; }
   function renderFilterPreview(){
     var out=applyFilter(scan.flat, scan.mode);
     var availW=Math.min(window.innerWidth-24,760), availH=Math.max(200,window.innerHeight-250);
@@ -1719,7 +1727,7 @@ window.__startApp=function(){
   }
   function finalizeScan(){
     var out=applyFilter(scan.flat, scan.mode);
-    var url=out.toDataURL("image/jpeg",0.92);
+    var url=out.toDataURL("image/jpeg",0.95);
     var meta={ orig:scan.url, corners:scan.corners.map(function(c){return {x:c.x,y:c.y};}), mode:scan.mode, scanned:true };
     var cb=scan.done; closeScan(); if(cb) cb(url, meta);
   }
@@ -1803,7 +1811,7 @@ window.__startApp=function(){
     var TL=corners[0],TR=corners[1],BR=corners[2],BL=corners[3];
     var outW=Math.max(1,Math.round(Math.max(distPt(TL,TR),distPt(BL,BR))));
     var outH=Math.max(1,Math.round(Math.max(distPt(TL,BL),distPt(TR,BR))));
-    var sc=Math.min(1, 2600/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
+    var sc=Math.min(1, 3100/Math.max(outW,outH)); outW=Math.max(1,Math.round(outW*sc)); outH=Math.max(1,Math.round(outH*sc));
     var Hm=computeH([{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}], [TL,TR,BR,BL]);
     var src=imgData.data, out=new Uint8ClampedArray(outW*outH*4);
     for(var y=0;y<outH;y++){
@@ -1845,11 +1853,27 @@ window.__startApp=function(){
     var w=flat.w,h=flat.h,src=flat.data;
     var c=document.createElement("canvas"); c.width=w; c.height=h;
     var g=c.getContext("2d"); var out=g.createImageData(w,h), d=out.data;
-    if(mode==="color"){ d.set(src); }
-    else if(mode==="gray"){ for(var i=0;i<src.length;i+=4){ var vv=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2]; d[i]=d[i+1]=d[i+2]=vv; d[i+3]=255; } }
+    if(mode==="color"){ d.set(src); unsharpRGB(d,w,h,0.6); }
+    else if(mode==="gray"){ for(var i=0;i<src.length;i+=4){ var vv=0.299*src[i]+0.587*src[i+1]+0.114*src[i+2]; d[i]=d[i+1]=d[i+2]=vv; d[i+3]=255; } unsharpRGB(d,w,h,0.75); }
     else if(mode==="bw"){ adaptiveThreshold(src,d,w,h); }
     else { autoEnhance(src,d,w,h); }
     g.putImageData(out,0,0); return c;
+  }
+  // Unsharp mask: subtract a light blur from the image to crisp up edges, so a slightly-soft phone photo of a
+  // BOL reads sharply instead of fuzzy. `amount` ~0.5–1.0 controls strength. Skipped on tiny images.
+  function unsharpRGB(d,w,h,amount){
+    if(w<3||h<3) return;
+    var src=new Uint8ClampedArray(d), kw=w*4;
+    for(var y=1;y<h-1;y++){
+      for(var x=1;x<w-1;x++){
+        var o=(y*w+x)*4;
+        for(var ch=0;ch<3;ch++){ var c=o+ch;
+          var blur=(src[c-4]+src[c+4]+src[c-kw]+src[c+kw]+src[c-kw-4]+src[c-kw+4]+src[c+kw-4]+src[c+kw+4]+src[c])/9;
+          var val=src[c]+amount*(src[c]-blur);
+          d[c]=val<0?0:(val>255?255:val);
+        }
+      }
+    }
   }
   function percentileFromHist(hist,n,p){ var t=n*p, acc=0; for(var i=0;i<256;i++){ acc+=hist[i]; if(acc>=t) return i; } return 255; }
   function autoEnhance(src,d,w,h){
@@ -1861,6 +1885,7 @@ window.__startApp=function(){
       for(var ch=0;ch<3;ch++){ var val=(src[o+ch]-lo)*255/range; val=Math.min(1,Math.max(0,val/255)); d[o+ch]=255*Math.pow(val,0.85); }
       d[o+3]=255;
     }
+    unsharpRGB(d,w,h,0.9);   // sharpen after the contrast stretch — the key fix for soft/blurry scans
   }
   function adaptiveThreshold(src,d,w,h){
     var n=w*h, gray=new Float32Array(n);
@@ -1909,11 +1934,11 @@ window.__startApp=function(){
     return new Promise(function(res,rej){
       var im=new Image();
       im.onload=function(){
-        var maxD=2600, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
+        var maxD=3100, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1, maxD/Math.max(w,h));
         var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
         var c=document.createElement("canvas"); c.width=cw; c.height=ch;
         var g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,cw,ch); g.drawImage(im,0,0,cw,ch);
-        res({dataUrl:c.toDataURL("image/jpeg",0.92), w:cw, h:ch});
+        res({dataUrl:c.toDataURL("image/jpeg",0.95), w:cw, h:ch});
       };
       im.onerror=function(){ rej(new Error("decode failed")); };
       im.src=dataUrl;
@@ -2054,7 +2079,13 @@ window.__startApp=function(){
     f.signed=true; f.png=a.png; f.name=a.name; f.style=a.style; f.when=new Date(); f.gps=a.gps;
     f.el.classList.remove("current","muted"); f.el.classList.add("signed"); f.el.querySelector(".content").innerHTML='<img src="'+a.png+'" alt="signature">';
     updateProgress(); var rem=unsigned(role());
-    if(rem.length){ curField=rem[0]; } else if(curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null; toast(role()+" — please sign next"); } else { allDone(); } }
+    // After a signature lands, move the view to the next thing to do so the driver never has to hunt/scroll:
+    //  • another field for this signer  → scroll that field into view and mark it current
+    //  • the next signer (Consignee → Driver) → scroll to their first field
+    //  • everything signed → bring the Finish button into view
+    if(rem.length){ curField=rem[0]; highlight(); }
+    else if(curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null; toast(role()+" — please sign next"); highlight(); }
+    else { allDone(); } }
   function updateProgress(){
     var bn=$("banner"),btn=$("nextBtn");
     // A doc with only value fields (times/notes/initials, no signatures) — just let the driver fill and finish.
@@ -2076,7 +2107,10 @@ window.__startApp=function(){
     var rem=unsigned(role()); if(rem.length===0&&curRoleIdx<roles.length-1){ curRoleIdx++; refreshActive(); updateProgress(); rem=unsigned(role()); }
     var n=rem[0]; if(!n){ finish(); return; } curField=n; highlight(); if(!adoptedByRole[role()]) openModal(); else applyTo(n);
   });
-  function allDone(){ updateProgress(); toast("All signed — tap Finish"); }
+  function allDone(){ updateProgress(); toast("All signed — tap Finish");
+    // Everything's signed — bring the progress bar + Finish button back into view so the driver sees the next
+    // step without scrolling back to the top.
+    try{ var b=$("banner")||$("nextBtn"); if(b) b.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }
 
   /* adopt modal */
   function openModal(){ $("modalTitle").textContent=role()+" — adopt signature"; setMode("type");
