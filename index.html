@@ -2561,7 +2561,7 @@
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${(p.status === 'signed' || p.status === 'emailed')
-            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>`
+            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
             : `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>`}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
@@ -2581,6 +2581,7 @@
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
+    box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
       message: 'Remove “' + (b.dataset.name || 'this document') + '”? This can’t be undone — you can upload a corrected file to this stop afterward.',
