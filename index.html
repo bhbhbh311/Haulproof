@@ -230,6 +230,12 @@
   <!-- SEARCH -->
   <div id="appView" class="hide">
 
+    <!-- Tester-only: shown when a tester flips to the "rollout view" to preview what regular users see. -->
+    <div id="rolloutBanner" class="hide" style="margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13.5px;display:flex;align-items:center;gap:8px;">
+      <span aria-hidden="true">👁️</span>
+      <span>Rollout preview — you're seeing exactly what a regular user sees. The extra sections are hidden. Flip "Show all sections" back on to test everything.</span>
+    </div>
+
     <!-- Add / find receiver popup (dedupe against the global registry) -->
     <div id="recvModal" class="histOverlay hide">
       <div class="histBox">
@@ -417,6 +423,17 @@
       </div>
       <div id="statsGrid" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
         <div class="empty" style="grid-column:1/-1;">Loading…</div>
+      </div>
+      <!-- Staged rollout: grant a login "tester" access so it can toggle on the not-yet-rolled-out sections. -->
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line);">
+        <h2 style="margin:0 0 4px;font-size:15px;">Tester access</h2>
+        <p class="sub" style="margin:0 0 10px;">While the extra sections (Customers, Receivers, Approved carriers, and the management tabs) are hidden from regular users, grant a login tester access so it can flip them on with the "Show all sections" toggle. You (Master Admin) already have it.</p>
+        <div class="row" style="grid-template-columns:2fr auto auto;align-items:end;gap:8px;max-width:640px;">
+          <div><label>Login email</label><input id="betaEmail" type="email" placeholder="e.g. briantest@showmetrucking.com"></div>
+          <div><button class="btn" id="betaGrant" type="button">Grant access</button></div>
+          <div><button class="ghost" id="betaRevoke" type="button">Revoke</button></div>
+        </div>
+        <div id="betaMsg" class="sub" style="margin-top:8px;"></div>
       </div>
     </div>
 
@@ -1222,9 +1239,14 @@
       + (user.orgName ? ` <span class="orgname">${esc(user.orgName)}</span>` : '')
       + ` <span class="rolebadge">${esc(kinds)}</span>`
       + (u.role !== 'superadmin' && u.role ? ` <span class="rolebadge alt">${esc(cap(u.role))}</span>` : '')
+      + (user.betaAccess ? ` <label id="betaToggleWrap" title="Show the sections that aren't rolled out to regular users yet" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="betaToggle" style="width:14px;height:14px;margin:0;cursor:pointer;"> Show all sections</label>` : '')
       + ` <a href="/help" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;">Help</a>`
       + ` <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
+    if (user.betaAccess && $('betaToggle')) {
+      $('betaToggle').checked = testerShowAll();
+      $('betaToggle').onchange = function(){ setTesterShowAll(this.checked); buildTabs(); };
+    }
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
@@ -1367,6 +1389,20 @@
     { key:'receivers', label:'Receivers',   cards:['receiversCard'] },
     { key:'requests',  label:'Requests',    cards:['requestsCard'] }
   ];
+  // --- Staged rollout: these sections aren't rolled out to regular users yet. They stay hidden for
+  //     everyone except a "tester" (the master admin, or a login the master admin granted tester access),
+  //     who can flip them on/off with the "Show all sections" toggle in the header. ---
+  var BETA_TABS = { mycustomers:1, approvedcarriers:1, received:1, receivers:1, dashboard:1, customers:1, carriers:1, brokers:1, requests:1 };
+  function isTester(){ return !!(user && user.betaAccess); }
+  // A tester's view preference (per device). Defaults to showing everything so testing isn't interrupted;
+  // they can switch to the rollout view to preview what a regular user sees.
+  function testerShowAll(){
+    if(!isTester()) return false;
+    try { var v = localStorage.getItem('hp_beta_view'); return v === null ? true : (v === 'all'); } catch(e){ return true; }
+  }
+  function setTesterShowAll(on){ try { localStorage.setItem('hp_beta_view', on ? 'all' : 'rollout'); } catch(e){} }
+  // Is a given tab currently visible to this user? Beta tabs need tester access AND the toggle on.
+  function tabAllowed(key){ if(!BETA_TABS[key]) return true; return isTester() && testerShowAll(); }
   function cardExistsForRole(id){ var el=$(id); return !!(el && !el.classList.contains('hide')); }
   // A count/badge shown on a tab (e.g. "Customers 4", or a red Requests badge for pending items).
   // Stored so it survives a rebuild and can be set before or after the tab button exists.
@@ -1382,7 +1418,9 @@
   }
   function buildTabs(){
     var bar=$('tabBar'); if(!bar) return; bar.innerHTML='';
-    var shown = TAB_DEFS.filter(function(t){ return t.cards.some(cardExistsForRole); });
+    var shown = TAB_DEFS.filter(function(t){ return tabAllowed(t.key) && t.cards.some(cardExistsForRole); });
+    // Reflect the rollout-preview banner state whenever tabs rebuild.
+    var rb=$('rolloutBanner'); if(rb) rb.classList.toggle('hide', !(isTester() && !testerShowAll()));
     shown.forEach(function(t){
       var b=document.createElement('button'); b.type='button'; b.className='tab'; b.setAttribute('data-tab', t.key);
       b.innerHTML = esc(t.label) + '<span class="tabcount"></span>';
@@ -1403,6 +1441,8 @@
     }
   }
   function selectTab(key){
+    // Never open a section that's hidden from this user (e.g. a beta tab while in rollout view).
+    if(!tabAllowed(key)) key = 'documents';
     closeCustManageForTab();
     // Clicking the Documents / Loads tab closes any open load detail and returns to the list view
     // (openLoad hides loadsCard to swap in the detail, so restore it — except for super-admin, who has none).
@@ -1454,6 +1494,19 @@
     } catch (e) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Could not load dashboard.</div>'; }
   }
   if ($('statsRefresh')) $('statsRefresh').onclick = loadStats;
+
+  // Master-admin: grant/revoke tester access by email (reveals the not-yet-rolled-out sections to that login).
+  async function setBeta(on){
+    var em = ($('betaEmail') && $('betaEmail').value || '').trim();
+    var msg = $('betaMsg'); if (msg){ msg.style.color=''; msg.textContent = 'Working…'; }
+    if (!em){ if(msg){ msg.style.color='var(--danger)'; msg.textContent='Enter the login email first.'; } return; }
+    try {
+      var r = await api('/api/users/beta', { method:'POST', body: JSON.stringify({ email: em, on: on }) });
+      if (msg){ msg.style.color='var(--ok)'; msg.textContent = (on ? 'Tester access granted to ' : 'Tester access removed from ') + (r.user && r.user.email || em) + '. They\'ll see it next time they sign in.'; }
+    } catch(e){ if(msg){ msg.style.color='var(--danger)'; msg.textContent = e.message || 'Could not update that login.'; } }
+  }
+  if ($('betaGrant')) $('betaGrant').onclick = function(){ setBeta(true); };
+  if ($('betaRevoke')) $('betaRevoke').onclick = function(){ setBeta(false); };
 
   // Super-admin opt-out list: addresses that unsubscribed from document emails.
   async function loadOptouts(){

@@ -57,11 +57,13 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   // Surface the forced-password-reset flag so a cookie auto-login enforces it too.
-  let mustChangePassword = false;
-  try { const u = db.prepare('SELECT mustChangePassword FROM users WHERE id = ?').get(req.user.sub); mustChangePassword = !!(u && u.mustChangePassword); } catch (e) {}
+  let mustChangePassword = false, betaRow = 0;
+  try { const u = db.prepare('SELECT mustChangePassword, betaAccess FROM users WHERE id = ?').get(req.user.sub); mustChangePassword = !!(u && u.mustChangePassword); betaRow = u ? u.betaAccess : 0; } catch (e) {}
   // Effective capabilities (role defaults + admin-granted) so the UI can show the controls this login may use.
   let capabilities = []; try { capabilities = effectiveCaps(req.user); } catch (e) {}
-  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities }) });
+  // Tester flag: the master admin always has it; anyone else only if granted. Gates the not-yet-rolled-out sections.
+  const betaAccess = (req.user.role === 'superadmin') || !!betaRow;
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }) });
 });
 
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.

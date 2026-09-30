@@ -26,10 +26,10 @@ router.get('/', requireAuth, (req, res) => {
   if (!['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
   const rows = db.prepare(
-    `SELECT id, email, name, role, capabilities, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
+    `SELECT id, email, name, role, capabilities, betaAccess, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
   ).all(orgId);
   const users = rows.map(u => { let caps = []; try { caps = u.capabilities ? JSON.parse(u.capabilities) : []; } catch (e) { caps = []; }
-    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
+    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, betaAccess: !!u.betaAccess, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
   res.json({ users });
 });
 
@@ -151,6 +151,20 @@ router.delete('/by-email', requireAuth, (req, res) => {
   if (u.role === 'superadmin') return res.status(400).json({ error: 'Refusing to delete a super-admin login' });
   db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
   res.json({ ok: true, deleted: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId } });
+});
+
+// --- Master-admin: grant/revoke "tester" access by email. A tester sees the not-yet-rolled-out
+//     sections (behind a toggle in the portal); everyone else has them hidden. Super-admin only, so a
+//     regular org admin can't reveal the unfinished sections to themselves. Defined before '/:id'. ---
+router.post('/beta', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Master admin only' });
+  const em = ((req.body && req.body.email) || '').toLowerCase().trim();
+  const on = !!(req.body && req.body.on);
+  if (!EMAIL_RE.test(em)) return res.status(400).json({ error: 'Enter a valid email address' });
+  const u = db.prepare('SELECT id, email, name, role FROM users WHERE email = ?').get(em);
+  if (!u) return res.status(404).json({ error: 'No login exists with that email' });
+  db.prepare('UPDATE users SET betaAccess = ? WHERE id = ?').run(on ? 1 : 0, u.id);
+  res.json({ ok: true, user: { id: u.id, email: u.email, name: u.name, role: u.role, betaAccess: on } });
 });
 
 // Edit a login's email / name / role (fix input mistakes). Same customer only.

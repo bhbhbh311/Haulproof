@@ -152,6 +152,7 @@ function addColumn(table, col, decl) {
 }
 addColumn('users', 'orgId', 'TEXT');
 addColumn('users', 'capabilities', 'TEXT');   // JSON array of extra capabilities an admin granted this login
+addColumn('users', 'betaAccess', 'INTEGER NOT NULL DEFAULT 0');   // master-admin-granted "tester" flag: sees the not-yet-rolled-out sections behind a toggle
 addColumn('loads', 'orgId', 'TEXT');
 addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column
