@@ -2665,17 +2665,41 @@ window.__startApp=function(){
     // This is the clear "I'm done" button — it forces the upload now instead of waiting for a background sync,
     // shows progress, and then drops the driver back on their available loads.
     var bSend=mkBtn("✅ Send documents & complete","primary",async function(){
-      bSend.disabled=true; var _t=bSend.textContent;
+      bSend.disabled=true;
       bSend.textContent = online() ? "Sending…" : "Saving…";
       holdPodId=null;   // release THIS stop so it uploads now — its consignee emails go out immediately
       try{ if(online()) await syncOutbox(); }catch(_){}
-      // Confirm to the driver, then return to their loads (or the outbox when this wasn't a route stop).
-      toast(stopN!=null ? ("Stop "+stopN+" sent & completed ✓") : "Documents sent ✓");
-      showView(currentStop?"route":"outbox");
-      setTimeout(function(){ if(currentStop) loadMyLoads(); },350);
+      // Clear, state-aware "you're done" screen that then returns to Home on its own, so the driver is
+      // never left wondering what to do next after signing.
+      showSendSuccess(stopN);
     }); bSend.classList.remove("sm"); bSend.classList.add("block"); bSend.style.marginBottom="10px";
     var b1=mkBtn("View signed PDF","ghost",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block");
     da.appendChild(bSend); da.appendChild(b1); da.scrollIntoView({behavior:"smooth"});
+  }
+  // Full-screen "all done" confirmation shown right after the driver sends. It states plainly what happened
+  // (sent, or saved-and-will-send when offline), then returns to Home on its own after a few seconds — with a
+  // button to go immediately — so nobody is left staring at the sign screen wondering what's next.
+  function showSendSuccess(stopN){
+    var wasOnline=online();
+    var ex=document.getElementById("sendSuccess"); if(ex) ex.remove();
+    var ov=document.createElement("div"); ov.id="sendSuccess";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;background:var(--surface,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;gap:14px;";
+    var title=stopN!=null ? ("Stop "+stopN+" complete") : "All done";
+    var msg=wasOnline ? "Signed documents sent." : "Saved on your phone — they'll send automatically once you have signal.";
+    var ring=document.createElement("div");
+    ring.style.cssText="width:88px;height:88px;border-radius:50%;background:"+(wasOnline?"#e7f6ec":"#fff4e5")+";display:flex;align-items:center;justify-content:center;";
+    ring.innerHTML='<span style="font-size:48px;line-height:1;color:'+(wasOnline?"#146c2e":"#b5731a")+';">✓</span>';
+    var h=document.createElement("div"); h.style.cssText="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:24px;color:var(--ink,#12386e);"; h.textContent=title;
+    var p=document.createElement("div"); p.style.cssText="font-size:15px;color:var(--muted);max-width:320px;line-height:1.45;"; p.textContent=msg;
+    var btn=document.createElement("button"); btn.className="btn primary block"; btn.style.cssText="max-width:280px;font-size:17px;margin-top:6px;"; btn.textContent="🏠 Back to Home";
+    var cd=document.createElement("div"); cd.style.cssText="font-size:13px;color:var(--muted);";
+    ov.appendChild(ring); ov.appendChild(h); ov.appendChild(p); ov.appendChild(btn); ov.appendChild(cd);
+    document.body.appendChild(ov);
+    var secs=5, timer=null, done=false;
+    function goHome(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; finishStart(); }
+    btn.addEventListener("click", goHome);
+    cd.textContent="Returning to Home in "+secs+"s…";
+    timer=setInterval(function(){ secs--; if(secs<=0){ goHome(); } else { cd.textContent="Returning to Home in "+secs+"s…"; } },1000);
   }
   function buildEmailBox(){
     var box=document.createElement("div"); box.className="emailbox";

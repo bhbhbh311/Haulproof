@@ -335,8 +335,8 @@
     <!-- Split a multi-page document into separate per-stop documents -->
     <div id="splitModal" class="histOverlay hide">
       <div class="histBox" style="max-width:660px;">
-        <div class="histHead"><h1 style="margin:0;font-size:18px;">Split into stops</h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
-        <p class="sub" style="margin:8px 0 12px;">Set the stop number under each page. Pages with the same stop number are combined into one document for that stop.</p>
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Split into stops <span id="splitCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" id="splitSub" style="margin:8px 0 12px;">Set the stop number under each page. Pages with the same stop number are combined into one document for that stop.</p>
         <div id="splitPages" style="display:flex;flex-wrap:wrap;gap:12px;max-height:54vh;overflow:auto;padding:4px;"></div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="splitSave" type="button">Create stops</button>
@@ -2721,6 +2721,7 @@
     if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
     _splitPod = p; _splitBuf = null; _splitInputs = [];
     const box = $('splitPages'); box.innerHTML = 'Loading pages…';
+    if ($('splitCount')) $('splitCount').textContent = '';
     $('splitMsg').textContent = ''; $('splitMsg').className = '';
     if ($('splitSave')) $('splitSave').disabled = false;
     $('splitModal').classList.remove('hide');
@@ -2732,6 +2733,9 @@
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
       _splitPdf = pdf;
       box.innerHTML = '';
+      // Make the page count obvious right where you split — in the title and the instructions.
+      if ($('splitCount')) $('splitCount').textContent = '· ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's');
+      if ($('splitSub')) $('splitSub').textContent = 'This document has ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') + '. Set the stop number under each page — pages with the same stop number are combined into one document for that stop.';
       if (pdf.numPages < 2) {
         box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>Edit</b> on the document to change its stop number instead.</div>';
         if ($('splitSave')) $('splitSave').disabled = true;

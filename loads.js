@@ -324,7 +324,10 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
     const allowedOrgs = new Set([load.orgId, load.carrierId, load.brokerId].filter(Boolean).map(String));
     if (!drv || !allowedOrgs.has(String(drv.orgId || ''))) return res.status(400).json({ error: 'That driver is not on this load’s account or its assigned carrier/broker' });
     driverName = drv.name || driverName;
-    try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE loadId = ? AND status IN ('received','prepared')`).run(drv.id, drv.name, load.id); } catch (e) {}
+    // Stamp the driver onto every not-yet-signed doc on the load — including ones still 'awaiting_build'
+    // (handed up from a driver, not yet marked ready). Without 'awaiting_build' here, a load assigned before
+    // it's marked ready never routes to the driver's phone (their app only shows docs stamped to them).
+    try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE loadId = ? AND status IN ('received','prepared','awaiting_build')`).run(drv.id, drv.name, load.id); } catch (e) {}
   }
   if (!driverName) return res.status(400).json({ error: "Choose or enter the driver's name" });
   db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, load.id);
