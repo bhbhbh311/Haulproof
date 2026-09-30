@@ -2249,18 +2249,23 @@ window.__startApp=function(){
   }
   function refreshActive(){ sigs().forEach(function(f){ if(f.signed) return; f.el.classList.toggle("muted", f.role!==role()); }); }
   function onSign(f){ if(handoffPending) return; if(f.signed) return; if(f.role!==role()){ toast(role()+" signs first"); return; } curField=f; highlight(); if(!adoptedByRole[f.role]) openModal(); else applyTo(f); }
-  function highlight(){ sigs().forEach(function(f){ f.el.classList.toggle("current", f===curField&&!f.signed); }); if(curField) curField.el.scrollIntoView({behavior:"smooth",block:"center"}); }
-  function applyTo(f){ var a=adoptedByRole[f.role]; if(!a) return;
+  // Sign-from-the-top flow: signing is driven from the banner button + the signature pad, so we never jump the
+  // driver down to the document or show a "tap here to sign" box. This just clears any stale highlight.
+  function highlight(){ sigs().forEach(function(f){ f.el.classList.remove("current"); }); }
+  // Stamp one signature box with the adopted signature.
+  function stampField(f,a){
     f.signed=true; f.png=a.png; f.name=a.name; f.style=a.style; f.when=new Date(); f.gps=a.gps;
     f.el.classList.remove("current","muted"); f.el.classList.add("signed"); f.el.querySelector(".content").innerHTML='<img src="'+a.png+'" alt="signature">';
     if(f.cap){ f.cap.textContent='✓ '+f.role+' signed'; f.cap.classList.add("done"); f.cap.style.background=""; f.cap.style.borderColor=""; f.cap.style.color=""; }
-    updateProgress(); var rem=unsigned(role());
-    // After a signature lands, move the view to the next thing to do so the driver never has to hunt/scroll:
-    //  • another field for this signer  → scroll that field into view and mark it current
-    //  • the next signer (Consignee → Driver) → scroll to their first field
-    //  • everything signed → bring the Finish button into view
-    if(rem.length){ curField=rem[0]; highlight(); toast("Next — tap the highlighted box to sign"); }
-    else if(curRoleIdx<roles.length-1){ var prevRole=role(); curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null;
+  }
+  function applyTo(f){ var a=adoptedByRole[f.role]; if(!a) return;
+    // One signer, one signature: stamp EVERY one of this signer's boxes at once so they never tap each box on
+    // the document — they stay on the top prompt the whole time.
+    var mine=sigs().filter(function(x){ return x.role===f.role && !x.signed; });
+    if(mine.indexOf(f)<0) mine.unshift(f);
+    mine.forEach(function(x){ stampField(x,a); });
+    updateProgress();
+    if(curRoleIdx<roles.length-1){ var prevRole=role(); curRoleIdx++; refreshActive(); updateProgress(); curField=unsigned(role())[0]||null;
       // A DIFFERENT person signs next — gate the hand-off so the current signer can't keep signing by accident.
       showHandoff(prevRole, role()); }
     else { allDone(); } }
@@ -2289,7 +2294,7 @@ window.__startApp=function(){
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
     if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); }
-    else { bn.classList.remove("done"); $("progSub").textContent=adoptedByRole[r]?"Tap next field or use Next":"Tap a "+r+" field to sign"; btn.textContent=(done>0||curRoleIdx>0)?"Next":"Start"; btn.classList.add("primary"); btn.classList.remove("success"); }
+    else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); }
   }
   $("nextBtn").addEventListener("click", function(){
     if(sigs().length===0){ finish(); return; }
