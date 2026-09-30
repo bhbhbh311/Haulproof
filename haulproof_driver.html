@@ -179,7 +179,11 @@
   .datefield.dragging{cursor:grabbing;opacity:.92;}
   .tab .content,.datefield .content{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 4px;}
   .tab .content img,.datefield .content img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
-  .tab .lab{pointer-events:none;padding:0 4px;white-space:nowrap;}
+  .tab .lab{pointer-events:none;padding:0 4px;white-space:nowrap;font-size:15px;}
+  /* Always-legible caption under a signature box, so a narrow field never hides WHO signs / WHAT it is. */
+  .tab .sigcap{position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:"Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;line-height:1;letter-spacing:.01em;padding:4px 9px;border-radius:999px;background:var(--tab);color:var(--tab-ink);border:1px solid var(--tab-line);box-shadow:0 2px 7px rgba(0,0,0,.22);pointer-events:none;z-index:5;}
+  .tab.driver .sigcap{background:var(--driver);color:var(--driver-ink);border-color:var(--driver-line);}
+  .tab .sigcap.done{background:var(--surface);border-color:var(--success);color:var(--success);box-shadow:none;}
   .rsz{position:absolute;right:-1px;bottom:-1px;width:16px;height:16px;cursor:nwse-resize;z-index:6;background:var(--primary);border:2px solid var(--surface);border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.35);touch-action:none;}
   @keyframes pulse{0%,100%{box-shadow:0 2px 8px rgba(0,0,0,.2);}50%{box-shadow:0 0 0 5px rgba(242,178,26,.35);}}
   @media (prefers-reduced-motion: reduce){.tab{animation:none;}}
@@ -2176,11 +2180,18 @@ window.__startApp=function(){
     el.className=(isSig?"tab":"datefield")+(r==="Driver"?" driver":"");
     var o={el:el,rec:rec,pageIdx:rec.idx,stop:(rec&&rec.stop)||null,kind:kind,role:r,label:label||"",value:"",xPdf:x,yPdf:y,wPdf:w,hPdf:h,signed:false,date:todayStr()};
     var content;
-    if(kind==="sigdate") content='<span class="lab">✎ '+esc2(r)+' — Sign + date</span>';
-    else if(kind==="sig") content='<span class="lab">✎ '+esc2(r)+' — Sign</span>';
+    // Signature boxes keep just a pen inside (the box width comes from the PDF field and can be narrow, which
+    // would clip a full label). The role + action lives in an always-legible caption pill below the box instead.
+    if(kind==="sigdate"||kind==="sig") content='<span class="lab">✎</span>';
     else if(kind==="date") content='🗓 '+todayStr();
     else content=valueContent(o);   // initials / time / text
     el.innerHTML='<span class="content">'+content+'</span><span class="rsz"></span>';
+    if(isSig){
+      var cap=document.createElement("span"); cap.className="sigcap";
+      cap.textContent='✎ '+r+(kind==="sigdate"?' — Sign + date':' — Sign');
+      if(r!=="Consignee" && r!=="Driver"){ var cc=roleColor(r); cap.style.background=cc; cap.style.borderColor=cc; cap.style.color="#fff"; }
+      el.appendChild(cap); o.cap=cap;
+    }
     el.style.left=sr.left+"px"; el.style.top=sr.top+"px"; el.style.width=sr.w+"px"; el.style.height=sr.h+"px";
     // Tint by signer role (Consignee=default blue, Driver has its own class; others get an inline color).
     if(r!=="Consignee" && r!=="Driver"){ var c=roleColor(r); el.style.borderColor=c; if(isSig){ el.style.background=c; el.style.color="#fff"; } else { el.style.color=c; } }
@@ -2242,6 +2253,7 @@ window.__startApp=function(){
   function applyTo(f){ var a=adoptedByRole[f.role]; if(!a) return;
     f.signed=true; f.png=a.png; f.name=a.name; f.style=a.style; f.when=new Date(); f.gps=a.gps;
     f.el.classList.remove("current","muted"); f.el.classList.add("signed"); f.el.querySelector(".content").innerHTML='<img src="'+a.png+'" alt="signature">';
+    if(f.cap){ f.cap.textContent='✓ '+f.role+' signed'; f.cap.classList.add("done"); f.cap.style.background=""; f.cap.style.borderColor=""; f.cap.style.color=""; }
     updateProgress(); var rem=unsigned(role());
     // After a signature lands, move the view to the next thing to do so the driver never has to hunt/scroll:
     //  • another field for this signer  → scroll that field into view and mark it current
