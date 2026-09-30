@@ -661,7 +661,7 @@
     <b style="font-family:'Archivo',system-ui,sans-serif;font-size:17px;">Split into stops</b>
     <button id="stopSplitAdd" type="button" class="btn ghost sm" style="margin-left:auto;">＋ Add stop</button>
   </div>
-  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap a page's tag to move it to another stop, and enter who each stop is delivered to. Each stop becomes its own document to sign.</div>
+  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Fill in who each stop is delivered to — each stop becomes its own signed document.</div>
   <div id="stopSplitStops" style="flex:none;padding:4px 16px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);max-height:34vh;overflow:auto;"></div>
   <div id="stopSplitPages" style="flex:1;min-height:0;overflow:auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#0b1017;"></div>
   <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,#fff);border-top:1px solid var(--line,#e2e8f0);">
@@ -2092,14 +2092,29 @@ window.__startApp=function(){
     var box=$("stopSplitPages"); box.innerHTML="";
     _ssThumbs.forEach(function(url,i){
       var cell=document.createElement("div"); cell.style.cssText="display:flex;flex-direction:column;align-items:center;gap:6px;";
-      var img=document.createElement("img"); img.src=url; img.style.cssText="width:110px;border-radius:6px;border:1px solid #2b3a4d;display:block;";
+      var img=document.createElement("img"); img.src=url; img.style.cssText="width:110px;border-radius:6px;border:1px solid #2b3a4d;display:block;cursor:zoom-in;"; img.title="Tap to enlarge";
+      img.addEventListener("click",function(){ showSplitPageZoom(url, i+1); });
       var s=_ssAssign[i]||1; if(s>_ssCount) s=_ssCount; _ssAssign[i]=s;
-      var tag=document.createElement("button"); tag.type="button"; tag.textContent="Stop "+s;
+      var tag=document.createElement("button"); tag.type="button"; tag.textContent="Stop "+s+" ⇄";
+      tag.title="Tap to move this page to the next stop";
       tag.style.cssText="font-family:inherit;font-weight:800;font-size:12px;border:none;border-radius:999px;padding:5px 12px;cursor:pointer;background:"+stopColor(s)+";color:#fff;";
-      tag.addEventListener("click",function(){ _ssAssign[i]=((_ssAssign[i]||1)%_ssCount)+1; renderStopSplit(); });
+      tag.addEventListener("click",function(){ if(_ssCount<2){ toast("Add a stop first (＋ Add stop), then tap to move pages"); return; } _ssAssign[i]=((_ssAssign[i]||1)%_ssCount)+1; renderStopSplit(); });
       var lbl=document.createElement("div"); lbl.style.cssText="color:#9fb2cc;font-size:11px;"; lbl.textContent="Page "+(i+1);
-      cell.appendChild(img); cell.appendChild(tag); cell.appendChild(lbl); box.appendChild(cell);
+      var zoom=document.createElement("div"); zoom.style.cssText="color:#5a8dff;font-size:10px;cursor:zoom-in;"; zoom.textContent="🔍 tap to enlarge";
+      zoom.addEventListener("click",function(){ showSplitPageZoom(url, i+1); });
+      cell.appendChild(img); cell.appendChild(tag); cell.appendChild(lbl); cell.appendChild(zoom); box.appendChild(cell);
     });
+  }
+  // Full-screen preview of a single page so the driver can read it before choosing its stop.
+  function showSplitPageZoom(url, pageNo){
+    var ex=document.getElementById("ssZoom"); if(ex) ex.remove();
+    var ov=document.createElement("div"); ov.id="ssZoom";
+    ov.style.cssText="position:fixed;inset:0;z-index:11000;background:rgba(3,7,12,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:12px;";
+    var im=document.createElement("img"); im.src=url; im.style.cssText="max-width:100%;max-height:82vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);";
+    var cap=document.createElement("div"); cap.style.cssText="color:#cfe0ff;font-size:14px;font-weight:700;"; cap.textContent="Page "+pageNo+" — tap anywhere to close";
+    ov.appendChild(im); ov.appendChild(cap);
+    ov.addEventListener("click",function(){ ov.remove(); });
+    document.body.appendChild(ov);
   }
   function stopColor(s){ var c=["#1f6feb","#12a150","#c026d3","#ea580c","#0891b2","#ca8a04","#db2777","#4f46e5","#65a30d","#dc2626","#0d9488","#7c3aed"]; return c[(s-1)%c.length]; }
   async function confirmStopSplit(){
