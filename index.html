@@ -2788,6 +2788,9 @@
     $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = 'Building documents…';
     try {
       const p = _splitPod;
+      // Keep the original document's driver so split pieces stay on that driver's phone (a driver-uploaded
+      // doc that gets split must not lose its assignment).
+      const drvId = p.assignedDriverId || '';
       const src = await PDFLib.PDFDocument.load(_splitBuf, { ignoreEncryption: true });
       const baseName = (p.filename || 'document.pdf').replace(/\.pdf$/i, '');
       const buildHdr = p.status === 'awaiting_build' ? 'dispatch' : '';
@@ -2809,6 +2812,8 @@
         if (user && user.role === 'superadmin' && p.orgId) headers['X-Org'] = encodeURIComponent(p.orgId);
         const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include', headers, body: bytes });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || ('Upload failed for Stop ' + s)); }
+        // Re-stamp the driver onto this new split piece so it routes to their phone like the original did.
+        if (drvId) { try { const j = await res.json(); if (j && j.podId) await api('/api/pods/' + j.podId + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: drvId }) }); } catch (e) {} }
       }
       // Every stop uploaded successfully — now remove the original combined document. Mark it as a REPLACEMENT
       // (?replaced=1) so the driver isn't sent a false "dispatch removed your upload" notice — their document
