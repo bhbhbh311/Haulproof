@@ -351,6 +351,13 @@ router.post('/', requireAuth, requireDriverManager, (req, res) => {
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
   // PIN is optional now: leave it blank and the driver creates their own the first time they open the link.
   if (pin && !PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits, or leave it blank so the driver sets it' });
+  // Guard against a second driver with the same name on this account — the exact trap that made a load
+  // "vanish" (two "Craig Harris" records: the load assigned to one, the phone using the other). The admin
+  // can still add a genuine namesake by confirming (allowDuplicateName), but not by accident.
+  if (!(req.body && req.body.allowDuplicateName)) {
+    const dupe = db.prepare(`SELECT id FROM drivers WHERE orgId IS ? AND active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))`).get(orgId, name);
+    if (dupe) return res.status(409).json({ error: 'DUPLICATE_NAME: A driver named "' + name + '" already exists on this account. If this is the same person, use the existing driver instead of adding another.' });
+  }
   const id = crypto.randomUUID();
   // Either way the driver is prompted on first use — to change an admin-set PIN, or to create their own when none was set.
   db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)

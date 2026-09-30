@@ -1858,12 +1858,27 @@
     if (!name) { msgEl.textContent = "Enter the driver's name"; msgEl.className = 'umsg-err'; return; }
     if (pin && !/^\d{4,6}$/.test(pin)) { msgEl.textContent = 'PIN must be 4–6 digits, or leave it blank so the driver sets their own'; msgEl.className = 'umsg-err'; if (pinEl) pinEl.focus(); return; }
     msgEl.textContent = 'Adding…'; msgEl.className = '';
+    const okMsg = pin ? 'Added ✓ — send them their link from the table' : 'Added ✓ — they create their own PIN when they first open their link';
+    const clearAndReload = () => { nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; if (pinEl) pinEl.value = ''; loadDrivers(orgId, tbody); };
     try {
       const body = { name, phone, email, pin }; if (orgId) body.orgId = orgId;
       await api('/api/drivers', { method: 'POST', body: JSON.stringify(body) });
-      msgEl.textContent = pin ? 'Added ✓ — send them their link from the table' : 'Added ✓ — they create their own PIN when they first open their link'; msgEl.className = 'umsg-ok';
-      nameEl.value = ''; phoneEl.value = ''; if (emailEl) emailEl.value = ''; if (pinEl) pinEl.value = ''; loadDrivers(orgId, tbody);
-    } catch (e) { msgEl.textContent = e.message; msgEl.className = 'umsg-err'; }
+      msgEl.textContent = okMsg; msgEl.className = 'umsg-ok'; clearAndReload();
+    } catch (e) {
+      // Duplicate name: don't create a confusing second same-name driver silently — confirm first.
+      if (/^DUPLICATE_NAME/.test(e.message || '')) {
+        const clean = e.message.replace(/^DUPLICATE_NAME:\s*/, '');
+        if (confirm(clean + '\n\nAdd a second driver with this same name anyway?')) {
+          try {
+            const body2 = { name, phone, email, pin, allowDuplicateName: true }; if (orgId) body2.orgId = orgId;
+            await api('/api/drivers', { method: 'POST', body: JSON.stringify(body2) });
+            msgEl.textContent = okMsg; msgEl.className = 'umsg-ok'; clearAndReload();
+          } catch (e2) { msgEl.textContent = e2.message; msgEl.className = 'umsg-err'; }
+        } else { msgEl.textContent = 'Cancelled — no driver added. Use the existing driver instead.'; msgEl.className = ''; }
+        return;
+      }
+      msgEl.textContent = e.message; msgEl.className = 'umsg-err';
+    }
   }
   $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndEmail'), $('ndPin'), $('ndMsg'), $('driverRows'));
 
@@ -3174,7 +3189,7 @@
       const scope = ldScopeOrgId();
       const r = await api('/api/drivers' + (scope ? ('?orgId=' + encodeURIComponent(scope)) : ''));
       (r.drivers || []).filter(d => d.active !== false).forEach(d => {
-        const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : ''); o.dataset.name = d.name;
+        const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : (d.email ? ' · ' + d.email : ' · #' + String(d.id).slice(-4))); o.dataset.name = d.name;
         if (curLoad && curLoad.driverName && d.name === curLoad.driverName) { o.selected = true; _ldSelectedDriverId = d.id; }
         sel.appendChild(o);
       });
@@ -3273,7 +3288,7 @@
       // This org's drivers, so a "Ready to sign" doc can be assigned to one.
       let drivers = [];
       try { const dr = await api('/api/drivers?orgId=' + encodeURIComponent(cmOrgId)); drivers = dr.drivers || []; } catch (e) {}
-      const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
+      const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => { var tag = d.phone ? ' · '+d.phone : (d.email ? ' · '+d.email : ' · #'+String(d.id).slice(-4)); return `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name+tag)}</option>`; }).join('');
       // Build one document row. childCls (set for grouped rows) hides the row until the PO# section is
       // expanded and blanks the repeated PO cell. A driver is assigned once per LOAD, so the per-doc
       // picker only appears on ungrouped single rows — never on a grouped child stop row.
@@ -3780,7 +3795,7 @@
     const canAssign = user.role === 'admin';
     let drivers = [];
     if (canAssign) { try { const dr = await api('/api/drivers'); drivers = dr.drivers || []; } catch (e) {} }
-    const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
+    const driverOpts = (sel) => '<option value="">— unassigned —</option>' + drivers.map(d => { var tag = d.phone ? ' · '+d.phone : (d.email ? ' · '+d.email : ' · #'+String(d.id).slice(-4)); return `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name+tag)}</option>`; }).join('');
     // Build the action cell + one document row. childCls (set for grouped rows) hides the row until the
     // PO# section is expanded and blanks the repeated PO cell.
     function docRowHtml(x, childCls) {
@@ -4494,14 +4509,26 @@
     if (!name) { $('drvMsg').textContent = "Enter the driver's name"; $('drvMsg').className = 'umsg-err'; return; }
     if (!/^\d{4,6}$/.test(pin)) { $('drvMsg').textContent = 'Set a 4–6 digit PIN'; $('drvMsg').className = 'umsg-err'; $('drvPin').focus(); return; }
     $('drvMsg').textContent = 'Creating…'; $('drvMsg').className = '';
-    try {
+    const doCreate = async (extra) => {
       const _sc = ldScopeOrgId();
-      const r = await api('/api/drivers', { method: 'POST', body: JSON.stringify(Object.assign({ name, phone, email, pin }, _sc ? { orgId: _sc } : {})) });
+      const r = await api('/api/drivers', { method: 'POST', body: JSON.stringify(Object.assign({ name, phone, email, pin }, extra || {}, _sc ? { orgId: _sc } : {})) });
       const id = (r && r.driver && r.driver.id) || null;
       const cb = _drvCtx && _drvCtx.onDone;
       closeDriverModal();
       if (cb) await cb(id, name);
-    } catch (e) { $('drvMsg').textContent = e.message; $('drvMsg').className = 'umsg-err'; }
+    };
+    try { await doCreate(); }
+    catch (e) {
+      if (/^DUPLICATE_NAME/.test(e.message || '')) {
+        const clean = e.message.replace(/^DUPLICATE_NAME:\s*/, '');
+        if (confirm(clean + '\n\nAdd a second driver with this same name anyway?')) {
+          try { await doCreate({ allowDuplicateName: true }); }
+          catch (e2) { $('drvMsg').textContent = e2.message; $('drvMsg').className = 'umsg-err'; }
+        } else { $('drvMsg').textContent = 'Cancelled — use the existing driver instead.'; $('drvMsg').className = ''; }
+        return;
+      }
+      $('drvMsg').textContent = e.message; $('drvMsg').className = 'umsg-err';
+    }
   };
   // "+ Add / create driver" on the load → create a driver, then select them for this load.
   if ($('ldDriverAdd')) $('ldDriverAdd').onclick = () => openDriverModal({ onDone: async (id, name) => {
