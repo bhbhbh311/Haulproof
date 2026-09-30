@@ -2562,20 +2562,13 @@
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${(p.status === 'signed' || p.status === 'emailed')
             ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>`
-            : `<a class="dl" href="/prepare?id=${encodeURIComponent(p.id)}&view=1" target="_blank" rel="noopener" title="See the document with the signature boxes as they're set up now">👁 View setup ↗</a>`}
-          ${p.status !== 'signed' && p.status !== 'emailed' ? ` &nbsp;<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;">✍ Signatures</a>` : ''}
-          ${p.status === 'awaiting_build' ? `&nbsp;<button class="ldReady btn-ok btn-sm" data-id="${p.id}" type="button">✅ Mark ready for driver</button>` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops</button>` : ''}
+            : `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>`}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
     const byId = {}; pods.forEach(p => byId[p.id] = p);
-    // Release a driver-uploaded doc to the driver once dispatch has set it up.
-    box.querySelectorAll('.ldReady').forEach(b => b.onclick = async () => {
-      b.disabled = true; b.textContent = 'Releasing…';
-      try { await api('/api/pods/' + b.dataset.id + '/ready', { method: 'POST' }); openLoad(curLoad.id); refreshAwaitingBadge(); }
-      catch (e) { alert(e.message); b.disabled = false; b.textContent = '✅ Mark ready for driver'; }
-    });
+    // (Releasing to the driver now happens automatically when signatures are set up and saved — no separate button.)
     // Possible-duplicate: dispatch confirms it's legit (clears the flag) or discards the upload.
     box.querySelectorAll('.ldDupKeep').forEach(b => b.onclick = async () => {
       try { await api('/api/pods/' + b.dataset.id, { method: 'PUT', body: JSON.stringify({ dupWarn: 0 }) }); openLoad(curLoad.id); }
@@ -2630,6 +2623,8 @@
       const span = box.querySelector('.ldPages[data-id="' + p.id + '"]');
       if (span) span.textContent = ' · ' + n + ' page' + (n === 1 ? '' : 's');
       const b = btns[p.id]; if (b) b.style.display = (n >= 2) ? '' : 'none';
+      // Also show the page count right on the Split control, so you see how many pages you're splitting.
+      const sp = box.querySelector('.ldSplitPages[data-id="' + p.id + '"]'); if (sp) sp.textContent = (n >= 2) ? (' · ' + n + ' pages') : '';
     };
     if (!window.pdfjsLib) { Object.keys(btns).forEach(id => { btns[id].style.display = ''; }); return; }
     try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
