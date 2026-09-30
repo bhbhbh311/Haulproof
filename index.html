@@ -3838,15 +3838,26 @@
       const summary = g.docs.length + ' documents' + (names.length ? (' — ' + names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '')) : '');
       // One driver for the whole load. Pre-select it if every doc already shares the same assigned driver.
       const dids = Array.from(new Set(g.docs.map(d => d.assignedDriverId).filter(Boolean)));
-      const curDid = dids.length === 1 ? dids[0] : '';
-      const curName = curDid ? ((g.docs.find(d => d.assignedDriverId === curDid) || {}).assignedDriverName || '') : '';
+      let curDid = dids.length === 1 ? dids[0] : '';
+      let curName = curDid ? ((g.docs.find(d => d.assignedDriverId === curDid) || {}).assignedDriverName || '') : '';
+      // Fallback so this view agrees with the load detail: if the documents themselves carry no driver but the
+      // LOAD has an assigned driver name, show that name. Pre-select the dropdown only when exactly one driver
+      // matches the name (with duplicate same-name drivers we can't tell which, so we show the name but leave
+      // the dropdown unset rather than guess wrong).
+      const loadDrv = (g.docs.find(d => d.loadDriverName) || {}).loadDriverName || '';
+      if (!curDid && loadDrv) {
+        curName = loadDrv;
+        const matches = drivers.filter(dr => dr.name === loadDrv);
+        if (matches.length === 1) curDid = matches[0].id;
+      }
       const anyOpen = g.docs.some(d => d.status === 'prepared' || d.status === 'received');
       const headAssign = (canAssign && g.loadId && anyOpen) ? `<div class="lasgWrap" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span style="font-size:11px;color:var(--muted);">Driver:</span>
           <select class="lasgSel" data-load="${g.loadId}" style="font-size:12px;padding:4px 6px;">${driverOpts(curDid)}</select>
           <button class="ghost lasgBtn" data-load="${g.loadId}" style="padding:4px 9px;font-size:12px;">Assign</button>
           <span class="lasgMsg" data-load="${g.loadId}" style="font-size:12px;color:var(--ok);font-weight:600;">${curName?('→ '+esc(curName)):''}</span>
-        </div>` : '';
+        </div>`
+        : (curName ? `<span style="font-size:12px;color:var(--muted);">Driver: <b style="color:var(--ink,#1f2733);font-weight:700;">${esc(curName)}</b></span>` : '');
       html += `<tr class="grpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
         <td class="mono"><span class="grpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
         <td class="mono">${esc(g.loadNumber)||'—'}</td>

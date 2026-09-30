@@ -456,7 +456,8 @@ router.get('/', requireAuth, (req, res) => {
   if (from) { where.push(`uploadedAt >= ?`); args.push(Number(from)); }
   if (to) { where.push(`uploadedAt <= ?`); args.push(Number(to)); }
   if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR consignee LIKE ? OR filename LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
-  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, receiverName, docType, filename, sizeBytes, gps, gpsSource, gpsAcc, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt
+  const sql = `SELECT id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, receiverName, docType, filename, sizeBytes, gps, gpsSource, gpsAcc, signedAt, recipients, driver, status, assignedDriverId, assignedDriverName, uploadedAt,
+                 (SELECT driverName FROM loads WHERE loads.id = pods.loadId) AS loadDriverName
                FROM pods WHERE ${where.join(' AND ')} ORDER BY uploadedAt DESC LIMIT 200`;
   const rows = db.prepare(sql).all(...args).map(rowOut);
   res.json({ count: rows.length, results: rows });
