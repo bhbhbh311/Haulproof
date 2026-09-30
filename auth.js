@@ -48,7 +48,10 @@ function login(email, password) {
   if (u.orgId) { const o = db.prepare(`SELECT active FROM orgs WHERE id = ?`).get(u.orgId); if (o && !o.active) return null; }
   const token = signToken(u);
   const m = orgMetaOf(u.orgId);
-  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId, mustChangePassword: !!u.mustChangePassword } };
+  // Tester flag on the login response too, so the "Show all sections" toggle appears right after sign-in
+  // (not only after a refresh, which reloads the user from /api/me). Master admin always has it.
+  const betaAccess = (u.role === 'superadmin') || !!u.betaAccess;
+  return { token, user: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId, mustChangePassword: !!u.mustChangePassword, betaAccess } };
 }
 
 // Provision (or refresh) a user who signed in through Microsoft SSO. No password is set.
