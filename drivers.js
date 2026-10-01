@@ -206,7 +206,7 @@ router.get('/my-loads', (req, res) => {
   // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
   const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
-      WHERE (p.assignedDriverId = ? OR p.signedByDriverId = ?) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
+      WHERE (p.assignedDriverId = ? OR (p.assignedDriverId IS NULL AND p.signedByDriverId = ?)) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
   // For any LOAD the driver is engaged on, also surface its OTHER stops that aren't ready yet (still being
   // set up by dispatch), so a partly-ready multi-stop load clearly shows "Stop X not ready yet".

@@ -313,6 +313,20 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // A document created by a named driver is automatically assigned to that driver.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE id = ?`).run(req.driver.id, req.driver.name || null, id); } catch (e) {} }
+    // Shared-device uploads don't carry a personal driver token, so req.driver is null — but we still want the
+    // load to land on the SENDING driver's phone ("Your loads") and stay with them. Recognize them by the name
+    // the app stamped, matched to a SINGLE active driver in the uploader's org, and attribute the doc to that
+    // driver RECORD (id) exactly as a personal-token upload would. Dispatch can still reassign it afterward.
+    if (!(req.driver && req.driver.id) && meta.driver) {
+      try {
+        const orgForDriver = (req.org && req.org.id) || orgId;
+        const cand = db.prepare(`SELECT id, name FROM drivers WHERE orgId IS ? AND active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))`).all(orgForDriver, meta.driver);
+        if (cand.length === 1) {
+          db.prepare(`UPDATE pods SET signedByDriverId = COALESCE(signedByDriverId, ?), assignedDriverId = COALESCE(assignedDriverId, ?), assignedDriverName = COALESCE(assignedDriverName, ?) WHERE id = ?`)
+            .run(cand[0].id, cand[0].id, cand[0].name, id);
+        }
+      } catch (e) {}
+    }
     // Save-for-later: stop here — it's a prepared (unsigned) doc, so no fingerprint, no prepared-copy
     // cleanup, and no delivery email. It now shows on the load ready to be signed.
     if (asPrepared) {

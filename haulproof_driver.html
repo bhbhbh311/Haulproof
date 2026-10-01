@@ -840,6 +840,7 @@ window.__startApp=function(){
           if(p.gps&&p.gps.lat!=null){ hdrs["X-POD-Gps"]=p.gps.lat+","+p.gps.lng;
             if(p.gps.source) hdrs["X-POD-Gps-Source"]=p.gps.source; if(p.gps.acc!=null) hdrs["X-POD-Gps-Acc"]=String(p.gps.acc); }
           if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
+          if(p.driver) hdrs["X-POD-Driver"]=he(p.driver);   // who sent it — so it lands on their "Your loads" even on a shared device
           if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
           if(p.stopNum) hdrs["X-POD-Stop"]=String(p.stopNum); // one upload split into per-stop docs on the same load
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
@@ -2652,6 +2653,8 @@ window.__startApp=function(){
           var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
           var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
             "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-ClientId":he(cid),"X-POD-Status":"prepared" };
+          // Stamp WHO sent it so dispatch uploads from a shared device still land on this driver's "Your loads".
+          if(driverName()) hdrs["X-POD-Driver"]=he(driverName());
           if(_dispatchUpload) hdrs["X-POD-Build"]="dispatch";
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
@@ -2667,7 +2670,7 @@ window.__startApp=function(){
     }
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
     var pod={ id:cid, name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
-      forDispatch:_dispatchUpload, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
+      forDispatch:_dispatchUpload, driver:driverName(), stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
       gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
     var arr=loadPods(); arr.unshift(pod);
     if(!savePods(arr)){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); savePods(arr); }   // free space if storage is full
