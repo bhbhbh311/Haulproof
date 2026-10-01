@@ -142,6 +142,30 @@ router.post('/help', (req, res) => {
   res.json({ ok: true, message: "Thanks — we've sent your request to support." });
 });
 
+// "Report a problem" from the driver app — free-text bug/issue routed to the support inbox. Works for any
+// valid link (personal driver token or the shared org key).
+router.post('/report-problem', (req, res) => {
+  const r = resolveKey(req);
+  if (!r) return res.status(401).json({ error: 'This link is not valid' });
+  const b = req.body || {};
+  const note = String(b.note || '').trim().slice(0, 4000);
+  const contact = String(b.contact || '').trim().slice(0, 200);
+  const ctx = String(b.context || '').trim().slice(0, 600);
+  if (!note) return res.status(400).json({ error: 'Please describe the problem' });
+  const who = r.driver ? ('Driver "' + (r.driver.name || '(unnamed)') + '"') : 'A driver-app user';
+  const orgName = r.org ? r.org.name : '';
+  sendMail({
+    to: helpEmail(),
+    subject: 'HaulProof problem report — driver app',
+    text: who + (orgName ? (' at ' + orgName) : '') + ' reported a problem in the driver app.\n\n'
+      + 'What happened:\n' + note + '\n\n'
+      + (contact ? ('Reply to: ' + contact + '\n') : (r.driver && r.driver.email ? ('Driver email on file: ' + r.driver.email + '\n') : ''))
+      + (ctx ? ('\nDevice / app details: ' + ctx + '\n') : '')
+      + '\n— Sent from the HaulProof driver app "Report a problem".',
+  });
+  res.json({ ok: true, message: "Thanks — your report was sent to support." });
+});
+
 // Loads assigned to THIS driver (their personal link) — shown in the driver app as "Your loads".
 // Only a personal driver token carries assignments; the shared org key returns nothing.
 // Does this PO # already exist on a load for the driver's org? Lets the app warn a driver, BEFORE an

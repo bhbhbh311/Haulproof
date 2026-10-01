@@ -432,6 +432,28 @@ app.get('/icons/apple-touch-icon.png', (_req, res) => { res.type('png'); res.sen
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// "Report a problem" from the dispatch portal — free-text bug/issue routed to the support inbox.
+app.post('/api/report-problem', requireAuth, (req, res) => {
+  const b = req.body || {};
+  const note = String(b.note || '').trim().slice(0, 4000);
+  const contact = String(b.contact || '').trim().slice(0, 200);
+  const ctx = String(b.context || '').trim().slice(0, 600);
+  if (!note) return res.status(400).json({ error: 'Please describe the problem' });
+  const u = req.user || {};
+  try {
+    sendMail({
+      to: helpEmail(),
+      subject: 'HaulProof problem report — dispatch portal',
+      text: (u.name || u.email || 'A user') + ' (' + (u.email || 'no email') + ')' + (u.orgName ? (' at ' + u.orgName) : '') + ' reported a problem in the dispatch portal.\n\n'
+        + 'What happened:\n' + note + '\n\n'
+        + (contact ? ('Reply to: ' + contact + '\n') : '')
+        + (ctx ? ('\nBrowser / page details: ' + ctx + '\n') : '')
+        + '\n— Sent from the HaulProof dispatch portal "Report a problem".',
+    });
+  } catch (e) {}
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);

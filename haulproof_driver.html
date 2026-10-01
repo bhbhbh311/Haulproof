@@ -349,8 +349,21 @@
     <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;"><span id="drvName"></span><span id="drvCompany" style="font-size:10px;opacity:.7;font-weight:600;"></span></span>
   </button>
   <a href="/help" target="_blank" rel="noopener" class="pill" id="helpPill" style="text-decoration:none;" title="Help &amp; how-to">Help</a>
+  <button class="pill" id="reportPill" type="button" title="Report a problem with the app">⚠ Report</button>
   <button class="pill" id="cloudPill" type="button"><span class="dot"></span><span id="cloudTxt">…</span></button>
 </header>
+
+<!-- Report a problem -->
+<div class="modal" id="reportModal">
+  <div class="sheet">
+    <h2>Report a problem</h2>
+    <p>Tell us what went wrong and we'll get it fixed. This goes straight to support.</p>
+    <label class="f"><span>What happened? <em style="color:var(--danger);font-style:normal;">required</em></span><textarea id="reportNote" rows="4" placeholder="e.g. The signature box wouldn't save on the second stop" style="width:100%;box-sizing:border-box;"></textarea></label>
+    <label class="f"><span>Your name or phone <em class="opt">optional — so we can follow up</em></span><input type="text" id="reportContact" placeholder="Name or phone/email" autocomplete="off"></label>
+    <div class="loc" id="reportMsg" style="min-height:18px;"></div>
+    <div class="actions"><button class="btn ghost" id="reportCancel" type="button">Cancel</button><button class="btn primary" id="reportSend" type="button">Send report</button></div>
+  </div>
+</div>
 
 <main>
   <!-- PIN LOCK -->
@@ -1017,6 +1030,25 @@ window.__startApp=function(){
   if($("forgotPinLink")) $("forgotPinLink").addEventListener("click", function(e){ e.preventDefault(); forgotPin(); });
   if($("pinNeedHelpLink")) $("pinNeedHelpLink").addEventListener("click", function(e){ e.preventDefault(); $("forgotPinMsg").textContent=""; if($("pinHelpPanel")) $("pinHelpPanel").classList.remove("hide"); setTimeout(function(){ try{ $("pinHelpNote").focus(); if($("pinHelpSend")) $("pinHelpSend").scrollIntoView({block:"center",behavior:"smooth"}); }catch(_){} },40); });
   if($("pinHelpBack")) $("pinHelpBack").addEventListener("click", function(e){ e.preventDefault(); if($("pinHelpPanel")) $("pinHelpPanel").classList.add("hide"); });
+
+  // Report a problem — free-text bug report routed to support.
+  function openReport(){ if($("reportNote"))$("reportNote").value=""; if($("reportContact"))$("reportContact").value=""; if($("reportMsg"))$("reportMsg").textContent=""; if($("reportSend"))$("reportSend").disabled=false; $("reportModal").classList.add("on"); setTimeout(function(){ try{$("reportNote").focus();}catch(_){}} ,40); }
+  function closeReport(){ $("reportModal").classList.remove("on"); }
+  if($("reportPill")) $("reportPill").addEventListener("click", openReport);
+  if($("reportCancel")) $("reportCancel").addEventListener("click", closeReport);
+  if($("reportModal")) $("reportModal").addEventListener("click", function(e){ if(e.target===$("reportModal")) closeReport(); });
+  if($("reportSend")) $("reportSend").addEventListener("click", async function(){
+    var note=($("reportNote").value||"").trim(), contact=($("reportContact").value||"").trim(), msg=$("reportMsg");
+    if(!note){ msg.style.color="var(--danger)"; msg.textContent="Please describe the problem."; try{$("reportNote").focus();}catch(_){} return; }
+    var url=driverApi("/report-problem"); if(!url){ msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; return; }
+    var ctx=(navigator.userAgent||"")+" · "+(window.innerWidth+"x"+window.innerHeight)+" · "+(online()?"online":"offline");
+    $("reportSend").disabled=true; msg.style.color="var(--muted)"; msg.textContent="Sending…";
+    try{
+      var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({note:note,contact:contact,context:ctx})});
+      if(!r.ok){ $("reportSend").disabled=false; msg.style.color="var(--danger)"; msg.textContent="Couldn't send — try again"; return; }
+      var d=await r.json(); msg.style.color="var(--ok)"; msg.textContent=(d&&d.message)||"Thanks — your report was sent to support."; setTimeout(closeReport,1300);
+    }catch(e){ $("reportSend").disabled=false; msg.style.color="var(--danger)"; msg.textContent="No connection — try again when you're online"; }
+  });
   if($("pinHelpSend")) $("pinHelpSend").addEventListener("click", sendPinHelp);
   if($("setPinBtn")) $("setPinBtn").addEventListener("click", saveNewPin);
   ["setPin1","setPin2"].forEach(function(id){ var el=$(id); if(el){ el.addEventListener("input", function(){ this.value=this.value.replace(/\D/g,"").slice(0,6); }); el.addEventListener("keydown", function(e){ if(e.key==="Enter") saveNewPin(); }); } });
@@ -2054,7 +2086,7 @@ window.__startApp=function(){
   var captureMode = false;   // true = review-and-save screen (no signing); false = signing a (re)opened load
 
   // ===== Split ONE multi-page upload into separate per-stop documents (driver, build/sign it myself) =====
-  var _ssAssign=[], _ssCount=1, _ssThumbs=[], _ssConsignee={};
+  var _ssAssign=[], _ssCount=1, _ssThumbs=[], _ssConsignee={}, _ssPdf=null;
   // Per-stop consignee inputs — rendered in their own section so tapping a page's stop tag (which re-draws the
   // grid) never steals focus from a field the driver is typing in. Values persist in _ssConsignee.
   function renderStopConsignees(){
@@ -2077,6 +2109,7 @@ window.__startApp=function(){
     _ssThumbs=[];
     try{
       var doc=await pdfjsLib.getDocument({data:origBytes.slice(0)}).promise;
+      _ssPdf=doc;   // keep the doc so "tap to enlarge" can render a full-resolution page, not the tiny thumbnail
       _ssAssign=[]; for(var i=0;i<doc.numPages;i++) _ssAssign.push(1); _ssCount=1;
       _ssConsignee={ 1: ($("consName")&&$("consName").value.trim())||"" };   // prefill Stop 1 with any consignee typed on the build screen
       for(var n=1;n<=doc.numPages;n++){
@@ -2093,7 +2126,7 @@ window.__startApp=function(){
     _ssThumbs.forEach(function(url,i){
       var cell=document.createElement("div"); cell.style.cssText="display:flex;flex-direction:column;align-items:center;gap:6px;";
       var img=document.createElement("img"); img.src=url; img.style.cssText="width:110px;border-radius:6px;border:1px solid #2b3a4d;display:block;cursor:zoom-in;"; img.title="Tap to enlarge";
-      img.addEventListener("click",function(){ showSplitPageZoom(url, i+1); });
+      img.addEventListener("click",function(){ showSplitPageZoom(i+1); });
       var s=_ssAssign[i]||1; if(s>_ssCount) s=_ssCount; _ssAssign[i]=s;
       var tag=document.createElement("button"); tag.type="button"; tag.textContent="Stop "+s+" ⇄";
       tag.title="Tap to move this page to the next stop";
@@ -2101,20 +2134,33 @@ window.__startApp=function(){
       tag.addEventListener("click",function(){ if(_ssCount<2){ toast("Add a stop first (＋ Add stop), then tap to move pages"); return; } _ssAssign[i]=((_ssAssign[i]||1)%_ssCount)+1; renderStopSplit(); });
       var lbl=document.createElement("div"); lbl.style.cssText="color:#9fb2cc;font-size:11px;"; lbl.textContent="Page "+(i+1);
       var zoom=document.createElement("div"); zoom.style.cssText="color:#5a8dff;font-size:10px;cursor:zoom-in;"; zoom.textContent="🔍 tap to enlarge";
-      zoom.addEventListener("click",function(){ showSplitPageZoom(url, i+1); });
+      zoom.addEventListener("click",function(){ showSplitPageZoom(i+1); });
       cell.appendChild(img); cell.appendChild(tag); cell.appendChild(lbl); cell.appendChild(zoom); box.appendChild(cell);
     });
   }
-  // Full-screen preview of a single page so the driver can read it before choosing its stop.
-  function showSplitPageZoom(url, pageNo){
+  // Full-screen preview of a single page so the driver can actually READ it before choosing its stop. Rendered
+  // fresh from the PDF at high resolution (the grid thumbnails are only ~110px, too small to read when blown up).
+  async function showSplitPageZoom(pageNo){
     var ex=document.getElementById("ssZoom"); if(ex) ex.remove();
     var ov=document.createElement("div"); ov.id="ssZoom";
-    ov.style.cssText="position:fixed;inset:0;z-index:11000;background:rgba(3,7,12,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:12px;";
-    var im=document.createElement("img"); im.src=url; im.style.cssText="max-width:100%;max-height:82vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);";
-    var cap=document.createElement("div"); cap.style.cssText="color:#cfe0ff;font-size:14px;font-weight:700;"; cap.textContent="Page "+pageNo+" — tap anywhere to close";
-    ov.appendChild(im); ov.appendChild(cap);
+    ov.style.cssText="position:fixed;inset:0;z-index:11000;background:rgba(3,7,12,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px;gap:10px;";
+    var cap=document.createElement("div"); cap.style.cssText="color:#cfe0ff;font-size:14px;font-weight:700;flex:none;"; cap.textContent="Page "+pageNo+" — tap anywhere to close";
+    var holder=document.createElement("div"); holder.style.cssText="flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;overflow:auto;color:#9fb2cc;font-size:13px;"; holder.textContent="Loading…";
+    ov.appendChild(cap); ov.appendChild(holder);
     ov.addEventListener("click",function(){ ov.remove(); });
     document.body.appendChild(ov);
+    try{
+      if(!_ssPdf) throw 0;
+      var page=await _ssPdf.getPage(pageNo);
+      var vp0=page.getViewport({scale:1});
+      // Render crisp: aim for ~2x the screen width (capped) so the BOL text is legible on a phone.
+      var targetW=Math.min(1800, Math.round((window.innerWidth||390)*Math.min(3,(window.devicePixelRatio||1)+1)));
+      var vp=page.getViewport({scale:Math.max(1.5, targetW/vp0.width)});
+      var c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height;
+      c.style.cssText="max-width:100%;max-height:calc(100vh - 80px);height:auto;width:auto;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);background:#fff;";
+      await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
+      holder.innerHTML=""; holder.appendChild(c);
+    }catch(e){ holder.textContent="Couldn't load that page."; }
   }
   function stopColor(s){ var c=["#1f6feb","#12a150","#c026d3","#ea580c","#0891b2","#ca8a04","#db2777","#4f46e5","#65a30d","#dc2626","#0d9488","#7c3aed"]; return c[(s-1)%c.length]; }
   async function confirmStopSplit(){

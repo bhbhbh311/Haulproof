@@ -1144,6 +1144,23 @@
   </div>
 </div>
 
+<!-- REPORT A PROBLEM modal -->
+<div id="reportModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:480px;width:100%;margin:0;">
+    <h1 style="font-size:18px;margin-bottom:2px;">Report a problem</h1>
+    <p class="sub" style="margin-bottom:12px;">Tell us what went wrong and we'll get it fixed. This goes straight to support.</p>
+    <label>What happened? <span style="color:var(--danger);">*required</span></label>
+    <textarea id="reportNote" rows="4" placeholder="e.g. The driver dropdown shows two of the same name" style="width:100%;box-sizing:border-box;"></textarea>
+    <label style="margin-top:10px;display:block;">Your name / email <span style="color:var(--muted);font-weight:400;">optional — so we can follow up</span></label>
+    <input id="reportContact" type="text" placeholder="Name or email" autocomplete="off" style="width:100%;box-sizing:border-box;">
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="reportSend" type="button">Send report</button>
+      <button class="ghost" id="reportCancel" type="button">Cancel</button>
+      <span id="reportMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT DRIVER modal -->
 <div id="edModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
   <div class="card" style="max-width:440px;width:100%;margin:0;">
@@ -1241,8 +1258,10 @@
       + (u.role !== 'superadmin' && u.role ? ` <span class="rolebadge alt">${esc(cap(u.role))}</span>` : '')
       + (user.betaAccess ? ` <label id="betaToggleWrap" title="Show the sections that aren't rolled out to regular users yet" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="betaToggle" style="width:14px;height:14px;margin:0;cursor:pointer;"> Show all sections</label>` : '')
       + ` <a href="/help" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;">Help</a>`
+      + ` <button class="ghost" id="reportBtn" type="button" title="Report a problem">⚠ Report a problem</button>`
       + ` <button class="ghost" id="logoutBtn">Sign out</button>`;
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
+    if ($('reportBtn')) $('reportBtn').onclick = openReport;
     if (user.betaAccess && $('betaToggle')) {
       $('betaToggle').checked = testerShowAll();
       $('betaToggle').onchange = function(){ setTesterShowAll(this.checked); buildTabs(); };
@@ -3939,6 +3958,27 @@
   }
   $('sendDocAdd').onclick = () => sendDocAddEmail($('sendDocInput').value);
   $('sendDocInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendDocAddEmail($('sendDocInput').value); } });
+  // --- Report a problem: free-text bug report emailed to support ---
+  function openReport() {
+    $('reportNote').value = ''; $('reportContact').value = ''; $('reportMsg').textContent = ''; $('reportMsg').className = '';
+    if ($('reportSend')) $('reportSend').disabled = false;
+    $('reportModal').classList.remove('hide');
+    setTimeout(() => { try { $('reportNote').focus(); } catch (e) {} }, 40);
+  }
+  function closeReport() { $('reportModal').classList.add('hide'); }
+  if ($('reportCancel')) $('reportCancel').onclick = closeReport;
+  if ($('reportModal')) $('reportModal').addEventListener('click', e => { if (e.target === $('reportModal')) closeReport(); });
+  if ($('reportSend')) $('reportSend').onclick = async () => {
+    const note = ($('reportNote').value || '').trim(), contact = ($('reportContact').value || '').trim(), msg = $('reportMsg');
+    if (!note) { msg.style.color = 'var(--danger)'; msg.textContent = 'Please describe the problem.'; try { $('reportNote').focus(); } catch (e) {} return; }
+    const ctx = (navigator.userAgent || '') + ' · ' + (window.innerWidth + 'x' + window.innerHeight) + ' · ' + location.pathname;
+    $('reportSend').disabled = true; msg.style.color = 'var(--muted)'; msg.textContent = 'Sending…';
+    try {
+      await api('/api/report-problem', { method: 'POST', body: JSON.stringify({ note, contact, context: ctx }) });
+      msg.style.color = 'var(--ok)'; msg.textContent = 'Thanks — your report was sent to support ✓';
+      setTimeout(closeReport, 1300);
+    } catch (e) { $('reportSend').disabled = false; msg.style.color = 'var(--danger)'; msg.textContent = e.message || 'Could not send — try again'; }
+  };
   $('sendDocCancel').onclick = () => { $('sendDocModal').classList.add('hide'); sendDocId = null; };
   $('sendDocModal').addEventListener('click', e => { if (e.target === $('sendDocModal')) { $('sendDocModal').classList.add('hide'); sendDocId = null; } });
   $('sendDocSend').onclick = async () => {
