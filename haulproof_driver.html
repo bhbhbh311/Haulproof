@@ -186,7 +186,10 @@
   .tab .sigcap.done{background:var(--surface);border-color:var(--success);color:var(--success);box-shadow:none;}
   .rsz{position:absolute;right:-1px;bottom:-1px;width:16px;height:16px;cursor:nwse-resize;z-index:6;background:var(--primary);border:2px solid var(--surface);border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.35);touch-action:none;}
   @keyframes pulse{0%,100%{box-shadow:0 2px 8px rgba(0,0,0,.2);}50%{box-shadow:0 0 0 5px rgba(242,178,26,.35);}}
-  @media (prefers-reduced-motion: reduce){.tab{animation:none;}}
+  /* First-time guide: the one "do this next" button grows + glows so a brand-new driver's eye lands on it. */
+  @keyframes leadpulse{0%,100%{transform:scale(1);box-shadow:0 6px 18px rgba(63,116,224,.30);}50%{transform:scale(1.05);box-shadow:0 0 0 7px rgba(63,116,224,.26),0 10px 26px rgba(63,116,224,.5);}}
+  .lead-cta{animation:leadpulse 1.45s ease-in-out infinite;position:relative;z-index:3;}
+  @media (prefers-reduced-motion: reduce){.tab,.lead-cta{animation:none;}}
   /* outbox */
   .connbanner{display:flex;align-items:center;gap:10px;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-weight:600;font-size:14px;}
   .connbanner.on{background:var(--success-soft);color:var(--success);}
@@ -744,6 +747,12 @@ window.__startApp=function(){
     return out;
   }
   function savePods(a){ return lsSet("hp_pods",a); }   // return lsSet's success flag so the "storage full" retry only fires on a REAL failure (otherwise every POD got saved — and shown — twice)
+  // First-time guidance: lead a brand-new driver to the single "do this next" button with a grow+glow pulse.
+  // Once they've completed one upload/signing, we stop pulsing so it never nags an experienced driver.
+  function guided(){ try{ return localStorage.getItem("hp_guided")==="1"; }catch(e){ return true; } }
+  function setGuided(){ try{ localStorage.setItem("hp_guided","1"); }catch(e){} }
+  function leadOn(id){ if(guided()) return; var el=$(id); if(el) el.classList.add("lead-cta"); }
+  function leadOff(id){ var el=$(id); if(el) el.classList.remove("lead-cta"); }
   function loadCfg(){ return lsGet("hp_cfg",{endpoint:"",apikey:""}); }
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
@@ -876,6 +885,9 @@ window.__startApp=function(){
     ["Route","Sign","Outbox","Signon","Pin","SetPin"].forEach(function(n){ var el=$("view"+n); if(el) el.classList.toggle("hide", n.toLowerCase()!==v); });
     if(v==="route"){ renderRoute(); if(online()){ loadMyLoads(); loadMyDocuments(); loadNotices(); } }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
+    // First-time guide: on Home, lead to the one first step (Upload for dispatch). Clear it on other screens.
+    if(v==="route") leadOn("dispatchBtn"); else leadOff("dispatchBtn");
+    if(v!=="sign"){ leadOff("nextBtn"); leadOff("capDone"); leadOff("saveLaterBtn"); }
     window.scrollTo(0,0);
   }
   $("cloudPill").addEventListener("click", function(){ showView("outbox"); });
@@ -1707,6 +1719,8 @@ window.__startApp=function(){
       }
       box.appendChild(cell);
     });
+    // First-time guide: once at least one page is captured, lead the driver to "Use these pages".
+    if(capturedPages.length) leadOn("capDone"); else leadOff("capDone");
   }
   if($("capAddStop")) $("capAddStop").addEventListener("click", function(){
     if(capStopCount>=12){ toast("That's a lot of stops — 12 max"); return; }
@@ -2078,6 +2092,8 @@ window.__startApp=function(){
     $("banner").classList.remove("on");                                 // no signing yet — Save is the action
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
     if($("saveLaterBtn")) $("saveLaterBtn").textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
+    leadOff("capDone"); leadOn("saveLaterBtn");   // first-time guide: lead to the final send/save step
+    $("saveLaterBtn") && $("saveLaterBtn").addEventListener("click", function(){ leadOff("saveLaterBtn"); }, { once:true });
     // Offer "Split into stops" only for a multi-page doc the driver is building for themselves (not a
     // send-to-dispatch upload) — each stop becomes its own document on the load, ready to sign.
     if($("splitStopsBtn")) $("splitStopsBtn").classList.toggle("hide", !(pageRecs.length>1 && !_dispatchUpload));
@@ -2350,13 +2366,13 @@ window.__startApp=function(){
       $("roleChip").textContent="Ready"; $("roleChip").classList.remove("driver");
       $("progText").textContent="Fill any fields, then finish"; $("meterFill").style.width="100%";
       bn.classList.add("done"); $("progSub").textContent="Tap the fields to fill them, then Finish";
-      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); return;
+      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); leadOn("nextBtn"); return;
     }
     var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
-    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); }
-    else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); }
+    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); leadOff("nextBtn"); }
+    else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); leadOn("nextBtn"); }
   }
   $("nextBtn").addEventListener("click", function(){
     if(sigs().length===0){ finish(); return; }
@@ -2688,6 +2704,7 @@ window.__startApp=function(){
   // After a save-for-later: a clear confirmation with a button that takes the driver straight to the
   // "Your loads" list where the saved doc waits to be signed.
   function showSavedConfirmation(poNum, renamedFrom){
+    setGuided();   // they've completed a first upload — stop the first-time lead pulses from here on
     captureMode=false;
     $("banner").classList.remove("on");
     if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
@@ -2715,6 +2732,7 @@ window.__startApp=function(){
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
   function showCompletion(pod){
+    setGuided();   // first signing completed — the first-time lead pulses can stop now
     window.__hpBusy=true;   // still in the sign flow (entering emails) — hold any auto-update reload
     holdPodId=pod.id;       // hold this stop's upload until they tap Send, so their emails are included
     compPod=pod; compCtx=getCtx(); compRecips=[];
