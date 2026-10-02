@@ -1400,6 +1400,10 @@ window.__startApp=function(){
     return null;
   }
   var compBox=null, compPod=null, compCtx=null, compRecips=[];
+  // The signed PDF bytes of the stop on the completion screen, kept in memory. "Send documents & complete"
+  // uploads straight from here, so a full phone (where saving the bytes to localStorage fails) can NEVER
+  // silently drop a signed POD. The outbox copy is only a backup/offline path.
+  var _compBytes=null;
   // While the driver is on the completion screen entering consignee emails, hold THIS stop's upload so a
   // background sync (e.g. connectivity flapping) can't push it — and fire its per-stop email — before they've
   // finished adding recipients. Cleared the instant they tap "Send documents & complete", which then uploads
@@ -2628,13 +2632,20 @@ window.__startApp=function(){
         }
         y-=22; });
       signedPdfBytes=await doc.save();
+      _compBytes=signedPdfBytes;   // hold the signed bytes in memory — "Send" uploads straight from here, never blocked by a full phone
       // save to outbox
       var consVal = consInput || (currentStop?currentStop.name:"") || (pulledMeta&&pulledMeta.consignee) || "";
       var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
       var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
-      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:(lastGps||bestGps()), size:signedPdfBytes.length, status:"pending", b64:u8ToB64(signedPdfBytes) };
-      var pods=loadPods(); pods.unshift(pod);
-      if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pod); savePods(pods); }   // free space if the phone's storage is full so a signed POD is never silently dropped
+      var pod={ id:genId(), name: "PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal, stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(), gps:(lastGps||bestGps()), size:signedPdfBytes.length, status:"pending" };
+      // Best-effort BACKUP copy in the outbox (carries an offline sign, or a direct-upload hiccup). On a full
+      // phone this may not fit even after a prune — that's fine now, because _compBytes carries it in memory and
+      // uploads directly when they tap Send. So we never let a failed save here block reaching the done screen.
+      try{
+        var pb=Object.assign({}, pod, { b64:u8ToB64(signedPdfBytes) });
+        var pods=loadPods(); pods.unshift(pb);
+        if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pb); savePods(pods); }
+      }catch(_){ /* storage full even after prune — the in-memory copy is the source of truth now */ }
       if(currentStop){ currentStop.status="delivered"; currentStop.deliveredAt=Date.now(); currentStop.deliveredGps=lastGps; currentStop.podId=pod.id; saveRoute(route); }
       showCompletion(pod);
       // Note: we DON'T upload yet — the driver may still add the consignee's email on this screen.
@@ -2756,6 +2767,61 @@ window.__startApp=function(){
   }
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }
+  // Upload a SIGNED POD straight from memory to the ingest endpoint — no dependency on phone storage, so a
+  // full phone can never silently drop a signed document. Mirrors doSync()'s headers for a signed (not prepared)
+  // POD. Returns {ok,resp} | {linkError:true} | {error} | {network:true}.
+  async function uploadSignedNow(pod, bytes){
+    var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim();
+    if(!ep || !bytes) return { network:true };   // nothing to send to — treat like offline, fall back to the outbox
+    try{
+      var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
+      var hdrs={
+        "Content-Type":"application/pdf",
+        "X-POD-Enc":"uri",
+        "X-POD-Name":he(pod.name),
+        "X-POD-PO":he(pod.poNumber),
+        "X-POD-Load":he(pod.loadNumber),
+        "X-POD-Consignee":he(pod.consignee),
+        "X-POD-CustomerId":he(pod.customerId||""),
+        "X-POD-Emails":he((pod.recipients||[]).join(",")),
+        "X-POD-SignedAt":String(pod.signedAt||pod.createdAt||Date.now()),
+        "X-POD-ClientId":he(pod.id||""),
+        "X-POD-PrepId":he(pod.prepId||"")
+      };
+      if(key) hdrs["X-Api-Key"]=key;
+      var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
+      if(pod.gps&&pod.gps.lat!=null){ hdrs["X-POD-Gps"]=pod.gps.lat+","+pod.gps.lng;
+        if(pod.gps.source) hdrs["X-POD-Gps-Source"]=pod.gps.source; if(pod.gps.acc!=null) hdrs["X-POD-Gps-Acc"]=String(pod.gps.acc); }
+      if(pod.driver) hdrs["X-POD-Driver"]=he(pod.driver);   // who signed it — keeps the load on this driver's "Your loads"
+      if(pod.stopNum) hdrs["X-POD-Stop"]=String(pod.stopNum);
+      var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
+      if(res.ok){ var okj=await res.json().catch(function(){return {};}); return { ok:true, resp:okj }; }
+      var eb=await res.json().catch(function(){return {};});
+      if(isLinkError(res.status, eb.error)) return { linkError:true };
+      return { error: eb.error || ("Upload failed ("+res.status+")") };
+    }catch(e){ return { network:true }; }
+  }
+  // Make sure the signed stop is in the outbox WITH its bytes so a background sync can upload it. The fallback
+  // when a direct upload isn't possible (offline) or failed (network). Re-adds the bytes that may not have fit
+  // at sign time on a full phone.
+  function ensureQueuedForSync(pod){
+    if(!pod) return;
+    try{
+      var a=loadPods(), found=null;
+      for(var i=0;i<a.length;i++){ if(a[i].id===pod.id){ found=a[i]; break; } }
+      if(found){
+        if(found.status==="uploaded") return;   // already on the server
+        found.status="pending";
+        if(compRecips && compRecips.length) found.recipients=compRecips.slice();
+        if(!found.b64 && _compBytes){ found.b64=u8ToB64(_compBytes); }
+      } else {
+        var np=Object.assign({}, pod, { status:"pending", recipients:(compRecips||[]).slice() });
+        if(_compBytes) np.b64=u8ToB64(_compBytes);
+        a.unshift(np);
+      }
+      if(!savePods(a)){ pruneUploadedBytes(); savePods(a); }
+    }catch(_){}
+  }
   function showCompletion(pod){
     setGuided();   // first signing completed — the first-time lead pulses can stop now
     window.__hpBusy=true;   // still in the sign flow (entering emails) — hold any auto-update reload
@@ -2780,10 +2846,34 @@ window.__startApp=function(){
       bSend.disabled=true;
       bSend.textContent = online() ? "Sending…" : "Saving…";
       holdPodId=null;   // release THIS stop so it uploads now — its consignee emails go out immediately
+      if(compPod) compPod.recipients=compRecips.slice();   // the emails just entered ride along with the upload
+      if(online() && _compBytes && compPod){
+        // PRIMARY online path: upload the signed PDF straight from memory. No dependency on phone storage, so a
+        // full phone can't drop it. Idempotent via X-POD-ClientId (pod.id) — if a backup outbox copy also syncs,
+        // the server dedupes.
+        var r=await uploadSignedNow(compPod, _compBytes);
+        if(r.ok){
+          // Mark any backup outbox copy as uploaded and free its bytes so it doesn't re-upload or waste storage.
+          try{ var a=loadPods(), ch=false; a.forEach(function(x){ if(x.id===compPod.id && x.status!=="uploaded"){ x.status="uploaded"; x.uploadedAt=Date.now(); x.error=null; if(x.serverId==null && r.resp && r.resp.podId) x.serverId=r.resp.podId; delete x.b64; x.freed=true; ch=true; } }); if(ch) savePods(a); }catch(_){}
+          if(r.resp && r.resp.podId) compPod.serverId=r.resp.podId;
+          renderOutbox(); renderCloud();
+          showSendSuccess(stopN, (pod && pod.poNumber) || null);
+          return;
+        }
+        if(r.linkError){ showLinkExpired(); toast("Driver link expired — reconnect to send"); bSend.disabled=false; bSend.textContent="✅ Send documents & complete"; return; }
+        // Network/other failure: fall back to the outbox so a background sync retries it. Make sure the bytes are
+        // queued first (they may not have fit at sign time on a full phone), then let the normal sync try once.
+        ensureQueuedForSync(compPod);
+        try{ await syncOutbox(); }catch(_){}
+        showSendSuccess(stopN, (pod && pod.poNumber) || null);
+        return;
+      }
+      // OFFLINE (or bytes unavailable): make sure it's queued for background sync, then show the done screen.
+      ensureQueuedForSync(compPod);
       try{ if(online()) await syncOutbox(); }catch(_){}
       // Clear, state-aware "you're done" screen that then returns to Home on its own, so the driver is
       // never left wondering what to do next after signing.
-      showSendSuccess(stopN);
+      showSendSuccess(stopN, (pod && pod.poNumber) || null);
     }); bSend.classList.remove("sm"); bSend.classList.add("block"); bSend.style.marginBottom="10px";
     var b1=mkBtn("View signed PDF","ghost",function(){ viewPod(pod); }); b1.classList.remove("sm"); b1.classList.add("block");
     da.appendChild(bSend); da.appendChild(b1); da.scrollIntoView({behavior:"smooth"});
@@ -2791,7 +2881,7 @@ window.__startApp=function(){
   // Full-screen "all done" confirmation shown right after the driver sends. It states plainly what happened
   // (sent, or saved-and-will-send when offline), then returns to Home on its own after a few seconds — with a
   // button to go immediately — so nobody is left staring at the sign screen wondering what's next.
-  function showSendSuccess(stopN){
+  function showSendSuccess(stopN, poNum){
     var wasOnline=online();
     var ex=document.getElementById("sendSuccess"); if(ex) ex.remove();
     var ov=document.createElement("div"); ov.id="sendSuccess";
@@ -2807,11 +2897,39 @@ window.__startApp=function(){
     var cd=document.createElement("div"); cd.style.cssText="font-size:13px;color:var(--muted);";
     ov.appendChild(ring); ov.appendChild(h); ov.appendChild(p); ov.appendChild(btn); ov.appendChild(cd);
     document.body.appendChild(ov);
-    var secs=5, timer=null, done=false;
-    function goHome(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; finishStart(); }
+    var timer=null, done=false;
+    function goHome(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; _compBytes=null; finishStart(); }
     btn.addEventListener("click", goHome);
-    cd.textContent="Returning to Home in "+secs+"s…";
-    timer=setInterval(function(){ secs--; if(secs<=0){ goHome(); } else { cd.textContent="Returning to Home in "+secs+"s…"; } },1000);
+    function startHomeCountdown(){ var secs=5; cd.textContent="Returning to Home in "+secs+"s…"; timer=setInterval(function(){ secs--; if(secs<=0){ goHome(); } else { cd.textContent="Returning to Home in "+secs+"s…"; } },1000); }
+    // Multi-stop load: after THIS stop uploads, check the server for any OTHER stop on the same PO still needing
+    // signing, and open that EXACT stop next (no stale stop-picker, no re-signing the one just done). Only when a
+    // real next stop exists do we skip the auto-return — otherwise it behaves exactly as before.
+    if(poNum && wasOnline && serverOrigin()){
+      cd.textContent="Checking for the next stop…";
+      (async function(){
+        try{
+          var key=currentKey(), hdr={"X-Api-Key":key}; var u=loadUnlock(); if(u) hdr["X-Driver-Unlock"]=u;
+          var r=await fetch(driverApi("/my-loads"),{headers:hdr});
+          var loads=((await r.json())||{}).loads||[];
+          var remaining=loads.filter(function(d){ return d.poNumber===poNum && !d.awaiting; });
+          if(done) return;
+          if(remaining.length){
+            if(timer){ clearInterval(timer); timer=null; }
+            p.textContent = remaining.length+" more stop"+(remaining.length>1?"s":"")+" on this load still need"+(remaining.length>1?"":"s")+" signing.";
+            function openNext(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; _compBytes=null; openPreparedDoc(remaining[0]); }
+            var nb=document.createElement("button"); nb.className="btn primary block"; nb.style.cssText="max-width:280px;font-size:17px;margin-top:6px;"; nb.textContent="✍ Sign the next stop";
+            nb.addEventListener("click", openNext);
+            ov.insertBefore(nb, btn);
+            btn.textContent="Not now — back to Home";
+            btn.className="btn ghost block";
+            // Match the driver's habit of waiting: the countdown OPENS the next stop automatically (not Home), so
+            // waiting lands them on stop 2 to finish it — tapping the button just does it sooner.
+            var nsecs=5; cd.textContent="Opening the next stop in "+nsecs+"s…";
+            timer=setInterval(function(){ nsecs--; if(nsecs<=0){ openNext(); } else if(!done){ cd.textContent="Opening the next stop in "+nsecs+"s…"; } },1000);
+          } else { startHomeCountdown(); }
+        }catch(e){ if(!done) startHomeCountdown(); }
+      })();
+    } else { startHomeCountdown(); }
   }
   function buildEmailBox(){
     var box=document.createElement("div"); box.className="emailbox";
@@ -2871,6 +2989,8 @@ window.__startApp=function(){
   // Local (just-signed) POD stored on the phone.
   function viewPod(pod){ showPdfInViewer(pod.poNumber?("PO "+pod.poNumber):(pod.name||"Signed document"), pod.name, function(){
     if(pod.b64){ return b64ToBlob(pod.b64).arrayBuffer().then(function(ab){return new Uint8Array(ab);}); }
+    // On a full phone the bytes may not have been stored — use the in-memory copy of the stop being completed.
+    if(_compBytes && compPod && pod.id===compPod.id){ return Promise.resolve(_compBytes); }
     // Bytes were freed after upload to save phone storage — fetch the copy from the server instead.
     if(pod.serverId){
       var cfg=loadCfg(), ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
