@@ -1398,15 +1398,18 @@
   async function refreshAwaitingBadge() {
     try { const r = await api('/api/pods/awaiting-count'); setTabCount('documents', r.count || 0, true); } catch (e) {}
   }
-  // Keep the dispatch view live so a driver's upload shows up on its own — no manual page refresh. We only
-  // auto-refresh when it's safe: the loads list is on screen, the tab is visible, no search is in progress,
-  // and no load's detail/setup panel is open (so we never yank a card out from under the dispatcher).
+  // Keep the dispatch view live so a driver's upload (or a stop signing) shows up on its own — no manual page
+  // refresh. We auto-refresh when it's safe: the loads list is on screen, the tab is visible, and no load's
+  // detail/setup panel is open (so we never yank a card out from under the dispatcher). A search being active is
+  // FINE — that's exactly when a dispatcher is watching one PO and wants it live — we just skip the refresh for a
+  // few seconds right after a keystroke so we don't re-query mid-type; loadLoads() re-runs the same filter.
+  var _lSearchTypedAt = 0;
   function loadsAutoRefreshOK() {
     try {
       if (document.hidden) return false;
       var lc = $('loadsCard'); if (!lc || lc.classList.contains('hide')) return false;
       var det = $('loadDetailCard'); if (det && !det.classList.contains('hide')) return false;
-      var s = $('lSearch'); if (s && s.value.trim()) return false;
+      var s = $('lSearch'); if (s && s.value.trim() && (Date.now() - _lSearchTypedAt) < 3000) return false;
       return true;
     } catch (e) { return false; }
   }
@@ -2161,6 +2164,9 @@
   };
   $('lSearchBtn').onclick = loadLoads;
   $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadLoads(); });
+  // Record the last keystroke in the search box so auto-refresh can stay live on a FILTERED view (the common
+  // case: watching one PO) without re-querying out from under someone who's still typing.
+  $('lSearch') && $('lSearch').addEventListener('input', function () { _lSearchTypedAt = Date.now(); });
 
   let curLoad = null;
   let _lastPods = [];      // most recent pods for the open load (so edit-mode re-render has them)
