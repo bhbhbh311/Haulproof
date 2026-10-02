@@ -1,7 +1,7 @@
 // Sends the consignee their copy of the signed POD.
 // If SMTP isn't configured, it logs what it *would* send (safe for dev/demo).
 const nodemailer = require('nodemailer');
-const { unsubToken, filterOptedOut } = require('./optout');
+const { unsubToken, unsubTokenCat, filterOptedOut, filterStatusOptedOut } = require('./optout');
 
 // Base URL for links in emails (unsubscribe, "view/join"). Same source of truth as the portal.
 function portalUrl() {
@@ -13,6 +13,17 @@ function helpEmail() {
   return (process.env.HELP_EMAIL || 'bharris@callahantrans.com').trim();
 }
 function unsubUrl(email) { return portalUrl() + '/unsubscribe?t=' + unsubToken(email); }
+function unsubUrlCat(email, cat) { return portalUrl() + '/unsubscribe?t=' + unsubTokenCat(email, cat); }
+// Footer for STATUS (stage) notification emails — a separate unsubscribe from the signed-document copies.
+function statusFooterText(email) {
+  return `\n\n— — —\nThis is a HaulProof status update (separate from your signed-document emails).\nStop just these status updates: ${unsubUrlCat(email, 'status')}`;
+}
+function statusFooterHtml(email) {
+  return `<hr style="border:none;border-top:1px solid #dde3ec;margin:22px 0 14px">`
+    + `<p style="font:12px system-ui,Arial,sans-serif;color:#8a94a6;margin:0">`
+    + `This is a HaulProof status update (separate from your signed-document emails). `
+    + `<a href="${unsubUrlCat(email, 'status')}" style="color:#8a94a6">Stop just these status updates</a>.</p>`;
+}
 
 // Small footer appended to every emailed document: a one-click unsubscribe and a "view/join" invite.
 function footerText(email) {
@@ -97,4 +108,34 @@ async function sendMail({ to, subject, text, html }) {
   } catch (e) { console.error('sendMail', e.message); return { sent: false, error: e.message }; }
 }
 
-module.exports = { emailPodCopy, sendMail, helpEmail, portalUrl };
+// Stage/status notification email (driver uploaded, ready to sign, load complete). Honors the SEPARATE
+// status opt-out list, so unsubscribing here never affects signed-document copies. Fails soft without SMTP.
+async function sendStatusNotice({ to, subject, text, html }) {
+  const list = (Array.isArray(to) ? to : [to]).map(s => String(s || '').trim()).filter(Boolean);
+  if (!list.length) return { sent: false, reason: 'no recipients' };
+  const { allowed, blocked } = filterStatusOptedOut(list);
+  if (!allowed.length) return { sent: false, reason: 'all recipients opted out of status updates', blocked };
+  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
+  if (!process.env.SMTP_HOST) {
+    console.log(`[mailer:simulated] status "${subject}" to ${allowed.join(', ')}` + (blocked.length ? ` (skipped opted-out: ${blocked.join(', ')})` : ''));
+    return { sent: false, simulated: true, sentTo: allowed, blocked };
+  }
+  const results = [];
+  for (const rcpt of allowed) {
+    try {
+      const info = await getTransport().sendMail({
+        from, to: rcpt, subject: subject || 'HaulProof update',
+        text: (text || '') + statusFooterText(rcpt),
+        html: (html || '') + statusFooterHtml(rcpt),
+        headers: {
+          'List-Unsubscribe': `<${unsubUrlCat(rcpt, 'status')}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      });
+      results.push({ to: rcpt, messageId: info.messageId });
+    } catch (e) { console.error('sendStatusNotice to', rcpt, e.message); }
+  }
+  return { sent: results.length > 0, sentTo: results.map(r => r.to), blocked, results };
+}
+
+module.exports = { emailPodCopy, sendMail, sendStatusNotice, helpEmail, portalUrl };

@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const { sendMail, helpEmail } = require('./mailer');
 const { login, requireAuth, requireSuper, createUser, effectiveCaps } = require('./auth');
 const { db } = require('./db');
-const { verifyUnsub, optOut, optIn, listOptedOut } = require('./optout');
+const { verifyUnsub, optOut, optIn, listOptedOut, statusOptOut, statusOptIn, listStatusOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
 const loadsRouter = require('./loads');
 const podsRouter = require('./pods');
@@ -174,6 +174,16 @@ app.post('/api/optouts/remove', requireAuth, requireSuper, (req, res) => {
   optIn(email);
   res.json({ ok: true });
 });
+// Status-update (stage notification) opt-outs — a SEPARATE list from the document opt-outs above.
+app.get('/api/status-optouts', requireAuth, requireSuper, (_req, res) => {
+  res.json({ optouts: listStatusOptedOut() });
+});
+app.post('/api/status-optouts/remove', requireAuth, requireSuper, (req, res) => {
+  const email = (req.body && req.body.email) || '';
+  if (!email) return res.status(400).json({ error: 'email required' });
+  statusOptIn(email);
+  res.json({ ok: true });
+});
 
 // The ready-to-share driver link for the SIGNED-IN customer's admin — device key baked in.
 // Super-admins provision drivers per customer from the Customers screen instead.
@@ -209,8 +219,10 @@ app.get('/api/org/optout-check', requireAuth, (req, res) => {
   const email = String(req.query.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'email required' });
   const row = db.prepare('SELECT email, createdAt, source, note FROM email_optouts WHERE lower(email) = ?').get(email);
+  const srow = db.prepare('SELECT createdAt, source FROM status_optouts WHERE lower(email) = ?').get(email);
   const isTeam = !!db.prepare('SELECT 1 FROM users WHERE lower(email) = ? AND orgId IS ?').get(email, req.user.orgId || null);
-  res.json({ email, optedOut: !!row, createdAt: row ? row.createdAt : null, source: row ? row.source : null, isTeam });
+  res.json({ email, optedOut: !!row, createdAt: row ? row.createdAt : null, source: row ? row.source : null,
+    statusOptedOut: !!srow, statusCreatedAt: srow ? srow.createdAt : null, statusSource: srow ? srow.source : null, isTeam });
 });
 app.post('/api/org/optout-remove', requireAuth, (req, res) => {
   if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Admins only' });
@@ -223,6 +235,18 @@ app.post('/api/org/optout-remove', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'You can only resume emails for a team login in your own company. Ask a master admin to resume anyone else.' });
   }
   db.prepare('DELETE FROM email_optouts WHERE lower(email) = ?').run(email);
+  res.json({ ok: true });
+});
+// Resume STATUS-update emails for a team login (admin, own-org) or anyone (master admin). Separate from documents.
+app.post('/api/org/status-optout-remove', requireAuth, (req, res) => {
+  if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Admins only' });
+  const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const isTeam = !!db.prepare('SELECT 1 FROM users WHERE lower(email) = ? AND orgId IS ?').get(email, req.user.orgId || null);
+  if (req.user.role !== 'superadmin' && !isTeam) {
+    return res.status(403).json({ error: 'You can only resume emails for a team login in your own company. Ask a master admin to resume anyone else.' });
+  }
+  db.prepare('DELETE FROM status_optouts WHERE lower(email) = ?').run(email);
   res.json({ ok: true });
 });
 
@@ -286,8 +310,14 @@ function unsubPage(title, msg, ok) {
 function doUnsub(req, res) {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   const token = (req.query.t || (req.body && req.body.t) || '').toString().trim();
-  const email = verifyUnsub(token);
-  if (!email) { res.status(400).type('html'); return res.send(unsubPage('Link not valid', 'This unsubscribe link is missing or invalid. If you keep getting documents you don\'t want, reply to the email and let us know.', false)); }
+  const result = verifyUnsub(token);
+  if (!result || !result.email) { res.status(400).type('html'); return res.send(unsubPage('Link not valid', 'This unsubscribe link is missing or invalid. If you keep getting documents you don\'t want, reply to the email and let us know.', false)); }
+  const { email, category } = result;
+  // Two SEPARATE lists: status-update notifications vs. signed-document copies. Unsubscribing from one never touches the other.
+  if (category === 'status') {
+    try { statusOptOut(email, 'unsubscribe-link'); } catch (e) {}
+    return res.type('html').send(unsubPage('You\'re unsubscribed', `<b>${email}</b> will no longer receive HaulProof <b>status-update</b> emails. You'll still get your signed-document copies. Changed your mind? Ask the sender to add you back.`, true));
+  }
   try { optOut(email, 'unsubscribe-link'); } catch (e) {}
   res.type('html').send(unsubPage('You\'re unsubscribed', `<b>${email}</b> will no longer receive delivery documents from HaulProof. Changed your mind? Ask the sender to add you back.`, true));
 }

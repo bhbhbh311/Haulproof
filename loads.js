@@ -8,6 +8,7 @@ const { logEvent } = require('./events');
 const { brokerApproved } = require('./brokers');
 const { customerIdsForRep } = require('./customers');
 const { stashDoc, stashLoad } = require('./trash');
+const notify = require('./notify');
 
 const router = express.Router();
 function myOrg(req) { return req.user.role === 'superadmin' ? ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null) : (req.user.orgId || null); }
@@ -328,6 +329,8 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
     // (handed up from a driver, not yet marked ready). Without 'awaiting_build' here, a load assigned before
     // it's marked ready never routes to the driver's phone (their app only shows docs stamped to them).
     try { db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ? WHERE loadId = ? AND status IN ('received','prepared','awaiting_build')`).run(drv.id, drv.name, load.id); } catch (e) {}
+    // Any docs already set up ('prepared') just got routed to this driver → email them "ready to sign" (best-effort, once each).
+    try { db.prepare(`SELECT id FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId = ?`).all(load.id, drv.id).forEach(p => notify.notifyDriverReady(p.id)); } catch (e) {}
   }
   if (!driverName) return res.status(400).json({ error: "Choose or enter the driver's name" });
   db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, load.id);

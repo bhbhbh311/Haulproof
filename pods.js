@@ -9,6 +9,7 @@ const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValu
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
 const { stashDoc } = require('./trash');
+const notify = require('./notify');
 const { filterOptedOut } = require('./optout');
 const { descendantOrgIds } = require('./hierarchy');
 const { customerDocEmails, customerRepEmails } = require('./customers');
@@ -332,6 +333,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (asPrepared) {
       try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note',
         detail: (forDispatch ? 'Uploaded for dispatch to set up' : 'Document saved to sign later') + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
+      // Driver handed a document up to dispatch → notify the Always-notify team it's waiting for setup. Best-effort.
+      if (forDispatch) { try { notify.notifyDriverUploaded({ load, poNumber: meta.poNumber || load.poNumber, driverName: meta.driver }); } catch (e) {} }
       return res.json({ ok: true, podId: id, loadId: load.id, prepared: true, awaiting: forDispatch, poNumber: meta.poNumber, poRenamed, originalPo });
     }
     // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
@@ -425,6 +428,17 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       else if (blocked.length && !sentTo.length) detail = stopTag + 'Not emailed — all ' + blocked.length + ' recipient(s) opted out: ' + blocked.join(', ');
       else detail = stopTag + 'Email NOT sent' + (mail.error ? ' (' + mail.error + ')' : '') + ' — intended recipients: ' + allRecipients.join(', ');
       logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'emailed', detail, actor: meta.driver || 'driver' });
+    } catch (e) {}
+    // If this signature completed the WHOLE load (every doc signed/emailed), notify the Always-notify team — once.
+    try {
+      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`).get(load.id);
+      if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
+        const lr = db.prepare(`SELECT completeNotifiedAt FROM loads WHERE id = ?`).get(load.id);
+        if (!lr || !lr.completeNotifiedAt) {
+          db.prepare(`UPDATE loads SET completeNotifiedAt = ? WHERE id = ?`).run(Date.now(), load.id);
+          notify.notifyLoadComplete({ load, poNumber: load.poNumber || meta.poNumber });
+        }
+      }
     } catch (e) {}
     res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: allRecipients });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ingest failed' }); }
@@ -695,6 +709,7 @@ router.post('/:id/ready', requireAuth, (req, res) => {
   db.prepare(`UPDATE pods SET status = 'prepared' WHERE id = ?`).run(row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'prepared',
     detail: 'Marked ready for driver' + (row.assignedDriverName ? ' — ' + row.assignedDriverName : ''), actor: req.user.email }); } catch (e) {}
+  try { notify.notifyDriverReady(row.id); } catch (e) {}   // email the assigned driver "ready to sign" (best-effort)
   res.json({ ok: true });
 });
 
@@ -765,6 +780,7 @@ router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
   // Re-assigning makes it active again on the new driver's list.
   db.prepare(`UPDATE pods SET assignedDriverId = ?, assignedDriverName = ?, assignedFulfilledAt = NULL WHERE id = ?`).run(drv.id, drv.name, pod.id);
   logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'assigned_driver', detail: 'Assigned to driver ' + drv.name, actor: req.user.email });
+  try { notify.notifyDriverReady(pod.id); } catch (e) {}   // if it's already set up (prepared), tell the newly-assigned driver
   res.json({ ok: true, assignedDriverId: drv.id, assignedDriverName: drv.name });
 });
 

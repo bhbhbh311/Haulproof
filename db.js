@@ -206,6 +206,8 @@ addColumn('pods', 'originalHash', 'TEXT');    // SHA-256 fingerprint of the pre-
 addColumn('pods', 'dupWarn', 'INTEGER NOT NULL DEFAULT 0');  // driver uploaded a doc whose PO already had one waiting for setup → flag for dispatch to confirm/discard
 addColumn('pods', 'gpsSource', 'TEXT');    // how the signing location was obtained: 'gps' (precise) | 'network' (WiFi/cell, approximate) | 'arrival' (fix taken on arrival at the stop)
 addColumn('pods', 'gpsAcc', 'INTEGER');    // approximate accuracy of the location fix, in meters
+addColumn('pods', 'readyNotifiedTo', 'TEXT');   // driverId we already emailed "ready to sign" for this doc → don't re-email the same driver
+addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
@@ -350,6 +352,14 @@ CREATE TABLE IF NOT EXISTS email_optouts (
   email     TEXT PRIMARY KEY,
   createdAt INTEGER,
   source    TEXT,        -- 'unsubscribe-link' | 'admin' | 'reply' etc.
+  note      TEXT
+);
+-- Separate opt-out list for STAGE/STATUS notification emails (driver uploaded, ready to sign, load complete).
+-- Kept distinct from email_optouts so someone can stop status updates WITHOUT losing their signed-document copies.
+CREATE TABLE IF NOT EXISTS status_optouts (
+  email     TEXT PRIMARY KEY,
+  createdAt INTEGER,
+  source    TEXT,
   note      TEXT
 );
 -- Per-user archived loads: each portal user can hide loads from their OWN Loads list to clean up their

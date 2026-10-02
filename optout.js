@@ -16,24 +16,45 @@ function sign(email) {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// Token embedded in the unsubscribe URL: base64url(email).sig
+// Category-scoped signature, so a status-update unsubscribe link can't opt someone out of documents (or vice versa).
+function signCat(email, cat) {
+  return crypto.createHmac('sha256', JWT_SECRET).update('optout:' + String(cat) + ':' + norm(email)).digest('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+const b64url = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = (s) => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+
+// v1 token embedded in the unsubscribe URL: base64url(email).sig  — ALWAYS the 'documents' category.
 function unsubToken(email) {
   const e = norm(email);
-  const b = Buffer.from(e, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return b + '.' + sign(e);
+  return b64url(e) + '.' + sign(e);
+}
+// v2 token carrying a category: base64url(email).category.sig  — used for status-update emails.
+function unsubTokenCat(email, cat) {
+  const e = norm(email);
+  return b64url(e) + '.' + encodeURIComponent(String(cat)) + '.' + signCat(e, String(cat));
 }
 
-// Verify a token from the URL; returns the email if valid, else null.
+// Verify a token from the URL; returns { email, category } if valid, else null.
+// Backward-compatible: a 2-part token is a v1 'documents' unsubscribe link.
 function verifyUnsub(token) {
   try {
-    const [b, sig] = String(token || '').split('.');
-    if (!b || !sig) return null;
-    const email = Buffer.from(b.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-    const expect = sign(email);
-    // constant-time compare
-    const a = Buffer.from(sig), c = Buffer.from(expect);
-    if (a.length !== c.length || !crypto.timingSafeEqual(a, c)) return null;
-    return norm(email);
+    const parts = String(token || '').split('.');
+    if (parts.length === 2) {
+      const [b, sig] = parts; if (!b || !sig) return null;
+      const email = unb64url(b); const expect = sign(email);
+      const a = Buffer.from(sig), c = Buffer.from(expect);
+      if (a.length !== c.length || !crypto.timingSafeEqual(a, c)) return null;
+      return { email: norm(email), category: 'documents' };
+    }
+    if (parts.length === 3) {
+      const [b, catRaw, sig] = parts; if (!b || !catRaw || !sig) return null;
+      const cat = decodeURIComponent(catRaw); const email = unb64url(b); const expect = signCat(email, cat);
+      const a = Buffer.from(sig), c = Buffer.from(expect);
+      if (a.length !== c.length || !crypto.timingSafeEqual(a, c)) return null;
+      return { email: norm(email), category: cat };
+    }
+    return null;
   } catch (e) { return null; }
 }
 
@@ -76,4 +97,42 @@ function listOptedOut() {
   return db.prepare('SELECT email, createdAt, source, note FROM email_optouts ORDER BY createdAt DESC').all();
 }
 
-module.exports = { unsubToken, verifyUnsub, isOptedOut, optOut, optIn, filterOptedOut, listOptedOut, norm };
+// ---- STATUS (stage-notification) opt-outs — a separate list from document opt-outs above. ----
+function isStatusOptedOut(email) {
+  const e = norm(email);
+  if (!e) return false;
+  return !!db.prepare('SELECT 1 FROM status_optouts WHERE email = ?').get(e);
+}
+function statusOptOut(email, source, note) {
+  const e = norm(email);
+  if (!e) return false;
+  db.prepare('INSERT OR IGNORE INTO status_optouts (email, createdAt, source, note) VALUES (?,?,?,?)')
+    .run(e, Date.now(), source || 'unknown', note || null);
+  return true;
+}
+function statusOptIn(email) {
+  const e = norm(email);
+  if (!e) return false;
+  db.prepare('DELETE FROM status_optouts WHERE email = ?').run(e);
+  return true;
+}
+function filterStatusOptedOut(list) {
+  const seen = new Set();
+  const allowed = [], blocked = [];
+  (list || []).forEach(raw => {
+    const e = norm(raw);
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    if (isStatusOptedOut(e)) blocked.push(raw); else allowed.push(raw);
+  });
+  return { allowed, blocked };
+}
+function listStatusOptedOut() {
+  return db.prepare('SELECT email, createdAt, source, note FROM status_optouts ORDER BY createdAt DESC').all();
+}
+
+module.exports = {
+  unsubToken, unsubTokenCat, verifyUnsub, norm,
+  isOptedOut, optOut, optIn, filterOptedOut, listOptedOut,
+  isStatusOptedOut, statusOptOut, statusOptIn, filterStatusOptedOut, listStatusOptedOut,
+};
