@@ -704,12 +704,13 @@
         <div style="display:flex;gap:8px;">
           <button class="ld-viewonly btn-sm" id="ldEditBtn" type="button">✎ Edit load / stops</button>
           <button class="ghost ld-viewonly" id="ldArchiveBtn" type="button" title="Hide this load from your list (does not delete it)">🗄 Archive</button>
-          <button class="ld-editonly hide" id="ldSaveAll" type="button">Save</button>
-          <button class="ghost ld-editonly hide" id="ldCancelAll" type="button">Cancel</button>
+          <button class="ld-editonly hide" id="ldGuideBtn" type="button" title="Walk through setup step by step">🧭 Guide me</button>
+          <button class="ld-editonly hide" id="ldSaveAll" type="button">✓ Done</button>
           <button class="ghost" id="ldBack" type="button">← Back</button>
         </div>
       </div>
-      <div id="ldEditMsg" class="ld-editonly hide" style="margin-top:8px;font-size:13px;font-weight:600;"></div>
+      <div class="ld-editonly hide" style="margin-top:8px;font-size:12.5px;color:var(--muted);">💾 Changes save automatically as you go.</div>
+      <div id="ldEditMsg" class="ld-editonly hide" style="margin-top:4px;font-size:13px;font-weight:600;"></div>
 
       <!-- READ-ONLY SUMMARY (shown when viewing) -->
       <div id="ldView" class="ld-viewonly" style="margin-top:14px;"></div>
@@ -1181,6 +1182,27 @@
       <button id="reportSend" type="button">Send report</button>
       <button class="ghost" id="reportCancel" type="button">Cancel</button>
       <span id="reportMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
+<!-- GUIDED SETUP WIZARD: walks a dispatcher through the fields needed to set up a load; each optional step can be skipped. -->
+<div id="setupWizard" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:460px;width:100%;margin:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <span id="swStep" style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;"></span>
+      <button class="ghost" id="swClose" type="button" style="padding:4px 10px;font-size:12px;">Close</button>
+    </div>
+    <h1 id="swTitle" style="font-size:19px;margin:8px 0 4px;"></h1>
+    <p class="sub" id="swHelp" style="margin:0 0 12px;"></p>
+    <div id="swBody" style="margin-bottom:4px;"></div>
+    <div id="swMsg" style="font-size:12.5px;color:var(--danger);min-height:16px;margin-top:4px;"></div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;justify-content:space-between;">
+      <button class="ghost" id="swBack" type="button">← Back</button>
+      <div style="display:flex;gap:10px;">
+        <button class="ghost" id="swSkip" type="button">Skip</button>
+        <button id="swNext" type="button">Next →</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2141,6 +2163,8 @@
   let _lastPods = [];      // most recent pods for the open load (so edit-mode re-render has them)
   let _ldBackFn = null;    // where "Back" returns to (set when opened from the Manage view)
   let _ldDirty = false;    // true once the user has changed something in the open load's edit form
+  let _ldLastSavedDriverId = '';   // last driver id we actually persisted — lets auto-save skip a no-op re-assign
+  let _ldSaving = false, _ldPending = false, _ldAutoTimer = null;   // auto-save state (debounce + no overlapping saves)
   async function openLoad(id, opts) {
     opts = opts || {};
     // Leaving an unsaved edit (Back, or jumping straight to another load) should ask first — don't silently
@@ -2199,9 +2223,12 @@
       // Drop straight into the one-page setup form when the load needs setting up (a driver upload is
       // waiting, or the caller asked for setup) — no hunting for the Edit button.
       const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
-      setLoadEditMode(!!((opts && opts.setup) || _needsSetup));
+      const _enterSetup = !!((opts && opts.setup) || _needsSetup);
+      setLoadEditMode(_enterSetup);
       _ldDirty = false;   // fresh load view: nothing changed yet
       window.scrollTo(0, 0);
+      // First-timers dropping into setup get the step-by-step wizard once; after that they use the "Guide me" button.
+      if (_enterSetup && !setupWizardSeen()) { setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) openSetupWizard(); }, 450); }
     } catch (e) { alert(e.message); }
   }
   // Customer control in the load edit. Three modes:
@@ -2930,6 +2957,85 @@
       if ($('ldSubsSummary')) $('ldSubsSummary').textContent = (r.userIds || []).length ? ((r.userIds || []).length + ' getting updates') : 'None yet';
     } catch (e) { $('ldSubsMsg').textContent = e.message; $('ldSubsMsg').className = 'umsg-err'; }
   };
+  // ================= Guided setup wizard (dispatch) =================
+  // Walks a dispatcher through the fields needed to set up a load. Each step writes to the REAL edit-form input and
+  // fires its events, so the existing auto-save persists it. Optional steps can be skipped; PO # is required.
+  function setupWizardSeen(){ try { return localStorage.getItem('hp_setup_wizard') === '1'; } catch(e){ return true; } }
+  function markSetupWizardSeen(){ try { localStorage.setItem('hp_setup_wizard','1'); } catch(e){} }
+  let _swIdx = 0;
+  const SW_STEPS = [
+    { key:'po', title:'Customer PO #', help:'This ties the paperwork to the right load. It\'s the one thing we need to save — everything else can wait.', required:true, kind:'text', target:'ldEditPo', placeholder:'e.g. 4501-88' },
+    { key:'load', title:'Load number', help:'Your own internal load number, if you use one. Don\'t have it handy? Skip it.', required:false, kind:'text', target:'ldEditLoad', placeholder:'e.g. 123508' },
+    { key:'driver', title:'Assign the driver', help:'Pick the driver who will sign this. Not sure yet? Skip — you can assign it any time and they\'ll get it on their phone.', required:false, kind:'select', target:'ldDrvSelect' },
+    { key:'finish', title:'Set up the signatures', help:'Last step: place the signature boxes on the document so it\'s ready for the driver to sign. Saving the boxes releases it to their phone.', required:false, kind:'action' },
+  ];
+  function openSetupWizard(){
+    if (!curLoad) return;
+    if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing'))) setLoadEditMode(true);
+    _swIdx = 0; renderSetupStep();
+    $('setupWizard').classList.remove('hide');
+  }
+  function closeSetupWizard(){ $('setupWizard').classList.add('hide'); markSetupWizardSeen(); }
+  function renderSetupStep(){
+    const s = SW_STEPS[_swIdx]; if (!s) { closeSetupWizard(); return; }
+    $('swStep').textContent = 'Step ' + (_swIdx + 1) + ' of ' + SW_STEPS.length;
+    $('swTitle').textContent = s.title;
+    $('swHelp').textContent = s.help;
+    $('swMsg').textContent = '';
+    const body = $('swBody'); body.innerHTML = '';
+    if (s.kind === 'text') {
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.id = 'swInput'; inp.placeholder = s.placeholder || '';
+      inp.style.cssText = 'width:100%;box-sizing:border-box;';
+      const src = $(s.target); inp.value = src ? src.value : '';
+      body.appendChild(inp); setTimeout(() => inp.focus(), 50);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('swNext').click(); } });
+    } else if (s.kind === 'select') {
+      const sel = document.createElement('select'); sel.id = 'swInput'; sel.style.cssText = 'width:100%;box-sizing:border-box;';
+      const src = $(s.target);
+      if (src) { sel.innerHTML = src.innerHTML; sel.value = src.value; }
+      else { sel.innerHTML = '<option value="">— no drivers available —</option>'; }
+      body.appendChild(sel);
+    } else if (s.kind === 'action') {
+      const a = $('ldDocs') ? $('ldDocs').querySelector('a.ldSign') : null;
+      if (a) {
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.textContent = '✍ Set up signatures now';
+        btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+        btn.onclick = () => { markSetupWizardSeen(); $('setupWizard').classList.add('hide'); a.click(); };
+        body.appendChild(btn);
+        const note = document.createElement('div');
+        note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
+        note.textContent = 'Or tap Finish to come back to this later — the document stays on the load.';
+        body.appendChild(note);
+      } else {
+        const note = document.createElement('div');
+        note.className = 'sub'; note.style.cssText = 'font-size:13px;';
+        note.innerHTML = 'There\'s no document on this load yet. Close this and use <b>＋ Add stop / documents</b> to upload one, then set up its signatures — or have the driver upload it from their phone.';
+        body.appendChild(note);
+      }
+    }
+    // Footer button states
+    $('swBack').style.visibility = _swIdx === 0 ? 'hidden' : 'visible';
+    $('swSkip').style.display = s.required ? 'none' : '';
+    $('swNext').textContent = (_swIdx === SW_STEPS.length - 1) ? 'Finish' : 'Next →';
+  }
+  function commitSetupStep(){
+    const s = SW_STEPS[_swIdx]; if (!s) return true;
+    if (s.kind === 'text' || s.kind === 'select') {
+      const inp = $('swInput'); const src = $(s.target);
+      const val = inp ? inp.value.trim() : '';
+      if (s.required && !val) { $('swMsg').textContent = 'This one\'s required to save the load.'; if (inp) inp.focus(); return false; }
+      if (src && inp) { src.value = inp.value; src.dispatchEvent(new Event('input', { bubbles: true })); src.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    return true;
+  }
+  if ($('ldGuideBtn')) $('ldGuideBtn').onclick = openSetupWizard;
+  if ($('swClose')) $('swClose').onclick = closeSetupWizard;
+  if ($('swBack')) $('swBack').onclick = () => { if (_swIdx > 0) { _swIdx--; renderSetupStep(); } };
+  if ($('swSkip')) $('swSkip').onclick = () => { if (_swIdx < SW_STEPS.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
+  if ($('swNext')) $('swNext').onclick = () => { if (!commitSetupStep()) return; if (_swIdx < SW_STEPS.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
+
   // ---- Master notify list (Team logins card) ----
   async function loadMasterNotify() {
     const box = $('mnList'); if (!box) return;
@@ -2991,9 +3097,10 @@
         body1.customerId = $('ldEditCustomerPick') ? $('ldEditCustomerPick').value : '';
       }
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
-      // 2) Driver (only if one is selected; the server fills in the name from the driver record)
-      if (_ldSelectedDriverId) {
+      // 2) Driver (only if one is selected AND it actually changed — so repeated auto-saves don't re-log/re-notify)
+      if (_ldSelectedDriverId && _ldSelectedDriverId !== _ldLastSavedDriverId) {
         await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
+        _ldLastSavedDriverId = _ldSelectedDriverId;
       }
       // 3) Load-update recipients
       if ($('ldSubsList')) {
@@ -3159,11 +3266,42 @@
       });
     } else proceed();
   }
-  // Any input/change inside the load card while editing means there's something to lose on the way out.
+  // Auto-save: whenever a field changes while editing a load, persist it automatically (debounced) so a
+  // dispatcher never loses a change they thought was saved. Reuses saveLoadEdits() (no re-render). Overlapping
+  // saves are coalesced; a blank PO # just waits (it's required) instead of erroring in their face.
+  async function runLoadAutoSave() {
+    if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing')) || !curLoad) return;
+    if (!($('ldEditPo') && $('ldEditPo').value.trim())) {
+      if ($('ldEditMsg')) { $('ldEditMsg').textContent = 'Add a PO # to save'; $('ldEditMsg').className = ''; }
+      return;   // PO # is required; wait for it rather than throwing
+    }
+    if (_ldSaving) { _ldPending = true; return; }   // a save is in flight — run once more after it finishes
+    _ldSaving = true;
+    try {
+      await saveLoadEdits();   // sets _ldDirty=false on success
+      if ($('ldEditMsg')) {
+        const t = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        $('ldEditMsg').textContent = '✓ All changes saved · ' + t; $('ldEditMsg').className = 'umsg-ok';
+      }
+    } catch (e) {
+      if ($('ldEditMsg')) { $('ldEditMsg').textContent = e.message || 'Could not save — will retry'; $('ldEditMsg').className = 'umsg-err'; }
+    } finally {
+      _ldSaving = false;
+      if (_ldPending) { _ldPending = false; scheduleLoadAutoSave(250); }
+    }
+  }
+  function scheduleLoadAutoSave(delay) {
+    if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing'))) return;
+    clearTimeout(_ldAutoTimer);
+    _ldAutoTimer = setTimeout(runLoadAutoSave, delay == null ? 900 : delay);
+  }
+  // Any input/change inside the load card while editing means there's something to lose on the way out → mark
+  // dirty AND schedule an auto-save. Leaving a field (focusout) saves almost immediately so it can't be lost.
   if ($('loadDetailCard')) {
-    const _markDirty = () => { if ($('loadDetailCard').classList.contains('editing')) _ldDirty = true; };
+    const _markDirty = () => { if ($('loadDetailCard').classList.contains('editing')) { _ldDirty = true; scheduleLoadAutoSave(); } };
     $('loadDetailCard').addEventListener('input', _markDirty);
     $('loadDetailCard').addEventListener('change', _markDirty);
+    $('loadDetailCard').addEventListener('focusout', () => { if ($('loadDetailCard').classList.contains('editing') && _ldDirty) scheduleLoadAutoSave(200); });
   }
   $('ldBack').onclick = () => ldGuardLeave(() => {
     if (_ldBackFn) { const f = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); f(); return; }
@@ -3255,6 +3393,7 @@
         sel.appendChild(o);
       });
     } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
+    _ldLastSavedDriverId = _ldSelectedDriverId;   // baseline: the driver already on the load, so auto-save won't re-assign it
   }
   if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () { _ldSelectedDriverId = this.value || ''; };
   $('ldDrvBtn').onclick = async () => {
