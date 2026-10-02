@@ -2707,7 +2707,13 @@ window.__startApp=function(){
     setGuided();   // they've completed a first upload — stop the first-time lead pulses from here on
     captureMode=false;
     $("banner").classList.remove("on");
-    if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
+    // Clean success screen: hide the document preview + the setup form so the confirmation and its buttons are the
+    // ONLY thing on screen — the "Go to Your loads" button can't be scrolled off or mistaken for the status banner.
+    ["docMeta","pages","capTray","uploadTools","drop","saveLaterRow","splitStopsBtn"].forEach(function(id){ var el=$(id); if(el) el.classList.add("hide"); });
+    if($("sampleDocBtn") && $("sampleDocBtn").parentElement) $("sampleDocBtn").parentElement.classList.add("hide");
+    if($("signCtx")) $("signCtx").textContent = "Sent to dispatch ✓";
+    try{ if(typeof hideLocBar==="function") hideLocBar(); }catch(e){}   // clear the fixed bottom location bar so it can't sit over the buttons
+    try{ window.scrollTo(0,0); }catch(e){}                              // render the confirmation + buttons at the top, nothing to scroll to
     var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="12px";
     if(_dispatchUpload) sb.textContent = online() ? ("✓ Sent to dispatch — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
@@ -2725,7 +2731,7 @@ window.__startApp=function(){
       ? "Dispatch will set it up. It'll appear under “Your loads” as Ready to sign when they're done."
       : "It's under “Your loads.” Open it there to add signatures whenever you're ready.";
     da.appendChild(note);
-    var b1=mkBtn("Go to Your loads","primary",function(){ if(online()) syncOutbox(); showView("route"); setTimeout(loadMyLoads,350); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
+    var b1=mkBtn("Go to Your loads","primary",function(){ try{ if(online()) syncOutbox(); }catch(e){} showView("route"); setTimeout(function(){ try{ loadMyLoads(); }catch(e){} },350); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
     var b2=mkBtn("Save another document","ghost",function(){ enterSign(currentStop); }); b2.classList.remove("sm"); b2.classList.add("block");
     da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
   }
