@@ -350,6 +350,33 @@
       </div>
     </div>
 
+    <!-- Crop a page of a document (e.g. a driver's "use whole photo" that caught the whole table) -->
+    <div id="cropModal" class="histOverlay hide">
+      <div class="histBox" style="max-width:860px;">
+        <div class="histHead"><h1 style="margin:0;font-size:18px;">Crop pages <span id="cropCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="cropClose" class="ghost" type="button">✕ Close</button></div>
+        <p class="sub" id="cropSub" style="margin:8px 0 12px;">Pick a page, then drag a box around just the document to trim off the background. Apply, then Save to replace the file.</p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+          <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
+          <div style="flex:1 1 360px;min-width:300px;">
+            <div id="cropStageWrap" style="position:relative;display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:#f3f4f6;overflow:hidden;">
+              <canvas id="cropStage" style="display:block;max-width:100%;cursor:crosshair;touch-action:none;"></canvas>
+              <div id="cropSel" style="position:absolute;display:none;border:2px dashed var(--primary);background:rgba(63,116,224,0.14);pointer-events:none;"></div>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button id="cropApply" type="button" disabled>Apply crop to this page</button>
+              <button class="ghost" id="cropReset" type="button">Reset page</button>
+              <span id="cropPageMsg" style="font-size:12.5px;color:var(--muted);"></span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button id="cropSave" type="button">Save cropped document</button>
+          <button class="ghost" id="cropCancel" type="button">Cancel</button>
+          <span id="cropMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Add a sales rep (a team login, role "sales") inline from any stop form -->
     <div id="salesRepModal" class="histOverlay hide">
       <div class="histBox" style="max-width:460px;">
@@ -2665,6 +2692,7 @@
             ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
             : `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>`}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -2682,6 +2710,7 @@
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
+    box.querySelectorAll('.ldCrop').forEach(b => b.onclick = () => openCrop(byId[b.dataset.id]));
     box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
@@ -2934,6 +2963,186 @@
       closeSplit(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; if ($('splitSave')) $('splitSave').disabled = false; }
   };
+
+  // ===== Crop a page of a document (trim the background off a "use whole photo" scan) =====
+  let _cropPod = null, _cropBuf = null, _cropPdf = null, _cropEdits = {}, _cropPageIdx = 0;
+  let _cropDrag = null;   // drag start (canvas px) while dragging a selection
+  let _cropRect = null;   // current selection {x,y,w,h} in canvas px
+  async function openCrop(p) {
+    if (!p) return;
+    if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
+    _cropPod = p; _cropBuf = null; _cropPdf = null; _cropEdits = {}; _cropPageIdx = 0; _cropRect = null; _cropDrag = null;
+    $('cropMsg').textContent = ''; $('cropMsg').className = ''; $('cropPageMsg').textContent = '';
+    if ($('cropCount')) $('cropCount').textContent = '';
+    if ($('cropSave')) $('cropSave').disabled = false;
+    $('cropSel').style.display = 'none';
+    $('cropThumbs').innerHTML = 'Loading…';
+    $('cropModal').classList.remove('hide');
+    try {
+      const resp = await fetch(p.fileUrl, { credentials: 'include' });
+      if (!resp.ok) throw new Error('Could not open that document.');
+      _cropBuf = await resp.arrayBuffer();
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
+      _cropPdf = await pdfjsLib.getDocument({ data: new Uint8Array(_cropBuf.slice(0)) }).promise;
+      if ($('cropCount')) $('cropCount').textContent = '· ' + _cropPdf.numPages + ' page' + (_cropPdf.numPages === 1 ? '' : 's');
+      await renderCropThumbs();
+      await showCropPage(0);
+    } catch (e) { $('cropThumbs').innerHTML = ''; $('cropMsg').textContent = e.message; $('cropMsg').className = 'umsg-err'; }
+  }
+  async function renderCropThumbs() {
+    const box = $('cropThumbs'); box.innerHTML = '';
+    for (let pi = 0; pi < _cropPdf.numPages; pi++) {
+      const page = await _cropPdf.getPage(pi + 1);
+      const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 110 / vp0.width });
+      const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+      cv.style.cssText = 'display:block;border:2px solid var(--line);border-radius:4px;cursor:pointer;width:100%;';
+      try { await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise; } catch (e) {}
+      const wrap = document.createElement('div'); wrap.style.cssText = 'text-align:center;';
+      const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px;'; lbl.textContent = 'Page ' + (pi + 1);
+      cv.addEventListener('click', () => showCropPage(pi));
+      const tag = document.createElement('div'); tag.className = 'cropTag'; tag.dataset.idx = String(pi);
+      tag.style.cssText = 'font-size:10px;margin-top:2px;color:#146c2e;font-weight:700;min-height:12px;';
+      tag.textContent = _cropEdits[pi] ? '✓ cropped' : '';
+      wrap.appendChild(lbl); wrap.appendChild(cv); wrap.appendChild(tag); box.appendChild(wrap);
+    }
+    highlightCropThumb();
+  }
+  function highlightCropThumb() {
+    $('cropThumbs').querySelectorAll('canvas').forEach((cv, i) => { cv.style.borderColor = (i === _cropPageIdx) ? 'var(--primary)' : 'var(--line)'; });
+  }
+  function refreshCropTags() {
+    $('cropThumbs').querySelectorAll('.cropTag').forEach(t => { const i = +t.dataset.idx; t.textContent = _cropEdits[i] ? '✓ cropped' : ''; });
+  }
+  async function showCropPage(pi) {
+    _cropPageIdx = pi; _cropRect = null; $('cropSel').style.display = 'none';
+    $('cropApply').disabled = true;
+    $('cropPageMsg').textContent = _cropEdits[pi] ? 'This page is cropped. Drag a new box to re-crop, or Reset page.' : 'Drag a box around just the document.';
+    const stage = $('cropStage'); const ctx = stage.getContext('2d');
+    const page = await _cropPdf.getPage(pi + 1);
+    const vp0 = page.getViewport({ scale: 1 });
+    const targetW = Math.min(620, Math.max(320, vp0.width));
+    if (_cropEdits[pi]) {
+      const img = new Image();
+      await new Promise(r => { img.onload = r; img.onerror = r; img.src = _cropEdits[pi]; });
+      const ratio = (img.naturalHeight || 1) / (img.naturalWidth || 1);
+      stage.width = targetW; stage.height = Math.max(1, Math.round(targetW * ratio));
+      ctx.clearRect(0, 0, stage.width, stage.height); ctx.drawImage(img, 0, 0, stage.width, stage.height);
+    } else {
+      const scale = targetW / vp0.width; const vp = page.getViewport({ scale });
+      stage.width = vp.width; stage.height = vp.height;
+      ctx.clearRect(0, 0, stage.width, stage.height);
+      try { await page.render({ canvasContext: ctx, viewport: vp }).promise; } catch (e) {}
+    }
+    highlightCropThumb();
+  }
+  if ($('cropApply')) $('cropApply').onclick = async () => {
+    if (!_cropRect || !_cropPdf) return;
+    $('cropApply').disabled = true; $('cropPageMsg').textContent = 'Cropping…';
+    try {
+      const pi = _cropPageIdx; const stage = $('cropStage');
+      if (_cropEdits[pi]) {
+        // Re-crop from the currently displayed (already cropped) image.
+        const sub = document.createElement('canvas'); sub.width = Math.round(_cropRect.w); sub.height = Math.round(_cropRect.h);
+        sub.getContext('2d').drawImage(stage, _cropRect.x, _cropRect.y, _cropRect.w, _cropRect.h, 0, 0, _cropRect.w, _cropRect.h);
+        _cropEdits[pi] = sub.toDataURL('image/jpeg', 0.9);
+      } else {
+        // Render the ORIGINAL page at high resolution, then extract the selected region (mapped from stage px).
+        const page = await _cropPdf.getPage(pi + 1);
+        const vp0 = page.getViewport({ scale: 1 });
+        const hvp = page.getViewport({ scale: 1700 / vp0.width });
+        const hc = document.createElement('canvas'); hc.width = hvp.width; hc.height = hvp.height;
+        await page.render({ canvasContext: hc.getContext('2d'), viewport: hvp }).promise;
+        const kx = hc.width / stage.width, ky = hc.height / stage.height;
+        const sx = _cropRect.x * kx, sy = _cropRect.y * ky, sw = _cropRect.w * kx, sh = _cropRect.h * ky;
+        const sub = document.createElement('canvas'); sub.width = Math.round(sw); sub.height = Math.round(sh);
+        sub.getContext('2d').drawImage(hc, sx, sy, sw, sh, 0, 0, sw, sh);
+        _cropEdits[pi] = sub.toDataURL('image/jpeg', 0.9);
+      }
+      refreshCropTags();
+      await showCropPage(pi);
+      $('cropPageMsg').textContent = '✓ Cropped. Save when you\'re done, or crop another page.';
+    } catch (e) { $('cropPageMsg').textContent = 'Could not crop this page.'; }
+  };
+  if ($('cropReset')) $('cropReset').onclick = async () => { delete _cropEdits[_cropPageIdx]; refreshCropTags(); await showCropPage(_cropPageIdx); };
+  function closeCrop() { $('cropModal').classList.add('hide'); _cropPod = null; _cropBuf = null; _cropPdf = null; _cropEdits = {}; _cropRect = null; _cropDrag = null; }
+  if ($('cropClose')) $('cropClose').onclick = closeCrop;
+  if ($('cropCancel')) $('cropCancel').onclick = closeCrop;
+  if ($('cropModal')) $('cropModal').addEventListener('click', e => { if (e.target === $('cropModal')) closeCrop(); });
+  if ($('cropSave')) $('cropSave').onclick = async () => {
+    if (!_cropPod || !_cropBuf) return;
+    if (!Object.keys(_cropEdits).length) { $('cropMsg').textContent = 'Crop at least one page first, or tap Cancel.'; $('cropMsg').className = 'umsg-err'; return; }
+    $('cropSave').disabled = true; $('cropMsg').className = ''; $('cropMsg').textContent = 'Saving…';
+    try {
+      const p = _cropPod;
+      const src = await PDFLib.PDFDocument.load(_cropBuf, { ignoreEncryption: true });
+      const out = await PDFLib.PDFDocument.create();
+      const n = src.getPageCount();
+      for (let pi = 0; pi < n; pi++) {
+        if (_cropEdits[pi]) {
+          const bytes = Uint8Array.from(atob(_cropEdits[pi].split(',')[1]), c => c.charCodeAt(0));
+          const jpg = await out.embedJpg(bytes);
+          const PW = 612, PH = 792, M = 18;                     // US-Letter page, small margin
+          const pg = out.addPage([PW, PH]);
+          let w = jpg.width, h = jpg.height; const sc = Math.min((PW - 2 * M) / w, (PH - 2 * M) / h); w *= sc; h *= sc;
+          pg.drawImage(jpg, { x: (PW - w) / 2, y: (PH - h) / 2, width: w, height: h });
+        } else {
+          const [cp] = await out.copyPages(src, [pi]); out.addPage(cp);
+        }
+      }
+      const outBytes = await out.save();
+      const baseName = (p.filename || 'document.pdf').replace(/\.pdf$/i, '');
+      const headers = { 'Content-Type': 'application/pdf', 'X-Enc': 'uri',
+        'X-PO': encodeURIComponent(p.poNumber || curLoad.poNumber || ''),
+        'X-Load': encodeURIComponent(p.loadNumber || curLoad.loadNumber || ''),
+        'X-Stop': encodeURIComponent(String(p.stopNumber || 1)),
+        'X-DocType': encodeURIComponent(p.docType || 'BOL'),
+        'X-Receiver': encodeURIComponent(p.receiverId || ''),
+        'X-SalesRep': encodeURIComponent(p.salesRepUserId || ''),
+        'X-Filename': encodeURIComponent(baseName + '.pdf') };
+      if (p.status === 'awaiting_build') headers['X-Build'] = 'dispatch';
+      if (user && user.role === 'superadmin' && p.orgId) headers['X-Org'] = encodeURIComponent(p.orgId);
+      const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include', headers, body: outBytes });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Upload failed'); }
+      // Keep it on the same driver's phone, like the split flow does.
+      const drvId = p.assignedDriverId || '';
+      if (drvId) { try { const j = await res.json(); if (j && j.podId) await api('/api/pods/' + j.podId + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: drvId }) }); } catch (e) {} }
+      // Remove the original, marked as a replacement so the driver isn't told their upload was cancelled.
+      await api('/api/pods/' + p.id + '?replaced=1', { method: 'DELETE' });
+      closeCrop(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
+    } catch (e) { $('cropMsg').textContent = e.message; $('cropMsg').className = 'umsg-err'; $('cropSave').disabled = false; }
+  };
+  // Drag-to-select on the crop stage (mouse + touch). Attached once; handlers read the crop state live.
+  (function wireCropStage() {
+    const stage = $('cropStage'), sel = $('cropSel'); if (!stage || !sel) return;
+    function canvasPt(e) {
+      const r = stage.getBoundingClientRect();
+      const cx = (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
+      const cy = (e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY);
+      const sx = stage.width / r.width, sy = stage.height / r.height;
+      return { x: Math.max(0, Math.min(stage.width, (cx - r.left) * sx)), y: Math.max(0, Math.min(stage.height, (cy - r.top) * sy)) };
+    }
+    function drawSel() {
+      if (!_cropRect) { sel.style.display = 'none'; return; }
+      const r = stage.getBoundingClientRect(); const dx = r.width / stage.width, dy = r.height / stage.height;
+      sel.style.display = 'block';
+      sel.style.left = (_cropRect.x * dx) + 'px'; sel.style.top = (_cropRect.y * dy) + 'px';
+      sel.style.width = (_cropRect.w * dx) + 'px'; sel.style.height = (_cropRect.h * dy) + 'px';
+    }
+    function down(e) { if (!_cropPdf) return; e.preventDefault(); const p = canvasPt(e); _cropDrag = p; _cropRect = { x: p.x, y: p.y, w: 0, h: 0 }; drawSel(); }
+    function move(e) {
+      if (!_cropDrag) return; e.preventDefault(); const p = canvasPt(e);
+      _cropRect = { x: Math.min(_cropDrag.x, p.x), y: Math.min(_cropDrag.y, p.y), w: Math.abs(p.x - _cropDrag.x), h: Math.abs(p.y - _cropDrag.y) };
+      drawSel();
+    }
+    function up() {
+      if (!_cropDrag) return; _cropDrag = null;
+      if (_cropRect && _cropRect.w > 8 && _cropRect.h > 8) { $('cropApply').disabled = false; }
+      else { _cropRect = null; drawSel(); }
+    }
+    stage.addEventListener('mousedown', down); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    stage.addEventListener('touchstart', down, { passive: false }); stage.addEventListener('touchmove', move, { passive: false }); stage.addEventListener('touchend', up);
+  })();
+
   // Driver & equipment: collapsible section.
   if ($('ldDrvToggle')) $('ldDrvToggle').onclick = () => { const b = $('ldDrvBody'); b.classList.toggle('hide'); $('ldDrvCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; };
 
@@ -2978,16 +3187,46 @@
     { key:'driver', title:'Assign the driver', help:'Pick the driver who will sign this. Not sure yet? Skip — you can assign it any time and they\'ll get it on their phone.', required:false, kind:'select', target:'ldDrvSelect' },
     { key:'finish', title:'Set up the signatures', help:'Last step: place the signature boxes on the document so it\'s ready for the driver to sign. Saving the boxes releases it to their phone.', required:false, kind:'action' },
   ];
-  function openSetupWizard(){
+  // The steps actually shown — base steps plus a conditional "split into stops" step when the load's document has
+  // 2+ pages (so the guide prompts you to break a multi-stop BOL into one document per stop before signatures).
+  let _swSteps = SW_STEPS;
+  // First document on the load that's still editable AND has 2+ pages — i.e. a candidate to split into stops.
+  function splittablePod(){
+    var pods = _lastPods || [];
+    for (var i = 0; i < pods.length; i++) {
+      var p = pods[i];
+      if (!p || !p.fileUrl) continue;
+      if (p.status === 'signed' || p.status === 'emailed') continue;
+      var n = _pageCountCache[p.id];
+      if (n != null && n >= 2) return p;
+    }
+    return null;
+  }
+  function buildSetupSteps(){
+    var steps = SW_STEPS.slice();
+    var sp = splittablePod();
+    if (sp) {
+      var n = _pageCountCache[sp.id];
+      var splitStep = { key:'split', title:'More than one stop on this load?', required:false, kind:'split', podId: sp.id,
+        help:'This document has ' + (n || 'multiple') + ' pages. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' };
+      var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
+      if (fi < 0) fi = steps.length;
+      steps.splice(fi, 0, splitStep);   // split comes right before setting up signatures
+    }
+    return steps;
+  }
+  async function openSetupWizard(){
     if (!curLoad) return;
     if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing'))) setLoadEditMode(true);
+    try { await annotatePageCounts(_lastPods || []); } catch(e){}   // make sure page counts are known so the split step can appear
+    _swSteps = buildSetupSteps();
     _swIdx = 0; renderSetupStep();
     $('setupWizard').classList.remove('hide');
   }
   function closeSetupWizard(){ $('setupWizard').classList.add('hide'); markSetupWizardSeen(); }
   function renderSetupStep(){
-    const s = SW_STEPS[_swIdx]; if (!s) { closeSetupWizard(); return; }
-    $('swStep').textContent = 'Step ' + (_swIdx + 1) + ' of ' + SW_STEPS.length;
+    const s = _swSteps[_swIdx]; if (!s) { closeSetupWizard(); return; }
+    $('swStep').textContent = 'Step ' + (_swIdx + 1) + ' of ' + _swSteps.length;
     $('swTitle').textContent = s.title;
     $('swHelp').textContent = s.help;
     $('swMsg').textContent = '';
@@ -3005,6 +3244,20 @@
       if (src) { sel.innerHTML = src.innerHTML; sel.value = src.value; }
       else { sel.innerHTML = '<option value="">— no drivers available —</option>'; }
       body.appendChild(sel);
+    } else if (s.kind === 'split') {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.textContent = '⎘ Split into stops';
+      btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+      btn.onclick = () => {
+        const pod = (_lastPods || []).find(p => p.id === s.podId);
+        markSetupWizardSeen(); $('setupWizard').classList.add('hide');
+        if (pod) openSplit(pod);
+      };
+      body.appendChild(btn);
+      const note = document.createElement('div');
+      note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
+      note.textContent = 'All one stop? Tap Next to skip splitting.';
+      body.appendChild(note);
     } else if (s.kind === 'action') {
       const a = $('ldDocs') ? $('ldDocs').querySelector('a.ldSign') : null;
       if (a) {
@@ -3027,10 +3280,10 @@
     // Footer button states
     $('swBack').style.visibility = _swIdx === 0 ? 'hidden' : 'visible';
     $('swSkip').style.display = s.required ? 'none' : '';
-    $('swNext').textContent = (_swIdx === SW_STEPS.length - 1) ? 'Finish' : 'Next →';
+    $('swNext').textContent = (_swIdx === _swSteps.length - 1) ? 'Finish' : 'Next →';
   }
   function commitSetupStep(){
-    const s = SW_STEPS[_swIdx]; if (!s) return true;
+    const s = _swSteps[_swIdx]; if (!s) return true;
     if (s.kind === 'text' || s.kind === 'select') {
       const inp = $('swInput'); const src = $(s.target);
       const val = inp ? inp.value.trim() : '';
@@ -3042,8 +3295,8 @@
   if ($('ldGuideBtn')) $('ldGuideBtn').onclick = openSetupWizard;
   if ($('swClose')) $('swClose').onclick = closeSetupWizard;
   if ($('swBack')) $('swBack').onclick = () => { if (_swIdx > 0) { _swIdx--; renderSetupStep(); } };
-  if ($('swSkip')) $('swSkip').onclick = () => { if (_swIdx < SW_STEPS.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
-  if ($('swNext')) $('swNext').onclick = () => { if (!commitSetupStep()) return; if (_swIdx < SW_STEPS.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
+  if ($('swSkip')) $('swSkip').onclick = () => { if (_swIdx < _swSteps.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
+  if ($('swNext')) $('swNext').onclick = () => { if (!commitSetupStep()) return; if (_swIdx < _swSteps.length - 1) { _swIdx++; renderSetupStep(); } else closeSetupWizard(); };
 
   // ---- Master notify list (Team logins card) ----
   async function loadMasterNotify() {
