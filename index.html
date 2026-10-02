@@ -91,6 +91,8 @@
   /* The load detail (stops & documents) fills the full-width page like every other card. If a row is still
      wider than the card (lots of action buttons), scroll it inside the card instead of spilling out. */
   #loadDetailCard{box-sizing:border-box;}
+  /* Hide the "Find a document" + recent-documents list while a single load is open, so the detail view is clean. */
+  .detailhidden{display:none !important;}
   #ldDocs{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   #ldDocs > table{min-width:760px;}
   /* login split hero */
@@ -354,7 +356,7 @@
     <div id="cropModal" class="histOverlay hide">
       <div class="histBox" style="max-width:860px;">
         <div class="histHead"><h1 style="margin:0;font-size:18px;">Crop pages <span id="cropCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="cropClose" class="ghost" type="button">✕ Close</button></div>
-        <p class="sub" id="cropSub" style="margin:8px 0 12px;">Pick a page, then drag a box around just the document to trim off the background. Apply, then Save to replace the file.</p>
+        <p class="sub" id="cropSub" style="margin:8px 0 12px;">Pick a page, then drag a box around just the document to trim off the background. Apply, then Save to replace the file. Can't salvage a page? Use “✗ Can't fix it” to send it back to the driver to re-shoot.</p>
         <div style="display:flex;gap:16px;flex-wrap:wrap;">
           <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
           <div style="flex:1 1 360px;min-width:300px;">
@@ -366,6 +368,18 @@
               <button id="cropApply" type="button" disabled>Apply crop to this page</button>
               <button class="ghost" id="cropReset" type="button">Reset page</button>
               <span id="cropPageMsg" style="font-size:12.5px;color:var(--muted);"></span>
+            </div>
+            <div id="cropRejectWrap" style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);">
+              <button class="ghost" id="cropRejectBtn" type="button" style="color:#b42318;border-color:#f3b4ab;">✗ Can't fix it — ask the driver to re-shoot this page</button>
+              <div id="cropRejectForm" class="hide" style="margin-top:8px;max-width:460px;">
+                <label style="font-size:12px;color:var(--muted);">What's wrong with this page? (the driver sees this)</label>
+                <input id="cropRejectReason" type="text" placeholder="e.g. too blurry to read / cut off at the bottom" style="width:100%;box-sizing:border-box;margin-top:4px;">
+                <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <button id="cropRejectSend" type="button" style="background:#b42318;">Send back to driver</button>
+                  <button class="ghost" id="cropRejectCancel" type="button">Cancel</button>
+                  <span id="cropRejectMsg" style="font-size:12.5px;font-weight:600;"></span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -730,7 +744,8 @@
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
         <div style="display:flex;gap:8px;">
           <button class="ld-viewonly btn-sm" id="ldEditBtn" type="button">✎ Edit load / stops</button>
-          <button class="ghost ld-viewonly" id="ldArchiveBtn" type="button" title="Hide this load from your list (does not delete it)">🗄 Archive</button>
+          <!-- Archive lives on the Documents/Loads home list (each row's 🗄 Archive), not inside a single load. Hidden here. -->
+          <button class="ghost" id="ldArchiveBtn" type="button" style="display:none !important;" title="Hide this load from your list (does not delete it)">🗄 Archive</button>
           <button class="ld-editonly hide" id="ldGuideBtn" type="button" title="Walk through setup step by step">🧭 Guide me</button>
           <button class="ld-editonly hide" id="ldSaveAll" type="button">✓ Done</button>
           <button class="ghost" id="ldBack" type="button">← Back</button>
@@ -1538,6 +1553,11 @@
       try{ loadCustomers(); loadCarriers(); loadBrokers(); }catch(e){}
     }
   }
+  // When a single load's detail is open, hide the "Find a document" search + the recent-documents list so the
+  // detail view stands alone. They come back when you return to the Documents / Loads home list.
+  function setFindVisForDetail(detailOpen){
+    ['findCard','resultsCard'].forEach(function(id){ var el=$(id); if(el) el.classList.toggle('detailhidden', !!detailOpen); });
+  }
   function selectTab(key){
     // Never open a section that's hidden from this user (e.g. a beta tab while in rollout view).
     if(!tabAllowed(key)) key = 'documents';
@@ -1547,6 +1567,7 @@
     if(key==='documents'){
       var _ld=$('loadDetailCard'); if(_ld) _ld.classList.add('hide'); curLoad=null;
       if(user && user.role!=='superadmin'){ var _lc=$('loadsCard'); if(_lc) _lc.classList.remove('hide'); }
+      setFindVisForDetail(false);   // back on the home list — show Find a document + recent docs again
       try { refreshAwaitingBadge(); } catch(e) {}
     }
     var active={};
@@ -2219,6 +2240,7 @@
       const r = await api('/api/loads/' + id);
       curLoad = r.load; _lastPods = r.pods || []; _ldBackFn = (opts && opts.back) || null;
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
+      setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
       $('ldSummary').textContent = 'Status: ' + (curLoad.status || 'open');
       // Carriers just view + set the driver — hide the assign section entirely.
@@ -2685,14 +2707,16 @@
         <td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>
-        <td><span class="chip ${p.status}"${p.status === 'awaiting_build' ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
-          ${(p.status === 'signed' || p.status === 'emailed')
+          ${p.status === 'needs_reupload'
+            ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
+            : (p.status === 'signed' || p.status === 'emailed')
             ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
             : `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>`}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed')) ? `&nbsp;<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `&nbsp;<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -3034,6 +3058,10 @@
       try { await page.render({ canvasContext: ctx, viewport: vp }).promise; } catch (e) {}
     }
     highlightCropThumb();
+    // Keep the reject control pointed at the page currently in view, and collapse its form on page change.
+    if ($('cropRejectBtn')) $('cropRejectBtn').textContent = '✗ Can\'t fix it — ask the driver to re-shoot page ' + (pi + 1);
+    if ($('cropRejectForm')) $('cropRejectForm').classList.add('hide');
+    if ($('cropRejectMsg')) { $('cropRejectMsg').textContent = ''; $('cropRejectMsg').className = 'font-size:12.5px;font-weight:600;'; }
   }
   if ($('cropApply')) $('cropApply').onclick = async () => {
     if (!_cropRect || !_cropPdf) return;
@@ -3064,7 +3092,31 @@
     } catch (e) { $('cropPageMsg').textContent = 'Could not crop this page.'; }
   };
   if ($('cropReset')) $('cropReset').onclick = async () => { delete _cropEdits[_cropPageIdx]; refreshCropTags(); await showCropPage(_cropPageIdx); };
-  function closeCrop() { $('cropModal').classList.add('hide'); _cropPod = null; _cropBuf = null; _cropPdf = null; _cropEdits = {}; _cropRect = null; _cropDrag = null; }
+  function closeCrop() { $('cropModal').classList.add('hide'); if ($('cropRejectForm')) $('cropRejectForm').classList.add('hide'); _cropPod = null; _cropBuf = null; _cropPdf = null; _cropEdits = {}; _cropRect = null; _cropDrag = null; }
+  // "Can't fix it" — reject the page in view and bounce it back to the driver to re-shoot.
+  if ($('cropRejectBtn')) $('cropRejectBtn').onclick = () => {
+    if (!_cropPod) return;
+    if (!_cropPod.assignedDriverId && !(curLoad && curLoad.driverName)) {
+      alert('Assign a driver to this load first (under Driver & equipment), so they can re-shoot the page.');
+      return;
+    }
+    $('cropRejectForm').classList.remove('hide');
+    if ($('cropRejectSend')) $('cropRejectSend').disabled = false;
+    if ($('cropRejectReason')) { $('cropRejectReason').value = ''; $('cropRejectReason').focus(); }
+    if ($('cropRejectMsg')) $('cropRejectMsg').textContent = '';
+  };
+  if ($('cropRejectCancel')) $('cropRejectCancel').onclick = () => { $('cropRejectForm').classList.add('hide'); };
+  if ($('cropRejectSend')) $('cropRejectSend').onclick = async () => {
+    if (!_cropPod) return;
+    const page = _cropPageIdx + 1;
+    const reason = ($('cropRejectReason').value || '').trim();
+    $('cropRejectSend').disabled = true; $('cropRejectMsg').className = ''; $('cropRejectMsg').textContent = 'Sending…';
+    try {
+      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason }) });
+      const lid = curLoad && curLoad.id;
+      closeCrop(); if (lid) openLoad(lid); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
+    } catch (e) { $('cropRejectMsg').textContent = e.message; $('cropRejectMsg').className = 'umsg-err'; $('cropRejectSend').disabled = false; }
+  };
   if ($('cropClose')) $('cropClose').onclick = closeCrop;
   if ($('cropCancel')) $('cropCancel').onclick = closeCrop;
   if ($('cropModal')) $('cropModal').addEventListener('click', e => { if (e.target === $('cropModal')) closeCrop(); });
@@ -3330,7 +3382,7 @@
       curLoad.archived = turnOn;
       updateLdArchiveBtn();
       // Archiving from the detail view: pop back to the list so the row is gone (matches the list button).
-      if (turnOn) { const back = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); if (back) back(); else { $('loadsCard').classList.remove('hide'); loadLoads(); } }
+      if (turnOn) { const back = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); setFindVisForDetail(false); if (back) back(); else { $('loadsCard').classList.remove('hide'); loadLoads(); } }
     } catch (e) { alert(e.message || 'Could not update'); }
   };
   if ($('ldCancelAll')) $('ldCancelAll').onclick = () => { if (curLoad) openLoad(curLoad.id, { back: _ldBackFn }); };
@@ -3566,6 +3618,7 @@
     $('loadDetailCard').addEventListener('focusout', () => { if ($('loadDetailCard').classList.contains('editing') && _ldDirty) scheduleLoadAutoSave(200); });
   }
   $('ldBack').onclick = () => ldGuardLeave(() => {
+    setFindVisForDetail(false);   // leaving the detail — restore Find a document + recent docs on the home list
     if (_ldBackFn) { const f = _ldBackFn; _ldBackFn = null; $('loadDetailCard').classList.add('hide'); f(); return; }
     $('loadDetailCard').classList.add('hide'); $('loadsCard').classList.remove('hide'); loadLoads();
   });

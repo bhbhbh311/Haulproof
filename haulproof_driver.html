@@ -1186,6 +1186,7 @@ window.__startApp=function(){
   }
   // Open a prepared document (from a pull OR an assigned load) into the sign view.
   async function openPreparedDoc(d){
+    _reup=null;   // this is a normal sign flow, not a re-shoot
     var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
     var hdr = key ? {"X-Api-Key":key} : {}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
     toast("Opening…");
@@ -1200,6 +1201,74 @@ window.__startApp=function(){
       fillDetails(d); setDetailsMode(false, true); drvLoadCustomers(d.customerId||"");
       await startDocTemplate(bytes, d.fields||[]);
     }catch(err){ console.error(err); toast("Couldn't open that load"); }
+  }
+  // Dispatch rejected a page and asked the driver to re-shoot it. Pull the original document and open a
+  // stripped-down capture screen that re-takes just the flagged page, merges it back into the original, and
+  // sends the corrected document to dispatch.
+  async function openReupload(d){
+    var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
+    var hdr = key ? {"X-Api-Key":key} : {}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+    toast("Opening…");
+    try{
+      var fr=await fetch(base+"/"+d.id+"/file",{headers:hdr});
+      if(!fr.ok){ toast("Couldn't download the document"); return; }
+      var bytes=new Uint8Array(await fr.arrayBuffer());
+      _reup={ podId:d.id, orig:bytes, page:d.rejectedPage||1, meta:d };
+      enterReuploadScreen(d);
+    }catch(err){ console.error(err); toast("Couldn't open that load"); }
+  }
+  function enterReuploadScreen(d){
+    currentStop=null; pulledMeta=d; _dispatchUpload=false;
+    origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
+    capturedPages=[]; capturedMeta=[]; capturedStops=[]; capStopCount=1;
+    $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
+    // Capture tools on; the PO/consignee details form, save-later and sample are all off — this is just a re-shoot.
+    $("drop").classList.remove("hide"); if($("uploadTools")) $("uploadTools").classList.remove("hide");
+    if($("sampleDocBtn") && $("sampleDocBtn").parentElement) $("sampleDocBtn").parentElement.classList.add("hide");
+    if($("docMeta")) $("docMeta").classList.add("hide");
+    if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
+    if($("capTray")) hideCapTray();
+    if($("camInput")) $("camInput").value=""; if($("file")) $("file").value="";
+    var pg=(_reup&&_reup.page)||1;
+    if($("signCtx")) $("signCtx").innerHTML='🔴 Re-shoot page '+pg+' — PO '+esc(d.poNumber||"")+
+      (d.rejectReason?('<div style="color:#b5731a;font-weight:600;margin-top:4px;">Dispatch: '+esc(d.rejectReason)+'</div>'):'')+
+      '<div style="color:var(--muted);font-weight:400;margin-top:4px;">Take a clear new photo of this page, then tap “Use these pages.” The rest of the document stays as-is.</div>';
+    showView("sign");
+  }
+  // Build the corrected PDF (original with the flagged page swapped for the new shot) and send it back.
+  async function finishReupload(){
+    if(!capturedPages.length){ toast("Take a photo of the page first"); return; }
+    if(!ready || !window.PDFLib){ toast("Engine not loaded"); return; }
+    toast("Building…");
+    try{
+      var src=await PDFLib.PDFDocument.load(_reup.orig, { ignoreEncryption:true });
+      var out=await PDFLib.PDFDocument.create();
+      var n=src.getPageCount();
+      var pageIdx=Math.max(1, Math.min(n, _reup.page||1))-1;
+      var newImgs=[];
+      for(var i=0;i<capturedPages.length;i++){
+        var norm; try{ norm=await normalizeImage(capturedPages[i]); }catch(e){ continue; }
+        var jb=await (await fetch(norm.dataUrl)).arrayBuffer();
+        newImgs.push(await out.embedJpg(jb));
+      }
+      if(!newImgs.length){ toast("Couldn't read the photo"); return; }
+      for(var p=0;p<n;p++){
+        if(p===pageIdx){
+          newImgs.forEach(function(img){ var pg=out.addPage([img.width,img.height]); pg.drawImage(img,{x:0,y:0,width:img.width,height:img.height}); });
+        } else {
+          var cps=await out.copyPages(src,[p]); out.addPage(cps[0]);
+        }
+      }
+      var bytes=new Uint8Array(await out.save());
+      var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
+      var hdr={ "Content-Type":"application/pdf" }; if(key) hdr["X-Api-Key"]=key; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      toast("Sending…");
+      var res=await fetch(base+"/"+_reup.podId+"/reupload",{method:"POST",headers:hdr,body:new Blob([bytes],{type:"application/pdf"})});
+      if(!res.ok){ var eb=await res.json().catch(function(){return {};}); if(isLinkError(res.status, eb.error)){ showLinkExpired(); return; } toast(eb.error||("Upload failed ("+res.status+")")); return; }
+      _reup=null; capturedPages=[]; capturedMeta=[]; capturedStops=[]; capStopCount=1; hideCapTray();
+      toast("Sent back to dispatch ✓");
+      showView("route"); setTimeout(function(){ try{ loadMyLoads(); }catch(e){} },350);
+    }catch(e){ console.error(e); toast("Couldn't build the corrected document"); }
   }
   // Fetch loads dispatch assigned to THIS driver and show them at the top of the route.
   async function loadMyLoads(){
@@ -1219,8 +1288,9 @@ window.__startApp=function(){
       $("myLoadsCount").textContent="("+groups.length+")";
       var box=$("myLoadsList"); box.innerHTML="";
       groups.forEach(function(g){
-        var ready = g.docs.filter(function(d){ return !d.awaiting; });
-        var waiting = g.docs.filter(function(d){ return d.awaiting; });
+        var reup = g.docs.filter(function(d){ return d.reupload; });
+        var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload; });
+        var waiting = g.docs.filter(function(d){ return d.awaiting && !d.reupload; });
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
         // Signing progress: total stops on the load and how many are already signed (from the server).
@@ -1228,7 +1298,11 @@ window.__startApp=function(){
         var signed = g.docs.reduce(function(m,d){ return Math.max(m, d.loadSigned||0); }, 0);
         var sub = ready.length>1 ? (ready.length+" stop"+(ready.length===1?"":"s")+" to sign") : (g.consignee||"");
         var right;
-        if(ready.length){
+        if(reup.length){
+          // Dispatch bounced a page back — the re-shoot takes priority over any other action on this load.
+          right='<button class="btn sm myLoadReup" type="button" style="background:#b42318;color:#fff;border-color:#b42318;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+'</button>';
+          sub = "Dispatch asked you to re-shoot a page";
+        } else if(ready.length){
           right='<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
         } else {
           // All docs on this load are still with dispatch — show a waiting badge, not a sign button.
@@ -1240,8 +1314,10 @@ window.__startApp=function(){
         var progLine = (signed>0 && total>0)
           ? '<div style="color:#146c2e;font-size:12px;font-weight:700;margin-top:2px;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed'+(ready.length? ' · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing':'')+'</div>'
           : '';
+        var reupLine = reup.length ? '<div style="color:#b42318;font-size:12px;font-weight:700;margin-top:2px;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+(reup[0].rejectReason?(" — "+esc(reup[0].rejectReason)):"")+'</div>' : '';
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+
+          reupLine+
           progLine+
           (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>' : '')+
           '</div>'+ right;
@@ -1250,6 +1326,8 @@ window.__startApp=function(){
           var d = ready.length>1 ? await chooseStop(ready) : ready[0];
           if(d) openPreparedDoc(d);
         });
+        var rub=row.querySelector(".myLoadReup");
+        if(rub) rub.addEventListener("click", function(){ openReupload(reup[0]); });
         box.appendChild(row);
       });
     }catch(e){ card.classList.add("hide"); }
@@ -1359,6 +1437,10 @@ window.__startApp=function(){
 
   /* ============ SIGN flow ============ */
   var origBytes=null, fields=[], pageRecs=[], signedPdfBytes=null, curField=null, lastGps=null, currentStop=null;
+  // Re-shoot mode: dispatch asked the driver to re-take a specific page. Holds the original PDF bytes + which
+  // page to replace. When set, the capture screen's "Use these pages" merges the new shot into the original
+  // and uploads it back (instead of the normal save-to-load flow).
+  var _reup=null;
   // --- Single-flight geolocation: one native permission prompt, shared fix reused across the app. ---
   var _locFixAt=0, _locWaiters=[], _locInflight=false;
   // getLoc(cb): cb(gpsOrNull). Reuses a fix taken in the last 2 min; never fires a 2nd prompt while one is pending.
@@ -1522,6 +1604,7 @@ window.__startApp=function(){
   if($("drvCustModal")) $("drvCustModal").addEventListener("click", function(e){ if(e.target===$("drvCustModal")) drvCloseCustModal(); });
 
   function enterSign(stop){
+    _reup=null;   // leaving any re-shoot flow
     currentStop=stop;
     $("signCtx").textContent = stop ? ("Delivering · Stop "+stop.n+" — "+stop.name) : "One-off document";
     origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
@@ -1667,6 +1750,7 @@ window.__startApp=function(){
   if($("camX")) $("camX").addEventListener("click", closeInAppCamera);
   if($("camNativeBtn")) $("camNativeBtn").addEventListener("click", function(){ closeInAppCamera(); startNativeCamera(); });
   $("capDone").addEventListener("click", async function(){
+    if(_reup){ return finishReupload(); }   // re-shoot mode: merge into the original + send back to dispatch
     if(!capturedPages.length){ toast("Take at least one photo"); return; }
     if(!ready){ toast("Engine not loaded"); return; }
     toast("Building document…");
@@ -2114,8 +2198,21 @@ window.__startApp=function(){
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     $("banner").classList.remove("on");                                 // no signing yet — Save is the action
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
-    if($("saveLaterBtn")) $("saveLaterBtn").textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
-    leadOff("capDone"); leadOn("saveLaterBtn");   // first-time guide: lead to the final send/save step
+    var slb=$("saveLaterBtn");
+    if(slb){
+      slb.textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
+      if(_dispatchUpload){
+        // This is the ONE action on the upload screen — make it big and obvious, and keep it pulsing (always, not
+        // just first-time) so drivers can't miss the final send step.
+        slb.classList.remove("ghost","sm"); slb.classList.add("primary","block");
+        slb.style.cssText="margin-top:4px;padding:20px 16px;font-size:18px;font-weight:800;border-radius:16px;box-shadow:0 6px 18px rgba(63,116,224,0.32);";
+        slb.classList.add("lead-cta");
+      } else {
+        slb.classList.remove("primary","block","lead-cta"); slb.classList.add("ghost","sm"); slb.style.cssText="";
+      }
+    }
+    leadOff("capDone");
+    if(!_dispatchUpload) leadOn("saveLaterBtn");   // first-time guide for the save-to-sign-later path
     $("saveLaterBtn") && $("saveLaterBtn").addEventListener("click", function(){ leadOff("saveLaterBtn"); }, { once:true });
     // Offer "Split into stops" only for a multi-page doc the driver is building for themselves (not a
     // send-to-dispatch upload) — each stop becomes its own document on the load, ready to sign.

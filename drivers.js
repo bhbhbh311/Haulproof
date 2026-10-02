@@ -220,7 +220,7 @@ router.get('/my-loads', (req, res) => {
             ? != '' AND LOWER(TRIM(COALESCE(NULLIF(p.assignedDriverName,''), l.driverName))) = LOWER(?)
             AND (l.carrierId IS ? OR l.orgId IS ? OR l.brokerId IS ?)
           )
-        ) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
+        ) AND p.status IN ('prepared','awaiting_build','needs_reupload') AND p.assignedFulfilledAt IS NULL
       ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id, dn, dn.toLowerCase(), org, org, org);
   // For any LOAD the driver is engaged on, also surface its OTHER stops that aren't ready yet (still being
   // set up by dispatch), so a partly-ready multi-stop load clearly shows "Stop X not ready yet".
@@ -231,7 +231,7 @@ router.get('/my-loads', (req, res) => {
     const ph = loadIds.map(() => '?').join(',');
     const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
         LEFT JOIN loads l ON l.id = p.loadId
-        WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
+        WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build','needs_reupload') AND p.assignedFulfilledAt IS NULL
         ORDER BY (p.stopNumber IS NULL), p.stopNumber ASC, p.uploadedAt ASC`).all(...loadIds);
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
   }
@@ -243,7 +243,7 @@ router.get('/my-loads', (req, res) => {
     const ph2 = loadIds.map(() => '?').join(',');
     db.prepare(`SELECT loadId,
         SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS signed,
-        SUM(CASE WHEN status IN ('prepared','awaiting_build','signed','emailed') THEN 1 ELSE 0 END) AS total
+        SUM(CASE WHEN status IN ('prepared','awaiting_build','needs_reupload','signed','emailed') THEN 1 ELSE 0 END) AS total
       FROM pods WHERE loadId IN (${ph2}) GROUP BY loadId`).all(...loadIds)
       .forEach(r => { prog[r.loadId] = { signed: Number(r.signed || 0), total: Number(r.total || 0) }; });
   }
@@ -251,6 +251,7 @@ router.get('/my-loads', (req, res) => {
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     customerId: p.loadCustomerId || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
+    reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
   res.json({ loads });

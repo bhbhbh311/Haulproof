@@ -207,6 +207,12 @@ addColumn('pods', 'dupWarn', 'INTEGER NOT NULL DEFAULT 0');  // driver uploaded 
 addColumn('pods', 'gpsSource', 'TEXT');    // how the signing location was obtained: 'gps' (precise) | 'network' (WiFi/cell, approximate) | 'arrival' (fix taken on arrival at the stop)
 addColumn('pods', 'gpsAcc', 'INTEGER');    // approximate accuracy of the location fix, in meters
 addColumn('pods', 'readyNotifiedTo', 'TEXT');   // driverId we already emailed "ready to sign" for this doc → don't re-email the same driver
+// Dispatcher rejected a page of a driver upload and asked them to re-shoot it. When rejectedPage is set the
+// document goes back to the driver's phone flagged for re-upload; cleared once they send the corrected version.
+addColumn('pods', 'rejectedPage', 'INTEGER');   // 1-based page the dispatcher asked to be re-shot (NULL = not rejected)
+addColumn('pods', 'rejectReason', 'TEXT');      // why it was rejected (shown to the driver)
+addColumn('pods', 'rejectedAt', 'INTEGER');     // when it was rejected
+addColumn('pods', 'rejectedBy', 'TEXT');        // dispatcher email who rejected it
 addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
 // Backfill roles for existing orgs from their single kind.
 try {

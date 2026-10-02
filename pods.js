@@ -790,4 +790,55 @@ router.post('/:id/assign-driver', requireAuth, express.json(), (req, res) => {
   res.json({ ok: true, assignedDriverId: drv.id, assignedDriverName: drv.name });
 });
 
+// ---- Dispatcher REJECTS a page of a driver's upload and asks them to re-shoot just that page. ----
+// The document goes back to the driver's phone flagged "re-shoot page N"; it returns here once they resubmit.
+router.post('/:id/reject-page', requireAuth, express.json(), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (row.status === 'signed' || row.status === 'emailed') return res.status(409).json({ error: 'This document is already signed — a page can’t be sent back.' });
+  const page = Math.max(1, parseInt((req.body && req.body.page) || 0, 10) || 0);
+  if (!page) return res.status(400).json({ error: 'Which page should be re-shot?' });
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 400);
+  // It has to land on a specific driver's phone — use the assigned driver, or the load's driver name.
+  const load = row.loadId ? db.prepare(`SELECT driverName FROM loads WHERE id = ?`).get(row.loadId) : null;
+  const drvId = row.assignedDriverId || row.signedByDriverId || null;
+  const drvName = row.assignedDriverName || (load && load.driverName) || null;
+  if (!drvId && !drvName) return res.status(409).json({ error: 'Assign a driver to this load first, so they can re-shoot the page.' });
+  db.prepare(`UPDATE pods SET status = 'needs_reupload', rejectedPage = ?, rejectReason = ?, rejectedAt = ?, rejectedBy = ?, assignedFulfilledAt = NULL WHERE id = ?`)
+    .run(page, reason || null, Date.now(), req.user.email || null, row.id);
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: 'Page ' + page + ' sent back to the driver to re-shoot' + (reason ? ': ' + reason : ''), actor: req.user.email }); } catch (e) {}
+  // Leave the driver an in-app notice as well.
+  try {
+    if (drvId) db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
+      VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(crypto.randomUUID(), drvId, row.orgId || null, 'reupload', row.poNumber || null, row.loadNumber || null,
+      'Dispatch asked you to re-shoot page ' + page + ' of ' + (row.docType || 'the document') + (row.poNumber ? ' for PO ' + row.poNumber : '') + (reason ? ': ' + reason : '') + '.',
+      req.user.name || null, req.user.email || null, Date.now());
+  } catch (e) {}
+  try { notify.notifyDriverReupload(row.id); } catch (e) {}   // email the driver (best-effort)
+  res.json({ ok: true });
+});
+
+// ---- Driver RE-UPLOADS a corrected document after dispatch asked them to re-shoot a page. Device key. ----
+router.post('/:id/reupload', requireApiKey, raw, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  // The device key must belong to an org connected to this document (its owner, or the assigned carrier/broker).
+  const load = row.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(row.loadId) : null;
+  const allowed = new Set([row.orgId, load && load.orgId, load && load.carrierId, load && load.brokerId].filter(Boolean).map(String));
+  if (!allowed.has(String((req.org && req.org.id) || ''))) return res.status(403).json({ error: 'Not your document' });
+  if (row.status !== 'needs_reupload') return res.status(409).json({ error: 'This document isn’t waiting for a re-upload.' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
+  if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
+  try { fs.writeFileSync(row.filepath, req.body); } catch (e) { return res.status(500).json({ error: 'Could not save the file' }); }
+  // Back to dispatch to review / set up signatures. Clear the rejection; keep the driver assignment.
+  db.prepare(`UPDATE pods SET status = 'awaiting_build', rejectedPage = NULL, rejectReason = NULL, rejectedAt = NULL, rejectedBy = NULL, sizeBytes = ?, uploadedAt = ? WHERE id = ?`)
+    .run(req.body.length, Date.now(), row.id);
+  const drvName = (req.driver && req.driver.name) || row.assignedDriverName || null;
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_uploaded',
+    detail: 'Driver re-shot page ' + (row.rejectedPage || '') + ' and resubmitted' + (drvName ? ' — ' + drvName : ''), actor: drvName || 'driver' }); } catch (e) {}
+  try { if (load) notify.notifyDriverUploaded({ load, poNumber: row.poNumber, driverName: drvName }); } catch (e) {}
+  res.json({ ok: true, podId: row.id });
+});
+
 module.exports = router;

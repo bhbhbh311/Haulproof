@@ -84,4 +84,28 @@ async function notifyDriverReady(podId) {
   } catch (e) { /* best-effort */ }
 }
 
-module.exports = { masterNotifyEmails, notifyDriverUploaded, notifyLoadComplete, notifyDriverReady };
+// Dispatch asked the driver to re-shoot a page → email that driver so they know to reopen it on their phone.
+async function notifyDriverReupload(podId) {
+  try {
+    const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(podId);
+    if (!pod || pod.status !== 'needs_reupload') return;
+    const drvId = pod.assignedDriverId || pod.signedByDriverId || null;
+    if (!drvId) return;
+    const drv = db.prepare(`SELECT name, email FROM drivers WHERE id = ? AND active = 1`).get(drvId);
+    if (!drv || !drv.email || !/@/.test(drv.email)) return;   // no email → driver sees it in-app instead
+    const po = pod.poNumber || '';
+    const pg = pod.rejectedPage || '';
+    const why = (pod.rejectReason || '').trim();
+    const subject = `Re-shoot needed — PO ${po}`;
+    const text = `Hi ${drv.name || ''},\n\nDispatch needs page ${pg} of the document for PO ${po} re-shot${why ? ' (' + why + ')' : ''}. Open your HaulProof driver link — it's under "Your loads" flagged to re-shoot.\n`;
+    const html = wrapHtml([
+      `Hi ${esc(drv.name || '')},`,
+      `Dispatch needs <b>page ${esc(String(pg))}</b> of the document for <b>PO ${esc(po)}</b> re-shot.`,
+      why ? `Reason: ${esc(why)}` : '',
+      `Open your HaulProof driver link — it's under <b>"Your loads,"</b> flagged to re-shoot.`,
+    ].filter(Boolean));
+    await sendStatusNotice({ to: [drv.email], subject, text, html });
+  } catch (e) { /* best-effort */ }
+}
+
+module.exports = { masterNotifyEmails, notifyDriverUploaded, notifyLoadComplete, notifyDriverReady, notifyDriverReupload };
