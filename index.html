@@ -79,6 +79,10 @@
   .chip.prepared{color:var(--primary);background:var(--primary-soft);} .chip.signed{color:var(--ok);background:var(--ok-soft);}
   a.dl{color:var(--primary);font-weight:600;text-decoration:none;} a.dl:hover{text-decoration:underline;} .empty{color:var(--muted);text-align:center;padding:28px 20px;}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
+  /* First-time guide: the one "do this next" action grows + glows so a new dispatcher's eye lands on it. */
+  @keyframes leadpulse{0%,100%{transform:scale(1);box-shadow:0 2px 8px rgba(22,85,209,.25);}50%{transform:scale(1.06);box-shadow:0 0 0 6px rgba(22,85,209,.22),0 8px 20px rgba(22,85,209,.42);}}
+  .lead-cta{animation:leadpulse 1.45s ease-in-out infinite;position:relative;z-index:2;}
+  @media (prefers-reduced-motion: reduce){.lead-cta{animation:none;}}
   /* Missing/unset values shown in red so they stand out (e.g. "Not assigned", "Not set"). */
   .ld-missing{color:var(--danger)!important;font-weight:700;}
   /* Darker, clearer separators between the sections of a load. */
@@ -658,6 +662,20 @@
 
     <!-- LOADS (customer roles) -->
     <div class="card" id="loadsCard">
+      <!-- First-time welcome: teaches the mental model (what this is + the 3 steps). Dismissed once, stays dismissed. -->
+      <div id="dashWelcome" class="hide" style="margin:-4px 0 16px;border:1px solid var(--primary);background:var(--primary-soft,#eef3fe);border-radius:12px;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <h2 style="margin:0 0 4px;font-size:16px;">👋 Welcome to HaulProof</h2>
+          <button id="dashWelcomeClose" type="button" class="ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap;">Got it</button>
+        </div>
+        <p class="sub" style="margin:0 0 10px;">Here's how dispatch works, start to finish:</p>
+        <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.65;color:var(--ink);">
+          <li><b>Add your drivers</b> on the <b>Drivers</b> tab — each one gets a personal link and PIN to open on their phone.</li>
+          <li><b>A driver uploads a document</b> from their phone — it appears right here, flagged <b>⚙ Set&nbsp;up</b>.</li>
+          <li><b>Open it and set up the signature boxes</b> — saving releases it to the driver to sign, and signed copies email out automatically.</li>
+        </ol>
+        <p class="sub" style="margin:10px 0 0;">Everything stays searchable by PO # below, anytime.</p>
+      </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Create a load by PO #, assign an FMCSA-verified carrier, and track its full history.</p></div>
         <button class="ghost" id="nlToggle" type="button">＋ New load</button>
@@ -1946,8 +1964,18 @@
       loadLoads();   // refresh so the row drops out of (or returns to) the current view
     } catch (e) { alert(e.message || 'Could not update'); }
   }
+  // First-time welcome: show the "how dispatch works" card until the user dismisses it once (per browser).
+  function dashWelcomeDismissed(){ try { return localStorage.getItem('hp_dash_welcome') === '1'; } catch(e){ return true; } }
+  function maybeShowDashWelcome(){
+    var w = $('dashWelcome'); if (!w) return;
+    var b = $('dashWelcomeClose');
+    if (b && !b._wired) { b._wired = true; b.onclick = function(){ try { localStorage.setItem('hp_dash_welcome','1'); } catch(e){} w.classList.add('hide'); }; }
+    if (dashWelcomeDismissed() || (user && user.role === 'superadmin')) { w.classList.add('hide'); return; }
+    w.classList.remove('hide');
+  }
   async function loadLoads() {
     _inTrashView = false;
+    maybeShowDashWelcome();
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
       const params = [];
@@ -1960,7 +1988,7 @@
       const archCount = r.archivedCount || 0;
       if (!active.length) {
         const emptyMsg = _showArchived ? 'No archived loads. Use “🗄 Archive” on any load to hide it from your list.'
-          : (q ? 'No loads match that search.' : 'No loads yet. Create one above.');
+          : (q ? 'No loads match that search.' : 'No loads yet — loads appear here automatically when a driver uploads a document for you to set up. You can also create one above with “＋ New load”.');
         const backLink = _showArchived ? '<div style="margin-top:8px;"><a href="#" id="lArchBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to active loads</a></div>' : '';
         box.innerHTML = '<div class="empty">' + emptyMsg + backLink + '</div>';
         const bk = $('lArchBack'); if (bk) bk.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
@@ -1992,10 +2020,12 @@
           <td>${loadStatusChip(l)}</td>
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost ldArch" data-id="${l.id}" data-on="${l.archived ? '0' : '1'}" title="${l.archived ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)'}" style="padding:6px 9px;font-size:12px;margin-right:6px;">${l.archived ? '↩ Unarchive' : '🗄 Archive'}</button>
-            <button class="${l.needsSetup ? 'ldOpen btn-sm' : 'ghost ldOpen'}" data-id="${l.id}" style="padding:6px 10px;font-size:12px;">${l.needsSetup ? '⚙ Set up ›' : 'Open ›'}</button>
+            <button class="${l.needsSetup ? 'ldOpen btn-sm' : 'ghost ldOpen'}" data-id="${l.id}" data-needsetup="${l.needsSetup ? '1' : ''}" style="padding:6px 10px;font-size:12px;">${l.needsSetup ? '⚙ Set up ›' : 'Open ›'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
+      // Guide the dispatcher to the single next action: pulse the FIRST load that's waiting to be set up.
+      const firstSetup = box.querySelector('.ldOpen[data-needsetup="1"]'); if (firstSetup) firstSetup.classList.add('lead-cta');
       box.querySelectorAll('.ldArch').forEach(b => b.onclick = (e) => { e.stopPropagation(); archiveLoad(b.dataset.id, b.dataset.on === '1'); });
       box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
       const showBtn = $('lArchShow'); if (showBtn) showBtn.onclick = (e) => { e.preventDefault(); _showArchived = true; loadLoads(); };
