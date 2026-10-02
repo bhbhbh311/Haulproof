@@ -204,10 +204,24 @@ router.get('/my-loads', (req, res) => {
   if (!r || !r.driver) return res.json({ loads: [] });
   // Prepared docs the driver should sign: ones dispatch assigned to them, PLUS ones this driver saved
   // themselves ("save to load — sign later"), so a self-saved doc always shows up here to be signed.
+  // Match by driver RECORD id first. Then a NAME fallback: a doc whose CURRENT assignment name (the pod's
+  // assignedDriverName, else the load's driverName) equals this driver's name, when this driver's org is on the
+  // load (owner / carrier / broker). This rescues the case where the load is assigned to a different driver
+  // RECORD with the same name (a duplicate) than the link on the phone — the id wouldn't line up, but the name
+  // does. It still follows a dispatcher reassignment, because that changes the assignment name.
+  const dn = (r.driver.name || '').trim();
+  const org = r.driver.orgId || null;
   const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
-      WHERE (p.assignedDriverId = ? OR (p.assignedDriverId IS NULL AND p.signedByDriverId = ?)) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
-      ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id);
+      WHERE (
+          p.assignedDriverId = ?
+          OR (p.assignedDriverId IS NULL AND p.signedByDriverId = ?)
+          OR (
+            ? != '' AND LOWER(TRIM(COALESCE(NULLIF(p.assignedDriverName,''), l.driverName))) = LOWER(?)
+            AND (l.carrierId IS ? OR l.orgId IS ? OR l.brokerId IS ?)
+          )
+        ) AND p.status IN ('prepared','awaiting_build') AND p.assignedFulfilledAt IS NULL
+      ORDER BY p.uploadedAt DESC`).all(r.driver.id, r.driver.id, dn, dn.toLowerCase(), org, org, org);
   // For any LOAD the driver is engaged on, also surface its OTHER stops that aren't ready yet (still being
   // set up by dispatch), so a partly-ready multi-stop load clearly shows "Stop X not ready yet".
   const rows = own.slice();
