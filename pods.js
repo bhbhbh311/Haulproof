@@ -232,6 +232,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // "Upload for dispatch": the driver just hands the raw document + PO# to dispatch to set up. It's stored
     // awaiting dispatch, NOT yet ready for the driver to sign, until dispatch marks it ready.
     const forDispatch = /^(dispatch|1|true)$/i.test(String(dec(h['x-pod-build']) || '').trim());
+    console.log('[INGEST] IN po=' + (dec(h['x-pod-po']) || '') + ' prepId=' + (dec(h['x-pod-prepid']) || '') + ' clientId=' + (dec(h['x-pod-clientid']) || '') + ' asPrepared=' + /^(prepared|unsigned|1|true)$/i.test(String(h['x-pod-status'] || h['x-pod-unsigned'] || '').trim()) + ' forDispatch=' + forDispatch + ' driver=' + (dec(h['x-pod-driver']) || '') + ' org=' + (req.org && req.org.id) + ' driverRec=' + (req.driver && req.driver.id));
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
     if (!meta.poNumber) return res.status(422).json({ error: 'PO number required for every document' });
     // A carrier's driver files the signed POD back to the CUSTOMER that owns the assigned load.
@@ -279,7 +280,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     if (meta.clientId) {
       try {
         const dupe = db.prepare(`SELECT id, loadId FROM pods WHERE clientId = ? AND orgId IS ?`).get(meta.clientId, orgId || null);
-        if (dupe) return res.json({ ok: true, podId: dupe.id, loadId: dupe.loadId, duplicate: true });
+        if (dupe) { console.log('[INGEST] DUPLICATE clientId=' + meta.clientId + ' -> existing pod ' + dupe.id + ' (no new doc created)'); return res.json({ ok: true, podId: dupe.id, loadId: dupe.loadId, duplicate: true }); }
       } catch (e) {}
     }
     const id = crypto.randomUUID();
@@ -349,6 +350,10 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       // stop and only ever fulfill that one — a multi-stop load must keep its OTHER stops available to sign.
       if (!prep) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND status = 'prepared' AND (receiverId IS NOT NULL OR stopNumber IS NOT NULL OR salesRepUserId IS NOT NULL) ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
       if (!prep) prep = db.prepare(`SELECT id, receiverId, receiverName, stopNumber, salesRepUserId FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId IS NOT NULL AND assignedFulfilledAt IS NULL ORDER BY uploadedAt DESC LIMIT 1`).get(load.id);
+      try {
+        const preps = db.prepare(`SELECT id, stopNumber, consignee, status FROM pods WHERE loadId = ? AND status = 'prepared'`).all(load.id);
+        console.log('[INGEST] SIGNED po=' + meta.poNumber + ' load=' + load.id + ' (' + load.poNumber + ') sentPrepId=' + prepId + ' matchedPrep=' + (prep ? (prep.id + ' stop' + prep.stopNumber) : 'NONE') + ' preparedStopsOnLoad=' + preps.length + ' [' + preps.map(x => 'stop' + x.stopNumber + ':' + String(x.id).slice(-5)).join(',') + ']');
+      } catch (e) {}
       if (prep) {
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
@@ -440,8 +445,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         }
       }
     } catch (e) {}
+    console.log('[INGEST] DONE pod=' + id + ' load=' + load.id + ' emailed=' + (!!mail.sent));
     res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: allRecipients });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'Ingest failed' }); }
+  } catch (e) { console.error('[INGEST] FAILED', e); res.status(500).json({ error: 'Ingest failed' }); }
 });
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----

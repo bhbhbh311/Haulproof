@@ -1291,6 +1291,9 @@
     if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
     return res.json();
   }
+  // Format a stored epoch (ms) in Central time (the dispatch office zone) with a zone label, so history/event
+  // times read correctly and unambiguously on any device, regardless of the computer's own time-zone setting.
+  function fmtTS(ms){ try{ return new Date(ms).toLocaleString('en-US',{timeZone:'America/Chicago',month:'numeric',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}); }catch(e){ try{ return new Date(ms).toLocaleString(); }catch(_){ return ''; } } }
   // Does the signed-in user have this capability? Admins/super have all; others get role defaults + grants
   // (the effective set the server sends in /api/me as user.capabilities).
   function hasCap(c){ return !!(user && (user.role === 'admin' || user.role === 'superadmin' || ((user.capabilities || []).indexOf(c) > -1))); }
@@ -3411,7 +3414,7 @@
       const r = await api('/api/loads/' + id + '/history');
       if (!r.events.length) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
       box.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
-        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:130px;">${new Date(e.createdAt).toLocaleString()}</div>
+        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:130px;">${fmtTS(e.createdAt)}</div>
         <div><div>${esc(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(e.actor || '')}</div></div>
       </div>`).join('');
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -3427,7 +3430,7 @@
       $('histTitle').textContent = 'History — PO ' + ((r.load && r.load.poNumber) || '');
       if (!r.events || !r.events.length) { body.innerHTML = '<div class="empty">No history recorded yet.</div>'; return; }
       body.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);">
-        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:120px;">${new Date(e.createdAt).toLocaleString()}</div>
+        <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:120px;">${fmtTS(e.createdAt)}</div>
         <div><div>${esc(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(e.actor)}</div>` : ''}</div>
       </div>`).join('');
     } catch (err) { body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }

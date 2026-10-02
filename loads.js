@@ -221,9 +221,15 @@ router.put('/:id', requireAuth, (req, res) => {
     customerText = (b.customer || '').trim() || null;
     customerId = null;
   }
-  db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
-  if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
-  logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
+  // Did anything actually change? Auto-save re-sends the same values on every pause, so only WRITE + LOG when a
+  // field really differs — otherwise the history fills with identical "Load details updated" lines.
+  const changed = (loadNumber !== load.loadNumber) || (consignee !== load.consignee) || (poNumber !== load.poNumber)
+    || (orgIdNew !== load.orgId) || ((customerId || null) !== (load.customerId || null)) || ((customerText || null) !== (load.customer || null));
+  if (changed) {
+    db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
+    if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
+    logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
+  }
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
 });
 
