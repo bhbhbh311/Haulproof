@@ -1893,7 +1893,7 @@ window.__startApp=function(){
 
   function goStage2(){
     scan.stage=2;
-    scan.flat = flattenQuad(scan.workData, scan.wW, scan.wH, scan.corners);
+    scan.flat = buildFlat(scan.workData, scan.wW, scan.wH, scan.corners);   // crop if square, warp only if skewed
     $("scTitle").textContent="Clean it up";
     $("scStep").textContent="Step 2 of 2";
     $("scHint").textContent="Review the scan, then use it.";
@@ -1951,14 +1951,24 @@ window.__startApp=function(){
     var b=e.target.closest ? e.target.closest(".sc-chip") : null; if(!b||!scan) return;
     scan.mode=b.dataset.mode; syncChips(); renderFilterPreview();
   });
-  // "Use whole photo — skip cropping": when the auto edge-detect misses, take the full photo as-is. The whole
-  // page (and all handwriting) is kept; it just skips the deskew. Goes to the quick review, then "Use this scan".
+  // "Use whole photo — skip cropping": one tap takes the ORIGINAL full-resolution photo as-is — NO perspective
+  // warp and NO enhance/sharpen filter, which is what was softening good shots. The page stays exactly as sharp as
+  // the camera captured it (dispatch can crop/clean at their end). Falls back to the old flatten path on any error.
   if($("scWhole")) $("scWhole").addEventListener("click", function(){
     if(!scan) return;
-    // One tap: take the full photo as-is (Auto filter) and finish — no corner dragging, no "Use this scan" review.
-    scan.corners=[{x:0,y:0},{x:scan.wW,y:0},{x:scan.wW,y:scan.wH},{x:0,y:scan.wH}];
     toast("Using whole photo…");
-    setTimeout(function(){ if(!scan) return; scan.flat=flattenQuad(scan.workData,scan.wW,scan.wH,scan.corners); finalizeScan(); }, 20);
+    var src=scan.url;
+    setTimeout(function(){
+      if(!scan) return;
+      normalizeImage(src).then(function(nm){
+        var meta={ orig:scan.url, corners:null, mode:"original", scanned:false, whole:true };
+        var cb=scan.done; closeScan(); if(cb) cb(nm.dataUrl, meta);
+      }).catch(function(){
+        if(!scan) return;
+        scan.corners=[{x:0,y:0},{x:scan.wW,y:0},{x:scan.wW,y:scan.wH},{x:0,y:scan.wH}];
+        scan.flat=flattenQuad(scan.workData,scan.wW,scan.wH,scan.corners); finalizeScan();
+      });
+    }, 20);
   });
 
   // --- geometry + imaging helpers ---
@@ -2036,6 +2046,28 @@ window.__startApp=function(){
   }
 
   // Perspective-flatten the quad into an upright rectangle (color, no enhancement yet).
+  // Is this selection already an upright rectangle (within a small tolerance)? If so we can CROP straight to it
+  // instead of running a perspective warp — a warp resamples every pixel and softens the text, so we only want it
+  // for a genuinely angled/skewed shot.
+  function quadIsStraight(corners){
+    var xs=corners.map(function(c){return c.x;}), ys=corners.map(function(c){return c.y;});
+    var x0=Math.min.apply(null,xs),x1=Math.max.apply(null,xs),y0=Math.min.apply(null,ys),y1=Math.max.apply(null,ys);
+    var bbox=Math.max(1,(x1-x0)*(y1-y0));
+    return (quadArea(corners)/bbox) >= 0.985;   // quad fills ~98.5%+ of its bounding box → effectively square
+  }
+  // Straight crop to the quad's bounding box — no resample/warp, so text stays as crisp as the source.
+  function cropQuadAxisAligned(imgData,W,H,corners){
+    var xs=corners.map(function(c){return c.x;}), ys=corners.map(function(c){return c.y;});
+    var x0=Math.max(0,Math.floor(Math.min.apply(null,xs))), x1=Math.min(W,Math.ceil(Math.max.apply(null,xs)));
+    var y0=Math.max(0,Math.floor(Math.min.apply(null,ys))), y1=Math.min(H,Math.ceil(Math.max.apply(null,ys)));
+    var cw=Math.max(1,x1-x0), ch=Math.max(1,y1-y0);
+    var src=imgData.data, out=new Uint8ClampedArray(cw*ch*4);
+    for(var y=0;y<ch;y++){ var srow=((y+y0)*W + x0)*4, drow=y*cw*4; for(var x=0;x<cw*4;x++){ out[drow+x]=src[srow+x]; } }
+    return {data:out,w:cw,h:ch};
+  }
+  function buildFlat(imgData,W,H,corners){
+    return quadIsStraight(corners) ? cropQuadAxisAligned(imgData,W,H,corners) : flattenQuad(imgData,W,H,corners);
+  }
   function flattenQuad(imgData,W,H,corners){
     var TL=corners[0],TR=corners[1],BR=corners[2],BL=corners[3];
     var outW=Math.max(1,Math.round(Math.max(distPt(TL,TR),distPt(BL,BR))));
