@@ -1336,7 +1336,7 @@ window.__startApp=function(){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     captureMode = false;   // reopening a saved/prepared load → this is the signing screen
-    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("pages").classList.remove("hide"); $("doneActions").classList.add("hide");
     try{ await renderPagesTemplate(bytes, tpl); }catch(e){
       // The prepared file couldn't be rendered (e.g. an old save-for-later whose pages never finished
       // uploading). Fall back to the upload/scan screen so the driver can re-add the document — but KEEP
@@ -1608,7 +1608,8 @@ window.__startApp=function(){
     currentStop=stop;
     $("signCtx").textContent = stop ? ("Delivering · Stop "+stop.n+" — "+stop.name) : "One-off document";
     origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
-    $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
+    $("pages").innerHTML=""; $("pages").classList.remove("hide");   // a prior "Sent to dispatch ✓" screen hides #pages — always re-show it before a new document
+    $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
     $("drop").classList.remove("hide"); $("sampleDocBtn").parentElement.classList.remove("hide");
     if($("uploadTools")) $("uploadTools").classList.remove("hide");
     capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
@@ -2225,7 +2226,7 @@ window.__startApp=function(){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     docPageStops = (pageStops && pageStops.length) ? pageStops : null;
-    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("doneActions").classList.add("hide");
+    $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); $("pages").innerHTML=""; $("pages").classList.remove("hide"); $("doneActions").classList.add("hide");
     captureMode = true;   // a freshly scanned/uploaded doc: review & SAVE first — signing happens on reopen
     try{ await renderPages(bytes); }catch(e){ console.error(e); toast("Couldn't read that PDF"); enterSign(currentStop); return; }
     $("banner").classList.remove("on");                                 // no signing yet — Save is the action
