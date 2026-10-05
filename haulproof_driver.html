@@ -1198,7 +1198,7 @@ window.__startApp=function(){
       enterSign(null);
       $("signCtx").textContent = "Prepared by dispatch · PO "+(d.poNumber||"")+(d.loadNumber?(" · Load "+d.loadNumber):"");
       // Prepared load: fill the details block and lock it (Edit unlocks; Save persists to the load).
-      fillDetails(d); setDetailsMode(false, true); drvLoadCustomers(d.customerId||"");
+      fillDetails(d); setDetailsMode(false, true); drvLoadCustomers(d.customerId||"", d.customerName||"");
       await startDocTemplate(bytes, d.fields||[]);
     }catch(err){ console.error(err); toast("Couldn't open that load"); }
   }
@@ -1499,18 +1499,25 @@ window.__startApp=function(){
   // upload starts editable. "Save details" persists to the load on the server (for a prepared doc).
   var _drvCustomers = [];   // the org's customer list (for the picker), loaded on demand
   function drvHeaders(){ var h={}; var k=currentKey(); if(k) h["X-Api-Key"]=k; var u=loadUnlock(); if(u) h["X-Driver-Unlock"]=u; return h; }
-  function drvRenderCustSel(selectedId){
+  function drvRenderCustSel(selectedId, selectedName){
     var sel=$("drvCustSel"); if(!sel) return;
     sel.innerHTML='';
     var none=document.createElement("option"); none.value=""; none.textContent="— No customer —"; sel.appendChild(none);
     _drvCustomers.forEach(function(c){ var o=document.createElement("option"); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
-    sel.value=(selectedId && _drvCustomers.some(function(c){return c.id===selectedId;}))?selectedId:"";
+    var inList = selectedId && _drvCustomers.some(function(c){return c.id===selectedId;});
+    if(!inList && selectedName){
+      // Dispatch set a customer whose record isn't in this driver's picker list — show its NAME anyway so the
+      // prepared load reflects what dispatch chose, instead of falsely reading "No customer."
+      var o=document.createElement("option"); o.value=selectedId||("__preset__"+selectedName); o.textContent=selectedName; sel.appendChild(o); sel.value=o.value;
+    } else {
+      sel.value=inList?selectedId:"";
+    }
   }
-  async function drvLoadCustomers(selectedId){
-    if(!currentKey() || !serverOrigin() || !online()){ drvRenderCustSel(selectedId); return; }
+  async function drvLoadCustomers(selectedId, selectedName){
+    if(!currentKey() || !serverOrigin() || !online()){ drvRenderCustSel(selectedId, selectedName); return; }
     try{ var r=await fetch(driverApi("/customers"),{headers:drvHeaders()}); var j=await r.json(); _drvCustomers=(j&&j.customers)||[]; }
     catch(e){ _drvCustomers=[]; }
-    drvRenderCustSel(selectedId);
+    drvRenderCustSel(selectedId, selectedName);
   }
   // editing: fields writable. prepared: from dispatch (locked by default, Edit/Save shown).
   function setDetailsMode(editing, prepared){
@@ -2519,13 +2526,13 @@ window.__startApp=function(){
       $("roleChip").textContent="Ready"; $("roleChip").classList.remove("driver");
       $("progText").textContent="Fill any fields, then finish"; $("meterFill").style.width="100%";
       bn.classList.add("done"); $("progSub").textContent="Tap the fields to fill them, then Finish";
-      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); leadOn("nextBtn"); return;
+      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); return;
     }
     var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
     if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); leadOff("nextBtn"); }
-    else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); leadOn("nextBtn"); }
+    else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); btn.classList.add("lead-cta"); }   // always pulse the "sign next" action, not just for first-timers
   }
   $("nextBtn").addEventListener("click", function(){
     if(sigs().length===0){ finish(); return; }

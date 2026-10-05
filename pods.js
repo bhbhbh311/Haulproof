@@ -841,4 +841,19 @@ router.post('/:id/reupload', requireApiKey, raw, (req, res) => {
   res.json({ ok: true, podId: row.id });
 });
 
+// ---- Replace a document's FILE in place (e.g. after cropping its pages on the signature-setup page). ----
+// Clears any placed signature fields, since cropping changes page geometry and old coordinates would be wrong.
+router.post('/:id/replace-file', requireAuth, raw, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (row.status === 'signed' || row.status === 'emailed') return res.status(409).json({ error: 'This document is already signed — its pages can’t be changed.' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
+  if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
+  try { fs.writeFileSync(row.filepath, req.body); } catch (e) { return res.status(500).json({ error: 'Could not save the file' }); }
+  db.prepare(`UPDATE pods SET sizeBytes = ?, fields = '[]', uploadedAt = ? WHERE id = ?`).run(req.body.length, Date.now(), row.id);
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: (row.docType || 'Document') + ' pages cropped by dispatch', actor: req.user.email }); } catch (e) {}
+  res.json({ ok: true });
+});
+
 module.exports = router;

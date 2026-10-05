@@ -4677,7 +4677,7 @@
   let _suppressDocsRerender = false;   // set while injecting a just-added receiver/rep, so in-progress inline edits aren't wiped
   async function loadReceiverOptions(){ try { const d = await api('/api/receivers'); _recvList = d.receivers || []; fillReceiverPickers(_recvList); if (!_suppressDocsRerender && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){} }
   // Team logins for the inline "Sales rep" column, scoped to the load's owning org for a Master Admin.
-  async function loadRepOptions(){ try { const scope = ldScopeOrgId(); if (scope) { const r = await api('/api/users?orgId=' + encodeURIComponent(scope)); _repList = r.users || []; } else { _repList = await getTeamUsers(); } if (!_suppressDocsRerender && $('loadDetailCard') && $('loadDetailCard').classList.contains('editing') && curLoad) renderLoadDocs(_lastPods); } catch(e){ _repList = []; } }
+  async function loadRepOptions(){ try { const scope = ldScopeOrgId(); if (scope) { const r = await api('/api/users?orgId=' + encodeURIComponent(scope)); _repList = r.users || []; } else { _repList = await getTeamUsers(); } /* Re-render the docs table as soon as the rep list arrives — in the read-only view too (not just edit mode), so the Sales Rep column fills in immediately instead of waiting for the next auto-refresh. */ if (!_suppressDocsRerender && $('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && curLoad) renderLoadDocs(_lastPods); } catch(e){ _repList = []; } }
   // Full management list (super-admin).
   async function loadReceivers(){
     const box = $('receiverRows'); if (!box) return;

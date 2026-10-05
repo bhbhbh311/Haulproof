@@ -93,7 +93,7 @@
   .load{max-width:1200px;margin:40px auto;text-align:center;color:var(--muted);}
   /* Read-only preview mode (?view=1): show the doc + placed signature boxes, hide all the editing controls. */
   body.viewonly #signerRow, body.viewonly #fieldRow, body.viewonly #labelRow,
-  body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn,
+  body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn, body.viewonly #cropBtn,
   body.viewonly #armed, body.viewonly #howto, body.viewonly #hint { display:none !important; }
   body.viewonly .fld{ cursor:default; }
   body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
@@ -109,6 +109,7 @@
     <button class="btn" id="applyTplBtn" type="button" style="display:none;" title="Drop this customer's saved signature layout onto the document">↴ Apply saved layout</button>
     <button class="btn ghost" id="saveTplBtn" type="button" title="Save this layout so you can reuse it for this customer next time">☆ Save as layout</button>
     <button class="btn ghost" id="layoutsBtn" type="button" style="display:none;" title="See and manage this customer's saved signature layouts">🗂 Saved layouts</button>
+    <button class="btn ghost" id="cropBtn" type="button" title="Crop the document's pages (e.g. a photo that caught the whole table) before placing signatures">✂ Crop pages</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
   </div>
@@ -166,6 +167,36 @@
 <div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
 <div class="toast" id="toast"></div>
 
+<!-- Crop the document's pages (trim background off a "use whole photo" scan) before placing signatures. -->
+<div id="cropModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:320;align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto;">
+  <div style="background:#fff;border-radius:14px;max-width:880px;width:100%;padding:20px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <h1 style="font-size:18px;margin:0;">✂ Crop pages <span id="cropCount" style="font-size:13px;font-weight:700;color:#1655d1;"></span></h1>
+      <button class="btn ghost" id="cropClose" type="button">✕ Close</button>
+    </div>
+    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Pick a page, drag a box around just the document to trim off the background, then Apply. Save replaces the file and clears any signature boxes (place them after cropping).</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
+      <div style="flex:1 1 360px;min-width:300px;">
+        <div style="position:relative;display:inline-block;max-width:100%;border:1px solid #dde4ec;border-radius:6px;background:#f3f4f6;overflow:hidden;">
+          <canvas id="cropStage" style="display:block;max-width:100%;cursor:crosshair;touch-action:none;"></canvas>
+          <div id="cropSel" style="position:absolute;display:none;border:2px dashed #1655d1;background:rgba(22,85,209,0.14);pointer-events:none;"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn" id="cropApply" type="button" disabled>Apply crop to this page</button>
+          <button class="btn ghost" id="cropReset" type="button">Reset page</button>
+          <span id="cropPageMsg" style="font-size:12.5px;color:#5c6b7a;"></span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn ok" id="cropSave" type="button">Save cropped document</button>
+      <button class="btn ghost" id="cropCancel" type="button">Cancel</button>
+      <span id="cropMsg" style="font-size:13px;font-weight:600;"></span>
+    </div>
+  </div>
+</div>
+
 <!-- Saved-layouts manager (opens over the signature page; closing returns you right here). -->
 <div id="layoutsModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:300;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
   <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
@@ -179,6 +210,7 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="/vendor/pdf.js"></script>
 <script>
 (function(){
@@ -512,6 +544,120 @@
         toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — reuse it next time with “Apply saved layout”.');
       }).catch(function(){ toast('Could not save the layout'); });
   });
+
+  // ===== Crop the document's pages (trim background off a bad "use whole photo" scan) =====
+  var _cropBuf=null,_cropPdf=null,_cropEdits={},_cropPageIdx=0,_cropRect=null,_cropDrag=null;
+  function cropOpen(){
+    if(!DOC_ID) return;
+    if(!window.pdfjsLib||!window.PDFLib){ toast('PDF tools are still loading — try again in a second'); return; }
+    _cropBuf=null;_cropPdf=null;_cropEdits={};_cropPageIdx=0;_cropRect=null;_cropDrag=null;
+    $('#cropMsg').textContent='';$('#cropMsg').style.color='#5c6b7a';$('#cropPageMsg').textContent='';$('#cropCount').textContent='';
+    $('#cropSave').disabled=false;$('#cropSel').style.display='none';$('#cropThumbs').innerHTML='Loading…';
+    $('#cropModal').style.display='flex';
+    fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){ if(!r.ok) throw new Error('Could not open that document.'); return r.arrayBuffer(); }).then(function(buf){
+      _cropBuf=buf; try{ pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.js'; }catch(e){}
+      return pdfjsLib.getDocument({data:buf.slice(0)}).promise;
+    }).then(function(pdf){ _cropPdf=pdf; $('#cropCount').textContent='· '+pdf.numPages+' page'+(pdf.numPages===1?'':'s'); return cropThumbs(); })
+      .then(function(){ return cropShow(0); })
+      .catch(function(e){ $('#cropThumbs').innerHTML=''; $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent=e.message||'Could not load.'; });
+  }
+  function cropThumbs(){
+    var box=$('#cropThumbs'); box.innerHTML=''; var chain=Promise.resolve();
+    for(var pi=0;pi<_cropPdf.numPages;pi++){ (function(pi){
+      chain=chain.then(function(){ return _cropPdf.getPage(pi+1); }).then(function(page){
+        var vp0=page.getViewport({scale:1}), vp=page.getViewport({scale:110/vp0.width});
+        var cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
+        cv.style.cssText='display:block;border:2px solid #dde4ec;border-radius:4px;cursor:pointer;width:100%;';
+        var wrap=document.createElement('div'); wrap.style.cssText='text-align:center;';
+        var lbl=document.createElement('div'); lbl.style.cssText='font-size:11px;color:#5c6b7a;margin-bottom:3px;'; lbl.textContent='Page '+(pi+1);
+        cv.addEventListener('click',function(){ cropShow(pi); });
+        var tag=document.createElement('div'); tag.className='cropTag'; tag.setAttribute('data-idx',String(pi));
+        tag.style.cssText='font-size:10px;margin-top:2px;color:#12784a;font-weight:700;min-height:12px;'; tag.textContent=_cropEdits[pi]?'✓ cropped':'';
+        wrap.appendChild(lbl); wrap.appendChild(cv); wrap.appendChild(tag); box.appendChild(wrap);
+        return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+      });
+    })(pi); }
+    return chain.then(function(){ cropHighlight(); });
+  }
+  function cropHighlight(){ Array.prototype.forEach.call($('#cropThumbs').querySelectorAll('canvas'),function(cv,i){ cv.style.borderColor=(i===_cropPageIdx)?'#1655d1':'#dde4ec'; }); }
+  function cropTags(){ Array.prototype.forEach.call($('#cropThumbs').querySelectorAll('.cropTag'),function(t){ var i=+t.getAttribute('data-idx'); t.textContent=_cropEdits[i]?'✓ cropped':''; }); }
+  function cropShow(pi){
+    _cropPageIdx=pi; _cropRect=null; $('#cropSel').style.display='none'; $('#cropApply').disabled=true;
+    $('#cropPageMsg').textContent=_cropEdits[pi]?'This page is cropped. Drag a new box to re-crop, or Reset page.':'Drag a box around just the document.';
+    var stage=$('#cropStage'), ctx=stage.getContext('2d');
+    return _cropPdf.getPage(pi+1).then(function(page){
+      var vp0=page.getViewport({scale:1}), targetW=Math.min(620,Math.max(320,vp0.width));
+      if(_cropEdits[pi]){
+        return new Promise(function(res){ var img=new Image(); img.onload=function(){ var ratio=(img.naturalHeight||1)/(img.naturalWidth||1); stage.width=targetW; stage.height=Math.max(1,Math.round(targetW*ratio)); ctx.clearRect(0,0,stage.width,stage.height); ctx.drawImage(img,0,0,stage.width,stage.height); res(); }; img.onerror=res; img.src=_cropEdits[pi]; });
+      } else {
+        var scale=targetW/vp0.width, vp=page.getViewport({scale:scale});
+        stage.width=vp.width; stage.height=vp.height; ctx.clearRect(0,0,stage.width,stage.height);
+        return page.render({canvasContext:ctx,viewport:vp}).promise;
+      }
+    }).then(function(){ cropHighlight(); });
+  }
+  $('#cropApply').addEventListener('click',function(){
+    if(!_cropRect||!_cropPdf) return;
+    $('#cropApply').disabled=true; $('#cropPageMsg').textContent='Cropping…';
+    var pi=_cropPageIdx, stage=$('#cropStage');
+    if(_cropEdits[pi]){
+      var sub=document.createElement('canvas'); sub.width=Math.round(_cropRect.w); sub.height=Math.round(_cropRect.h);
+      sub.getContext('2d').drawImage(stage,_cropRect.x,_cropRect.y,_cropRect.w,_cropRect.h,0,0,_cropRect.w,_cropRect.h);
+      _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); cropTags(); cropShow(pi).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop another page.'; });
+    } else {
+      _cropPdf.getPage(pi+1).then(function(page){
+        var vp0=page.getViewport({scale:1}), hvp=page.getViewport({scale:1700/vp0.width});
+        var hc=document.createElement('canvas'); hc.width=hvp.width; hc.height=hvp.height;
+        return page.render({canvasContext:hc.getContext('2d'),viewport:hvp}).promise.then(function(){
+          var kx=hc.width/stage.width, ky=hc.height/stage.height;
+          var sx=_cropRect.x*kx, sy=_cropRect.y*ky, sw=_cropRect.w*kx, sh=_cropRect.h*ky;
+          var sub=document.createElement('canvas'); sub.width=Math.round(sw); sub.height=Math.round(sh);
+          sub.getContext('2d').drawImage(hc,sx,sy,sw,sh,0,0,sw,sh);
+          _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); cropTags(); return cropShow(pi);
+        });
+      }).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop another page.'; }).catch(function(){ $('#cropPageMsg').textContent='Could not crop this page.'; });
+    }
+  });
+  $('#cropReset').addEventListener('click',function(){ delete _cropEdits[_cropPageIdx]; cropTags(); cropShow(_cropPageIdx); });
+  function cropClose(){ $('#cropModal').style.display='none'; _cropBuf=null; _cropPdf=null; _cropEdits={}; _cropRect=null; _cropDrag=null; }
+  $('#cropClose').addEventListener('click',cropClose);
+  $('#cropCancel').addEventListener('click',cropClose);
+  $('#cropModal').addEventListener('click',function(e){ if(e.target===$('#cropModal')) cropClose(); });
+  $('#cropSave').addEventListener('click',function(){
+    if(!_cropBuf) return;
+    if(!Object.keys(_cropEdits).length){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent='Crop at least one page first, or Cancel.'; return; }
+    $('#cropSave').disabled=true; $('#cropMsg').style.color='#5c6b7a'; $('#cropMsg').textContent='Saving…';
+    PDFLib.PDFDocument.load(_cropBuf,{ignoreEncryption:true}).then(function(srcDoc){
+      return PDFLib.PDFDocument.create().then(function(out){
+        var n=srcDoc.getPageCount(), chain=Promise.resolve();
+        for(var pi=0;pi<n;pi++){ (function(pi){ chain=chain.then(function(){
+          if(_cropEdits[pi]){
+            var bytes=Uint8Array.from(atob(_cropEdits[pi].split(',')[1]),function(c){return c.charCodeAt(0);});
+            return out.embedJpg(bytes).then(function(jpg){ var PW=612,PH=792,M=18,pg=out.addPage([PW,PH]); var w=jpg.width,h=jpg.height,sc=Math.min((PW-2*M)/w,(PH-2*M)/h); w*=sc; h*=sc; pg.drawImage(jpg,{x:(PW-w)/2,y:(PH-h)/2,width:w,height:h}); });
+          } else {
+            return out.copyPages(srcDoc,[pi]).then(function(cps){ out.addPage(cps[0]); });
+          }
+        }); })(pi); }
+        return chain.then(function(){ return out.save(); });
+      });
+    }).then(function(outBytes){
+      return fetch('/api/pods/'+DOC_ID+'/replace-file',{method:'POST',credentials:'include',headers:{'Content-Type':'application/pdf'},body:outBytes});
+    }).then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok||j.error) throw new Error(j.error||'Save failed'); return j; }); })
+      .then(function(){ dirty=false; toast('Cropped — reloading the clean document…'); setTimeout(function(){ location.reload(); }, 700); })
+      .catch(function(e){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent=e.message||'Save failed'; $('#cropSave').disabled=false; });
+  });
+  // Drag-to-select on the crop stage (mouse + touch).
+  (function(){
+    var stage=$('#cropStage'), sel=$('#cropSel'); if(!stage||!sel) return;
+    function pt(e){ var r=stage.getBoundingClientRect(); var cx=(e.touches&&e.touches[0]?e.touches[0].clientX:e.clientX), cy=(e.touches&&e.touches[0]?e.touches[0].clientY:e.clientY); var sx=stage.width/r.width, sy=stage.height/r.height; return {x:Math.max(0,Math.min(stage.width,(cx-r.left)*sx)),y:Math.max(0,Math.min(stage.height,(cy-r.top)*sy))}; }
+    function draw(){ if(!_cropRect){ sel.style.display='none'; return; } var r=stage.getBoundingClientRect(); var dx=r.width/stage.width, dy=r.height/stage.height; sel.style.display='block'; sel.style.left=(_cropRect.x*dx)+'px'; sel.style.top=(_cropRect.y*dy)+'px'; sel.style.width=(_cropRect.w*dx)+'px'; sel.style.height=(_cropRect.h*dy)+'px'; }
+    function down(e){ if(!_cropPdf) return; e.preventDefault(); var p=pt(e); _cropDrag=p; _cropRect={x:p.x,y:p.y,w:0,h:0}; draw(); }
+    function mv(e){ if(!_cropDrag) return; e.preventDefault(); var p=pt(e); _cropRect={x:Math.min(_cropDrag.x,p.x),y:Math.min(_cropDrag.y,p.y),w:Math.abs(p.x-_cropDrag.x),h:Math.abs(p.y-_cropDrag.y)}; draw(); }
+    function up(){ if(!_cropDrag) return; _cropDrag=null; if(_cropRect&&_cropRect.w>8&&_cropRect.h>8){ $('#cropApply').disabled=false; } else { _cropRect=null; draw(); } }
+    stage.addEventListener('mousedown',down); window.addEventListener('mousemove',mv); window.addEventListener('mouseup',up);
+    stage.addEventListener('touchstart',down,{passive:false}); stage.addEventListener('touchmove',mv,{passive:false}); stage.addEventListener('touchend',up);
+  })();
+  if($('#cropBtn')) $('#cropBtn').addEventListener('click',cropOpen);
 })();
 </script>
 </body>

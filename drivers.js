@@ -211,7 +211,7 @@ router.get('/my-loads', (req, res) => {
   // does. It still follows a dispatcher reassignment, because that changes the assignment name.
   const dn = (r.driver.name || '').trim();
   const org = r.driver.orgId || null;
-  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
+  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, l.customer AS loadCustomer FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
       WHERE (
           p.assignedDriverId = ?
@@ -229,7 +229,7 @@ router.get('/my-loads', (req, res) => {
   const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
   if (loadIds.length) {
     const ph = loadIds.map(() => '?').join(',');
-    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId FROM pods p
+    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, l.customer AS loadCustomer FROM pods p
         LEFT JOIN loads l ON l.id = p.loadId
         WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build','needs_reupload') AND p.assignedFulfilledAt IS NULL
         ORDER BY (p.stopNumber IS NULL), p.stopNumber ASC, p.uploadedAt ASC`).all(...loadIds);
@@ -249,7 +249,7 @@ router.get('/my-loads', (req, res) => {
   }
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
-    customerId: p.loadCustomerId || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
+    customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
