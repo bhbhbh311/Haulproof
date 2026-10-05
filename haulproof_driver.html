@@ -530,12 +530,12 @@
       <button class="btn ghost sm" id="fileBtn" type="button">📄 Choose PDF / photos</button>
     </div>
     <div class="captray hide" id="capTray">
-      <div class="captray-h"><b id="capCount">0 pages</b><span>Snap each page, then tap “Use these pages” to place your signatures.</span></div>
+      <div class="captray-h"><b id="capCount">0 pages</b><span id="capSub">Snap each page, then tap “Use these pages” to place your signatures.</span></div>
       <div id="capThumbs"></div>
       <div class="rowbtns" style="justify-content:center;">
-        <button class="btn ghost sm" id="capMore" type="button" style="display:none !important;">＋ Add another page</button>
+        <button class="btn ghost sm" id="capMore" type="button">📷 Add another page</button>
         <button class="btn ghost sm" id="capAddStop" type="button" style="display:none !important;">＋ Add a stop</button>
-        <button class="btn primary sm" id="capDone" type="button">✓ Use these pages</button>
+        <button class="btn primary sm" id="capDone" type="button">✓ All documents added</button>
       </div>
     </div>
     <!-- Sample-packet demo box hidden — it confused real drivers. (Kept in the DOM so existing JS references are safe.) -->
@@ -1789,8 +1789,12 @@ window.__startApp=function(){
   function renderCapTray(){
     var tray=$("capTray"), box=$("capThumbs"); tray.classList.remove("hide");
     var multi = capStopCount > 1;
-    var pageWord = capturedPages.length===1?" page":" pages";
-    $("capCount").textContent = capturedPages.length + pageWord + (multi ? (" · " + capStopCount + " stops") : "");
+    var n = capturedPages.length;
+    $("capCount").textContent = n + (n===1?" page added":" pages added") + (multi ? (" · " + capStopCount + " stops") : "");
+    // Guide the driver to add more or finish after each capture.
+    if($("capSub")) $("capSub").textContent = n
+      ? "More documents to load? Tap “Add another page.” Otherwise tap “All documents added” when you’re done."
+      : "Snap each page, then tap “All documents added” when you’re done.";
     box.innerHTML="";
     if(multi){
       var hint=document.createElement("div"); hint.className="caphint";

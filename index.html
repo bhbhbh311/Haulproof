@@ -3012,9 +3012,9 @@
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
   function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _scRect = null; _scDrag = null; }
-  if ($('splitClose')) $('splitClose').onclick = closeSplit;
-  if ($('splitCancel')) $('splitCancel').onclick = closeSplit;
-  if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) closeSplit(); });
+  if ($('splitClose')) $('splitClose').onclick = () => { _wizardResumeKey = null; closeSplit(); };
+  if ($('splitCancel')) $('splitCancel').onclick = () => { _wizardResumeKey = null; closeSplit(); };
+  if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) { _wizardResumeKey = null; closeSplit(); } });
   if ($('splitSave')) $('splitSave').onclick = async () => {
     if (!_splitPod || !_splitBuf || !_splitInputs.length) return;
     // Group pages by the stop number the dispatcher entered, keeping each stop's pages in page order.
@@ -3200,9 +3200,9 @@
       closeCrop(); if (lid) openLoad(lid); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropRejectMsg').textContent = e.message; $('cropRejectMsg').className = 'umsg-err'; $('cropRejectSend').disabled = false; }
   };
-  if ($('cropClose')) $('cropClose').onclick = closeCrop;
-  if ($('cropCancel')) $('cropCancel').onclick = closeCrop;
-  if ($('cropModal')) $('cropModal').addEventListener('click', e => { if (e.target === $('cropModal')) closeCrop(); });
+  if ($('cropClose')) $('cropClose').onclick = () => { _wizardResumeKey = null; closeCrop(); };
+  if ($('cropCancel')) $('cropCancel').onclick = () => { _wizardResumeKey = null; closeCrop(); };
+  if ($('cropModal')) $('cropModal').addEventListener('click', e => { if (e.target === $('cropModal')) { _wizardResumeKey = null; closeCrop(); } });
   if ($('cropSave')) $('cropSave').onclick = async () => {
     if (!_cropPod || !_cropBuf) return;
     if (!Object.keys(_cropEdits).length) { $('cropMsg').textContent = 'Crop at least one page first, or tap Cancel.'; $('cropMsg').className = 'umsg-err'; return; }
@@ -3325,6 +3325,9 @@
   // The steps actually shown — base steps plus a conditional "split into stops" step when the load's document has
   // 2+ pages (so the guide prompts you to break a multi-stop BOL into one document per stop before signatures).
   let _swSteps = SW_STEPS;
+  // When the wizard sends you off to Split, we come back here after the load reloads — resume at this step key
+  // (e.g. 'crop') instead of restarting at step 1. Consumed on the next wizard open.
+  let _wizardResumeKey = null;
   // First document on the load that's still editable AND has 2+ pages — i.e. a candidate to split into stops.
   function splittablePod(){
     var pods = _lastPods || [];
@@ -3369,7 +3372,15 @@
     if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing'))) setLoadEditMode(true);
     try { await annotatePageCounts(_lastPods || []); } catch(e){}   // make sure page counts are known so the split step can appear
     _swSteps = buildSetupSteps();
-    _swIdx = 0; renderSetupStep();
+    _swIdx = 0;
+    // Resume after a split: jump to the saved step (crop) rather than restarting from the PO step.
+    if (_wizardResumeKey) {
+      let ri = _swSteps.findIndex(s => s.key === _wizardResumeKey);
+      if (ri < 0) ri = _swSteps.findIndex(s => s.key === 'finish');
+      if (ri > 0) _swIdx = ri;
+      _wizardResumeKey = null;
+    }
+    renderSetupStep();
     $('setupWizard').classList.remove('hide');
   }
   function closeSetupWizard(){ $('setupWizard').classList.add('hide'); markSetupWizardSeen(); }
@@ -3399,6 +3410,7 @@
       btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
       btn.onclick = () => {
         const pod = (_lastPods || []).find(p => p.id === s.podId);
+        _wizardResumeKey = 'crop';   // after splitting + reload, resume at the crop step (not step 1)
         markSetupWizardSeen(); $('setupWizard').classList.add('hide');
         if (pod) openSplit(pod);
       };
@@ -3413,6 +3425,7 @@
       btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
       btn.onclick = () => {
         const pod = (_lastPods || []).find(p => p.id === s.podId);
+        _wizardResumeKey = 'finish';   // after cropping + reload, resume at signatures (crop's already done)
         markSetupWizardSeen(); $('setupWizard').classList.add('hide');
         if (pod) openCrop(pod);
       };
