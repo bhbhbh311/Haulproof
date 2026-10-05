@@ -1233,7 +1233,7 @@
   <div class="card" style="max-width:460px;width:100%;margin:0;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
       <span id="swStep" style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;"></span>
-      <button class="ghost" id="swClose" type="button" style="padding:4px 10px;font-size:12px;">Close</button>
+      <button class="ghost" id="swClose" type="button" style="padding:4px 10px;font-size:12px;">✕ Exit guide</button>
     </div>
     <h1 id="swTitle" style="font-size:19px;margin:8px 0 4px;"></h1>
     <p class="sub" id="swHelp" style="margin:0 0 12px;"></p>
@@ -2714,9 +2714,10 @@
             ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
             ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
-            : `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>`}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `&nbsp;<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="Split this multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `&nbsp;<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>` : ''}
+            : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="First, split a multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>&nbsp;` : ''}
+          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Next, crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>&nbsp;` : ''}
+          ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Last, set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -3254,17 +3255,31 @@
     }
     return null;
   }
+  // First editable document on the load (any page count) — a candidate to crop.
+  function croppablePod(){
+    var pods = _lastPods || [];
+    for (var i = 0; i < pods.length; i++) {
+      var p = pods[i];
+      if (!p || !p.fileUrl) continue;
+      if (p.status === 'signed' || p.status === 'emailed' || p.status === 'needs_reupload') continue;
+      return p;
+    }
+    return null;
+  }
   function buildSetupSteps(){
     var steps = SW_STEPS.slice();
+    var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
+    if (fi < 0) fi = steps.length;
+    // Correct order: split a multi-stop doc first, then crop a page, then set up signatures.
+    var inserts = [];
     var sp = splittablePod();
-    if (sp) {
-      var n = _pageCountCache[sp.id];
-      var splitStep = { key:'split', title:'More than one stop on this load?', required:false, kind:'split', podId: sp.id,
-        help:'This document has ' + (n || 'multiple') + ' pages. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' };
-      var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
-      if (fi < 0) fi = steps.length;
-      steps.splice(fi, 0, splitStep);   // split comes right before setting up signatures
-    }
+    if (sp) { var n = _pageCountCache[sp.id];
+      inserts.push({ key:'split', title:'More than one stop on this load?', required:false, kind:'split', podId: sp.id,
+        help:'This document has ' + (n || 'multiple') + ' pages. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' }); }
+    var cp = croppablePod();
+    if (cp) { inserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
+        help:'If a photo caught the table or background, crop it down to just the document so it\'s clean before signing. Looks fine? Just continue.' }); }
+    if (inserts.length) steps.splice.apply(steps, [fi, 0].concat(inserts));
     return steps;
   }
   async function openSetupWizard(){
@@ -3309,6 +3324,20 @@
       const note = document.createElement('div');
       note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
       note.textContent = 'All one stop? Tap Next to skip splitting.';
+      body.appendChild(note);
+    } else if (s.kind === 'crop') {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.textContent = '✂ Crop pages';
+      btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+      btn.onclick = () => {
+        const pod = (_lastPods || []).find(p => p.id === s.podId);
+        markSetupWizardSeen(); $('setupWizard').classList.add('hide');
+        if (pod) openCrop(pod);
+      };
+      body.appendChild(btn);
+      const note = document.createElement('div');
+      note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
+      note.textContent = 'Looks fine? Tap Next to skip cropping.';
       body.appendChild(note);
     } else if (s.kind === 'action') {
       const a = $('ldDocs') ? $('ldDocs').querySelector('a.ldSign') : null;
@@ -3366,7 +3395,9 @@
     catch (e) { $('mnMsg').textContent = e.message; $('mnMsg').className = 'umsg-err'; }
   };
   // View → Edit toggle. Edit unlocks every field; one Save writes them all; Cancel discards.
-  if ($('ldEditBtn')) $('ldEditBtn').onclick = () => setLoadEditMode(true);
+  // Editing a load launches the guided wizard, walking the correct order (PO → load → driver → split → crop →
+  // signatures). "Exit guide" drops them onto the normal edit screen to fix just what they need.
+  if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { openSetupWizard(); };
   // Reflect the open load's archived state on the header button (label + tooltip).
   function updateLdArchiveBtn() {
     const b = $('ldArchiveBtn'); if (!b || !curLoad) return;
