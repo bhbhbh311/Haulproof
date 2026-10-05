@@ -2222,6 +2222,7 @@
   let _ldDirty = false;    // true once the user has changed something in the open load's edit form
   let _ldLastSavedDriverId = '';   // last driver id we actually persisted — lets auto-save skip a no-op re-assign
   let _ldSaving = false, _ldPending = false, _ldAutoTimer = null;   // auto-save state (debounce + no overlapping saves)
+  let _swAutoTimer = null;   // pending auto-launch of the guided setup wizard (cleared so stray timers can't reset an open wizard)
   async function openLoad(id, opts) {
     opts = opts || {};
     // Leaving an unsaved edit (Back, or jumping straight to another load) should ask first — don't silently
@@ -2287,7 +2288,7 @@
       window.scrollTo(0, 0);
       // Dropping into setup opens the step-by-step wizard every time (not just the first), so it always guides the
       // correct order. "Exit guide" dismisses it for anyone who'd rather edit by hand.
-      if (_enterSetup) { setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) openSetupWizard(); }, 450); }
+      if (_enterSetup) { clearTimeout(_swAutoTimer); _swAutoTimer = setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && $('setupWizard') && $('setupWizard').classList.contains('hide')) openSetupWizard(); }, 450); }
     } catch (e) { alert(e.message); }
   }
   // Customer control in the load edit. Three modes:
@@ -3351,8 +3352,28 @@
     }
     return null;
   }
+  // The customer <select> that's actually visible for this load (carrier/broker picker, or super-admin account
+  // dropdown). Null when the customer row is hidden (e.g. a load a customer assigned to this carrier).
+  function customerSelectId(){
+    var row = $('ldEditCustomerRow');
+    if (!row || row.classList.contains('hide')) return null;
+    var pickWrap = $('ldEditCustomerPickWrap'), pick = $('ldEditCustomerPick');
+    if (pickWrap && !pickWrap.classList.contains('hide') && pick) return 'ldEditCustomerPick';
+    var sel = $('ldEditCustomer');
+    if (sel && !sel.classList.contains('hide')) return 'ldEditCustomer';
+    return null;
+  }
   function buildSetupSteps(){
     var steps = SW_STEPS.slice();
+    // Customer links the saved signature layout, so prompt it right after the PO # (when the load has a customer
+    // picker at all — some assigned loads don't).
+    var csid = customerSelectId();
+    if (csid) {
+      var pi2 = steps.findIndex(function(st){ return st.key === 'po'; });
+      if (pi2 < 0) pi2 = 0;
+      steps.splice(pi2 + 1, 0, { key:'customer', kind:'select', target: csid, required:false,
+        title:'Customer', help:'Pick the customer this load is for — it\'s what links the saved signature layout, so the signature boxes land in the right spots.' });
+    }
     var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
     if (fi < 0) fi = steps.length;
     // Correct order: split a multi-stop doc first, then crop a page, then set up signatures.
