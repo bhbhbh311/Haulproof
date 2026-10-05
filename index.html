@@ -2644,7 +2644,9 @@
       // New/empty load → open the "add document" area so setup prompts for everything, including the file.
       if ($('ldStopForm') && (!_lastPods || !_lastPods.length)) $('ldStopForm').classList.remove('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
+      if ($('ldEditPo')) $('ldEditPo').classList.toggle('lead-cta', !$('ldEditPo').value.trim());   // pulse the required PO # until it's filled
     } else {
+      if ($('ldEditPo')) $('ldEditPo').classList.remove('lead-cta');       // no pulse in view mode
       if ($('ldDrvSummary')) $('ldDrvSummary').classList.remove('hide');   // view mode: show the driver summary again
       if ($('ldStopForm')) $('ldStopForm').classList.add('hide');
       if ($('ldHistoryWrap')) $('ldHistoryWrap').classList.add('hide');
@@ -3478,6 +3480,8 @@
   // Editing a load launches the guided wizard, walking the correct order (PO → load → driver → split → crop →
   // signatures). "Exit guide" drops them onto the normal edit screen to fix just what they need.
   if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { openSetupWizard(); };
+  // Stop pulsing the Customer PO # the moment something is typed (and resume if it's cleared).
+  if ($('ldEditPo')) $('ldEditPo').addEventListener('input', () => { $('ldEditPo').classList.toggle('lead-cta', $('loadDetailCard').classList.contains('editing') && !$('ldEditPo').value.trim()); });
   // Reflect the open load's archived state on the header button (label + tooltip).
   function updateLdArchiveBtn() {
     const b = $('ldArchiveBtn'); if (!b || !curLoad) return;
