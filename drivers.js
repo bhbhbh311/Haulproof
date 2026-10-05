@@ -211,8 +211,9 @@ router.get('/my-loads', (req, res) => {
   // does. It still follows a dispatcher reassignment, because that changes the assignment name.
   const dn = (r.driver.name || '').trim();
   const org = r.driver.orgId || null;
-  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, l.customer AS loadCustomer FROM pods p
+  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
+      LEFT JOIN customers c ON c.id = l.customerId
       WHERE (
           p.assignedDriverId = ?
           OR (p.assignedDriverId IS NULL AND p.signedByDriverId = ?)
@@ -229,8 +230,9 @@ router.get('/my-loads', (req, res) => {
   const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
   if (loadIds.length) {
     const ph = loadIds.map(() => '?').join(',');
-    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, l.customer AS loadCustomer FROM pods p
+    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
         LEFT JOIN loads l ON l.id = p.loadId
+        LEFT JOIN customers c ON c.id = l.customerId
         WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build','needs_reupload') AND p.assignedFulfilledAt IS NULL
         ORDER BY (p.stopNumber IS NULL), p.stopNumber ASC, p.uploadedAt ASC`).all(...loadIds);
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });

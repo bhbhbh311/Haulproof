@@ -166,6 +166,7 @@
   .tab.dragging{animation:none;cursor:grabbing;opacity:.92;}
   .tab.muted{animation:none;opacity:.42;cursor:default;}
   .tab.signed{background:transparent !important;border:none !important;animation:none;box-shadow:none;}
+  .tab.signed .rsz{display:none !important;}   /* no resize handle on a completed signature — it was the stray blue square */
   .tab.current{outline:3px solid var(--primary);outline-offset:3px;animation:currentPulse 1.1s ease-in-out infinite;z-index:6;}
   .tab.current::after{content:"👆 Tap here to sign";position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);background:var(--primary);color:#fff;font-family:"Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;letter-spacing:.01em;padding:4px 9px;border-radius:9px;white-space:nowrap;box-shadow:0 3px 10px rgba(16,42,82,.35);pointer-events:none;}
   .tab.current::before{content:"";position:absolute;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--primary);pointer-events:none;}
