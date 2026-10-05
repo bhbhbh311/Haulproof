@@ -2883,6 +2883,112 @@
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
     } catch (e) {}
   }
+  // Build (or rebuild) the page grid in the split modal. prevStops preserves stop-number inputs across a rebuild
+  // (e.g. after cropping a page). Each page gets Enlarge + "✂ Crop this page" controls.
+  function buildSplitGrid(defaultStop, prevStops) {
+    const box = $('splitPages'); box.innerHTML = ''; _splitInputs = [];
+    const pdf = _splitPdf; if (!pdf) return Promise.resolve();
+    if ($('splitCount')) $('splitCount').textContent = '· ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's');
+    if (pdf.numPages < 2) {
+      box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>✂ Crop</b> or <b>Edit</b> on the document instead.</div>';
+      if ($('splitSave')) $('splitSave').disabled = true; return Promise.resolve();
+    }
+    if ($('splitSave')) $('splitSave').disabled = false;
+    const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;';
+    let chain = Promise.resolve();
+    for (let pi = 0; pi < pdf.numPages; pi++) { (function (pi) {
+      chain = chain.then(() => pdf.getPage(pi + 1)).then(page => {
+        const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 120 / vp0.width });
+        const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
+        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;';
+        canvas.addEventListener('click', () => showSplitZoom(pi));
+        const wrap = document.createElement('div'); wrap.style.cssText = 'width:120px;text-align:center;';
+        const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
+        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:10px;color:var(--primary);margin-top:3px;cursor:zoom-in;'; zhint.textContent = '🔍 Enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
+        const chint = document.createElement('div'); chint.style.cssText = 'font-size:10px;color:#b42318;margin-top:2px;cursor:pointer;font-weight:700;'; chint.textContent = '✂ Crop this page'; chint.addEventListener('click', () => cropSplitPage(pi));
+        const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
+        const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1';
+        inp.value = (prevStops && prevStops[pi] != null) ? prevStops[pi] : String(defaultStop || 1);
+        inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
+        row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
+        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(chint); wrap.appendChild(row); grid.appendChild(wrap);
+        _splitInputs.push({ pageIdx: pi, inp });
+        return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      });
+    })(pi); }
+    return chain.then(() => { box.appendChild(grid); });
+  }
+  // Crop one page WHILE splitting: draw a box on an enlarged page, replace that page in the in-memory buffer, and
+  // re-render the grid (keeping each page's stop number). No separate upload — "Create stops" uses the cropped buffer.
+  let _scRect = null, _scDrag = null;
+  async function cropSplitPage(pi) {
+    if (!_splitPdf) return;
+    let ov = $('splitCrop');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'splitCrop';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.92);z-index:10070;display:none;flex-direction:column;align-items:center;justify-content:center;padding:14px;gap:12px;';
+      ov.innerHTML = '<div style="color:#fff;font-size:14px;font-weight:700;">Drag a box around just the document, then Apply</div>' +
+        '<div style="position:relative;display:inline-block;max-width:96vw;max-height:76vh;overflow:hidden;border-radius:6px;background:#fff;">' +
+        '<canvas id="scStage" style="display:block;max-width:96vw;max-height:76vh;cursor:crosshair;touch-action:none;"></canvas>' +
+        '<div id="scSel" style="position:absolute;display:none;border:2px dashed #4da3ff;background:rgba(77,163,255,.18);pointer-events:none;"></div></div>' +
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;">' +
+        '<button class="btn" id="scApply" type="button" disabled>Apply crop</button>' +
+        '<button class="btn ghost" id="scCancel" type="button" style="background:#fff;">Cancel</button>' +
+        '<span id="scMsg" style="color:#fff;font-size:12.5px;"></span></div>';
+      document.body.appendChild(ov);
+      const stage = ov.querySelector('#scStage'), sel = ov.querySelector('#scSel');
+      const pt = (e) => { const r = stage.getBoundingClientRect(); const cx = (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX), cy = (e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY); const sx = stage.width / r.width, sy = stage.height / r.height; return { x: Math.max(0, Math.min(stage.width, (cx - r.left) * sx)), y: Math.max(0, Math.min(stage.height, (cy - r.top) * sy)) }; };
+      const draw = () => { if (!_scRect) { sel.style.display = 'none'; return; } const r = stage.getBoundingClientRect(); const dx = r.width / stage.width, dy = r.height / stage.height; sel.style.display = 'block'; sel.style.left = (_scRect.x * dx) + 'px'; sel.style.top = (_scRect.y * dy) + 'px'; sel.style.width = (_scRect.w * dx) + 'px'; sel.style.height = (_scRect.h * dy) + 'px'; };
+      const down = (e) => { e.preventDefault(); const p = pt(e); _scDrag = p; _scRect = { x: p.x, y: p.y, w: 0, h: 0 }; draw(); };
+      const mv = (e) => { if (!_scDrag) return; e.preventDefault(); const p = pt(e); _scRect = { x: Math.min(_scDrag.x, p.x), y: Math.min(_scDrag.y, p.y), w: Math.abs(p.x - _scDrag.x), h: Math.abs(p.y - _scDrag.y) }; draw(); };
+      const up = () => { if (!_scDrag) return; _scDrag = null; if (_scRect && _scRect.w > 8 && _scRect.h > 8) $('scApply').disabled = false; else { _scRect = null; draw(); } };
+      stage.addEventListener('mousedown', down); window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+      stage.addEventListener('touchstart', down, { passive: false }); stage.addEventListener('touchmove', mv, { passive: false }); stage.addEventListener('touchend', up);
+      $('scCancel').addEventListener('click', () => { ov.style.display = 'none'; });
+      $('scApply').addEventListener('click', () => applySplitCrop());
+    }
+    ov._pageIdx = pi; _scRect = null; _scDrag = null; $('scSel').style.display = 'none'; $('scApply').disabled = true; $('scMsg').textContent = '';
+    ov.style.display = 'flex';
+    const stage = $('scStage'), ctx = stage.getContext('2d');
+    const page = await _splitPdf.getPage(pi + 1); const vp0 = page.getViewport({ scale: 1 });
+    const targetW = Math.min(900, Math.round(window.innerWidth * 0.9));
+    const vp = page.getViewport({ scale: targetW / vp0.width });
+    stage.width = vp.width; stage.height = vp.height; ctx.clearRect(0, 0, stage.width, stage.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  }
+  async function applySplitCrop() {
+    const ov = $('splitCrop'); if (!ov || !_scRect || !_splitPdf) return;
+    const pi = ov._pageIdx, stage = $('scStage');
+    $('scApply').disabled = true; $('scMsg').textContent = 'Cropping…';
+    try {
+      const page = await _splitPdf.getPage(pi + 1); const vp0 = page.getViewport({ scale: 1 });
+      const hvp = page.getViewport({ scale: 1700 / vp0.width });
+      const hc = document.createElement('canvas'); hc.width = hvp.width; hc.height = hvp.height;
+      await page.render({ canvasContext: hc.getContext('2d'), viewport: hvp }).promise;
+      const kx = hc.width / stage.width, ky = hc.height / stage.height;
+      const sub = document.createElement('canvas'); sub.width = Math.round(_scRect.w * kx); sub.height = Math.round(_scRect.h * ky);
+      sub.getContext('2d').drawImage(hc, _scRect.x * kx, _scRect.y * ky, _scRect.w * kx, _scRect.h * ky, 0, 0, sub.width, sub.height);
+      const dataUrl = sub.toDataURL('image/jpeg', 0.9);
+      const srcDoc = await PDFLib.PDFDocument.load(_splitBuf, { ignoreEncryption: true });
+      const out = await PDFLib.PDFDocument.create();
+      const n = srcDoc.getPageCount();
+      for (let i = 0; i < n; i++) {
+        if (i === pi) {
+          const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), c => c.charCodeAt(0));
+          const jpg = await out.embedJpg(bytes);
+          const PW = 612, PH = 792, M = 18, pg = out.addPage([PW, PH]);
+          let w = jpg.width, h = jpg.height; const sc = Math.min((PW - 2 * M) / w, (PH - 2 * M) / h); w *= sc; h *= sc;
+          pg.drawImage(jpg, { x: (PW - w) / 2, y: (PH - h) / 2, width: w, height: h });
+        } else { const [cp] = await out.copyPages(srcDoc, [i]); out.addPage(cp); }
+      }
+      const outBytes = await out.save();
+      _splitBuf = outBytes;
+      _splitPdf = await pdfjsLib.getDocument({ data: outBytes.slice(0) }).promise;
+      const prev = {}; _splitInputs.forEach(it => { prev[it.pageIdx] = it.inp.value; });
+      await buildSplitGrid(null, prev);
+      ov.style.display = 'none';
+    } catch (e) { $('scMsg').textContent = 'Could not crop this page.'; $('scApply').disabled = false; }
+  }
   async function openSplit(p) {
     if (!p) return;
     if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
@@ -2899,38 +3005,11 @@
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
       _splitPdf = pdf;
-      box.innerHTML = '';
-      // Make the page count obvious right where you split — in the title and the instructions.
-      if ($('splitCount')) $('splitCount').textContent = '· ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's');
-      if ($('splitSub')) $('splitSub').textContent = 'This document has ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') + '. Set the stop number under each page — pages with the same stop number are combined into one document for that stop.';
-      if (pdf.numPages < 2) {
-        box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>Edit</b> on the document to change its stop number instead.</div>';
-        if ($('splitSave')) $('splitSave').disabled = true;
-        return;
-      }
-      const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;';
-      for (let pi = 0; pi < pdf.numPages; pi++) {
-        const page = await pdf.getPage(pi + 1);
-        const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 120 / vp0.width });
-        const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
-        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;';
-        canvas.title = 'Click to enlarge';
-        try { await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise; } catch (e) {}
-        canvas.addEventListener('click', () => showSplitZoom(pi));
-        const wrap = document.createElement('div'); wrap.style.cssText = 'width:120px;text-align:center;';
-        const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
-        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:10px;color:var(--primary);margin-top:3px;cursor:zoom-in;'; zhint.textContent = '🔍 Tap to enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
-        const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
-        const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(p.stopNumber || 1);
-        inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
-        row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
-        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(row); grid.appendChild(wrap);
-        _splitInputs.push({ pageIdx: pi, inp });
-      }
-      box.appendChild(grid);
+      if ($('splitSub')) $('splitSub').textContent = 'This document has ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') + '. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Tap “✂ Crop this page” to trim a bad photo before splitting.';
+      await buildSplitGrid(p.stopNumber, null);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
-  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; }
+  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _scRect = null; _scDrag = null; }
   if ($('splitClose')) $('splitClose').onclick = closeSplit;
   if ($('splitCancel')) $('splitCancel').onclick = closeSplit;
   if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) closeSplit(); });
