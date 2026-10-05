@@ -2285,8 +2285,9 @@
       setLoadEditMode(_enterSetup);
       _ldDirty = false;   // fresh load view: nothing changed yet
       window.scrollTo(0, 0);
-      // First-timers dropping into setup get the step-by-step wizard once; after that they use the "Guide me" button.
-      if (_enterSetup && !setupWizardSeen()) { setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) openSetupWizard(); }, 450); }
+      // Dropping into setup opens the step-by-step wizard every time (not just the first), so it always guides the
+      // correct order. "Exit guide" dismisses it for anyone who'd rather edit by hand.
+      if (_enterSetup) { setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) openSetupWizard(); }, 450); }
     } catch (e) { alert(e.message); }
   }
   // Customer control in the load edit. Three modes:
