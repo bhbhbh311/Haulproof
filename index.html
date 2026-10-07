@@ -2223,6 +2223,7 @@
   let _ldLastSavedDriverId = '';   // last driver id we actually persisted — lets auto-save skip a no-op re-assign
   let _ldSaving = false, _ldPending = false, _ldAutoTimer = null;   // auto-save state (debounce + no overlapping saves)
   let _swAutoTimer = null;   // pending auto-launch of the guided setup wizard (cleared so stray timers can't reset an open wizard)
+  let _croppedLoadIds = {};  // loads where a crop was already applied this session (split-crop or crop tool) — skip the wizard's crop prompt
   async function openLoad(id, opts) {
     opts = opts || {};
     // Leaving an unsaved edit (Back, or jumping straight to another load) should ask first — don't silently
@@ -2283,12 +2284,18 @@
       // waiting, or the caller asked for setup) — no hunting for the Edit button.
       const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
       const _enterSetup = !!((opts && opts.setup) || _needsSetup);
-      setLoadEditMode(_enterSetup);
+      // Returning from the signature page mid-walk? Consume the flag and, if stops still need signatures, resume
+      // the wizard straight at the signatures step (pointed at the next stop) instead of restarting at step 1.
+      let _resumeSign = false;
+      try { if (curLoad && localStorage.getItem('hp_resume_sign') === curLoad.id) { _resumeSign = true; localStorage.removeItem('hp_resume_sign'); } } catch(e){}
+      const _pendingSign = (r.pods || []).some(p => p && p.fileUrl && p.status === 'awaiting_build');
+      if (_resumeSign && _pendingSign) _wizardResumeKey = 'finish';
+      setLoadEditMode(_enterSetup || (_resumeSign && _pendingSign));
       _ldDirty = false;   // fresh load view: nothing changed yet
       window.scrollTo(0, 0);
       // Dropping into setup opens the step-by-step wizard every time (not just the first), so it always guides the
       // correct order. "Exit guide" dismisses it for anyone who'd rather edit by hand.
-      if (_enterSetup) { clearTimeout(_swAutoTimer); _swAutoTimer = setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && $('setupWizard') && $('setupWizard').classList.contains('hide')) openSetupWizard(); }, 450); }
+      if (_enterSetup || (_resumeSign && _pendingSign)) { clearTimeout(_swAutoTimer); _swAutoTimer = setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && $('setupWizard') && $('setupWizard').classList.contains('hide')) openSetupWizard(); }, 450); }
     } catch (e) { alert(e.message); }
   }
   // Customer control in the load edit. Three modes:
@@ -2990,6 +2997,7 @@
       const prev = {}; _splitInputs.forEach(it => { prev[it.pageIdx] = it.inp.value; });
       await buildSplitGrid(null, prev);
       ov.style.display = 'none';
+      if (curLoad) _croppedLoadIds[curLoad.id] = true;   // a page was cropped here — don't re-prompt crop in the wizard
     } catch (e) { $('scMsg').textContent = 'Could not crop this page.'; $('scApply').disabled = false; }
   }
   async function openSplit(p) {
@@ -3244,6 +3252,7 @@
       if (drvId) { try { const j = await res.json(); if (j && j.podId) await api('/api/pods/' + j.podId + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: drvId }) }); } catch (e) {} }
       // Remove the original, marked as a replacement so the driver isn't told their upload was cancelled.
       await api('/api/pods/' + p.id + '?replaced=1', { method: 'DELETE' });
+      if (curLoad) _croppedLoadIds[curLoad.id] = true;   // cropped — don't re-prompt crop in the wizard
       closeCrop(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropMsg').textContent = e.message; $('cropMsg').className = 'umsg-err'; $('cropSave').disabled = false; }
   };
@@ -3383,8 +3392,19 @@
       inserts.push({ key:'split', title:'More than one stop on this load?', required:false, kind:'split', podId: sp.id,
         help:'This document has ' + (n || 'multiple') + ' pages. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' }); }
     var cp = croppablePod();
-    if (cp) { inserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
+    var alreadyCropped = curLoad && _croppedLoadIds[curLoad.id];
+    if (cp && !alreadyCropped) { inserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
         help:'If a photo caught the table or background, crop it down to just the document so it\'s clean before signing. Looks fine? Just continue.' }); }
+    // Delivered to (receiver) + Sales rep — set on the first stop's row. These live per-stop in the docs table,
+    // so they come after any split; the first document's row is what the step writes to.
+    var firstRecv = function(){ return $('ldDocs') ? $('ldDocs').querySelector('.ldRecvEdit') : null; };
+    var firstRep  = function(){ return $('ldDocs') ? $('ldDocs').querySelector('.ldRepEdit')  : null; };
+    if (firstRecv()) { inserts.push({ key:'delivered', title:'Delivered to', required:false, kind:'select', targetEl: firstRecv,
+        emptyText:'— no receivers yet —',
+        help:'Who is this stop delivered to? Pick the receiver (or add one). You can set a different one per stop in the table afterward.' }); }
+    if (firstRep())  { inserts.push({ key:'salesrep', title:'Sales rep', required:false, kind:'select', targetEl: firstRep,
+        emptyText:'— no sales reps yet —',
+        help:'Which sales rep owns this load? They\'ll be credited on the paperwork. Skip if it doesn\'t apply.' }); }
     if (inserts.length) steps.splice.apply(steps, [fi, 0].concat(inserts));
     return steps;
   }
@@ -3405,6 +3425,20 @@
     $('setupWizard').classList.remove('hide');
   }
   function closeSetupWizard(){ $('setupWizard').classList.add('hide'); markSetupWizardSeen(); }
+  // The step key that follows `key` in the current step list — so a modal step (split/crop) resumes at whatever
+  // actually comes next after the load reloads, instead of a hard-coded step that might have moved or vanished.
+  function nextStepKeyAfter(key){
+    var i = _swSteps.findIndex(function(s){ return s.key === key; });
+    if (i >= 0 && i + 1 < _swSteps.length) return _swSteps[i + 1].key;
+    return 'finish';
+  }
+  // Documents still waiting on a signature layout (driver/dispatch upload not yet prepared), in stop order.
+  // Once a stop's signatures are saved it becomes 'prepared' and drops out — that's how the wizard walks stop to stop.
+  function pendingSignPods(){
+    return (_lastPods || [])
+      .filter(function(p){ return p && p.fileUrl && p.status === 'awaiting_build'; })
+      .sort(function(a, b){ return (a.stopNumber || 0) - (b.stopNumber || 0); });
+  }
   function renderSetupStep(){
     const s = _swSteps[_swIdx]; if (!s) { closeSetupWizard(); return; }
     $('swStep').textContent = 'Step ' + (_swIdx + 1) + ' of ' + _swSteps.length;
@@ -3421,9 +3455,13 @@
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('swNext').click(); } });
     } else if (s.kind === 'select') {
       const sel = document.createElement('select'); sel.id = 'swInput'; sel.style.cssText = 'width:100%;box-sizing:border-box;';
-      const src = $(s.target);
-      if (src) { sel.innerHTML = src.innerHTML; sel.value = src.value; }
-      else { sel.innerHTML = '<option value="">— no drivers available —</option>'; }
+      const src = s.targetEl ? s.targetEl() : $(s.target);
+      if (src) {
+        sel.innerHTML = src.innerHTML; sel.value = src.value;
+        // Drop the inline "＋ Add new…" choice from the wizard copy — adding is done in the table, not here.
+        const addOpt = sel.querySelector('option[value="__add__"]'); if (addOpt) addOpt.remove();
+      }
+      else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
     } else if (s.kind === 'split') {
       const btn = document.createElement('button');
@@ -3431,7 +3469,7 @@
       btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
       btn.onclick = () => {
         const pod = (_lastPods || []).find(p => p.id === s.podId);
-        _wizardResumeKey = 'crop';   // after splitting + reload, resume at the crop step (not step 1)
+        _wizardResumeKey = nextStepKeyAfter('split');   // after splitting + reload, resume at the next step (not step 1)
         markSetupWizardSeen(); $('setupWizard').classList.add('hide');
         if (pod) openSplit(pod);
       };
@@ -3446,7 +3484,7 @@
       btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
       btn.onclick = () => {
         const pod = (_lastPods || []).find(p => p.id === s.podId);
-        _wizardResumeKey = 'finish';   // after cropping + reload, resume at signatures (crop's already done)
+        _wizardResumeKey = nextStepKeyAfter('crop');   // after cropping + reload, resume at the next step (crop's done)
         markSetupWizardSeen(); $('setupWizard').classList.add('hide');
         if (pod) openCrop(pod);
       };
@@ -3456,21 +3494,41 @@
       note.textContent = 'Looks fine? Tap Next to skip cropping.';
       body.appendChild(note);
     } else if (s.kind === 'action') {
-      const a = $('ldDocs') ? $('ldDocs').querySelector('a.ldSign') : null;
-      if (a) {
+      // Walk signatures stop by stop: target the next document that still needs a layout. After it's saved on the
+      // signature page it returns here (auto-reopened) pointed at the following stop, until every stop is set up.
+      const pend = pendingSignPods();
+      if (pend.length) {
+        const pod = pend[0];
+        const total = pendingSignPods().length;
+        $('swTitle').textContent = total > 1 ? ('Set up signatures — Stop ' + (pod.stopNumber || 1)) : 'Set up the signatures';
+        $('swHelp').textContent = total > 1
+          ? ('Place the signature boxes on Stop ' + (pod.stopNumber || 1) + '’s document. When you save, you’ll come right back here for the next stop. ' + total + ' stops still need signatures.')
+          : s.help;
         const btn = document.createElement('button');
-        btn.type = 'button'; btn.textContent = '✍ Set up signatures now';
+        btn.type = 'button'; btn.textContent = total > 1 ? ('✍ Set up signatures — Stop ' + (pod.stopNumber || 1)) : '✍ Set up signatures now';
         btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
-        btn.onclick = () => { markSetupWizardSeen(); $('setupWizard').classList.add('hide'); a.click(); };
+        btn.onclick = () => {
+          markSetupWizardSeen(); $('setupWizard').classList.add('hide');
+          // Remember to resume the signature walk after the full-page reload back from /prepare.
+          try { localStorage.setItem('hp_resume_sign', curLoad ? curLoad.id : ''); } catch(e){}
+          const href = '/prepare?id=' + encodeURIComponent(pod.id);
+          // Mirror the ldSign click path: if there are unsaved edits, save first so the signature page sees them.
+          if ($('loadDetailCard').classList.contains('editing') && _ldDirty) {
+            saveLoadEdits().then(function(){ window.location.href = href; }).catch(function(){ window.location.href = href; });
+          } else { window.location.href = href; }
+        };
         body.appendChild(btn);
         const note = document.createElement('div');
         note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
         note.textContent = 'Or tap Finish to come back to this later — the document stays on the load.';
         body.appendChild(note);
       } else {
+        const anyDoc = (_lastPods || []).some(p => p && p.fileUrl);
         const note = document.createElement('div');
         note.className = 'sub'; note.style.cssText = 'font-size:13px;';
-        note.innerHTML = 'There\'s no document on this load yet. Close this and use <b>＋ Add stop / documents</b> to upload one, then set up its signatures — or have the driver upload it from their phone.';
+        if (anyDoc) { $('swTitle').textContent = 'All set';
+          note.innerHTML = '✓ Every stop on this load is set up. Tap Finish to close the guide.'; }
+        else { note.innerHTML = 'There\'s no document on this load yet. Close this and use <b>＋ Add stop / documents</b> to upload one, then set up its signatures — or have the driver upload it from their phone.'; }
         body.appendChild(note);
       }
     }
@@ -3482,7 +3540,7 @@
   function commitSetupStep(){
     const s = _swSteps[_swIdx]; if (!s) return true;
     if (s.kind === 'text' || s.kind === 'select') {
-      const inp = $('swInput'); const src = $(s.target);
+      const inp = $('swInput'); const src = s.targetEl ? s.targetEl() : $(s.target);
       const val = inp ? inp.value.trim() : '';
       if (s.required && !val) { $('swMsg').textContent = 'This one\'s required to save the load.'; if (inp) inp.focus(); return false; }
       if (src && inp) { src.value = inp.value; src.dispatchEvent(new Event('input', { bubbles: true })); src.dispatchEvent(new Event('change', { bubbles: true })); }
