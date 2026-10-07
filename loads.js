@@ -108,7 +108,7 @@ router.get('/', requireAuth, (req, res) => {
      SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done,
      SUM(CASE WHEN status = 'awaiting_build' THEN 1 ELSE 0 END) AS awaiting,
      SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared
-     FROM pods WHERE loadId = ?`);
+     FROM pods WHERE loadId = ? AND status != 'parked'`);
   const out = rows.map(l => {
     const o = { ...loadOut(l), lastEvent: lastEv.get(l.id) || null };
     const ps = podStat.get(l.id); o.complete = !!(ps && ps.total > 0 && Number(ps.done) === Number(ps.total));
@@ -129,7 +129,7 @@ router.get('/', requireAuth, (req, res) => {
 router.get('/:id', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
-  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
+  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
@@ -314,7 +314,7 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
   // If every stop on this load is already signed/emailed, the load is complete — the driver can't be changed.
   // (A partially-complete load can still be reassigned: only its unsigned stops get restamped below.)
   try {
-    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`).get(load.id);
+    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status != 'parked'`).get(load.id);
     if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) return res.status(409).json({ error: 'Every stop on this load is already signed and completed — the driver can no longer be changed.' });
   } catch (e) {}
   let driverName = (req.body && req.body.driverName || '').trim();

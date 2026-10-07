@@ -213,6 +213,12 @@ addColumn('pods', 'rejectedPage', 'INTEGER');   // 1-based page the dispatcher a
 addColumn('pods', 'rejectReason', 'TEXT');      // why it was rejected (shown to the driver)
 addColumn('pods', 'rejectedAt', 'INTEGER');     // when it was rejected
 addColumn('pods', 'rejectedBy', 'TEXT');        // dispatcher email who rejected it
+// "Set aside" — when the dispatcher sends a page back to the driver to re-shoot, a snapshot of the current
+// document can be kept on the load as a parked copy (status='parked'). It's never sent to a driver and isn't an
+// active option; the dispatcher must restore it to put it back in play if the re-shoot isn't usable.
+addColumn('pods', 'parkedReason', 'TEXT');      // why it was set aside (dispatcher's note / the reject reason)
+addColumn('pods', 'parkedAt', 'INTEGER');       // when it was set aside
+addColumn('pods', 'parkedFromPodId', 'TEXT');   // the live pod this snapshot was taken from (the one sent back to the driver)
 addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
 // Backfill roles for existing orgs from their single kind.
 try {

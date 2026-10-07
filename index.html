@@ -374,6 +374,7 @@
               <div id="cropRejectForm" class="hide" style="margin-top:8px;max-width:460px;">
                 <label style="font-size:12px;color:var(--muted);">What's wrong with this page? (the driver sees this)</label>
                 <input id="cropRejectReason" type="text" placeholder="e.g. too blurry to read / cut off at the bottom" style="width:100%;box-sizing:border-box;margin-top:4px;">
+                <label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-top:8px;cursor:pointer;"><input type="checkbox" id="cropRejectKeep" checked style="width:auto;margin-top:2px;"><span>Keep this version set aside on the load, in case the re-shoot isn't any better. It won't be active or sent to the driver.</span></label>
                 <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                   <button id="cropRejectSend" type="button" style="background:#b42318;">Send back to driver</button>
                   <button class="ghost" id="cropRejectCancel" type="button">Cancel</button>
@@ -2682,9 +2683,47 @@
     const box = $('ldDocs'); if (!box) return;
     box.querySelectorAll('.ldRepEdit').forEach(sel => { if (!sel.value) { sel.value = def; sel.dataset.prev = def; } });
   }
-  function renderLoadDocs(pods) {
+  // Append the "Set aside" section (parked docs kept when a page was sent back to re-shoot) under the docs table.
+  // Parked docs are not active and are never sent to a driver; the dispatcher restores one to put it back in play.
+  function appendParkedSection(box, parkedPods, editing) {
+    if (!parkedPods || !parkedPods.length) return;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface2,#f7f9fc);';
+    wrap.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:2px;">🗂 Set aside — kept in case a re-shoot isn\'t better</div>'
+      + '<div class="sub" style="font-size:12px;margin-bottom:10px;">These aren\'t active and aren\'t sent to the driver. Tap <b>Use this document</b> to put one back in play, then set it up.</div>';
+    parkedPods.forEach(p => {
+      const when = p.parkedAt ? new Date(p.parkedAt).toLocaleDateString() : '';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);';
+      row.innerHTML = '<div style="flex:1;min-width:180px;font-size:13px;">'
+        + '<span style="font-weight:600;">' + esc(p.filename || 'Document') + '</span>'
+        + (p.stopNumber ? ' <span style="color:var(--muted);">· Stop ' + p.stopNumber + '</span>' : '')
+        + (when ? ' <span style="color:var(--muted);">· set aside ' + esc(when) + '</span>' : '')
+        + (p.parkedReason ? '<div style="color:var(--muted);font-size:12px;margin-top:2px;">' + esc(p.parkedReason) + '</div>' : '')
+        + '</div>'
+        + '<a class="dl" href="' + p.fileUrl + '" target="_blank" rel="noopener" style="font-size:12.5px;">Open ↗</a>'
+        + '<button class="btn-ok btn-sm ldParkRestore" data-id="' + p.id + '" type="button" title="Put this document back in play as an active document to set up">↩ Use this document</button>'
+        + '<button class="ghost btn-sm ldParkRemove" data-id="' + p.id + '" data-name="' + esc(p.filename || 'this document') + '" type="button" style="color:var(--danger);border-color:var(--danger);">Remove</button>';
+      wrap.appendChild(row);
+    });
+    box.appendChild(wrap);
+    box.querySelectorAll('.ldParkRestore').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try { await api('/api/pods/' + b.dataset.id + '/restore-parked', { method: 'POST', body: '{}' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); }
+      catch (e) { b.disabled = false; alert(e.message || 'Could not restore'); }
+    });
+    box.querySelectorAll('.ldParkRemove').forEach(b => b.onclick = () => {
+      confirmDialog({ title: 'Remove this set-aside document?', message: 'This permanently removes “' + (b.dataset.name || 'this document') + '” from the load. It can\'t be undone.', okLabel: 'Yes, remove', onOk: async () => {
+        try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); }
+        catch (e) { alert(e.message || 'Could not remove'); }
+      } });
+    });
+  }
+  function renderLoadDocs(allPods) {
     const box = $('ldDocs'); if (!box) return;
     const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
+    const parkedPods = (allPods || []).filter(p => p && p.status === 'parked');
+    const pods = (allPods || []).filter(p => !p || p.status !== 'parked');
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
     if (!pods.length) {
@@ -2702,6 +2741,7 @@
         if ($('ldStopForm')) $('ldStopForm').classList.remove('hide');
         if ($('ldStop')) { $('ldStop').value = addBtn.dataset.stop || '1'; $('ldStop').focus(); }
       };
+      appendParkedSection(box, parkedPods, editing);
       return;
     }
     box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Sales rep</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -2776,6 +2816,7 @@
       };
     });
     wireInlineRepSelects(box);
+    appendParkedSection(box, parkedPods, editing);
     annotatePageCounts(pods);
   }
   // Show each document's page count next to its filename, and only reveal "Split into stops" when a document
@@ -2946,7 +2987,8 @@
         + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="srTitle">Ask the driver to re-shoot this page?</div>'
         + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends the page back to the driver’s phone to photograph again. The document stays on this load as “waiting on driver” until they re-upload it.</div>'
         + '<label style="font-size:12px;color:var(--muted);">What’s wrong? <span style="font-weight:400;">(optional — the driver sees this)</span></label>'
-        + '<textarea id="srReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 12px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
+        + '<textarea id="srReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 10px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
+        + '<label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="srKeep" checked style="width:auto;margin-top:2px;"><span>Keep this version set aside on the load, in case the re-shoot isn’t any better. It won’t be active or sent to the driver — you can put it back later.</span></label>'
         + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
         + '<button class="btn ghost" id="srCancel" type="button" style="background:#fff;">Cancel</button>'
         + '<button class="btn" id="srSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,#b42318);color:#fff;">✗ Send back to driver</button>'
@@ -2958,9 +3000,10 @@
         if (!_splitPod) return;
         const pageNo = (ov._pageIdx || 0) + 1;
         const reason = ($('srReason').value || '').trim();
+        const keep = !!($('srKeep') && $('srKeep').checked);
         $('srSend').disabled = true; $('srMsg').className = ''; $('srMsg').textContent = 'Sending…';
         try {
-          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason }) });
+          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason, keep }) });
           const lid = curLoad && curLoad.id;
           _wizardResumeKey = null;
           ov.style.display = 'none';
@@ -3254,9 +3297,10 @@
     if (!_cropPod) return;
     const page = _cropPageIdx + 1;
     const reason = ($('cropRejectReason').value || '').trim();
+    const keep = !!($('cropRejectKeep') && $('cropRejectKeep').checked);
     $('cropRejectSend').disabled = true; $('cropRejectMsg').className = ''; $('cropRejectMsg').textContent = 'Sending…';
     try {
-      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason }) });
+      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason, keep }) });
       const lid = curLoad && curLoad.id;
       closeCrop(); if (lid) openLoad(lid); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropRejectMsg').textContent = e.message; $('cropRejectMsg').className = 'umsg-err'; $('cropRejectSend').disabled = false; }
@@ -3396,7 +3440,7 @@
     for (var i = 0; i < pods.length; i++) {
       var p = pods[i];
       if (!p || !p.fileUrl) continue;
-      if (p.status === 'signed' || p.status === 'emailed') continue;
+      if (p.status === 'signed' || p.status === 'emailed' || p.status === 'parked') continue;
       var n = _pageCountCache[p.id];
       if (n != null && n >= 2) return p;
     }
@@ -3408,7 +3452,7 @@
     for (var i = 0; i < pods.length; i++) {
       var p = pods[i];
       if (!p || !p.fileUrl) continue;
-      if (p.status === 'signed' || p.status === 'emailed' || p.status === 'needs_reupload') continue;
+      if (p.status === 'signed' || p.status === 'emailed' || p.status === 'needs_reupload' || p.status === 'parked') continue;
       return p;
     }
     return null;

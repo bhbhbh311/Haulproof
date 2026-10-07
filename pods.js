@@ -183,7 +183,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (load) { or.push(`TRIM(pods.loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
     rows = db.prepare(`SELECT pods.* FROM pods JOIN loads ON loads.id = pods.loadId
-      WHERE ${where.join(' AND ')} ORDER BY (pods.status='prepared') DESC, (pods.stopNumber IS NULL), pods.stopNumber ASC, pods.uploadedAt ASC`).all(...args);
+      WHERE ${where.join(' AND ')} AND pods.status != 'parked' ORDER BY (pods.status='prepared') DESC, (pods.stopNumber IS NULL), pods.stopNumber ASC, pods.uploadedAt ASC`).all(...args);
   } else {
     const orgId = reqOrgId(req);
     const where = [`orgId IS ?`], args = [orgId];
@@ -191,7 +191,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (po) { or.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
     if (load) { or.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
-    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} ORDER BY (status='prepared') DESC, (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(...args);
+    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} AND status != 'parked' ORDER BY (status='prepared') DESC, (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(...args);
   }
   if (!rows.length) return res.status(404).json({ error: 'No document found for that PO # / Load #' });
   // A driver signs the prepared docs. Return every prepared stop so they can sign each one; if none are
@@ -436,7 +436,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     } catch (e) {}
     // If this signature completed the WHOLE load (every doc signed/emailed), notify the Always-notify team — once.
     try {
-      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ?`).get(load.id);
+      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status != 'parked'`).get(load.id);
       if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
         const lr = db.prepare(`SELECT completeNotifiedAt FROM loads WHERE id = ?`).get(load.id);
         if (!lr || !lr.completeNotifiedAt) {
@@ -804,10 +804,33 @@ router.post('/:id/reject-page', requireAuth, express.json(), (req, res) => {
   const drvId = row.assignedDriverId || row.signedByDriverId || null;
   const drvName = row.assignedDriverName || (load && load.driverName) || null;
   if (!drvId && !drvName) return res.status(409).json({ error: 'Assign a driver to this load first, so they can re-shoot the page.' });
+  // Optionally keep the CURRENT version on the load as a "set aside" snapshot, in case the re-shoot isn't any
+  // better. The snapshot is a separate parked pod (status='parked') with its own file copy — never sent to a
+  // driver, not an active document — that the dispatcher can restore later.
+  const keep = /^(1|true|yes)$/i.test(String((req.body && req.body.keep) || ''));
+  if (keep) {
+    try {
+      const newId = crypto.randomUUID();
+      const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
+      if (row.filepath && fs.existsSync(row.filepath)) {
+        fs.copyFileSync(row.filepath, newPath);
+        let sz = row.sizeBytes || 0; try { sz = fs.statSync(newPath).size; } catch (e) {}
+        const parkName = String(row.filename || 'document.pdf').replace(/\.pdf$/i, '') + ' (set aside).pdf';
+        db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, parkedReason, parkedAt, parkedFromPodId, uploadedAt)
+           VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'parked',@parkedReason,@parkedAt,@parkedFromPodId,@uploadedAt)`)
+          .run({ id: newId, orgId: row.orgId || null, loadId: row.loadId || null, loadNumber: row.loadNumber || null,
+            poNumber: row.poNumber || null, consignee: row.consignee || null, receiverId: row.receiverId || null,
+            receiverName: row.receiverName || null, stopNumber: row.stopNumber || null, salesRepUserId: row.salesRepUserId || null,
+            docType: row.docType || 'BOL', filename: parkName, filepath: newPath, sizeBytes: sz,
+            signedAt: Date.now(), parkedReason: reason || 'Set aside when page ' + page + ' was sent back to re-shoot',
+            parkedAt: Date.now(), parkedFromPodId: row.id, uploadedAt: Date.now() });
+      }
+    } catch (e) { console.error('park snapshot', e.message); }
+  }
   db.prepare(`UPDATE pods SET status = 'needs_reupload', rejectedPage = ?, rejectReason = ?, rejectedAt = ?, rejectedBy = ?, assignedFulfilledAt = NULL WHERE id = ?`)
     .run(page, reason || null, Date.now(), req.user.email || null, row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
-    detail: 'Page ' + page + ' sent back to the driver to re-shoot' + (reason ? ': ' + reason : ''), actor: req.user.email }); } catch (e) {}
+    detail: 'Page ' + page + ' sent back to the driver to re-shoot' + (reason ? ': ' + reason : '') + (keep ? ' (previous version set aside)' : ''), actor: req.user.email }); } catch (e) {}
   // Leave the driver an in-app notice as well.
   try {
     if (drvId) db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
@@ -854,6 +877,20 @@ router.post('/:id/replace-file', requireAuth, raw, (req, res) => {
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
     detail: (row.docType || 'Document') + ' pages cropped by dispatch', actor: req.user.email }); } catch (e) {}
   res.json({ ok: true });
+});
+
+// ---- RESTORE a "set aside" (parked) document back into play. Dispatcher-only, explicit action. ----
+// Parked docs are never sent to a driver; restoring makes it an active awaiting_build document the dispatcher can
+// then crop / split / set up signatures on as normal. Nothing reaches the driver until they do that.
+router.post('/:id/restore-parked', requireAuth, express.json(), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'parked') return res.status(409).json({ error: 'This document isn’t set aside.' });
+  // Bring it back as a dispatch-side document to set up; never auto-assign a driver here.
+  db.prepare(`UPDATE pods SET status = 'awaiting_build', parkedReason = NULL, parkedAt = NULL, assignedDriverId = NULL, assignedDriverName = NULL, assignedFulfilledAt = NULL WHERE id = ?`).run(row.id);
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: (row.docType || 'Document') + ' restored from set-aside' + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : ''), actor: req.user.email }); } catch (e) {}
+  res.json({ ok: true, podId: row.id });
 });
 
 module.exports = router;
