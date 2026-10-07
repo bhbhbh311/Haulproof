@@ -2916,17 +2916,67 @@
         const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
         const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:10px;color:var(--primary);margin-top:3px;cursor:zoom-in;'; zhint.textContent = '🔍 Enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
         const chint = document.createElement('div'); chint.style.cssText = 'font-size:10px;color:#b42318;margin-top:2px;cursor:pointer;font-weight:700;'; chint.textContent = '✂ Crop this page'; chint.addEventListener('click', () => cropSplitPage(pi));
+        const rhint = document.createElement('div'); rhint.style.cssText = 'font-size:10px;color:#b42318;margin-top:2px;cursor:pointer;'; rhint.textContent = '⚠ Can\'t use — re-shoot'; rhint.title = 'Send this page back to the driver to photograph again'; rhint.addEventListener('click', () => rejectSplitPagePrompt(pi));
         const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
         const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1';
         inp.value = (prevStops && prevStops[pi] != null) ? prevStops[pi] : String(defaultStop || 1);
         inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
         row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
-        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(chint); wrap.appendChild(row); grid.appendChild(wrap);
+        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(chint); wrap.appendChild(rhint); wrap.appendChild(row); grid.appendChild(wrap);
         _splitInputs.push({ pageIdx: pi, inp });
         return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
       });
     })(pi); }
     return chain.then(() => { box.appendChild(grid); });
+  }
+  // Reject a page WHILE splitting and bounce it back to the driver to re-shoot. The split screen is often the first
+  // place a dispatcher sees a page large enough to judge — so if it's unusable (even after a crop attempt), send it
+  // back from here instead of having to back out to the document list first. Rejects page (pi+1) of the ORIGINAL doc.
+  async function rejectSplitPagePrompt(pi) {
+    if (!_splitPod) return;
+    if (!_splitPod.assignedDriverId && !(curLoad && curLoad.driverName)) {
+      alert('Assign a driver to this load first (under Driver & equipment), so they can re-shoot the page.');
+      return;
+    }
+    let ov = $('splitReject');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'splitReject';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.6);z-index:10090;display:none;align-items:center;justify-content:center;padding:16px;';
+      ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:430px;width:100%;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.4);">'
+        + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="srTitle">Ask the driver to re-shoot this page?</div>'
+        + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends the page back to the driver’s phone to photograph again. The document stays on this load as “waiting on driver” until they re-upload it.</div>'
+        + '<label style="font-size:12px;color:var(--muted);">What’s wrong? <span style="font-weight:400;">(optional — the driver sees this)</span></label>'
+        + '<textarea id="srReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 12px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
+        + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
+        + '<button class="btn ghost" id="srCancel" type="button" style="background:#fff;">Cancel</button>'
+        + '<button class="btn" id="srSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,#b42318);color:#fff;">✗ Send back to driver</button>'
+        + '</div><div id="srMsg" style="font-size:12.5px;margin-top:8px;"></div></div>';
+      document.body.appendChild(ov);
+      $('srCancel').addEventListener('click', () => { ov.style.display = 'none'; });
+      ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
+      $('srSend').addEventListener('click', async () => {
+        if (!_splitPod) return;
+        const pageNo = (ov._pageIdx || 0) + 1;
+        const reason = ($('srReason').value || '').trim();
+        $('srSend').disabled = true; $('srMsg').className = ''; $('srMsg').textContent = 'Sending…';
+        try {
+          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason }) });
+          const lid = curLoad && curLoad.id;
+          _wizardResumeKey = null;
+          ov.style.display = 'none';
+          if ($('splitCrop')) $('splitCrop').style.display = 'none';
+          if ($('splitZoom')) $('splitZoom').style.display = 'none';
+          closeSplit();
+          if (lid) openLoad(lid);
+          if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
+        } catch (e) { $('srMsg').textContent = e.message; $('srMsg').className = 'umsg-err'; $('srSend').disabled = false; }
+      });
+    }
+    ov._pageIdx = pi;
+    $('srTitle').textContent = 'Ask the driver to re-shoot page ' + (pi + 1) + '?';
+    $('srReason').value = ''; $('srMsg').textContent = ''; $('srMsg').className = ''; $('srSend').disabled = false;
+    ov.style.display = 'flex';
+    setTimeout(() => { try { $('srReason').focus(); } catch (e) {} }, 50);
   }
   // Crop one page WHILE splitting: draw a box on an enlarged page, replace that page in the in-memory buffer, and
   // re-render the grid (keeping each page's stop number). No separate upload — "Create stops" uses the cropped buffer.
@@ -2944,6 +2994,7 @@
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;">' +
         '<button class="btn" id="scApply" type="button" disabled>Apply crop</button>' +
         '<button class="btn ghost" id="scCancel" type="button" style="background:#fff;">Cancel</button>' +
+        '<button class="btn ghost" id="scReject" type="button" style="background:#fff;color:var(--danger,#b42318);border-color:var(--danger,#b42318);" title="This page is unusable — send it back to the driver to re-shoot">⚠ Can\'t use it — re-shoot</button>' +
         '<span id="scMsg" style="color:#fff;font-size:12.5px;"></span></div>';
       document.body.appendChild(ov);
       const stage = ov.querySelector('#scStage'), sel = ov.querySelector('#scSel');
@@ -2956,6 +3007,7 @@
       stage.addEventListener('touchstart', down, { passive: false }); stage.addEventListener('touchmove', mv, { passive: false }); stage.addEventListener('touchend', up);
       $('scCancel').addEventListener('click', () => { ov.style.display = 'none'; });
       $('scApply').addEventListener('click', () => applySplitCrop());
+      if ($('scReject')) $('scReject').addEventListener('click', () => rejectSplitPagePrompt(ov._pageIdx || 0));
     }
     ov._pageIdx = pi; _scRect = null; _scDrag = null; $('scSel').style.display = 'none'; $('scApply').disabled = true; $('scMsg').textContent = '';
     ov.style.display = 'flex';
