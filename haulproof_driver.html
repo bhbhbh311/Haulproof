@@ -3047,11 +3047,11 @@ window.__startApp=function(){
     function goHome(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; _compBytes=null; finishStart(); }
     btn.addEventListener("click", goHome);
     function startHomeCountdown(){ var secs=5; cd.textContent="Returning to Home in "+secs+"s…"; timer=setInterval(function(){ secs--; if(secs<=0){ goHome(); } else { cd.textContent="Returning to Home in "+secs+"s…"; } },1000); }
-    // Multi-stop load: after THIS stop uploads, check the server for any OTHER stop on the same PO still needing
-    // signing, and open that EXACT stop next (no stale stop-picker, no re-signing the one just done). Only when a
-    // real next stop exists do we skip the auto-return — otherwise it behaves exactly as before.
+    // Multi-stop load: the driver still has to DRIVE to the next stop, so we never auto-open it or push them to
+    // sign it now — that stop is signed on arrival. We just return to Home. If there are other stops still open on
+    // this PO we note it (so they know to come back), but the only action here is Home; the open stops are waiting
+    // for them on the Home screen when they arrive.
     if(poNum && wasOnline && serverOrigin()){
-      cd.textContent="Checking for the next stop…";
       (async function(){
         try{
           var key=currentKey(), hdr={"X-Api-Key":key}; var u=loadUnlock(); if(u) hdr["X-Driver-Unlock"]=u;
@@ -3060,22 +3060,12 @@ window.__startApp=function(){
           var remaining=loads.filter(function(d){ return d.poNumber===poNum && !d.awaiting; });
           if(done) return;
           if(remaining.length){
-            if(timer){ clearInterval(timer); timer=null; }
-            p.textContent = remaining.length+" more stop"+(remaining.length>1?"s":"")+" on this load still need"+(remaining.length>1?"":"s")+" signing.";
-            function openNext(){ if(done) return; done=true; if(timer) clearInterval(timer); if(ov&&ov.parentNode) ov.remove(); window.__hpBusy=false; holdPodId=null; _compBytes=null; openPreparedDoc(remaining[0]); }
-            var nb=document.createElement("button"); nb.className="btn primary block"; nb.style.cssText="max-width:280px;font-size:17px;margin-top:6px;"; nb.textContent="✍ Sign the next stop";
-            nb.addEventListener("click", openNext);
-            ov.insertBefore(nb, btn);
-            btn.textContent="Not now — back to Home";
-            btn.className="btn ghost block";
-            // Match the driver's habit of waiting: the countdown OPENS the next stop automatically (not Home), so
-            // waiting lands them on stop 2 to finish it — tapping the button just does it sooner.
-            var nsecs=5; cd.textContent="Opening the next stop in "+nsecs+"s…";
-            timer=setInterval(function(){ nsecs--; if(nsecs<=0){ openNext(); } else if(!done){ cd.textContent="Opening the next stop in "+nsecs+"s…"; } },1000);
-          } else { startHomeCountdown(); }
-        }catch(e){ if(!done) startHomeCountdown(); }
+            p.textContent = remaining.length+" more stop"+(remaining.length>1?"s":"")+" on this load — sign "+(remaining.length>1?"them":"it")+" when you arrive. "+(remaining.length>1?"They're":"It's")+" waiting on your Home screen.";
+          }
+        }catch(e){}
       })();
-    } else { startHomeCountdown(); }
+    }
+    startHomeCountdown();
   }
   function buildEmailBox(){
     var box=document.createElement("div"); box.className="emailbox";

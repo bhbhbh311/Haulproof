@@ -1447,6 +1447,7 @@
   // FINE — that's exactly when a dispatcher is watching one PO and wants it live — we just skip the refresh for a
   // few seconds right after a keystroke so we don't re-query mid-type; loadLoads() re-runs the same filter.
   var _lSearchTypedAt = 0;
+  var _lastLoadsRefreshAt = 0;   // when loadLoads last ran — lets us detect a list that went stale while the tab was idle
   function loadsAutoRefreshOK() {
     try {
       if (document.hidden) return false;
@@ -1479,9 +1480,21 @@
     } catch (e) {}
   }
   function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); }
-  setInterval(autoRefreshTick, 25000);                                   // poll every 25s while viewing loads/detail
+  setInterval(autoRefreshTick, 12000);                                   // poll every 12s while the tab is awake
   document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshTick(); });
   window.addEventListener('focus', autoRefreshTick);                     // and the moment the window regains focus
+  // Chrome FREEZES timers in a backgrounded tab — so the 12s poll stops while you're away and the list can sit stale
+  // for as long as you're gone (an hour, a day). focus/visibilitychange don't always fire on wake (e.g. the tab was
+  // already the active one when the computer slept). Safety net: the instant you touch the page again, if the list
+  // has gone stale (>10s since the last pull) refresh it right then — so a glance after a long break is never old.
+  var _staleKick = function () {
+    try { if ((Date.now() - _lastLoadsRefreshAt) > 10000) autoRefreshTick(); } catch (e) {}
+  };
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+    document.addEventListener(ev, _staleKick, { passive: true, capture: true });
+  });
+  // bfcache restore (back/forward, or the browser restoring the page after reclaiming it) always refreshes.
+  window.addEventListener('pageshow', function (e) { if (e && e.persisted) autoRefreshTick(); });
   // --- Section tabs across the top (Documents / Loads / Drivers / Team logins / Companies / Requests) ---
   // Cards are grouped; the active tab shows its group and hides the others, so the main
   // Documents view isn't buried under the management sections. Role logic still decides
@@ -2068,6 +2081,7 @@
   }
   async function loadLoads() {
     _inTrashView = false;
+    _lastLoadsRefreshAt = Date.now();   // mark the attempt so the "stale after idle" guard knows when we last pulled
     maybeShowDashWelcome();
     const box = $('loadList'); const q = $('lSearch') ? $('lSearch').value.trim() : '';
     try {
