@@ -1241,8 +1241,32 @@ window.__startApp=function(){
     var pg=(_reup&&_reup.page)||1;
     if($("signCtx")) $("signCtx").innerHTML='🔴 Re-shoot page '+pg+' — PO '+esc(d.poNumber||"")+
       (d.rejectReason?('<div style="color:#b5731a;font-weight:600;margin-top:4px;">Dispatch: '+esc(d.rejectReason)+'</div>'):'')+
-      '<div style="color:var(--muted);font-weight:400;margin-top:4px;">Take a clear new photo of this page, then tap “Use these pages.” The rest of the document stays as-is.</div>';
+      '<div style="color:var(--muted);font-weight:400;margin-top:4px;">This is the exact page dispatch couldn’t use — shown below. Take a clear new photo of it, then tap “Use these pages.” The rest of the document stays as-is.</div>';
     showView("sign");
+    renderReupPreview();   // show the actual rejected page so the driver knows exactly which one to re-shoot
+  }
+  // Render the flagged page from the original document as a reference image on the re-shoot screen.
+  async function renderReupPreview(){
+    try{
+      var host=$("pages"); if(!host) return;
+      host.innerHTML='';
+      if(!_reup || !_reup.orig || !window.pdfjsLib) return;
+      var box=document.createElement("div"); box.style.cssText="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 12px;";
+      var cap=document.createElement("div"); cap.style.cssText="font-size:13px;font-weight:700;color:#b42318;text-align:center;"; cap.textContent="Page "+((_reup.page)||1)+" — the one to re-shoot";
+      box.appendChild(cap);
+      try{ pdfjsLib.GlobalWorkerOptions.workerSrc="/vendor/pdf.worker.js"; }catch(e){}
+      var pdf=await pdfjsLib.getDocument({data:_reup.orig.slice(0)}).promise;   // slice: keep _reup.orig intact for the rebuild
+      var idx=Math.max(1, Math.min(pdf.numPages, _reup.page||1));
+      var page=await pdf.getPage(idx);
+      var vp0=page.getViewport({scale:1});
+      var w=Math.min(280, Math.round((window.innerWidth||360)*0.72));
+      var vp=page.getViewport({scale:w/vp0.width});
+      var cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+      cv.style.cssText="border:3px solid #b42318;border-radius:10px;max-width:74vw;background:#fff;box-shadow:0 6px 20px rgba(0,0,0,.18);";
+      box.appendChild(cv);
+      host.appendChild(box);
+      await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+    }catch(e){}
   }
   // Build the corrected PDF (original with the flagged page swapped for the new shot) and send it back.
   async function finishReupload(){

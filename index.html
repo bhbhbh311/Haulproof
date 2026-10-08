@@ -2993,11 +2993,11 @@
         const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
         canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;';
         canvas.addEventListener('click', () => showSplitZoom(pi));
-        const wrap = document.createElement('div'); wrap.style.cssText = 'width:120px;text-align:center;';
+        const wrap = document.createElement('div'); wrap.style.cssText = 'width:132px;text-align:center;';
         const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
-        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:10px;color:var(--primary);margin-top:3px;cursor:zoom-in;'; zhint.textContent = '🔍 Enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
-        const chint = document.createElement('div'); chint.style.cssText = 'font-size:10px;color:#b42318;margin-top:2px;cursor:pointer;font-weight:700;'; chint.textContent = '✂ Crop this page'; chint.addEventListener('click', () => cropSplitPage(pi));
-        const rhint = document.createElement('div'); rhint.style.cssText = 'font-size:10px;color:#b42318;margin-top:2px;cursor:pointer;'; rhint.textContent = '⚠ Can\'t use — re-shoot'; rhint.title = 'Send this page back to the driver to photograph again'; rhint.addEventListener('click', () => rejectSplitPagePrompt(pi));
+        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:11px;color:var(--primary);margin-top:8px;padding:5px 2px;cursor:zoom-in;font-weight:600;'; zhint.textContent = '🔍 Enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
+        const chint = document.createElement('div'); chint.style.cssText = 'font-size:11px;color:var(--primary);margin-top:6px;padding:5px 2px;cursor:pointer;font-weight:600;border-top:1px solid var(--line);'; chint.textContent = '✂ Crop this page'; chint.addEventListener('click', () => cropSplitPage(pi));
+        const rhint = document.createElement('div'); rhint.style.cssText = 'font-size:11px;color:#b42318;margin-top:6px;padding:5px 2px;cursor:pointer;font-weight:600;border-top:1px solid var(--line);'; rhint.textContent = '⚠ Can\'t use — re-shoot'; rhint.title = 'Send this page back to the driver to photograph again'; rhint.addEventListener('click', () => rejectSplitPagePrompt(pi));
         const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
         const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1';
         inp.value = (prevStops && prevStops[pi] != null) ? prevStops[pi] : String(defaultStop || 1);
@@ -3013,6 +3013,22 @@
   // Reject a page WHILE splitting and bounce it back to the driver to re-shoot. The split screen is often the first
   // place a dispatcher sees a page large enough to judge — so if it's unusable (even after a crop attempt), send it
   // back from here instead of having to back out to the document list first. Rejects page (pi+1) of the ORIGINAL doc.
+  // Build a one-page PDF (just the rejected page) from an in-memory document buffer and store it as the "set aside"
+  // copy, so the parked doc holds only the rejected image — not the whole document.
+  async function parkRejectedPage(podId, buf, pageIdx, reason) {
+    if (!podId || !buf || !window.PDFLib) return false;
+    try {
+      const src = await PDFLib.PDFDocument.load(buf, { ignoreEncryption: true });
+      const idx = Math.max(0, Math.min(src.getPageCount() - 1, pageIdx || 0));
+      const out = await PDFLib.PDFDocument.create();
+      const [pg] = await out.copyPages(src, [idx]); out.addPage(pg);
+      const bytes = await out.save();
+      const headers = { 'Content-Type': 'application/pdf', 'X-Page': String(idx + 1), 'X-Reason': encodeURIComponent(reason || '') };
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      const res = await fetch('/api/pods/' + podId + '/park-page', { method: 'POST', credentials: 'include', headers, body: bytes });
+      return res.ok;
+    } catch (e) { return false; }
+  }
   async function rejectSplitPagePrompt(pi) {
     if (!_splitPod) return;
     if (!_splitPod.assignedDriverId && !(curLoad && curLoad.driverName)) {
@@ -3024,26 +3040,27 @@
       ov = document.createElement('div'); ov.id = 'splitReject';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.6);z-index:10090;display:none;align-items:center;justify-content:center;padding:16px;';
       ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:430px;width:100%;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.4);">'
-        + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="srTitle">Ask the driver to re-shoot this page?</div>'
+        + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="rspTitle">Ask the driver to re-shoot this page?</div>'
         + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends the page back to the driver’s phone to photograph again. The document stays on this load as “waiting on driver” until they re-upload it.</div>'
         + '<label style="font-size:12px;color:var(--muted);">What’s wrong? <span style="font-weight:400;">(optional — the driver sees this)</span></label>'
-        + '<textarea id="srReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 10px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
-        + '<label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="srKeep" checked style="width:auto;margin-top:2px;"><span>Keep this version set aside on the load, in case the re-shoot isn’t any better. It won’t be active or sent to the driver — you can put it back later.</span></label>'
+        + '<textarea id="rspReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 10px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
+        + '<label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="rspKeep" checked style="width:auto;margin-top:2px;"><span>Keep this page set aside on the load, in case the re-shoot isn’t any better. It won’t be active or sent to the driver — you can put it back later.</span></label>'
         + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
-        + '<button class="btn ghost" id="srCancel" type="button" style="background:#fff;">Cancel</button>'
-        + '<button class="btn" id="srSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,#b42318);color:#fff;">✗ Send back to driver</button>'
-        + '</div><div id="srMsg" style="font-size:12.5px;margin-top:8px;"></div></div>';
+        + '<button class="btn ghost" id="rspCancel" type="button" style="background:#fff;">Cancel</button>'
+        + '<button class="btn" id="rspSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,#b42318);color:#fff;">✗ Send back to driver</button>'
+        + '</div><div id="rspMsg" style="font-size:12.5px;margin-top:8px;"></div></div>';
       document.body.appendChild(ov);
-      $('srCancel').addEventListener('click', () => { ov.style.display = 'none'; });
+      $('rspCancel').addEventListener('click', () => { ov.style.display = 'none'; });
       ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
-      $('srSend').addEventListener('click', async () => {
+      $('rspSend').addEventListener('click', async () => {
         if (!_splitPod) return;
         const pageNo = (ov._pageIdx || 0) + 1;
-        const reason = ($('srReason').value || '').trim();
-        const keep = !!($('srKeep') && $('srKeep').checked);
-        $('srSend').disabled = true; $('srMsg').className = ''; $('srMsg').textContent = 'Sending…';
+        const reason = ($('rspReason').value || '').trim();
+        const keep = !!($('rspKeep') && $('rspKeep').checked);
+        $('rspSend').disabled = true; $('rspMsg').className = ''; $('rspMsg').textContent = 'Sending…';
         try {
-          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason, keep }) });
+          if (keep) { $('rspMsg').textContent = 'Setting the page aside…'; await parkRejectedPage(_splitPod.id, _splitBuf, ov._pageIdx || 0, reason); $('rspMsg').textContent = 'Sending…'; }
+          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason }) });
           const lid = curLoad && curLoad.id;
           _wizardResumeKey = null;
           ov.style.display = 'none';
@@ -3052,12 +3069,12 @@
           closeSplit();
           if (lid) openLoad(lid);
           if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
-        } catch (e) { $('srMsg').textContent = e.message; $('srMsg').className = 'umsg-err'; $('srSend').disabled = false; }
+        } catch (e) { $('rspMsg').textContent = e.message; $('rspMsg').className = 'umsg-err'; $('rspSend').disabled = false; }
       });
     }
     ov._pageIdx = pi;
-    $('srTitle').textContent = 'Ask the driver to re-shoot page ' + (pi + 1) + '?';
-    $('srReason').value = ''; $('srMsg').textContent = ''; $('srMsg').className = ''; $('srSend').disabled = false;
+    $('rspTitle').textContent = 'Ask the driver to re-shoot page ' + (pi + 1) + '?';
+    $('rspReason').value = ''; $('rspMsg').textContent = ''; $('rspMsg').className = ''; $('rspSend').disabled = false;
     ov.style.display = 'flex';
     setTimeout(() => { try { $('srReason').focus(); } catch (e) {} }, 50);
   }
@@ -3340,7 +3357,8 @@
     const keep = !!($('cropRejectKeep') && $('cropRejectKeep').checked);
     $('cropRejectSend').disabled = true; $('cropRejectMsg').className = ''; $('cropRejectMsg').textContent = 'Sending…';
     try {
-      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason, keep }) });
+      if (keep) { $('cropRejectMsg').textContent = 'Setting the page aside…'; await parkRejectedPage(_cropPod.id, _cropBuf, _cropPageIdx || 0, reason); $('cropRejectMsg').textContent = 'Sending…'; }
+      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason }) });
       const lid = curLoad && curLoad.id;
       closeCrop(); if (lid) openLoad(lid); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropRejectMsg').textContent = e.message; $('cropRejectMsg').className = 'umsg-err'; $('cropRejectSend').disabled = false; }

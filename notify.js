@@ -46,8 +46,22 @@ async function notifyDriverUploaded({ load, poNumber, driverName }) {
 // Every stop on a load is signed → tell the Always-notify team the load is complete.
 async function notifyLoadComplete({ load, poNumber }) {
   try {
-    const to = masterNotifyEmails([load && load.orgId, load && load.carrierId, load && load.brokerId]);
+    let to = masterNotifyEmails([load && load.orgId, load && load.carrierId, load && load.brokerId]);
     if (!to.length) return;
+    // Don't double-email: anyone who already received the signed document(s) for this load shouldn't also get the
+    // "load complete" notice — they've already seen it arrive. Build the set of everyone the signed PDFs went to
+    // (persisted per pod at email time) and drop them from the notify list.
+    try {
+      if (load && load.id) {
+        const got = new Set();
+        db.prepare(`SELECT recipients FROM pods WHERE loadId = ? AND status IN ('signed','emailed')`).all(load.id).forEach(r => {
+          let arr = []; try { arr = JSON.parse(r.recipients || '[]'); } catch (e) {}
+          (arr || []).forEach(e => { if (e) got.add(String(e).trim().toLowerCase()); });
+        });
+        to = to.filter(e => !got.has(String(e).trim().toLowerCase()));
+      }
+    } catch (e) {}
+    if (!to.length) return;   // everyone on the notify list already received the signed documents — nothing to send
     const po = poNumber || (load && load.poNumber) || '';
     const subject = `Load complete — PO ${po}`;
     const text = `All stops on PO ${po} are signed and complete. Signed documents have been emailed out.\n\nOpen HaulProof: ${portalUrl()}`;

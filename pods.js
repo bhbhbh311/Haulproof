@@ -645,6 +645,18 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
   const fields = Array.isArray(req.body && req.body.fields) ? req.body.fields : [];
   const status = fields.length ? 'prepared' : row.status;
   db.prepare(`UPDATE pods SET fields = ?, status = ? WHERE id = ?`).run(JSON.stringify(fields), status, row.id);
+  // Setting up signatures means the re-shoot/removal is resolved — so clear the driver's stale "re-shoot" /
+  // "removed" banner for this PO automatically, as long as nothing else on the load is still awaiting a re-shoot.
+  if (status === 'prepared' && row.poNumber) {
+    try {
+      const drvIds = [row.assignedDriverId, row.signedByDriverId].filter(Boolean);
+      const stillReup = row.loadId ? db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ? AND status = 'needs_reupload'`).get(row.loadId).c : 0;
+      if (drvIds.length && !stillReup) {
+        const ph = drvIds.map(() => '?').join(',');
+        db.prepare(`UPDATE driver_notices SET seen = 1 WHERE seen = 0 AND kind IN ('reupload','removed') AND driverId IN (${ph}) AND poNumber IS ?`).run(...drvIds, row.poNumber);
+      }
+    } catch (e) {}
+  }
   res.json({ ok: true, count: fields.length, status });
 });
 
@@ -804,33 +816,13 @@ router.post('/:id/reject-page', requireAuth, express.json(), (req, res) => {
   const drvId = row.assignedDriverId || row.signedByDriverId || null;
   const drvName = row.assignedDriverName || (load && load.driverName) || null;
   if (!drvId && !drvName) return res.status(409).json({ error: 'Assign a driver to this load first, so they can re-shoot the page.' });
-  // Optionally keep the CURRENT version on the load as a "set aside" snapshot, in case the re-shoot isn't any
-  // better. The snapshot is a separate parked pod (status='parked') with its own file copy — never sent to a
-  // driver, not an active document — that the dispatcher can restore later.
-  const keep = /^(1|true|yes)$/i.test(String((req.body && req.body.keep) || ''));
-  if (keep) {
-    try {
-      const newId = crypto.randomUUID();
-      const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
-      if (row.filepath && fs.existsSync(row.filepath)) {
-        fs.copyFileSync(row.filepath, newPath);
-        let sz = row.sizeBytes || 0; try { sz = fs.statSync(newPath).size; } catch (e) {}
-        const parkName = String(row.filename || 'document.pdf').replace(/\.pdf$/i, '') + ' (set aside).pdf';
-        db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, parkedReason, parkedAt, parkedFromPodId, uploadedAt)
-           VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'parked',@parkedReason,@parkedAt,@parkedFromPodId,@uploadedAt)`)
-          .run({ id: newId, orgId: row.orgId || null, loadId: row.loadId || null, loadNumber: row.loadNumber || null,
-            poNumber: row.poNumber || null, consignee: row.consignee || null, receiverId: row.receiverId || null,
-            receiverName: row.receiverName || null, stopNumber: row.stopNumber || null, salesRepUserId: row.salesRepUserId || null,
-            docType: row.docType || 'BOL', filename: parkName, filepath: newPath, sizeBytes: sz,
-            signedAt: Date.now(), parkedReason: reason || 'Set aside when page ' + page + ' was sent back to re-shoot',
-            parkedAt: Date.now(), parkedFromPodId: row.id, uploadedAt: Date.now() });
-      }
-    } catch (e) { console.error('park snapshot', e.message); }
-  }
+  // Note: when the dispatcher chose to "set aside" the page, the client sends ONLY that one rejected page to
+  // /park-page (built with PDF tools in the browser) — so the set-aside copy holds just the rejected image, not the
+  // whole document. This endpoint only marks the original for re-upload.
   db.prepare(`UPDATE pods SET status = 'needs_reupload', rejectedPage = ?, rejectReason = ?, rejectedAt = ?, rejectedBy = ?, assignedFulfilledAt = NULL WHERE id = ?`)
     .run(page, reason || null, Date.now(), req.user.email || null, row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
-    detail: 'Page ' + page + ' sent back to the driver to re-shoot' + (reason ? ': ' + reason : '') + (keep ? ' (previous version set aside)' : ''), actor: req.user.email }); } catch (e) {}
+    detail: 'Page ' + page + ' sent back to the driver to re-shoot' + (reason ? ': ' + reason : ''), actor: req.user.email }); } catch (e) {}
   // Leave the driver an in-app notice as well.
   try {
     if (drvId) db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
@@ -891,6 +883,36 @@ router.post('/:id/restore-parked', requireAuth, express.json(), (req, res) => {
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
     detail: (row.docType || 'Document') + ' restored from set-aside' + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : ''), actor: req.user.email }); } catch (e) {}
   res.json({ ok: true, podId: row.id });
+});
+
+// ---- SET ASIDE just the rejected page. The browser extracts the single rejected page into its own PDF and posts
+// it here, so the set-aside copy holds ONLY that page (not the whole document). Creates a parked pod (never sent to
+// a driver, not active) linked to the original. Called alongside /reject-page when "keep set aside" is checked. ----
+router.post('/:id/park-page', requireAuth, raw, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
+  if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
+  const page = Math.max(1, parseInt(req.headers['x-page'] || '1', 10) || 1);
+  let reason = ''; try { reason = decodeURIComponent(String(req.headers['x-reason'] || '')); } catch (e) { reason = String(req.headers['x-reason'] || ''); }
+  reason = reason.trim().slice(0, 400);
+  try {
+    const newId = crypto.randomUUID();
+    const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
+    fs.writeFileSync(newPath, req.body);
+    const parkName = String(row.filename || 'document.pdf').replace(/\.pdf$/i, '') + ' (set aside — page ' + page + ').pdf';
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, parkedReason, parkedAt, parkedFromPodId, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,'parked',@parkedReason,@parkedAt,@parkedFromPodId,@uploadedAt)`)
+      .run({ id: newId, orgId: row.orgId || null, loadId: row.loadId || null, loadNumber: row.loadNumber || null,
+        poNumber: row.poNumber || null, consignee: row.consignee || null, receiverId: row.receiverId || null,
+        receiverName: row.receiverName || null, stopNumber: row.stopNumber || null, salesRepUserId: row.salesRepUserId || null,
+        docType: row.docType || 'BOL', filename: parkName, filepath: newPath, sizeBytes: req.body.length,
+        signedAt: Date.now(), parkedReason: reason || ('Set aside — page ' + page + ' sent back to re-shoot'),
+        parkedAt: Date.now(), parkedFromPodId: row.id, uploadedAt: Date.now() });
+    try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+      detail: 'Page ' + page + ' set aside on the load before sending it back to re-shoot', actor: req.user.email }); } catch (e) {}
+    res.json({ ok: true, podId: newId });
+  } catch (e) { console.error('park-page', e.message); res.status(500).json({ error: 'Could not set the page aside' }); }
 });
 
 module.exports = router;
