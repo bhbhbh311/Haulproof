@@ -680,7 +680,7 @@
     <b style="font-family:'Archivo',system-ui,sans-serif;font-size:17px;">Split into stops</b>
     <button id="stopSplitAdd" type="button" class="btn ghost sm" style="margin-left:auto;">＋ Add stop</button>
   </div>
-  <div style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Fill in who each stop is delivered to — each stop becomes its own signed document.</div>
+  <div id="stopSplitHint" style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Fill in who each stop is delivered to — each stop becomes its own signed document.</div>
   <div id="stopSplitStops" style="flex:none;padding:4px 16px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);max-height:34vh;overflow:auto;"></div>
   <div id="stopSplitPages" style="flex:1;min-height:0;overflow:auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#0b1017;"></div>
   <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,#fff);border-top:1px solid var(--line,#e2e8f0);">
@@ -758,6 +758,13 @@ window.__startApp=function(){
   function leadOff(id){ var el=$(id); if(el) el.classList.remove("lead-cta"); }
   function loadCfg(){ return lsGet("hp_cfg",{endpoint:"",apikey:""}); }
   function saveCfg(c){ lsSet("hp_cfg",c); }
+  // Per-org "Simple mode" field flags (which optional inputs dispatch left on). Delivered via /my-loads and cached,
+  // so the driver app hides the same fields as the dispatch side. Defaults match the server until the first fetch.
+  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true };
+  var _uiFlags=null;
+  function loadUiFlags(){ if(!_uiFlags){ _uiFlags=lsGet("hp_uiflags",null); } return _uiFlags||{}; }
+  function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
+  function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
@@ -1281,7 +1288,8 @@ window.__startApp=function(){
       var hdr={"X-Api-Key":key}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
       var r=await fetch(driverApi("/my-loads"),{headers:hdr});
       if(!r.ok){ card.classList.add("hide"); return; }
-      var loads=((await r.json())||{}).loads||[];
+      var _j=(await r.json())||{}; if(_j.uiFlags) saveUiFlags(_j.uiFlags);
+      var loads=_j.loads||[];
       if(!loads.length){ card.classList.add("hide"); return; }
       card.classList.remove("hide");
       // Group by PO#/load so a multi-stop load shows as ONE entry; tapping it lets the driver pick the stop.
@@ -1639,9 +1647,15 @@ window.__startApp=function(){
   }
   // Hide/show the extra detail fields depending on whether this upload is for dispatch to set up.
   function applyDispatchMode(){
-    var hideExtra = !!_dispatchUpload;
-    [ $("ldNum"), $("drvCustSel"), $("consName") ].forEach(function(el){ if(el){ var lab=el.closest("label"); if(lab) lab.classList.toggle("hide", hideExtra); } });
-    var add=$("drvCustAddBtn"); if(add && hideExtra) add.classList.add("hide");
+    var dispatch = !!_dispatchUpload;
+    // Hide a field when this is a dispatch upload (dispatch fills it in) OR the org turned that field off in Simple mode.
+    var hide = {
+      ldNum:      dispatch || !drvFieldOn("loadNumber"),
+      drvCustSel: dispatch || !drvFieldOn("customer"),
+      consName:   dispatch || !drvFieldOn("receiver")
+    };
+    Object.keys(hide).forEach(function(id){ var el=$(id); if(el){ var lab=el.closest("label"); if(lab) lab.classList.toggle("hide", hide[id]); } });
+    var add=$("drvCustAddBtn"); if(add) add.classList.toggle("hide", hide.drvCustSel);
     if($("signCtx")) $("signCtx").textContent = _dispatchUpload ? "Upload for dispatch — just add the PO #" : (currentStop ? ("Delivering · Stop "+currentStop.n+" — "+currentStop.name) : "One-off document");
   }
   function role(){ return roles[curRoleIdx]; }
@@ -2277,6 +2291,13 @@ window.__startApp=function(){
   // grid) never steals focus from a field the driver is typing in. Values persist in _ssConsignee.
   function renderStopConsignees(){
     var box=$("stopSplitStops"); if(!box) return; box.innerHTML="";
+    // Simple mode: if "Delivered to" is turned off, don't ask for a per-stop consignee at all.
+    if(!drvFieldOn("receiver")){
+      box.style.display="none";
+      var hint=$("stopSplitHint"); if(hint) hint.innerHTML="Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Each stop becomes its own signed document.";
+      return;
+    }
+    box.style.display="";
     for(var s=1;s<=_ssCount;s++){ (function(s){
       var row=document.createElement("div"); row.style.cssText="display:flex;align-items:center;gap:8px;margin-top:8px;";
       var tag=document.createElement("span"); tag.textContent="Stop "+s; tag.style.cssText="flex:none;font-weight:800;font-size:12px;color:#fff;background:"+stopColor(s)+";border-radius:999px;padding:5px 11px;";

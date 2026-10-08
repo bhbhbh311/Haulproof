@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const { sendMail, helpEmail } = require('./mailer');
 const { login, requireAuth, requireSuper, createUser, effectiveCaps } = require('./auth');
 const { db } = require('./db');
+const { resolveUiFlags, setUiFlags } = require('./uiflags');
 const { verifyUnsub, optOut, optIn, listOptedOut, statusOptOut, statusOptIn, listStatusOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
 const loadsRouter = require('./loads');
@@ -63,7 +64,24 @@ app.get('/api/me', requireAuth, (req, res) => {
   let capabilities = []; try { capabilities = effectiveCaps(req.user); } catch (e) {}
   // Tester flag: the master admin always has it; anyone else only if granted. Gates the not-yet-rolled-out sections.
   const betaAccess = (req.user.role === 'superadmin') || !!betaRow;
-  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }) });
+  // Per-org "Simple mode" field flags, so the UI knows on load which optional inputs to show.
+  let orgFields = {}; try { orgFields = resolveUiFlags(req.user.orgId); } catch (e) {}
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }), orgFields });
+});
+
+// Read / save the per-org "Simple mode" field flags. Any admin (or super) of the org can change them; the change
+// applies to every user in that org — dispatchers and drivers alike. PO # and signatures are always required and
+// are not flags here.
+app.get('/api/org-fields', requireAuth, (req, res) => {
+  res.json({ fields: resolveUiFlags(req.user.orgId) });
+});
+app.put('/api/org-fields', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only an admin can change these settings.' });
+  if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
+  try {
+    const fields = setUiFlags(req.user.orgId, (req.body && req.body.fields) || req.body || {});
+    res.json({ ok: true, fields });
+  } catch (e) { res.status(500).json({ error: 'Could not save settings' }); }
 });
 
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.

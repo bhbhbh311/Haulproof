@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
 const { sendMail, helpEmail, emailPodCopy } = require('./mailer');
+const { resolveUiFlags } = require('./uiflags');
 let logEvent = function(){}; try { logEvent = require('./events').logEvent || logEvent; } catch (e) {}
 
 const router = express.Router();
@@ -256,7 +257,9 @@ router.get('/my-loads', (req, res) => {
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
-  res.json({ loads });
+  // Per-org "Simple mode" field flags so the driver app hides the same optional inputs dispatch turned off.
+  let uiFlags = {}; try { uiFlags = resolveUiFlags(org); } catch (e) {}
+  res.json({ loads, uiFlags });
 });
 
 // This driver's own signed documents — recent by default, or a full-history search when ?q= is given.

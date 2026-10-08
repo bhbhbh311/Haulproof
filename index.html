@@ -1124,6 +1124,17 @@
         <div id="mnList" style="display:flex;flex-wrap:wrap;gap:8px 18px;"><div class="empty">Loading…</div></div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="mnSave" type="button">Save master list</button><span id="mnMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
+        <h1 style="font-size:16px;margin-bottom:4px;">Simplify the app</h1>
+        <p class="sub" style="margin-top:0;">Show only the fields you use. Hiding one removes it everywhere — dispatch screens, the setup guide, and the driver app — for everyone on your account. Nothing is deleted; turn a field back on anytime and its values return. Customer&nbsp;PO&nbsp;#, the document, and signatures are always required.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;max-width:560px;">
+          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_loadNumber" style="width:auto;margin-top:3px;"><span><b>Load #</b> <span style="color:var(--muted);">— your internal load number, separate from the PO #</span></span></label>
+          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_receiver" style="width:auto;margin-top:3px;"><span><b>Delivered to</b> <span style="color:var(--muted);">— the receiver/consignee on each stop</span></span></label>
+          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_salesRep" style="width:auto;margin-top:3px;"><span><b>Sales rep</b> <span style="color:var(--muted);">— who's credited on a stop (also drives that rep's completion email)</span></span></label>
+          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_customer" style="width:auto;margin-top:3px;"><span><b>Customer</b> <span style="color:var(--muted);">— links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</span></span></label>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
     </div>
 
     <!-- DRIVERS (admin only) -->
@@ -1292,6 +1303,13 @@
 <script>
   let token = null, user = null;
   const $ = id => document.getElementById(id);
+  // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
+  // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
+  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true };
+  let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
+  function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
+  function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); }
+  async function refreshOrgFields() { try { const r = await api('/api/org-fields'); if (r && r.fields) applyOrgFields(r.fields); } catch (e) {} }
   // Pretty US phone formatting as you type: 5555551234 -> (555) 555-1234
   function formatUSPhone(raw) {
     let d = String(raw == null ? '' : raw).replace(/\D/g, '');
@@ -1342,6 +1360,7 @@
   function hasCap(c){ return !!(user && (user.role === 'admin' || user.role === 'superadmin' || ((user.capabilities || []).indexOf(c) > -1))); }
   function enterApp(u) {
     user = u;
+    refreshOrgFields();   // make sure the Simple-mode field flags are current regardless of how we signed in
     const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     const kinds = u.role === 'superadmin' ? 'Master Admin' : (((u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : [])).map(cap).join(' · ') || 'User');
     $('who').innerHTML = `<span class="uname">${esc(user.name||user.email)}</span>`
@@ -2353,6 +2372,8 @@
       return;
     }
     if (isCB && owns) {
+      // Simple mode: if Customer is turned off for this org, hide the whole row (data is kept, just not shown).
+      if (!fieldOn('customer')) { row.classList.add('hide'); return; }
       if (sel) sel.classList.add('hide');
       if (pickWrap) pickWrap.classList.remove('hide');
       if (hint) hint.textContent = 'pick from your list, or add / find a customer';
@@ -2668,6 +2689,8 @@
       if ($('ldStopForm') && (!_lastPods || !_lastPods.length)) $('ldStopForm').classList.remove('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
       if ($('ldEditPo')) $('ldEditPo').classList.toggle('lead-cta', !$('ldEditPo').value.trim());   // pulse the required PO # until it's filled
+      // Simple mode: hide the Load # field when the org has it turned off (PO # stays, full width).
+      if ($('ldEditLoad')) { const cell = $('ldEditLoad').closest('div'); if (cell) cell.classList.toggle('hide', !fieldOn('loadNumber')); }
     } else {
       if ($('ldEditPo')) $('ldEditPo').classList.remove('lead-cta');       // no pulse in view mode
       if ($('ldDrvSummary')) $('ldDrvSummary').classList.remove('hide');   // view mode: show the driver summary again
@@ -2738,15 +2761,18 @@
     const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
     const parkedPods = (allPods || []).filter(p => p && p.status === 'parked');
     const pods = (allPods || []).filter(p => !p || p.status !== 'parked');
+    // Simple mode: the Delivered-to and Sales-rep columns only appear when the org has those fields turned on.
+    const showRecv = fieldOn('receiver'), showRep = fieldOn('salesRep');
+    const recvHead = showRecv ? '<th>Delivered to</th>' : '', repHead = showRep ? '<th>Sales rep</th>' : '';
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
     if (!pods.length) {
-      box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Sales rep</th><th>Status</th><th></th></tr></thead><tbody>'
+      box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th>' + recvHead + repHead + '<th>Status</th><th></th></tr></thead><tbody>'
         + '<tr>'
         + '<td><span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop 1</span></td>'
         + '<td><span class="empty">—</span></td>'
-        + '<td><span class="empty">—</span></td>'
-        + '<td><span class="empty">—</span></td>'
+        + (showRecv ? '<td><span class="empty">—</span></td>' : '')
+        + (showRep ? '<td><span class="empty">—</span></td>' : '')
         + '<td><span class="chip" style="background:var(--surface2,#eef3fb);color:var(--muted);">Awaiting document</span></td>'
         + '<td style="text-align:right;white-space:nowrap;">' + (editing ? '<button class="ghost ldAddToStop" data-stop="1" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;">＋ Add document</button>' : '<span class="empty" style="font-size:12px;">Click Edit to add</span>') + '</td>'
         + '</tr></tbody></table>';
@@ -2758,7 +2784,7 @@
       appendParkedSection(box, parkedPods, editing);
       return;
     }
-    box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th><th>Delivered to</th><th>Sales rep</th><th>Status</th><th></th></tr></thead><tbody>' +
+    box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th>' + recvHead + repHead + '<th>Status</th><th></th></tr></thead><tbody>' +
       pods.map(p => `<tr>
         <td>${editing
           ? `<input class="ldStopEdit" data-id="${p.id}" type="number" min="1" step="1" value="${p.stopNumber || 1}" style="width:60px;text-align:center;padding:6px;">`
@@ -2766,12 +2792,12 @@
         <td>${editing
           ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'BOL')===t?' selected':''}>${t}</option>`).join('')}</select>`
           : (esc(p.docType) || 'BOL')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}<span class="ldPages" data-id="${p.id}"></span></div></td>
-        <td>${editing
+        ${showRecv ? `<td>${editing
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
-          : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>
-        <td>${editing
+          : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>` : ''}
+        ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
-          : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>
+          : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
         <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
@@ -3483,10 +3509,12 @@
     return null;
   }
   function buildSetupSteps(){
-    var steps = SW_STEPS.slice();
+    // Simple mode: drop steps for any optional field the org has turned off (Load # here; Delivered-to and Sales-rep
+    // fall away on their own because their table columns aren't rendered, so firstRecv()/firstRep() return null).
+    var steps = SW_STEPS.slice().filter(function(st){ return st.key === 'load' ? fieldOn('loadNumber') : true; });
     // Customer links the saved signature layout, so prompt it right after the PO # (when the load has a customer
-    // picker at all — some assigned loads don't).
-    var csid = customerSelectId();
+    // picker at all — some assigned loads don't — and the org hasn't hidden the Customer field).
+    var csid = fieldOn('customer') ? customerSelectId() : null;
     if (csid) {
       var pi2 = steps.findIndex(function(st){ return st.key === 'po'; });
       if (pi2 < 0) pi2 = 0;
@@ -3677,6 +3705,28 @@
     $('mnMsg').textContent = 'Saving…'; $('mnMsg').className = '';
     try { await api('/api/users/notify', { method: 'PUT', body: JSON.stringify({ userIds: ids }) }); $('mnMsg').textContent = 'Saved ✓'; $('mnMsg').className = 'umsg-ok'; }
     catch (e) { $('mnMsg').textContent = e.message; $('mnMsg').className = 'umsg-err'; }
+  };
+  // ---- "Simplify the app" field toggles (Team logins card) ----
+  // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
+  function renderFieldToggles() {
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer' };
+    Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
+  }
+  if ($('ftSave')) $('ftSave').onclick = async () => {
+    const fields = {
+      loadNumber: !!($('ft_loadNumber') && $('ft_loadNumber').checked),
+      receiver:   !!($('ft_receiver')   && $('ft_receiver').checked),
+      salesRep:   !!($('ft_salesRep')   && $('ft_salesRep').checked),
+      customer:   !!($('ft_customer')   && $('ft_customer').checked),
+    };
+    $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
+    try {
+      const r = await api('/api/org-fields', { method: 'PUT', body: JSON.stringify({ fields }) });
+      applyOrgFields((r && r.fields) || fields);
+      $('ftMsg').textContent = 'Saved ✓'; $('ftMsg').className = 'umsg-ok';
+      // Re-apply to anything on screen right now so the change is visible without a reload.
+      if (curLoad && $('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) { try { populateLdCustomer(); } catch (e) {} try { renderLoadDocs(_lastPods); } catch (e) {} if ($('loadDetailCard').classList.contains('editing') && $('ldEditLoad')) { const cell = $('ldEditLoad').closest('div'); if (cell) cell.classList.toggle('hide', !fieldOn('loadNumber')); } }
+    } catch (e) { $('ftMsg').textContent = e.message; $('ftMsg').className = 'umsg-err'; }
   };
   // View → Edit toggle. Edit unlocks every field; one Save writes them all; Cancel discards.
   // Editing a load launches the guided wizard, walking the correct order (PO → load → driver → split → crop →
@@ -4422,6 +4472,7 @@
   async function loadUsers() {
     try {
       loadOrgNotify();
+      await refreshOrgFields(); renderFieldToggles();   // reflect the org's current Simple-mode field settings
       const r = await api('/api/users');
       _teamUsers = r.users || [];
       loadMasterNotify();
@@ -4619,7 +4670,7 @@
   async function boot() {
     // Check the session FIRST so a logged-in user (e.g. returning from the signature page) never sees a
     // flash of the login screen — it stays hidden until we confirm they're actually signed out.
-    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); if (me.user.mustChangePassword) { forcePwReset(me.user); return; } enterApp(me.user); return; } } catch(_){}
+    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); applyOrgFields(me.orgFields); if (me.user.mustChangePassword) { forcePwReset(me.user); return; } enterApp(me.user); return; } } catch(_){}
     // Not signed in → now reveal the login screen and decorate it with the SSO options.
     cleanUrl();
     $('loginView').classList.remove('hide');
