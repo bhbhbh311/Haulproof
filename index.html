@@ -815,6 +815,14 @@
           <button class="ghost sm" id="ldModeCarrier" type="button" style="padding:6px 12px;font-size:13px;">Assign a carrier</button>
           <button class="ghost sm" id="ldModeBroker" type="button" style="padding:6px 12px;font-size:13px;">Hand to a broker</button>
         </div>
+        <!-- customer: quick-pick from the carriers you've saved (your Carriers roster). FMCSA lookup below adds new ones. -->
+        <div id="ldRosterWrap" class="hide" style="margin-top:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div style="flex:1;min-width:220px;"><label>Assign one of your saved carriers</label><select id="ldRosterSel"></select></div>
+            <button id="ldRosterBtn" type="button">Assign carrier</button>
+          </div>
+          <p class="sub" style="margin-top:8px;">Not in the list? Look one up on FMCSA below — it’ll be saved to your Carriers for next time.</p>
+        </div>
         <!-- broker user: pick a carrier from the approved roster -->
         <div id="ldBrokerAssign" class="hide" style="margin-top:8px;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
@@ -883,6 +891,23 @@
         <div id="bcResults" style="margin-top:10px;"></div>
       </div>
       <div id="bcList" style="margin-top:16px;"></div>
+    </div>
+
+    <!-- CARRIERS ROSTER (customer) — "the carriers you work with", saved from FMCSA and reusable on loads -->
+    <div class="card hide" id="custCarriersCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Carriers</h1><p class="sub" style="margin-bottom:0;">The carriers you work with — verified on FMCSA. Save them here, then pick one when you assign a load.</p></div>
+        <button class="ghost" id="ccrToggle" type="button">＋ Add a carrier</button>
+      </div>
+      <div id="ccrForm" class="hide" style="margin-top:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+          <div style="flex:1;min-width:180px;"><label>Find on FMCSA</label><input id="ccrSearch" placeholder="Carrier name, MC#, or DOT#"></div>
+          <div><label>By</label><select id="ccrBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
+          <button id="ccrLookup" type="button">Look up</button>
+        </div>
+        <div id="ccrResults" style="margin-top:10px;"></div>
+      </div>
+      <div id="ccrList" style="margin-top:16px;"></div>
     </div>
 
     <!-- OFFERED DOCUMENTS (customer inbox) -->
@@ -1429,6 +1454,8 @@
       if (u.role === 'admin') { show('driverCard', true); loadDriverLink(); } else { show('driverCard', false); }
       if (u.role === 'admin' || hasCap('manage_users')) { show('teamCard', true); loadUsers(); } else { show('teamCard', false); }
       if (u.role === 'admin' || hasCap('manage_drivers')) { show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), ''); } else { show('driversCard', false); }
+      // Customer admins get their own Carriers roster — the carriers they work with, saved from FMCSA and reusable on loads.
+      if (u.role === 'admin' || hasCap('manage_customers')) { show('custCarriersCard', true); loadCustCarriers(); } else { show('custCarriersCard', false); }
     }
     // A customer/carrier/broker that is ALSO a receiver gets the "delivered to us" view too.
     if (!pureReceiver && roles.indexOf('receiver') > -1) { show('receivedCard', true); loadReceived(); }
@@ -1523,6 +1550,7 @@
     { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
+    { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
@@ -1754,6 +1782,8 @@
         if (r.kind==='company') alert('Account created.\n\nLogin: '+r.adminEmail+'\nTemporary password: '+r.adminPassword+'\n\n(Also emailed to them.)');
         else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\nPIN: '+r.pin+'\n\n(Also emailed to them.)');
         loadRequests();
+        // Refresh the management lists + tab counts so a just-granted account shows up right away (no stale count).
+        try { loadCustomers(); loadCarriers(); loadBrokers(); } catch(e){}
       } catch(e){ msg.style.color='var(--danger)'; msg.textContent=e.message; }
     });
     box.querySelectorAll('.reqReply').forEach(b => b.onclick = async () => {
@@ -1772,6 +1802,7 @@
 
   const isCarrierUser = () => user && user.orgKind === 'carrier';
   const isBrokerUser = () => user && user.orgKind === 'broker';
+  const isCustomerUser = () => user && user.orgKind === 'customer';
 
   // --- Carriers (super-admin): FMCSA lookup, add carrier + login, manage ---
   async function loadCarriers() {
@@ -1944,6 +1975,45 @@
         });
       } else {
         box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY).' : 'No FMCSA match for that carrier.') + '</div>';
+      }
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  };
+
+  // ---- Customer CARRIERS roster (their own list of carriers, saved from FMCSA, reusable on loads). ----
+  async function loadCustCarriers() {
+    const box = $('ccrList'); if (!box) return;
+    try {
+      const r = await api('/api/carriers/roster');
+      if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers yet. Tap “＋ Add a carrier” to look one up on FMCSA and save it.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
+        r.carriers.map(c => `<tr>
+          <td><b>${esc(c.name)}</b></td>
+          <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="text-align:right;"><button class="ghost ccrRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button></td>
+        </tr>`).join('') + '</tbody></table>';
+      box.querySelectorAll('.ccrRemove').forEach(b => b.onclick = async () => { try { await api('/api/carriers/roster/' + b.dataset.id, { method: 'DELETE' }); loadCustCarriers(); } catch (e) { alert(e.message); } });
+    } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  if ($('ccrToggle')) $('ccrToggle').onclick = () => { $('ccrForm').classList.toggle('hide'); if (!$('ccrForm').classList.contains('hide')) $('ccrSearch').focus(); };
+  if ($('ccrLookup')) $('ccrLookup').onclick = async () => {
+    const val = $('ccrSearch').value.trim(), by = $('ccrBy').value; if (!val) return;
+    const box = $('ccrResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
+    try {
+      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      if (r.fmcsa && r.fmcsa.length) {
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+          r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
+            <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
+            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="ccrAdd" data-i="${i}" style="padding:6px 10px;font-size:12px;">Add</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
+          const c = r.fmcsa[+b.dataset.i];
+          try { await api('/api/carriers/roster', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) }); $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); }
+          catch (e) { alert(e.message); }
+        });
+      } else {
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet.' : 'No FMCSA match for that carrier.') + '</div>';
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
@@ -2286,7 +2356,7 @@
       $('ldAssignToggle').classList.toggle('hide', brokerUser);
       $('ldLookupWrap').classList.toggle('hide', brokerUser);
       $('ldBrokerAssign').classList.toggle('hide', !brokerUser);
-      if (brokerUser) await fillApprovedSelect(); else setAssignMode('carrier');
+      if (brokerUser) await fillApprovedSelect(); else { setAssignMode('carrier'); if (isCustomerUser()) fillRosterSelect(); }
       renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
       $('ldDrvMsg').textContent = '';
       // Driver & equipment: collapsed by default for customers, but OPEN for carriers (assigning a
@@ -2345,6 +2415,9 @@
     _myCustomers.forEach(c => { const op = document.createElement('option'); op.value = c.id; op.textContent = c.name; pick.appendChild(op); });
     if (selectedId && _myCustomers.some(c => c.id === selectedId)) pick.value = selectedId;
     else pick.value = '';
+    // Mark the picker "ready": the customer list has loaded and the current value reflects the real selection. Until
+    // this is set, auto-save must NOT send customerId — an empty value mid-load would wrongly clear the load's customer.
+    pick.dataset.ready = '1';
   }
   async function loadMyCustomers(selectedId) {
     try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
@@ -2378,6 +2451,8 @@
       if (pickWrap) pickWrap.classList.remove('hide');
       if (hint) hint.textContent = 'pick from your list, or add / find a customer';
       row.classList.remove('hide');
+      // Not ready until the list loads — blocks an auto-save from sending an empty customerId (which would clear it).
+      if ($('ldEditCustomerPick')) $('ldEditCustomerPick').dataset.ready = '';
       await loadMyCustomers(curLoad && curLoad.customerId);
       return;
     }
@@ -3793,7 +3868,10 @@
       if (user && user.role === 'superadmin' && custRowShown && $('ldEditCustomer') && !$('ldEditCustomer').classList.contains('hide') && $('ldEditCustomer').value) {
         body1.customerOrgId = $('ldEditCustomer').value;
       } else if (custRowShown && $('ldEditCustomerPickWrap') && !$('ldEditCustomerPickWrap').classList.contains('hide')) {
-        body1.customerId = $('ldEditCustomerPick') ? $('ldEditCustomerPick').value : '';
+        // Only send customerId once the picker has finished loading its value — otherwise an auto-save firing during
+        // load would send '' and the server would clear the load's customer.
+        const _pk = $('ldEditCustomerPick');
+        if (_pk && _pk.dataset.ready === '1') body1.customerId = _pk.value;
       }
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
       // 2) Driver (only if one is selected AND it actually changed — so repeated auto-saves don't re-log/re-notify)
@@ -3928,7 +4006,23 @@
     $('ldCarSearchLbl').textContent = mode === 'broker' ? 'Find broker on FMCSA' : 'Find carrier on FMCSA';
     $('ldCarSearch').placeholder = mode === 'broker' ? 'Broker name, MC#, or DOT#' : 'Carrier name, MC#, or DOT#';
     $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
+    // Customer: show the saved-carriers quick-pick when assigning a carrier (not when handing to a broker).
+    if ($('ldRosterWrap')) $('ldRosterWrap').classList.toggle('hide', !(mode === 'carrier' && isCustomerUser()));
   }
+  // Customer: fill the quick-pick with the carriers they've saved to their roster.
+  async function fillRosterSelect() {
+    const sel = $('ldRosterSel'); if (!sel) return;
+    try {
+      const r = await api('/api/carriers/roster');
+      if (!r.carriers || !r.carriers.length) sel.innerHTML = '<option value="">— no saved carriers yet —</option>';
+      else sel.innerHTML = '<option value="">— choose a saved carrier —</option>' + r.carriers.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
+    } catch (e) { sel.innerHTML = '<option value="">' + e.message + '</option>'; }
+  }
+  if ($('ldRosterBtn')) $('ldRosterBtn').onclick = async () => {
+    const carrierId = $('ldRosterSel') ? $('ldRosterSel').value : '';
+    if (!carrierId) { alert('Pick a saved carrier, or look one up on FMCSA below.'); return; }
+    try { await assignCarrierId(carrierId); } catch (e) { alert(e.message); }
+  };
   $('ldModeCarrier').onclick = () => setAssignMode('carrier');
   $('ldModeBroker').onclick = () => setAssignMode('broker');
   // Broker: assign a carrier from the approved roster.

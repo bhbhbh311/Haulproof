@@ -185,4 +185,39 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)) });
 });
 
+// ---- Per-org CARRIER ROSTER: "the carriers you work with." Lets a customer (or any org) save carriers found on
+// FMCSA and reuse them on loads instead of re-looking them up each time. Stored in broker_carriers keyed by the
+// caller's own org id (that table is just a generic org→carrier link; a customer's roster never mixes with a
+// broker's because org ids are unique). ----
+function rosterOrg(req) {
+  if (req.user.role === 'superadmin') return ((req.query.orgId || (req.body && req.body.orgId) || '').trim() || null);
+  return req.user.orgId || null;
+}
+router.get('/roster', requireAuth, (req, res) => {
+  const org = rosterOrg(req);
+  if (!org) return res.json({ carriers: [] });
+  const rows = db.prepare(`SELECT orgs.* FROM broker_carriers bc JOIN orgs ON orgs.id = bc.carrierId
+    WHERE bc.brokerId = ? AND orgs.active = 1 ORDER BY orgs.name`).all(org);
+  res.json({ carriers: rows.map(carrierOut) });
+});
+router.post('/roster', requireAuth, (req, res) => {
+  const org = rosterOrg(req);
+  if (!org) return res.status(403).json({ error: 'No organization on this login' });
+  const b = req.body || {};
+  const name = (b.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Carrier name is required' });
+  if (!b.fmcsaVerified && !(req.user.role === 'admin' || req.user.role === 'superadmin')) {
+    return res.status(403).json({ error: 'Only an admin can add a carrier FMCSA did not verify' });
+  }
+  const carrier = upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
+  db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(org, carrier.id, Date.now());
+  res.status(201).json({ carrier: carrierOut(carrier) });
+});
+router.delete('/roster/:carrierId', requireAuth, (req, res) => {
+  const org = rosterOrg(req);
+  if (!org) return res.status(403).json({ error: 'No organization on this login' });
+  db.prepare(`DELETE FROM broker_carriers WHERE brokerId = ? AND carrierId = ?`).run(org, req.params.carrierId);
+  res.json({ ok: true });
+});
+
 module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut };
