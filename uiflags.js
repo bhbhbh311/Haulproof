@@ -5,7 +5,10 @@ const { db } = require('./db');
 
 // Defaults for a brand-new account: the simplest possible start. Customer stays ON because it links the saved
 // signature layouts; Load #, Delivered-to (receiver) and Sales rep start OFF and an admin turns them on as needed.
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true };
+// auditTrail is a document setting rather than a hidden field: ON (default) appends the signature
+// audit-trail page (signer/role/time/GPS) to the signed PDF; OFF skips that page. The GPS/time data is
+// still captured, stored on the load, and stamped under each signature either way — only the summary page drops.
+const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).

@@ -1158,6 +1158,10 @@
           <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_salesRep" style="width:auto;margin-top:3px;"><span><b>Sales rep</b> <span style="color:var(--muted);">— who's credited on a stop (also drives that rep's completion email)</span></span></label>
           <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_customer" style="width:auto;margin-top:3px;"><span><b>Customer</b> <span style="color:var(--muted);">— links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</span></span></label>
         </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;">Signed document</div>
+          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_auditTrail" style="width:auto;margin-top:3px;"><span><b>Signature audit-trail page</b> <span style="color:var(--muted);">— adds a final page to the signed PDF listing each signer, the time, and the GPS location. Turn it off for a cleaner customer document; the time and GPS are still captured, saved on the load, and stamped under each signature.</span></span></label>
+        </div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
     </div>
@@ -1330,7 +1334,7 @@
   const $ = id => document.getElementById(id);
   // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
-  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true };
+  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
   function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); }
@@ -3805,7 +3809,7 @@
   // ---- "Simplify the app" field toggles (Team logins card) ----
   // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
   function renderFieldToggles() {
-    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer' };
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
   }
   if ($('ftSave')) $('ftSave').onclick = async () => {
@@ -3814,6 +3818,7 @@
       receiver:   !!($('ft_receiver')   && $('ft_receiver').checked),
       salesRep:   !!($('ft_salesRep')   && $('ft_salesRep').checked),
       customer:   !!($('ft_customer')   && $('ft_customer').checked),
+      auditTrail: !!($('ft_auditTrail') && $('ft_auditTrail').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
     try {
