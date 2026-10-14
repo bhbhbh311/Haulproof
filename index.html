@@ -150,6 +150,15 @@
   .histBox{background:var(--surface);border-radius:var(--radius);box-shadow:0 20px 60px rgba(10,20,50,.35);max-width:560px;width:100%;padding:22px;}
   .histHead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
   .poHist:hover{text-decoration:underline !important;}
+  /* On/off toggle switch (used for document-behavior settings like the audit-trail page) */
+  .hp-switch{position:relative;display:inline-block;width:46px;height:26px;flex:none;cursor:pointer;}
+  .hp-switch input{position:absolute;opacity:0;width:0;height:0;margin:0;}
+  .hp-switch .hp-track{position:absolute;inset:0;background:#c3ccda;border-radius:999px;transition:background .18s ease;}
+  .hp-switch .hp-track::before{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s ease;}
+  .hp-switch input:checked + .hp-track{background:var(--primary,#1757d6);}
+  .hp-switch input:checked + .hp-track::before{transform:translateX(20px);}
+  .hp-switch input:focus-visible + .hp-track{box-shadow:0 0 0 3px rgba(23,87,214,.35);}
+  .hp-switch-state{font-weight:800;font-size:12px;letter-spacing:.03em;margin-left:6px;}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -1159,8 +1168,14 @@
           <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_customer" style="width:auto;margin-top:3px;"><span><b>Customer</b> <span style="color:var(--muted);">— links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</span></span></label>
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;">Signed document</div>
-          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_auditTrail" style="width:auto;margin-top:3px;"><span><b>Signature audit-trail page</b> <span style="color:var(--muted);">— adds a final page to the signed PDF listing each signer, the time, and the GPS location. Turn it off for a cleaner customer document; the time and GPS are still captured, saved on the load, and stamped under each signature.</span></span></label>
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Signed document</div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_auditTrail"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Signature audit-trail page</b><span id="ft_auditTrail_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">Adds a final page to the signed PDF listing each signer, the time, and the GPS location. Turn it off for a cleaner customer document — the time and GPS are still captured, saved on the load, and stamped under each signature.</div>
+            </div>
+          </div>
         </div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
@@ -3811,7 +3826,14 @@
   function renderFieldToggles() {
     const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
+    updAuditSwitchState();
   }
+  // Reflect the audit-trail switch's position as an ON / OFF word beside it, in the switch's color.
+  function updAuditSwitchState() {
+    const el = $('ft_auditTrail'), s = $('ft_auditTrail_state');
+    if (el && s) { s.textContent = el.checked ? 'ON' : 'OFF'; s.style.color = el.checked ? 'var(--primary, #1757d6)' : '#8a93a3'; }
+  }
+  if ($('ft_auditTrail')) $('ft_auditTrail').addEventListener('change', updAuditSwitchState);
   if ($('ftSave')) $('ftSave').onclick = async () => {
     const fields = {
       loadNumber: !!($('ft_loadNumber') && $('ft_loadNumber').checked),
