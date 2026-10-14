@@ -2725,9 +2725,12 @@
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
     (function () {
-      const total = (_lastPods || []).length;
-      const done = (_lastPods || []).filter(p => p.status === 'signed' || p.status === 'emailed').length;
-      const awaiting = (_lastPods || []).filter(p => p.status === 'awaiting_build').length;
+      // Set-aside (parked) documents are not active stops — exclude them so the detail count
+      // matches the loads-list count (which the server already computes without parked docs).
+      const active = (_lastPods || []).filter(p => p.status !== 'parked');
+      const total = active.length;
+      const done = active.filter(p => p.status === 'signed' || p.status === 'emailed').length;
+      const awaiting = active.filter(p => p.status === 'awaiting_build').length;
       let label;
       if (total > 0 && done >= total) label = '<span class="chip signed">✓ Completed — ready to view</span>';
       else if (done > 0) label = '<span class="chip prepared">' + done + ' of ' + total + ' stops signed</span>';
