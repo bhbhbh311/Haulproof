@@ -734,7 +734,7 @@
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Create a load by PO #, assign an FMCSA-verified carrier, and track its full history.</p></div>
-        <button class="ghost" id="nlToggle" type="button">＋ New load</button>
+        <button class="ghost hide" id="nlToggle" type="button">＋ New load</button>
       </div>
       <div id="nlForm" class="hide" style="margin-top:14px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
@@ -949,7 +949,8 @@
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
           <div><label>PDF file(s)</label><input id="uFile" type="file" accept="application/pdf" multiple>
-            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one PDF for this stop and they'll be merged into a single document, in the order chosen.</div></div>
+            <label id="uMergeWrap" class="hide" style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-top:8px;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="uMerge" checked style="width:auto;margin-top:2px;"><span>Combine these into <b>one</b> document. Uncheck to file each PDF as its <b>own</b> separate document (Stop 1, Stop 2, …) on this PO.</span></label>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick one or more PDFs. When you choose several, pick above whether to merge them into one document or file each one separately.</div></div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="uBtn" type="button">Upload</button>
@@ -1470,7 +1471,7 @@
       // Carrier's walled-off space: their own + assigned loads, their own documents, drivers, logins.
       SUPER_CARDS.forEach(id => show(id, false));
       show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
-      if ($('nlToggle')) $('nlToggle').classList.remove('hide');   // carriers can create their own loads now
+      if ($('nlToggle')) $('nlToggle').classList.add('hide');   // hidden: a document upload creates the load
       show('loadsCard', true); loadLoads();
       ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
       show('driversCard', true); loadDrivers('', $('driverRows')); wireDriverTable($('driverRows'), '');
@@ -1479,7 +1480,7 @@
       SUPER_CARDS.forEach(id => show(id, false));
       ['findCard','resultsCard','loadsCard'].forEach(id => show(id, true));
       show('loadDetailCard', false);
-      if ($('nlToggle')) $('nlToggle').classList.remove('hide');
+      if ($('nlToggle')) $('nlToggle').classList.add('hide');   // hidden: a document upload creates the load
       loadLoads();
       show('offeredCard', true); loadOffered();   // carrier-offered documents inbox
       if (u.role === 'admin') { show('driverCard', true); loadDriverLink(); } else { show('driverCard', false); }
@@ -3700,16 +3701,18 @@
     var cp = croppablePod();
     var alreadyCropped = curLoad && _croppedLoadIds[curLoad.id];
     var canSplit = !!sp, canCrop = !!(cp && !alreadyCropped);
-    if (canSplit || canCrop) {
-      var _rn = sp ? _pageCountCache[sp.id] : (cp ? _pageCountCache[cp.id] : null);
+    // The document to open & look over first — the first non-finished doc on the load that has a file.
+    var viewP = cp || sp || (_lastPods || []).find(function(p){ return p && p.fileUrl && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'parked'; });
+    if (viewP) {
+      var _rn = sp ? _pageCountCache[sp.id] : (viewP ? _pageCountCache[viewP.id] : null);
       var _pgTxt = _rn ? (_rn + ' page' + (_rn === 1 ? '' : 's')) : 'the pages';
       docInserts.push({ key:'review', required:false, kind:'review',
-        splitPodId: sp ? sp.id : null, cropPodId: (cp && !alreadyCropped) ? cp.id : null,
-        title: 'Review the document' + (canSplit ? ' — split or crop?' : ' — crop a page?'),
-        help: 'This is the document the driver sent — ' + _pgTxt + '. Look it over before you set it up. '
+        splitPodId: sp ? sp.id : null, cropPodId: (cp && !alreadyCropped) ? cp.id : null, viewPodId: viewP.id,
+        title: 'View the document' + (canSplit ? ' — split or crop?' : (canCrop ? ' — crop a page?' : '')),
+        help: 'Open the document and look it over before you set it up — ' + _pgTxt + '. '
           + (canSplit ? 'If each stop has its own page(s), split it into one document per stop. ' : '')
-          + 'If a photo caught the table or background, crop a page down to just the document. '
-          + 'Do whichever ones you need right here — or if it already looks right, just continue.' });
+          + (canCrop ? 'If a photo caught the table or background, crop a page down to just the document. ' : '')
+          + 'When it looks right, continue.' });
     }
     // Delivered to (receiver) + Sales rep — set on the first stop's row. These live per-stop in the docs table,
     // so they always sit just before signatures; the first document's row is what the step writes to.
@@ -3722,9 +3725,11 @@
     if (firstRep())  { stopInserts.push({ key:'salesrep', title:'Sales rep', required:false, kind:'select', targetEl: firstRep,
         emptyText:'— no sales reps yet —',
         help:'Which sales rep owns this load? They\'ll be credited on the paperwork. Skip if it doesn\'t apply.' }); }
-    // A driver-uploaded load is one whose document is still "awaiting_build" (the app's "From driver — needs setup").
-    var fromDriver = (_lastPods || []).some(function(p){ return p && p.status === 'awaiting_build'; });
-    // Driver upload → lead with the document review (split → crop) at the very front, ahead of the PO step.
+    // Lead with the document review for any load that still has an unprepared document to set up — whether a
+    // driver uploaded it (awaiting_build) or the dispatcher uploaded it here (received). Both open with "look at it
+    // first", ahead of the PO step; a doc that's already prepared/signed doesn't hijack the front of the guide.
+    var fromDriver = (_lastPods || []).some(function(p){ return p && p.fileUrl && (p.status === 'awaiting_build' || p.status === 'received'); });
+    // Unprepared document → lead with the document review (view → split → crop) at the very front, ahead of the PO step.
     if (fromDriver && docInserts.length) steps.splice.apply(steps, [0, 0].concat(docInserts));
     // Re-find 'finish' AFTER any front-insert shifted the indices.
     var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
@@ -3795,28 +3800,37 @@
       // One review step with BOTH split and crop. Re-evaluate what still applies so the buttons reflect the current
       // document (after a split or a crop, the load reloaded and this step re-renders). Each action reopens this same
       // review step afterward, so splitting and cropping are never separate forced "Next" steps.
+      // "Open the document" is the primary action of this step — look at the actual PDF first.
+      const vpod = (_lastPods || []).find(p => p && p.id === s.viewPodId && p.fileUrl)
+        || (_lastPods || []).find(p => p && p.fileUrl && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'parked');
+      if (vpod && vpod.fileUrl) {
+        const vbtn = document.createElement('button');
+        vbtn.type = 'button'; vbtn.textContent = '📄 Open the document ↗';
+        vbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;';
+        vbtn.onclick = () => { window.open(vpod.fileUrl, '_blank', 'noopener'); };
+        body.appendChild(vbtn);
+      }
       const spNow = splittablePod();
       const cpNow = croppablePod();
       const croppedNow = curLoad && _croppedLoadIds[curLoad.id];
       let any = false;
       if (spNow) {
         const sbtn = document.createElement('button');
-        sbtn.type = 'button'; sbtn.textContent = '⎘ Split into stops';
-        sbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;';
+        sbtn.type = 'button'; sbtn.textContent = '⎘ Split into stops'; sbtn.className = 'ghost';
+        sbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;background:#fff;';
         sbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openSplit(spNow); };
         body.appendChild(sbtn); any = true;
       }
       if (cpNow && !croppedNow) {
         const cbtn = document.createElement('button');
-        cbtn.type = 'button'; cbtn.textContent = '✂ Crop a page';
-        if (spNow) cbtn.className = 'ghost';   // if both show, split is the primary action and crop is secondary
-        cbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+        cbtn.type = 'button'; cbtn.textContent = '✂ Crop a page'; cbtn.className = 'ghost';
+        cbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;background:#fff;';
         cbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openCrop(cpNow); };
         body.appendChild(cbtn); any = true;
       }
       const note = document.createElement('div');
       note.className = 'sub'; note.style.cssText = 'margin-top:10px;font-size:12.5px;';
-      note.textContent = any ? 'Do any that apply — or if the document already looks right, tap Next.' : 'The document looks ready — tap Next to continue.';
+      note.textContent = any ? 'Open it to look it over. Split or crop if you need to — otherwise tap Next.' : 'Open it to look it over, then tap Next to continue.';
       body.appendChild(note);
     } else if (s.kind === 'action') {
       // Walk signatures stop by stop: target the next document that still needs a layout. After it's saved on the
@@ -5149,6 +5163,7 @@
   function uMsg(t, kind) { const el = $('uMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
   $('upToggle').onclick = () => { $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
   $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); };
+  if ($('uFile')) $('uFile').addEventListener('change', () => { const n = (($('uFile')||{}).files || []).length; if ($('uMergeWrap')) $('uMergeWrap').classList.toggle('hide', n < 2); });
   // Merge several PDFs (in the order picked) into one, using pdf-lib. Returns an ArrayBuffer.
   async function mergePdfs(files) {
     if (!window.PDFLib) throw new Error('PDF tools failed to load — refresh and try again');
@@ -5168,31 +5183,52 @@
     if (!files.length) { uMsg('Choose a PDF file', 'err'); return; }
     if (files.some(f => f.type && f.type !== 'application/pdf')) { uMsg('All files must be PDFs', 'err'); return; }
     const stop = $('uStop') ? $('uStop').value.trim() : '';
-    uMsg(files.length > 1 ? ('Merging ' + files.length + ' PDFs…') : 'Uploading…'); $('uAfter').classList.add('hide');
+    const combine = !$('uMerge') || $('uMerge').checked;   // default: merge several PDFs into one document
+    const baseHeaders = () => ({
+      'Content-Type': 'application/pdf', 'X-Enc': 'uri',
+      'X-PO': encodeURIComponent(po),
+      'X-Load': encodeURIComponent(load),
+      'X-Consignee': encodeURIComponent($('uCons').value.trim()),
+      'X-DocType': encodeURIComponent($('uType').value),
+      'X-Receiver': encodeURIComponent(($('uReceiver')||{}).value||'')
+    });
+    $('uAfter').classList.add('hide');
     try {
+      // Several files, filed SEPARATELY: one document per PDF, as consecutive stops on the same PO.
+      if (files.length > 1 && !combine) {
+        const baseStop = (parseInt(stop, 10) > 0) ? parseInt(stop, 10) : 1;
+        let okCount = 0, firstId = null; const errs = [];
+        for (let i = 0; i < files.length; i++) {
+          uMsg('Uploading ' + (i + 1) + ' of ' + files.length + '…');
+          const buf = await files[i].arrayBuffer();
+          const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include',
+            headers: Object.assign(baseHeaders(), { 'X-Stop': encodeURIComponent(String(baseStop + i)), 'X-Filename': encodeURIComponent(files[i].name || ('document-' + (i + 1) + '.pdf')) }), body: buf });
+          if (res.ok) { const r = await res.json().catch(() => ({})); okCount++; if (!firstId && r.id) firstId = r.id; }
+          else { const e = await res.json().catch(() => ({})); errs.push((files[i].name || ('file ' + (i + 1))) + ': ' + (e.error || 'failed')); }
+        }
+        if (okCount) {
+          uMsg('Filed ' + okCount + ' document' + (okCount > 1 ? 's' : '') + ' (Stop ' + baseStop + '–' + (baseStop + okCount - 1) + ')' + (errs.length ? ' — ' + errs.length + ' failed' : '') + ' ✓', errs.length ? 'err' : 'ok');
+          if (firstId) $('prepBtn').href = '/prepare?id=' + encodeURIComponent(firstId);
+          $('uAfter').classList.remove('hide');
+          $('fPo').value = po; ['fLoad', 'fCons', 'fQ'].forEach(id => $(id).value = ''); search();
+        } else { uMsg(errs.join('; ') || 'Upload failed', 'err'); }
+        return;
+      }
+      // One file, or several files combined into a single document.
       let buf, filename;
       if (files.length > 1) {
+        uMsg('Merging ' + files.length + ' PDFs…');
         buf = await mergePdfs(files);
         const base = (files[0].name || 'document.pdf').replace(/\.pdf$/i, '');
         filename = base + '-merged-' + files.length + 'docs.pdf';
         uMsg('Uploading merged document…');
       } else {
+        uMsg('Uploading…');
         buf = await files[0].arrayBuffer();
         filename = files[0].name;
       }
-      const res = await fetch('/api/pods/upload', {
-        method: 'POST', credentials: 'include',
-        headers: {
-          'Content-Type': 'application/pdf', 'X-Enc': 'uri',
-          'X-PO': encodeURIComponent(po),
-          'X-Load': encodeURIComponent(load),
-          'X-Stop': encodeURIComponent(stop),
-          'X-Consignee': encodeURIComponent($('uCons').value.trim()),
-          'X-DocType': encodeURIComponent($('uType').value),
-          'X-Receiver': encodeURIComponent(($('uReceiver')||{}).value||''),
-          'X-Filename': encodeURIComponent(filename)
-        }, body: buf
-      });
+      const res = await fetch('/api/pods/upload', { method: 'POST', credentials: 'include',
+        headers: Object.assign(baseHeaders(), { 'X-Stop': encodeURIComponent(stop), 'X-Filename': encodeURIComponent(filename) }), body: buf });
       if (!res.ok) { const e = await res.json().catch(() => ({})); uMsg(e.error || 'Upload failed', 'err'); return; }
       const r = await res.json();
       uMsg('Uploaded ✓', 'ok');
