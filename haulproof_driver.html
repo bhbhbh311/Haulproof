@@ -3323,11 +3323,24 @@ window.__startApp=function(){
   var pad=$("pad"),pctx=pad.getContext("2d"),pdraw=false,pink=false,plast=null;
   function fitPad(){ var r=pad.getBoundingClientRect(); if(!r.width) return; var dpr=window.devicePixelRatio||1; pad.width=Math.round(r.width*dpr); pad.height=Math.round(r.height*dpr); pctx.setTransform(dpr,0,0,dpr,0,0); pctx.lineWidth=2.6; pctx.lineCap="round"; pctx.lineJoin="round"; pctx.strokeStyle="#12386e"; pink=false; }
   function ppos(e){ var r=pad.getBoundingClientRect(); var p=(e.touches&&e.touches[0])||e; return {x:p.clientX-r.left,y:p.clientY-r.top}; }
-  function ps(e){ e.preventDefault(); pdraw=true; plast=ppos(e); }
+  // A tap (or the first touch point) should leave a mark on its own, so a quick dot still counts as ink.
+  function pdot(x,y){ pctx.beginPath(); pctx.arc(x,y,Math.max(1,(pctx.lineWidth||2.6)/2),0,Math.PI*2); pctx.fillStyle=pctx.strokeStyle; pctx.fill(); pink=true; }
+  function ps(e){ e.preventDefault(); pdraw=true; plast=ppos(e); pdot(plast.x,plast.y);
+    // Capture the pointer so the stroke keeps drawing even if the finger drifts a few px off the pad — without
+    // this, Android Chrome stops firing move events mid-signature, which is why a drawn signature could come out blank.
+    if(e.pointerId!=null){ try{ pad.setPointerCapture(e.pointerId); }catch(_){} } }
   function pm(e){ if(!pdraw)return; e.preventDefault(); var p=ppos(e); pctx.beginPath(); pctx.moveTo(plast.x,plast.y); pctx.lineTo(p.x,p.y); pctx.stroke(); plast=p; pink=true; }
   function pe(){ pdraw=false; }
-  pad.addEventListener("pointerdown",ps); pad.addEventListener("pointermove",pm); window.addEventListener("pointerup",pe);
-  pad.addEventListener("touchstart",ps,{passive:false}); pad.addEventListener("touchmove",pm,{passive:false}); pad.addEventListener("touchend",pe);
+  // Use ONE input model, not both. Pointer Events (iOS 13+/all modern Android) cover touch + stylus + mouse and,
+  // with pointer capture above, draw reliably. Registering touch AND pointer handlers together was double-firing
+  // and dropping strokes on Android. Fall back to touch+mouse only on ancient browsers without Pointer Events.
+  if(window.PointerEvent){
+    pad.addEventListener("pointerdown",ps); pad.addEventListener("pointermove",pm);
+    pad.addEventListener("pointerup",pe); pad.addEventListener("pointercancel",pe);
+  } else {
+    pad.addEventListener("mousedown",ps); window.addEventListener("mousemove",pm); window.addEventListener("mouseup",pe);
+    pad.addEventListener("touchstart",ps,{passive:false}); pad.addEventListener("touchmove",pm,{passive:false}); pad.addEventListener("touchend",pe);
+  }
   $("padClear").addEventListener("click", function(){ pctx.clearRect(0,0,pad.width,pad.height); pink=false; });
   function padHasInk(){ return pink; }
   function trimPad(){ return trimCanvas(pad); }
