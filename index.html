@@ -2918,6 +2918,8 @@
             ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
             ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
+            : p.fileUrl
+            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener" title="Open the uploaded document in a new tab">Open ↗</a>&nbsp;`
             : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="First, split a multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>&nbsp;` : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Next, crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>&nbsp;` : ''}
