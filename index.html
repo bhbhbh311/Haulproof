@@ -1161,11 +1161,23 @@
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;margin-bottom:4px;">Simplify the app</h1>
         <p class="sub" style="margin-top:0;">Show only the fields you use. Hiding one removes it everywhere — dispatch screens, the setup guide, and the driver app — for everyone on your account. Nothing is deleted; turn a field back on anytime and its values return. Customer&nbsp;PO&nbsp;#, the document, and signatures are always required.</p>
-        <div style="display:flex;flex-direction:column;gap:12px;max-width:560px;">
-          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_loadNumber" style="width:auto;margin-top:3px;"><span><b>Load #</b> <span style="color:var(--muted);">— your internal load number, separate from the PO #</span></span></label>
-          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_receiver" style="width:auto;margin-top:3px;"><span><b>Delivered to</b> <span style="color:var(--muted);">— the receiver/consignee on each stop</span></span></label>
-          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_salesRep" style="width:auto;margin-top:3px;"><span><b>Sales rep</b> <span style="color:var(--muted);">— who's credited on a stop (also drives that rep's completion email)</span></span></label>
-          <label style="display:flex;align-items:flex-start;gap:10px;font-size:14px;cursor:pointer;"><input type="checkbox" id="ft_customer" style="width:auto;margin-top:3px;"><span><b>Customer</b> <span style="color:var(--muted);">— links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</span></span></label>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:560px;">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_loadNumber"><span class="hp-track"></span></label>
+            <div style="font-size:14px;"><div><b>Load #</b><span id="ft_loadNumber_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Your internal load number, separate from the PO #.</div></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_receiver"><span class="hp-track"></span></label>
+            <div style="font-size:14px;"><div><b>Delivered to</b><span id="ft_receiver_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">The receiver/consignee on each stop.</div></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_salesRep"><span class="hp-track"></span></label>
+            <div style="font-size:14px;"><div><b>Sales rep</b><span id="ft_salesRep_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Who's credited on a stop (also drives that rep's completion email).</div></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_customer"><span class="hp-track"></span></label>
+            <div style="font-size:14px;"><div><b>Customer</b><span id="ft_customer_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</div></div>
+          </div>
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Signed document</div>
@@ -3836,14 +3848,18 @@
   function renderFieldToggles() {
     const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
-    updAuditSwitchState();
+    updSwitchStates();
   }
-  // Reflect the audit-trail switch's position as an ON / OFF word beside it, in the switch's color.
-  function updAuditSwitchState() {
-    const el = $('ft_auditTrail'), s = $('ft_auditTrail_state');
-    if (el && s) { s.textContent = el.checked ? 'ON' : 'OFF'; s.style.color = el.checked ? 'var(--primary, #1757d6)' : '#8a93a3'; }
+  // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
+  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail'];
+  // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
+  function updSwitchStates() {
+    _ftSwitchIds.forEach(function(id){
+      var el = $(id), s = $(id + '_state');
+      if (el && s) { s.textContent = el.checked ? 'ON' : 'OFF'; s.style.color = el.checked ? 'var(--primary, #1757d6)' : '#8a93a3'; }
+    });
   }
-  if ($('ft_auditTrail')) $('ft_auditTrail').addEventListener('change', updAuditSwitchState);
+  _ftSwitchIds.forEach(function(id){ if ($(id)) $(id).addEventListener('change', updSwitchStates); });
   if ($('ftSave')) $('ftSave').onclick = async () => {
     const fields = {
       loadNumber: !!($('ft_loadNumber') && $('ft_loadNumber').checked),
