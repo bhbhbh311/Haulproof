@@ -1794,8 +1794,9 @@ window.__startApp=function(){
     c.getContext("2d").drawImage(v,0,0,w,h);
     var url=c.toDataURL("image/jpeg",0.95);
     closeInAppCamera();
-    // route the shot through the existing deskew + cleanup editor, then into the page tray
-    openScanEditor(url, -1, null, null, pushCapturedPage, false);
+    // route the shot through the existing deskew + cleanup editor, then into the page tray.
+    // reopen=true so "Retake" on the line-up step reopens the camera (matches the native-camera path).
+    openScanEditor(url, -1, null, null, pushCapturedPage, true);
   }
   if($("camShot")) $("camShot").addEventListener("click", shootInAppCamera);
   if($("camX")) $("camX").addEventListener("click", closeInAppCamera);
