@@ -3648,18 +3648,26 @@
       steps.splice(pi2 + 1, 0, { key:'customer', kind:'select', target: csid, required:false,
         title:'Customer', help:'Pick the customer this load is for — it\'s what links the saved signature layout, so the signature boxes land in the right spots.' });
     }
-    // Document-review steps: split a multi-stop doc, then crop a page. For a DRIVER-uploaded load these lead the
-    // guide (before PO) so the dispatcher looks over, splits, and cleans the raw document first; for a load the
-    // dispatcher built themselves they stay just before signatures, keeping PO first.
+    // One "review the document" step that offers BOTH splitting and cropping from the same prompt — so cropping is
+    // never a separate forced "Next" step. For a DRIVER-uploaded load this leads the guide (before PO) so the
+    // dispatcher looks over, splits, and cleans the raw document first; for a dispatcher-built load it sits just
+    // before signatures, keeping PO first.
     var docInserts = [];
     var sp = splittablePod();
-    if (sp) { var n = _pageCountCache[sp.id];
-      docInserts.push({ key:'split', title:'Review the document — more than one stop?', required:false, kind:'split', podId: sp.id,
-        help:'This is the document the driver sent — ' + (n || 'multiple') + ' pages. Look it over. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' }); }
     var cp = croppablePod();
     var alreadyCropped = curLoad && _croppedLoadIds[curLoad.id];
-    if (cp && !alreadyCropped) { docInserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
-        help:'If a photo caught the table or background, crop it down to just the document so it\'s clean before signing. Looks fine? Just continue.' }); }
+    var canSplit = !!sp, canCrop = !!(cp && !alreadyCropped);
+    if (canSplit || canCrop) {
+      var _rn = sp ? _pageCountCache[sp.id] : (cp ? _pageCountCache[cp.id] : null);
+      var _pgTxt = _rn ? (_rn + ' page' + (_rn === 1 ? '' : 's')) : 'the pages';
+      docInserts.push({ key:'review', required:false, kind:'review',
+        splitPodId: sp ? sp.id : null, cropPodId: (cp && !alreadyCropped) ? cp.id : null,
+        title: 'Review the document' + (canSplit ? ' — split or crop?' : ' — crop a page?'),
+        help: 'This is the document the driver sent — ' + _pgTxt + '. Look it over before you set it up. '
+          + (canSplit ? 'If each stop has its own page(s), split it into one document per stop. ' : '')
+          + 'If a photo caught the table or background, crop a page down to just the document. '
+          + 'Do whichever ones you need right here — or if it already looks right, just continue.' });
+    }
     // Delivered to (receiver) + Sales rep — set on the first stop's row. These live per-stop in the docs table,
     // so they always sit just before signatures; the first document's row is what the step writes to.
     var firstRecv = function(){ return $('ldDocs') ? $('ldDocs').querySelector('.ldRecvEdit') : null; };
@@ -3689,10 +3697,12 @@
     try { await annotatePageCounts(_lastPods || []); } catch(e){}   // make sure page counts are known so the split step can appear
     _swSteps = buildSetupSteps();
     _swIdx = 0;
-    // Resume after a split: jump to the saved step (crop) rather than restarting from the PO step.
+    // Resume after a split/crop: jump back to the review step rather than restarting at PO. If the review step is
+    // gone (both split and crop are done), land on the first remaining step (don't skip ahead to signatures).
     if (_wizardResumeKey) {
       let ri = _swSteps.findIndex(s => s.key === _wizardResumeKey);
-      if (ri < 0) ri = _swSteps.findIndex(s => s.key === 'finish');
+      if (ri < 0 && _wizardResumeKey === 'finish') ri = _swSteps.findIndex(s => s.key === 'finish');
+      if (ri < 0) ri = 0;
       if (ri > 0) _swIdx = ri;
       _wizardResumeKey = null;
     }
@@ -3738,35 +3748,32 @@
       }
       else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
-    } else if (s.kind === 'split') {
-      const btn = document.createElement('button');
-      btn.type = 'button'; btn.textContent = '⎘ Split into stops';
-      btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
-      btn.onclick = () => {
-        const pod = (_lastPods || []).find(p => p.id === s.podId);
-        _wizardResumeKey = nextStepKeyAfter('split');   // after splitting + reload, resume at the next step (not step 1)
-        markSetupWizardSeen(); $('setupWizard').classList.add('hide');
-        if (pod) openSplit(pod);
-      };
-      body.appendChild(btn);
+    } else if (s.kind === 'review') {
+      // One review step with BOTH split and crop. Re-evaluate what still applies so the buttons reflect the current
+      // document (after a split or a crop, the load reloaded and this step re-renders). Each action reopens this same
+      // review step afterward, so splitting and cropping are never separate forced "Next" steps.
+      const spNow = splittablePod();
+      const cpNow = croppablePod();
+      const croppedNow = curLoad && _croppedLoadIds[curLoad.id];
+      let any = false;
+      if (spNow) {
+        const sbtn = document.createElement('button');
+        sbtn.type = 'button'; sbtn.textContent = '⎘ Split into stops';
+        sbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;';
+        sbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openSplit(spNow); };
+        body.appendChild(sbtn); any = true;
+      }
+      if (cpNow && !croppedNow) {
+        const cbtn = document.createElement('button');
+        cbtn.type = 'button'; cbtn.textContent = '✂ Crop a page';
+        if (spNow) cbtn.className = 'ghost';   // if both show, split is the primary action and crop is secondary
+        cbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+        cbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openCrop(cpNow); };
+        body.appendChild(cbtn); any = true;
+      }
       const note = document.createElement('div');
-      note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
-      note.textContent = 'All one stop? Tap Next to skip splitting.';
-      body.appendChild(note);
-    } else if (s.kind === 'crop') {
-      const btn = document.createElement('button');
-      btn.type = 'button'; btn.textContent = '✂ Crop pages';
-      btn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
-      btn.onclick = () => {
-        const pod = (_lastPods || []).find(p => p.id === s.podId);
-        _wizardResumeKey = nextStepKeyAfter('crop');   // after cropping + reload, resume at the next step (crop's done)
-        markSetupWizardSeen(); $('setupWizard').classList.add('hide');
-        if (pod) openCrop(pod);
-      };
-      body.appendChild(btn);
-      const note = document.createElement('div');
-      note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
-      note.textContent = 'Looks fine? Tap Next to skip cropping.';
+      note.className = 'sub'; note.style.cssText = 'margin-top:10px;font-size:12.5px;';
+      note.textContent = any ? 'Do any that apply — or if the document already looks right, tap Next.' : 'The document looks ready — tap Next to continue.';
       body.appendChild(note);
     } else if (s.kind === 'action') {
       // Walk signatures stop by stop: target the next document that still needs a layout. After it's saved on the
