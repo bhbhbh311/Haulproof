@@ -3138,6 +3138,46 @@
       return res.ok;
     } catch (e) { return false; }
   }
+  // Reject ONE page without freezing the whole document. For a multi-page upload we split it: the good pages stay on
+  // the ORIGINAL document (so the dispatcher keeps working them), and just the rejected page goes back to the driver
+  // as its own one-page "re-shoot" document. For a single-page document there's nothing to keep, so we fall back to
+  // the old behavior (the whole document waits on the driver). `keep` additionally saves a set-aside copy of the page.
+  async function rejectOnePage(podId, buf, pageIdx, reason, keep) {
+    const idx0 = pageIdx || 0;
+    // No PDF tools, or we can't read the buffer: fall back to flagging the whole document for re-upload.
+    if (!window.PDFLib || !buf) {
+      if (keep) await parkRejectedPage(podId, buf, idx0, reason);
+      await api('/api/pods/' + podId + '/reject-page', { method: 'POST', body: JSON.stringify({ page: idx0 + 1, reason }) });
+      return;
+    }
+    const src = await PDFLib.PDFDocument.load(buf, { ignoreEncryption: true });
+    const n = src.getPageCount();
+    const idx = Math.max(0, Math.min(n - 1, idx0));
+    if (n <= 1) {
+      if (keep) await parkRejectedPage(podId, buf, idx, reason);
+      await api('/api/pods/' + podId + '/reject-page', { method: 'POST', body: JSON.stringify({ page: idx + 1, reason }) });
+      return;
+    }
+    // Multi-page: keep the good pages, bounce only the bad one.
+    if (keep) await parkRejectedPage(podId, buf, idx, reason);
+    // (1) The single rejected page becomes its own "needs re-upload" document for the driver.
+    const one = await PDFLib.PDFDocument.create();
+    const [rp] = await one.copyPages(src, [idx]); one.addPage(rp);
+    const oneBytes = await one.save();
+    const h1 = { 'Content-Type': 'application/pdf', 'X-Page': String(idx + 1), 'X-Reason': encodeURIComponent(reason || '') };
+    if (token) h1['Authorization'] = 'Bearer ' + token;
+    const r1 = await fetch('/api/pods/' + podId + '/reshoot-page', { method: 'POST', credentials: 'include', headers: h1, body: oneBytes });
+    if (!r1.ok) { let m = 'Could not send the page back'; try { m = (await r1.json()).error || m; } catch (e) {} throw new Error(m); }
+    // (2) The remaining good pages replace the original file in place; the document stays active (awaiting_build).
+    const rest = await PDFLib.PDFDocument.create();
+    const keepIdx = []; for (let i = 0; i < n; i++) { if (i !== idx) keepIdx.push(i); }
+    const cps = await rest.copyPages(src, keepIdx); cps.forEach(p => rest.addPage(p));
+    const restBytes = await rest.save();
+    const h2 = { 'Content-Type': 'application/pdf' };
+    if (token) h2['Authorization'] = 'Bearer ' + token;
+    const r2 = await fetch('/api/pods/' + podId + '/replace-file', { method: 'POST', credentials: 'include', headers: h2, body: restBytes });
+    if (!r2.ok) { let m = 'Could not update the document'; try { m = (await r2.json()).error || m; } catch (e) {} throw new Error(m); }
+  }
   async function rejectSplitPagePrompt(pi) {
     if (!_splitPod) return;
     if (!_splitPod.assignedDriverId && !(curLoad && curLoad.driverName)) {
@@ -3150,7 +3190,7 @@
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.6);z-index:10090;display:none;align-items:center;justify-content:center;padding:16px;';
       ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:430px;width:100%;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.4);">'
         + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="rspTitle">Ask the driver to re-shoot this page?</div>'
-        + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends the page back to the driver’s phone to photograph again. The document stays on this load as “waiting on driver” until they re-upload it.</div>'
+        + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends just this page back to the driver to photograph again — it comes back as its own one-page document. The other pages stay on this load, so you can keep working them while you wait.</div>'
         + '<label style="font-size:12px;color:var(--muted);">What’s wrong? <span style="font-weight:400;">(optional — the driver sees this)</span></label>'
         + '<textarea id="rspReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 10px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
         + '<label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="rspKeep" checked style="width:auto;margin-top:2px;"><span>Keep this page set aside on the load, in case the re-shoot isn’t any better. It won’t be active or sent to the driver — you can put it back later.</span></label>'
@@ -3163,13 +3203,11 @@
       ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
       $('rspSend').addEventListener('click', async () => {
         if (!_splitPod) return;
-        const pageNo = (ov._pageIdx || 0) + 1;
         const reason = ($('rspReason').value || '').trim();
         const keep = !!($('rspKeep') && $('rspKeep').checked);
         $('rspSend').disabled = true; $('rspMsg').className = ''; $('rspMsg').textContent = 'Sending…';
         try {
-          if (keep) { $('rspMsg').textContent = 'Setting the page aside…'; await parkRejectedPage(_splitPod.id, _splitBuf, ov._pageIdx || 0, reason); $('rspMsg').textContent = 'Sending…'; }
-          await api('/api/pods/' + _splitPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page: pageNo, reason }) });
+          await rejectOnePage(_splitPod.id, _splitBuf, ov._pageIdx || 0, reason, keep);
           const lid = curLoad && curLoad.id;
           _wizardResumeKey = null;
           ov.style.display = 'none';
@@ -3466,8 +3504,7 @@
     const keep = !!($('cropRejectKeep') && $('cropRejectKeep').checked);
     $('cropRejectSend').disabled = true; $('cropRejectMsg').className = ''; $('cropRejectMsg').textContent = 'Sending…';
     try {
-      if (keep) { $('cropRejectMsg').textContent = 'Setting the page aside…'; await parkRejectedPage(_cropPod.id, _cropBuf, _cropPageIdx || 0, reason); $('cropRejectMsg').textContent = 'Sending…'; }
-      await api('/api/pods/' + _cropPod.id + '/reject-page', { method: 'POST', body: JSON.stringify({ page, reason }) });
+      await rejectOnePage(_cropPod.id, _cropBuf, _cropPageIdx || 0, reason, keep);
       const lid = curLoad && curLoad.id;
       closeCrop(); if (lid) openLoad(lid); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropRejectMsg').textContent = e.message; $('cropRejectMsg').className = 'umsg-err'; $('cropRejectSend').disabled = false; }

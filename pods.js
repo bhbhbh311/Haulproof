@@ -915,4 +915,49 @@ router.post('/:id/park-page', requireAuth, raw, (req, res) => {
   } catch (e) { console.error('park-page', e.message); res.status(500).json({ error: 'Could not set the page aside' }); }
 });
 
+// ---- Reject just ONE page of a MULTI-page upload WITHOUT freezing the whole document. ----
+// The browser splits the upload: it posts the GOOD pages back to /replace-file (so the original document keeps them
+// and stays active for the dispatcher to work), and posts the single rejected page HERE. This creates a NEW, separate
+// document that lands on the driver's phone flagged "re-shoot" — so one bad page no longer blocks the good ones.
+// The re-shot page returns (via /reupload) as its own one-page document, not merged back into the original.
+router.post('/:id/reshoot-page', requireAuth, raw, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (row.status === 'signed' || row.status === 'emailed') return res.status(409).json({ error: 'This document is already signed — a page can’t be sent back.' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty document body' });
+  if (req.body.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(415).json({ error: 'That file is not a PDF' });
+  const page = Math.max(1, parseInt(req.headers['x-page'] || '1', 10) || 1);
+  let reason = ''; try { reason = decodeURIComponent(String(req.headers['x-reason'] || '')); } catch (e) { reason = String(req.headers['x-reason'] || ''); }
+  reason = reason.trim().slice(0, 400);
+  // The re-shoot has to land on a specific driver's phone — use the assigned driver, or the load's driver name.
+  const load = row.loadId ? db.prepare(`SELECT driverName FROM loads WHERE id = ?`).get(row.loadId) : null;
+  const drvId = row.assignedDriverId || row.signedByDriverId || null;
+  const drvName = row.assignedDriverName || (load && load.driverName) || null;
+  if (!drvId && !drvName) return res.status(409).json({ error: 'Assign a driver to this load first, so they can re-shoot the page.' });
+  try {
+    const newId = crypto.randomUUID();
+    const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
+    fs.writeFileSync(newPath, req.body);
+    const reName = String(row.filename || 'document.pdf').replace(/\.pdf$/i, '') + ' (re-shoot page ' + page + ').pdf';
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, status, rejectedPage, rejectReason, rejectedAt, rejectedBy, assignedDriverId, assignedDriverName, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]','needs_reupload',1,@rejectReason,@rejectedAt,@rejectedBy,@assignedDriverId,@assignedDriverName,@uploadedAt)`)
+      .run({ id: newId, orgId: row.orgId || null, loadId: row.loadId || null, loadNumber: row.loadNumber || null,
+        poNumber: row.poNumber || null, consignee: row.consignee || null, receiverId: row.receiverId || null,
+        receiverName: row.receiverName || null, stopNumber: row.stopNumber || null, salesRepUserId: row.salesRepUserId || null,
+        docType: row.docType || 'BOL', filename: reName, filepath: newPath, sizeBytes: req.body.length,
+        rejectReason: reason || null, rejectedAt: Date.now(), rejectedBy: req.user.email || null,
+        assignedDriverId: row.assignedDriverId || null, assignedDriverName: row.assignedDriverName || null, uploadedAt: Date.now() });
+    try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+      detail: 'Page ' + page + ' sent back to the driver to re-shoot (the rest of the document stays on the load)' + (reason ? ': ' + reason : ''), actor: req.user.email }); } catch (e) {}
+    try {
+      if (drvId) db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(crypto.randomUUID(), drvId, row.orgId || null, 'reupload', row.poNumber || null, row.loadNumber || null,
+        'Dispatch asked you to re-shoot a page of ' + (row.docType || 'the document') + (row.poNumber ? ' for PO ' + row.poNumber : '') + (reason ? ': ' + reason : '') + '.',
+        req.user.name || null, req.user.email || null, Date.now());
+    } catch (e) {}
+    try { notify.notifyDriverReupload(newId); } catch (e) {}
+    res.json({ ok: true, podId: newId });
+  } catch (e) { console.error('reshoot-page', e.message); res.status(500).json({ error: 'Could not send the page back' }); }
+});
+
 module.exports = router;
