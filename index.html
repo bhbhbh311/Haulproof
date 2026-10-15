@@ -3636,29 +3636,39 @@
       steps.splice(pi2 + 1, 0, { key:'customer', kind:'select', target: csid, required:false,
         title:'Customer', help:'Pick the customer this load is for — it\'s what links the saved signature layout, so the signature boxes land in the right spots.' });
     }
-    var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
-    if (fi < 0) fi = steps.length;
-    // Correct order: split a multi-stop doc first, then crop a page, then set up signatures.
-    var inserts = [];
+    // Document-review steps: split a multi-stop doc, then crop a page. For a DRIVER-uploaded load these lead the
+    // guide (before PO) so the dispatcher looks over, splits, and cleans the raw document first; for a load the
+    // dispatcher built themselves they stay just before signatures, keeping PO first.
+    var docInserts = [];
     var sp = splittablePod();
     if (sp) { var n = _pageCountCache[sp.id];
-      inserts.push({ key:'split', title:'More than one stop on this load?', required:false, kind:'split', podId: sp.id,
-        help:'This document has ' + (n || 'multiple') + ' pages. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' }); }
+      docInserts.push({ key:'split', title:'Review the document — more than one stop?', required:false, kind:'split', podId: sp.id,
+        help:'This is the document the driver sent — ' + (n || 'multiple') + ' pages. Look it over. If each stop has its own page(s), split it into one document per stop so each gets signed separately. If it\'s all one delivery, just continue.' }); }
     var cp = croppablePod();
     var alreadyCropped = curLoad && _croppedLoadIds[curLoad.id];
-    if (cp && !alreadyCropped) { inserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
+    if (cp && !alreadyCropped) { docInserts.push({ key:'crop', title:'Need to clean up a page?', required:false, kind:'crop', podId: cp.id,
         help:'If a photo caught the table or background, crop it down to just the document so it\'s clean before signing. Looks fine? Just continue.' }); }
     // Delivered to (receiver) + Sales rep — set on the first stop's row. These live per-stop in the docs table,
-    // so they come after any split; the first document's row is what the step writes to.
+    // so they always sit just before signatures; the first document's row is what the step writes to.
     var firstRecv = function(){ return $('ldDocs') ? $('ldDocs').querySelector('.ldRecvEdit') : null; };
     var firstRep  = function(){ return $('ldDocs') ? $('ldDocs').querySelector('.ldRepEdit')  : null; };
-    if (firstRecv()) { inserts.push({ key:'delivered', title:'Delivered to', required:false, kind:'select', targetEl: firstRecv,
+    var stopInserts = [];
+    if (firstRecv()) { stopInserts.push({ key:'delivered', title:'Delivered to', required:false, kind:'select', targetEl: firstRecv,
         emptyText:'— no receivers yet —',
         help:'Who is this stop delivered to? Pick the receiver (or add one). You can set a different one per stop in the table afterward.' }); }
-    if (firstRep())  { inserts.push({ key:'salesrep', title:'Sales rep', required:false, kind:'select', targetEl: firstRep,
+    if (firstRep())  { stopInserts.push({ key:'salesrep', title:'Sales rep', required:false, kind:'select', targetEl: firstRep,
         emptyText:'— no sales reps yet —',
         help:'Which sales rep owns this load? They\'ll be credited on the paperwork. Skip if it doesn\'t apply.' }); }
-    if (inserts.length) steps.splice.apply(steps, [fi, 0].concat(inserts));
+    // A driver-uploaded load is one whose document is still "awaiting_build" (the app's "From driver — needs setup").
+    var fromDriver = (_lastPods || []).some(function(p){ return p && p.status === 'awaiting_build'; });
+    // Driver upload → lead with the document review (split → crop) at the very front, ahead of the PO step.
+    if (fromDriver && docInserts.length) steps.splice.apply(steps, [0, 0].concat(docInserts));
+    // Re-find 'finish' AFTER any front-insert shifted the indices.
+    var fi = steps.findIndex(function(st){ return st.key === 'finish'; });
+    if (fi < 0) fi = steps.length;
+    // Before signatures: for a dispatcher-built load the doc-review steps go here (PO-first); then per-stop fields.
+    var tail = (fromDriver ? [] : docInserts).concat(stopInserts);
+    if (tail.length) steps.splice.apply(steps, [fi, 0].concat(tail));
     return steps;
   }
   async function openSetupWizard(){
