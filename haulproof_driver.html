@@ -2586,7 +2586,7 @@ window.__startApp=function(){
     var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
-    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); leadOff("nextBtn"); }
+    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected — tap Finish"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); }   // bulge Finish so it's clear that's the next tap
     else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); btn.classList.add("lead-cta"); }   // always pulse the "sign next" action, not just for first-timers
   }
   $("nextBtn").addEventListener("click", function(){
