@@ -1488,6 +1488,10 @@
       // Customer admins get their own Carriers roster — the carriers they work with, saved from FMCSA and reusable on loads.
       if (u.role === 'admin' || hasCap('manage_customers')) { show('custCarriersCard', true); loadCustCarriers(); } else { show('custCarriersCard', false); }
     }
+    // Every account that can own documents (customer, carrier, broker — admins and dispatchers alike) gets a
+    // direct "Upload & file a document" button, so you can file paperwork without first building a load. Super-admins
+    // file through the customer-manage view, and receiver-only logins just view what's delivered to them — both excluded.
+    if (!pureReceiver && u.role !== 'superadmin') { show('uploadCard', true); }
     // A customer/carrier/broker that is ALSO a receiver gets the "delivered to us" view too.
     if (!pureReceiver && roles.indexOf('receiver') > -1) { show('receivedCard', true); loadReceived(); }
     // Customer / carrier / broker admins AND dispatchers get their own Receivers tab — only the receivers
@@ -1578,7 +1582,7 @@
   // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
   var TAB_DEFS = [
     // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
-    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','findCard','resultsCard'] },
+    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
@@ -1648,7 +1652,7 @@
   // When a single load's detail is open, hide the "Find a document" search + the recent-documents list so the
   // detail view stands alone. They come back when you return to the Documents / Loads home list.
   function setFindVisForDetail(detailOpen){
-    ['findCard','resultsCard'].forEach(function(id){ var el=$(id); if(el) el.classList.toggle('detailhidden', !!detailOpen); });
+    ['findCard','resultsCard','uploadCard'].forEach(function(id){ var el=$(id); if(el) el.classList.toggle('detailhidden', !!detailOpen); });
   }
   function selectTab(key){
     // Never open a section that's hidden from this user (e.g. a beta tab while in rollout view).
