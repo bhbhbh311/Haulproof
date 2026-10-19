@@ -3779,7 +3779,11 @@
       _wizardResumeKey = null;
     }
     renderSetupStep();
-    $('setupWizard').classList.remove('hide');
+    // If the review step just auto-opened the split/stops (or crop) screen, it hid the wizard on purpose — don't
+    // re-show the guide card on top of it. Otherwise show the guide card as normal.
+    var _modalOpen = ($('splitModal') && !$('splitModal').classList.contains('hide'))
+      || ($('cropModal') && !$('cropModal').classList.contains('hide'));
+    if (!_modalOpen) $('setupWizard').classList.remove('hide');
   }
   function closeSetupWizard(){ $('setupWizard').classList.add('hide'); markSetupWizardSeen(); }
   // The step key that follows `key` in the current step list — so a modal step (split/crop) resumes at whatever
