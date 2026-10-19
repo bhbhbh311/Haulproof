@@ -350,7 +350,7 @@
     <!-- Split a multi-page document into separate per-stop documents -->
     <div id="splitModal" class="histOverlay hide">
       <div class="histBox" style="max-width:660px;">
-        <div class="histHead"><h1 style="margin:0;font-size:18px;">Split into stops <span id="splitCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
+        <div class="histHead"><h1 style="margin:0;font-size:18px;"><span id="splitHeading">Split into stops</span> <span id="splitCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
         <p class="sub" id="splitSub" style="margin:8px 0 12px;">Set the stop number under each page. Pages with the same stop number are combined into one document for that stop.</p>
         <div id="splitPages" style="display:flex;flex-wrap:wrap;gap:12px;max-height:54vh;overflow:auto;padding:4px;"></div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -2430,12 +2430,12 @@
       try { if (curLoad && localStorage.getItem('hp_resume_sign') === curLoad.id) { _resumeSign = true; localStorage.removeItem('hp_resume_sign'); } } catch(e){}
       const _pendingSign = (r.pods || []).some(p => p && p.fileUrl && p.status === 'awaiting_build');
       if (_resumeSign && _pendingSign) _wizardResumeKey = 'finish';
-      setLoadEditMode(_enterSetup || (_resumeSign && _pendingSign));
+      setLoadEditMode(_enterSetup || (_resumeSign && _pendingSign) || !!_wizardResumeKey);
       _ldDirty = false;   // fresh load view: nothing changed yet
       window.scrollTo(0, 0);
       // Dropping into setup opens the step-by-step wizard every time (not just the first), so it always guides the
       // correct order. "Exit guide" dismisses it for anyone who'd rather edit by hand.
-      if (_enterSetup || (_resumeSign && _pendingSign)) { clearTimeout(_swAutoTimer); _swAutoTimer = setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && $('setupWizard') && $('setupWizard').classList.contains('hide')) openSetupWizard(); }, 450); }
+      if (_enterSetup || (_resumeSign && _pendingSign) || _wizardResumeKey) { clearTimeout(_swAutoTimer); _swAutoTimer = setTimeout(() => { if ($('loadDetailCard') && !$('loadDetailCard').classList.contains('hide') && $('setupWizard') && $('setupWizard').classList.contains('hide')) openSetupWizard(); }, 450); }
     } catch (e) { alert(e.message); }
   }
   // Customer control in the load edit. Three modes:
@@ -3322,7 +3322,11 @@
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
       _splitPdf = pdf;
-      if ($('splitSub')) $('splitSub').textContent = 'This document has ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') + '. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Tap “✂ Crop this page” to trim a bad photo before splitting.';
+      if ($('splitSub')) $('splitSub').textContent = pdf.numPages === 1
+        ? 'Look the document over. Tap “✂ Crop this page” to trim a bad photo, and set its stop number below if it isn’t Stop 1. Then tap “Save & continue.”'
+        : 'This document has ' + pdf.numPages + ' pages. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Tap “✂ Crop this page” to trim a bad photo before splitting.';
+      if ($('splitSave')) $('splitSave').textContent = pdf.numPages === 1 ? 'Save & continue' : 'Create stops';
+      if ($('splitHeading')) $('splitHeading').textContent = pdf.numPages === 1 ? 'Review the document' : 'Split into stops';
       await buildSplitGrid(p.stopNumber, null);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
@@ -3344,6 +3348,7 @@
       // Everything landed on one stop — just retag the existing document instead of rebuilding it.
       try {
         await api('/api/pods/' + _splitPod.id, { method: 'PUT', body: JSON.stringify({ stopNumber: String(stops[0]) }) });
+        if (_wizardResumeKey) _wizardResumeKey = 'past-review';   // finished the review screen → continue the normal flow
         closeSplit(); openLoad(curLoad.id);
       } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
       return;
@@ -3382,6 +3387,7 @@
       // (?replaced=1) so the driver isn't sent a false "dispatch removed your upload" notice — their document
       // wasn't cancelled, it was split into the per-stop docs we just created.
       await api('/api/pods/' + p.id + '?replaced=1', { method: 'DELETE' });
+      if (_wizardResumeKey) _wizardResumeKey = 'past-review';   // finished the review screen → continue the normal flow
       closeSplit(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; if ($('splitSave')) $('splitSave').disabled = false; }
   };
@@ -3560,6 +3566,7 @@
       // Remove the original, marked as a replacement so the driver isn't told their upload was cancelled.
       await api('/api/pods/' + p.id + '?replaced=1', { method: 'DELETE' });
       if (curLoad) _croppedLoadIds[curLoad.id] = true;   // cropped — don't re-prompt crop in the wizard
+      if (_wizardResumeKey) _wizardResumeKey = 'past-review';   // viewed & cropped → move on, don't re-show the review step
       closeCrop(); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge();
     } catch (e) { $('cropMsg').textContent = e.message; $('cropMsg').className = 'umsg-err'; $('cropSave').disabled = false; }
   };
@@ -3645,6 +3652,7 @@
   // When the wizard sends you off to Split, we come back here after the load reloads — resume at this step key
   // (e.g. 'crop') instead of restarting at step 1. Consumed on the next wizard open.
   let _wizardResumeKey = null;
+  let _reviewAutoSplit = false;   // guard: the review step auto-opens the split/stops screen once per guide run
   // First document on the load that's still editable AND has 2+ pages — i.e. a candidate to split into stops.
   function splittablePod(){
     var pods = _lastPods || [];
@@ -3703,7 +3711,10 @@
     var canSplit = !!sp, canCrop = !!(cp && !alreadyCropped);
     // The document to open & look over first — the first non-finished doc on the load that has a file.
     var viewP = cp || sp || (_lastPods || []).find(function(p){ return p && p.fileUrl && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'parked'; });
-    if (viewP) {
+    // Show the "view the document" step while there's still something to do there — the doc can be split, or it
+    // hasn't been cropped yet. Once a single-page doc has been viewed & cropped, it's been handled, so don't keep
+    // leading the guide with it.
+    if (viewP && (canSplit || !alreadyCropped)) {
       var _rn = sp ? _pageCountCache[sp.id] : (viewP ? _pageCountCache[viewP.id] : null);
       var _pgTxt = _rn ? (_rn + ' page' + (_rn === 1 ? '' : 's')) : 'the pages';
       docInserts.push({ key:'review', required:false, kind:'review',
@@ -3741,16 +3752,29 @@
   }
   async function openSetupWizard(){
     if (!curLoad) return;
+    // A fresh "Guide me" (no resume pending) re-arms the one-time auto-open of the split/stops screen; a resume
+    // after a split/crop keeps it armed-off so we don't bounce straight back into the split screen in a loop.
+    var freshOpen = !_wizardResumeKey;
+    if (freshOpen) _reviewAutoSplit = false;
     if (!($('loadDetailCard') && $('loadDetailCard').classList.contains('editing'))) setLoadEditMode(true);
     try { await annotatePageCounts(_lastPods || []); } catch(e){}   // make sure page counts are known so the split step can appear
     _swSteps = buildSetupSteps();
     _swIdx = 0;
-    // Resume after a split/crop: jump back to the review step rather than restarting at PO. If the review step is
-    // gone (both split and crop are done), land on the first remaining step (don't skip ahead to signatures).
+    // Resume after a split/crop. 'past-review' (set once the split/stops screen is finished) advances into the
+    // normal flow — the step right after the review step (PO, customer, …) — so the guide doesn't dump back onto a
+    // review card. A plain 'review' jumps back to the review step (e.g. after a standalone crop). If the review step
+    // is gone, land on the first remaining step (don't skip ahead to signatures).
     if (_wizardResumeKey) {
-      let ri = _swSteps.findIndex(s => s.key === _wizardResumeKey);
-      if (ri < 0 && _wizardResumeKey === 'finish') ri = _swSteps.findIndex(s => s.key === 'finish');
+      let ri;
+      if (_wizardResumeKey === 'past-review') {
+        const rv = _swSteps.findIndex(s => s.key === 'review');
+        ri = rv >= 0 ? rv + 1 : 0;
+      } else {
+        ri = _swSteps.findIndex(s => s.key === _wizardResumeKey);
+        if (ri < 0 && _wizardResumeKey === 'finish') ri = _swSteps.findIndex(s => s.key === 'finish');
+      }
       if (ri < 0) ri = 0;
+      if (ri > _swSteps.length - 1) ri = _swSteps.length - 1;
       if (ri > 0) _swIdx = ri;
       _wizardResumeKey = null;
     }
@@ -3797,40 +3821,33 @@
       else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
     } else if (s.kind === 'review') {
-      // One review step with BOTH split and crop. Re-evaluate what still applies so the buttons reflect the current
-      // document (after a split or a crop, the load reloaded and this step re-renders). Each action reopens this same
-      // review step afterward, so splitting and cropping are never separate forced "Next" steps.
-      // "Open the document" is the primary action of this step — look at the actual PDF first.
+      // When the document is a multi-page upload, drop the dispatcher straight into the split/stops preview — the
+      // page grid where they view each page, crop a bad photo, and set the stop number per page — instead of a menu
+      // of buttons. Only once per guide run (guarded): after they split or merge, this step re-renders as the card
+      // below so they can continue, rather than bouncing back into the split screen.
+      const spAuto = splittablePod();
+      if (spAuto && !_reviewAutoSplit) {
+        _reviewAutoSplit = true;
+        _wizardResumeKey = 'review';
+        markSetupWizardSeen();
+        $('setupWizard').classList.add('hide');
+        openSplit(spAuto);
+        return;
+      }
+      // "View the document" opens the split/stops preview — the page grid with Enlarge, crop, and per-page stop
+      // numbers — so viewing, cropping and choosing stops all happen in one place, not a raw PDF in a new tab.
       const vpod = (_lastPods || []).find(p => p && p.id === s.viewPodId && p.fileUrl)
         || (_lastPods || []).find(p => p && p.fileUrl && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'parked');
       if (vpod && vpod.fileUrl) {
         const vbtn = document.createElement('button');
-        vbtn.type = 'button'; vbtn.textContent = '📄 Open the document ↗';
-        vbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;';
-        vbtn.onclick = () => { window.open(vpod.fileUrl, '_blank', 'noopener'); };
+        vbtn.type = 'button'; vbtn.textContent = '📄 View the document';
+        vbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;';
+        vbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openSplit(vpod); };
         body.appendChild(vbtn);
-      }
-      const spNow = splittablePod();
-      const cpNow = croppablePod();
-      const croppedNow = curLoad && _croppedLoadIds[curLoad.id];
-      let any = false;
-      if (spNow) {
-        const sbtn = document.createElement('button');
-        sbtn.type = 'button'; sbtn.textContent = '⎘ Split into stops'; sbtn.className = 'ghost';
-        sbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;margin-bottom:10px;background:#fff;';
-        sbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openSplit(spNow); };
-        body.appendChild(sbtn); any = true;
-      }
-      if (cpNow && !croppedNow) {
-        const cbtn = document.createElement('button');
-        cbtn.type = 'button'; cbtn.textContent = '✂ Crop a page'; cbtn.className = 'ghost';
-        cbtn.style.cssText = 'width:100%;box-sizing:border-box;font-weight:700;background:#fff;';
-        cbtn.onclick = () => { _wizardResumeKey = 'review'; markSetupWizardSeen(); $('setupWizard').classList.add('hide'); openCrop(cpNow); };
-        body.appendChild(cbtn); any = true;
       }
       const note = document.createElement('div');
       note.className = 'sub'; note.style.cssText = 'margin-top:10px;font-size:12.5px;';
-      note.textContent = any ? 'Open it to look it over. Split or crop if you need to — otherwise tap Next.' : 'Open it to look it over, then tap Next to continue.';
+      note.textContent = 'Opens the page view — look it over, crop a page or set the stop if you need to, then tap “Create stops.” Or tap Next here if it already looks right.';
       body.appendChild(note);
     } else if (s.kind === 'action') {
       // Walk signatures stop by stop: target the next document that still needs a layout. After it's saved on the
