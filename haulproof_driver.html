@@ -482,7 +482,7 @@
 
   <!-- SIGN -->
   <section class="view hide" id="viewSign">
-    <div class="signctx"><button class="back" id="signBack" type="button">🏠 Home</button><span class="ctxt" id="signCtx"></span></div>
+    <div class="signctx"><button class="back" id="signBack" type="button">🏠 Home</button><span class="ctxt" id="signCtx"></span><button class="back hide" id="dlDocBtn" type="button" style="margin-left:auto;">⬇ Download</button></div>
     <div class="docmeta" id="docMeta">
       <div id="detailsHead" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
         <span style="font-weight:800;font-size:14px;">Load details <em class="opt detailsFrom hide" style="margin-left:4px;">from dispatch</em></span>
@@ -903,6 +903,22 @@ window.__startApp=function(){
   $("cloudPill").addEventListener("click", function(){ showView("outbox"); });
   $("obBack").addEventListener("click", function(){ showView("route"); });
   $("signBack").addEventListener("click", function(){ showView("route"); });
+  // Download a copy of the document being signed to the driver's device. Prefers the signed version if the
+  // driver has already signed; otherwise saves the original document they're about to sign.
+  if($("dlDocBtn")) $("dlDocBtn").addEventListener("click", function(){
+    try{
+      var src = (signedPdfBytes && signedPdfBytes.byteLength) ? signedPdfBytes : origBytes;
+      if(!src || !src.byteLength){ toast("Document isn't ready to download yet"); return; }
+      var ab = (src.buffer ? src.slice(0) : src);   // copy so the live buffer isn't detached
+      var blob = new Blob([ab], {type:"application/pdf"});
+      var po = (pulledMeta && pulledMeta.poNumber) ? pulledMeta.poNumber : (currentStop && currentStop.name) || "document";
+      var nm = String(po).replace(/[^\w.-]+/g,"_") + (signedPdfBytes && signedPdfBytes.byteLength ? "_signed" : "") + ".pdf";
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a"); a.href=url; a.download=nm; document.body.appendChild(a); a.click();
+      setTimeout(function(){ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(_){} }, 1500);
+      toast("Saving "+nm+" to your device");
+    }catch(e){ console.error(e); toast("Couldn't download the document"); }
+  });
 
   /* ============ driver sign on / off ============ */
   function driverName(){ try{ return (localStorage.getItem("hp_driver")||"").trim(); }catch(e){ return ""; } }
@@ -1371,6 +1387,7 @@ window.__startApp=function(){
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     captureMode = false;   // reopening a saved/prepared load → this is the signing screen
     $("drop").classList.add("hide"); $("sampleDocBtn").parentElement.classList.add("hide"); if($("uploadTools")) $("uploadTools").classList.add("hide"); if($("capTray")) $("capTray").classList.add("hide"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); $("pages").innerHTML=""; $("pages").classList.remove("hide"); $("doneActions").classList.add("hide");
+    if($("dlDocBtn")) $("dlDocBtn").classList.remove("hide");   // signing a real document — let the driver save a copy to their device
     try{ await renderPagesTemplate(bytes, tpl); }catch(e){
       // The prepared file couldn't be rendered (e.g. an old save-for-later whose pages never finished
       // uploading). Fall back to the upload/scan screen so the driver can re-add the document — but KEEP
@@ -1658,6 +1675,7 @@ window.__startApp=function(){
     if($("uploadTools")) $("uploadTools").classList.remove("hide");
     capturedPages=[]; capturedMeta=[]; if($("capTray")) hideCapTray(); if($("camInput")) $("camInput").value="";
     $("docMeta").classList.remove("hide");
+    if($("dlDocBtn")) $("dlDocBtn").classList.add("hide");
     if($("saveLaterRow")) $("saveLaterRow").classList.add("hide");
     // Fresh document: blank, editable details (no dispatch lock). A prepared load re-locks these after this runs.
     if($("poNum")) $("poNum").parentElement.classList.remove("missing");
