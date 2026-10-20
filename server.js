@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs');
 const { sendMail, helpEmail } = require('./mailer');
 const jwt = require('jsonwebtoken');
 const { login, requireAuth, requireSuper, createUser, effectiveCaps, signToken, JWT_SECRET, ensureSupportAdmin, backfillSupportAdmins } = require('./auth');
-const { db, DATA_DIR } = require('./db');
+const { db } = require('./db');
 const { resolveUiFlags, setUiFlags } = require('./uiflags');
 const { verifyUnsub, optOut, optIn, listOptedOut, statusOptOut, statusOptIn, listStatusOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
@@ -56,29 +56,6 @@ app.post('/api/auth/logout', (_req, res) => {
   res.clearCookie('hp_session', { path: '/' });
   res.clearCookie('hp_super', { path: '/' });
   res.json({ ok: true });
-});
-
-// TEMPORARY storage diagnostic — self-tests whether files written under DATA_DIR/pods survive a read-back, and
-// reports where DATA_DIR points plus free space. Safe (writes/removes one tiny temp file). Remove after debugging.
-app.get('/api/_debug/storage', requireAuth, (req, res) => {
-  const podsDir = path.join(DATA_DIR, 'pods');
-  const out = { dataDir: DATA_DIR, podsDir, cwd: process.cwd(), dirname: __dirname };
-  try { out.podsDirExists = fs.existsSync(podsDir); } catch (e) { out.podsDirExists = 'ERR ' + e.message; }
-  try {
-    const p = path.join(podsDir, '__selftest-' + Date.now() + '.txt');
-    fs.writeFileSync(p, 'hello');
-    const back = fs.existsSync(p);
-    let content = null; try { content = fs.readFileSync(p, 'utf8'); } catch (e) { content = 'READ ERR ' + e.message; }
-    try { fs.unlinkSync(p); } catch (e) {}
-    out.selfTest = back ? ('write+read OK (' + content + ')') : 'WROTE but existsSync=FALSE';
-  } catch (e) { out.selfTest = 'WRITE ERR ' + e.message; }
-  try { out.podFileCount = fs.readdirSync(podsDir).length; } catch (e) { out.podFileCount = 'ERR ' + e.message; }
-  try {
-    const anyPod = db.prepare(`SELECT id, filepath FROM pods ORDER BY uploadedAt DESC LIMIT 1`).get();
-    out.newestPod = anyPod ? { id: anyPod.id, filepath: anyPod.filepath, fileExists: !!(anyPod.filepath && fs.existsSync(anyPod.filepath)) } : null;
-  } catch (e) { out.newestPod = 'ERR ' + e.message; }
-  try { if (fs.statfsSync) { const s = fs.statfsSync(DATA_DIR); out.diskFreeMB = Math.round(s.bavail * s.bsize / 1048576); out.diskTotalMB = Math.round(s.blocks * s.bsize / 1048576); } } catch (e) { out.disk = 'ERR ' + e.message; }
-  res.json(out);
 });
 
 // --- Master-admin "help" switching -------------------------------------------------------------------------

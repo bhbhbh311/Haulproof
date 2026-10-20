@@ -22,7 +22,14 @@ function decoder(h) { return h['x-enc'] === 'uri' || h['x-pod-enc'] === 'uri' ? 
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 
 // Accept either a logged-in session OR a device key (shared org key or a driver's personal token).
+// A logged-in PORTAL session takes precedence over a device key: otherwise a leftover hp_driver_key cookie — e.g.
+// from testing the driver app in the same browser — would authenticate a dispatcher as that one driver and hide
+// every other company's documents (a 404 on /file for anything outside the driver's org). Real drivers never have a
+// portal session, so they still authenticate with their key.
 function requireAuthOrKey(req, res, next) {
+  const h = req.headers.authorization || '';
+  const hasSession = h.startsWith('Bearer ') || !!(req.cookies && req.cookies.hp_session);
+  if (hasSession) return requireAuth(req, res, next);
   const r = resolveKey(req);
   if (r) { req.org = r.org; req.driver = r.driver; req.viaKey = true; return next(); }
   return requireAuth(req, res, next);
