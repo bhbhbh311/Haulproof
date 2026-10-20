@@ -169,6 +169,10 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     const load = findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy: req.user.email });
+    // A document's PO must match the load it lands on. The dedupe-rename above can suffix the PO (SCR017BOL ->
+    // SCR017BOL-4); if the document then attaches to an existing load (matched by load #), keep it in step with
+    // that load's PO so dispatch and the driver app never show two different PO #s for the same load.
+    poNumber = load.poNumber || poNumber;
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), status, uploadedAt: Date.now() });

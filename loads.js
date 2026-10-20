@@ -129,6 +129,10 @@ router.get('/', requireAuth, (req, res) => {
 router.get('/:id', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
+  // Self-heal a drifted PO: a document's PO must match its load. The dedupe-rename rule could suffix a document's
+  // PO (SCR017BOL -> SCR017BOL-4) while it attached to this load by load #, leaving the driver app showing a
+  // different PO than dispatch. Bring any out-of-step documents back in line with the load's PO.
+  try { if (load.poNumber) db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ? AND poNumber IS NOT ?`).run(load.poNumber, load.id, load.poNumber); } catch (e) {}
   const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
