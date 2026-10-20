@@ -1625,7 +1625,7 @@
   // --- Staged rollout: these sections aren't rolled out to regular users yet. They stay hidden for
   //     everyone except a "tester" (the master admin, or a login the master admin granted tester access),
   //     who can flip them on/off with the "Show all sections" toggle in the header. ---
-  var BETA_TABS = { mycustomers:1, approvedcarriers:1, received:1, receivers:1, dashboard:1, customers:1, carriers:1, brokers:1, requests:1 };
+  var BETA_TABS = { approvedcarriers:1, received:1, receivers:1, dashboard:1, customers:1, carriers:1, brokers:1, requests:1 };
   function isTester(){ return !!(user && user.betaAccess); }
   // A tester's view preference (per device). Defaults to showing everything so testing isn't interrupted;
   // they can switch to the rollout view to preview what a regular user sees.
@@ -2589,6 +2589,8 @@
     renderMyCustomerRows();
     setTabCount('mycustomers', _myCustomers.length);
     closeCustModal();
+    // If the setup guide's Customer step is open, refresh it so the just-added customer appears and is selected.
+    try { if ($('setupWizard') && !$('setupWizard').classList.contains('hide') && _swSteps && _swSteps[_swIdx] && _swSteps[_swIdx].key === 'customer') renderSetupStep(); } catch (e) {}
   }
   // ---- The Customers TAB: manage the org's own list (list + add/find + edit + remove) ----
   function renderMyCustomerRows() {
@@ -3847,6 +3849,19 @@
       }
       else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
+      // Let the dispatcher add a customer right here when the list is empty (or the right one isn't in it yet).
+      if (s.key === 'customer' && typeof openCustModal === 'function') {
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button'; addBtn.className = 'ghost';
+        addBtn.textContent = '＋ Add / find customer';
+        addBtn.style.cssText = 'margin-top:10px;width:100%;box-sizing:border-box;font-weight:600;background:#fff;';
+        addBtn.onclick = () => openCustModal();
+        body.appendChild(addBtn);
+        const cnote = document.createElement('div');
+        cnote.className = 'sub'; cnote.style.cssText = 'margin-top:8px;font-size:12.5px;';
+        cnote.textContent = 'No customer in the list yet? Add the company you haul for and it’ll be selected here automatically.';
+        body.appendChild(cnote);
+      }
     } else if (s.kind === 'review') {
       // When the document is a multi-page upload, drop the dispatcher straight into the split/stops preview — the
       // page grid where they view each page, crop a bad photo, and set the stop number per page — instead of a menu
