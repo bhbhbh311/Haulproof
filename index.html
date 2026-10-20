@@ -633,7 +633,10 @@
     <div class="card hide" id="custManageCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;" id="cmTitle">Manage customer</h1><p class="sub" style="margin-bottom:0;">Add logins and drivers, and view or upload documents for this account.</p></div>
-        <button class="ghost" id="cmBack" type="button">← Back to customers</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="cmHelpAs" type="button" style="background:#1655d1;border-color:#1655d1;color:#fff;" title="Sign in as this company's HaulProof Help admin to see exactly what they see and help them. You can return to Master Admin with one click.">🛟 Open as HaulProof Help</button>
+          <button class="ghost" id="cmBack" type="button">← Back to customers</button>
+        </div>
       </div>
       <div style="margin-top:18px;">
         <h1 style="font-size:16px;">Logins</h1>
@@ -1415,8 +1418,28 @@
   // Does the signed-in user have this capability? Admins/super have all; others get role defaults + grants
   // (the effective set the server sends in /api/me as user.capabilities).
   function hasCap(c){ return !!(user && (user.role === 'admin' || user.role === 'superadmin' || ((user.capabilities || []).indexOf(c) > -1))); }
+  // When signed in as a company's "HaulProof Help" admin (via the Master Admin one-click), show a banner with a
+  // one-click return to Master Admin. Detected by the support-login email pattern.
+  function maybeShowHelpBanner(u){
+    var existing = document.getElementById('helpBanner');
+    var isHelp = !!(u && u.email && /^haulproofhelp\+/i.test(u.email));
+    if(!isHelp){ if(existing) existing.remove(); return; }
+    if(existing) return;
+    var bar = document.createElement('div');
+    bar.id = 'helpBanner';
+    bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#7a1f1f;color:#fff;padding:9px 16px;display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;font-size:13.5px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.18);';
+    bar.innerHTML = '🛟 You’re helping <b style="margin:0 4px;">' + esc(u.orgName || 'this company') + '</b> as HaulProof Help.'
+      + ' <button id="helpExitBtn" type="button" style="margin-left:8px;background:#fff;color:#7a1f1f;border:none;border-radius:6px;padding:6px 13px;font-weight:700;cursor:pointer;">← Return to Master Admin</button>';
+    document.body.insertBefore(bar, document.body.firstChild);
+    document.getElementById('helpExitBtn').onclick = async function(){
+      var b = document.getElementById('helpExitBtn'); if(b){ b.disabled = true; b.textContent = 'Returning…'; }
+      try { await api('/api/auth/help-exit', { method:'POST', body:'{}' }); location.href = '/app'; }
+      catch(e){ alert(e.message || 'Could not return automatically — please sign in as Master Admin again.'); if(b){ b.disabled=false; b.textContent='← Return to Master Admin'; } }
+    };
+  }
   function enterApp(u) {
     user = u;
+    try { maybeShowHelpBanner(u); } catch(e){}
     refreshOrgFields();   // make sure the Simple-mode field flags are current regardless of how we signed in
     const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     const kinds = u.role === 'superadmin' ? 'Master Admin' : (((u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : [])).map(cap).join(' · ') || 'User');
@@ -4404,6 +4427,19 @@
     if (!cmIsCarrier) { cmpSetKind('carrier'); loadCmPartners(); }
     window.scrollTo(0, 0);
   }
+  // Master Admin → one-click sign-in as this company's "HaulProof Help" admin (and a banner to return).
+  async function helpSwitch(orgId){
+    if(!orgId) return;
+    var btn = $('cmHelpAs'); if(btn){ btn.disabled = true; btn.textContent = 'Opening…'; }
+    try {
+      await api('/api/auth/help-switch', { method:'POST', body: JSON.stringify({ orgId: orgId }) });
+      location.href = '/app';   // reload into the company as HaulProof Help
+    } catch(e){
+      alert(e.message || 'Could not open this company as HaulProof Help.');
+      if(btn){ btn.disabled = false; btn.textContent = '🛟 Open as HaulProof Help'; }
+    }
+  }
+  if ($('cmHelpAs')) $('cmHelpAs').onclick = () => helpSwitch(cmOrgId);
   $('cmBack').onclick = () => {
     // Manage is super-admin only, and opening it hid all three super cards — so Back must restore all three.
     $('custManageCard').classList.add('hide');

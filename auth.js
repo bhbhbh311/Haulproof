@@ -18,6 +18,42 @@ function createUser({ email, name, role, password, orgId }) {
   return { id, email: email.toLowerCase().trim(), name: name || '', role: role || 'dispatcher', orgId: orgId || null };
 }
 
+// ---- "HaulProof Help" support logins -------------------------------------------------------------------
+// One shared password (from the env) for every company's support admin, so the master admin can jump in to
+// help. The login email is haulproofhelp+<company-slug>@haulproofepod.com: unique per company (the users table
+// requires a unique email), but every one of them still delivers to the HaulProofHelp@haulproofepod.com inbox.
+const HELP_PASSWORD = (process.env.HAULPROOF_HELP_PASSWORD || '').trim();
+// Ensure the support admin login exists for an org (creating it if needed), and keep its password in sync with
+// the current shared password. Idempotent — safe to call on every org-create and on boot. Returns the user row.
+function ensureSupportAdmin(orgId) {
+  if (!orgId) return null;
+  let u = db.prepare(`SELECT * FROM users WHERE orgId = ? AND email LIKE 'haulproofhelp+%@haulproofepod.com'`).get(orgId);
+  if (u) {
+    // Keep every support login on the current shared password (so it always works even if the password changes).
+    if (HELP_PASSWORD && (!u.passHash || !bcrypt.compareSync(HELP_PASSWORD, u.passHash))) {
+      try { db.prepare(`UPDATE users SET passHash = ?, role = 'admin' WHERE id = ?`).run(bcrypt.hashSync(HELP_PASSWORD, 10), u.id); } catch (e) {}
+    }
+    return db.prepare(`SELECT * FROM users WHERE id = ?`).get(u.id);
+  }
+  const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId);
+  let slug = String((org && org.name) || 'company').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24) || 'company';
+  let email = 'haulproofhelp+' + slug + '@haulproofepod.com';
+  if (db.prepare(`SELECT 1 FROM users WHERE email = ?`).get(email)) {
+    email = 'haulproofhelp+' + slug + '-' + String(orgId).replace(/[^a-z0-9]/gi, '').slice(0, 6).toLowerCase() + '@haulproofepod.com';
+  }
+  const pw = HELP_PASSWORD || crypto.randomBytes(18).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+  try { createUser({ email, name: 'HaulProof Help', role: 'admin', password: pw, orgId }); }
+  catch (e) { return db.prepare(`SELECT * FROM users WHERE orgId = ? AND email LIKE 'haulproofhelp+%@haulproofepod.com'`).get(orgId); }
+  return db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+}
+// Create the support admin for every existing company (customer/carrier/broker). Idempotent; run on boot.
+function backfillSupportAdmins() {
+  try {
+    const orgs = db.prepare(`SELECT id FROM orgs WHERE kind IN ('customer','carrier','broker')`).all();
+    orgs.forEach(o => { try { ensureSupportAdmin(o.id); } catch (e) {} });
+  } catch (e) {}
+}
+
 // What kind of org a user belongs to ('customer' | 'carrier' | null for super-admin).
 function orgKindOf(orgId) {
   if (!orgId) return null;
@@ -168,6 +204,7 @@ function driverUnlockValue(driver) {
 
 module.exports = {
   createUser, login, signToken, upsertSsoUser,
+  ensureSupportAdmin, backfillSupportAdmins,
   requireAuth, requireApiKey, hasValidApiKey, orgForApiKey, resolveKey,
   driverUnlockValue,
   isSuper, requireSuper, requireAdmin, requireDriverManager,

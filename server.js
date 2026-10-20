@@ -7,7 +7,8 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { sendMail, helpEmail } = require('./mailer');
-const { login, requireAuth, requireSuper, createUser, effectiveCaps } = require('./auth');
+const jwt = require('jsonwebtoken');
+const { login, requireAuth, requireSuper, createUser, effectiveCaps, signToken, JWT_SECRET, ensureSupportAdmin, backfillSupportAdmins } = require('./auth');
 const { db } = require('./db');
 const { resolveUiFlags, setUiFlags } = require('./uiflags');
 const { verifyUnsub, optOut, optIn, listOptedOut, statusOptOut, statusOptIn, listStatusOptedOut } = require('./optout');
@@ -53,6 +54,35 @@ app.use('/api/auth', msRouter);
 // Clear the session cookie.
 app.post('/api/auth/logout', (_req, res) => {
   res.clearCookie('hp_session', { path: '/' });
+  res.clearCookie('hp_super', { path: '/' });
+  res.json({ ok: true });
+});
+
+// --- Master-admin "help" switching -------------------------------------------------------------------------
+// From the Master Admin, jump into a company as its "HaulProof Help" admin with one click, and pop back out.
+// Switching stashes the master-admin session in a second cookie (hp_super) so "Return to Master Admin" restores it
+// without a fresh sign-in.
+const _helpCookie = () => ({ httpOnly: true, sameSite: 'lax', secure: SESSION_SECURE, maxAge: 12 * 60 * 60 * 1000, path: '/' });
+app.post('/api/auth/help-switch', requireAuth, requireSuper, (req, res) => {
+  const orgId = String((req.body && req.body.orgId) || '').trim();
+  const org = orgId ? db.prepare('SELECT id, name, active FROM orgs WHERE id = ?').get(orgId) : null;
+  if (!org) return res.status(404).json({ error: 'Company not found' });
+  const u = ensureSupportAdmin(orgId);
+  if (!u) return res.status(500).json({ error: 'Could not prepare the HaulProof Help login for this company.' });
+  const token = signToken({ id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId });
+  const masterTok = (req.cookies && req.cookies.hp_session)
+    || ((req.headers.authorization || '').startsWith('Bearer ') ? req.headers.authorization.slice(7) : '');
+  if (masterTok) res.cookie('hp_super', masterTok, _helpCookie());
+  res.cookie('hp_session', token, _helpCookie());
+  res.json({ ok: true, company: org.name, email: u.email });
+});
+app.post('/api/auth/help-exit', (req, res) => {
+  const superTok = req.cookies && req.cookies.hp_super;
+  if (!superTok) return res.status(400).json({ error: 'No Master Admin session to return to — please sign in again.' });
+  let payload; try { payload = jwt.verify(superTok, JWT_SECRET); } catch (e) { return res.status(401).json({ error: 'Master Admin session expired — please sign in again.' }); }
+  if (payload.role !== 'superadmin') return res.status(403).json({ error: 'That stored session is not a Master Admin.' });
+  res.cookie('hp_session', superTok, _helpCookie());
+  res.clearCookie('hp_super', { path: '/' });
   res.json({ ok: true });
 });
 
@@ -501,6 +531,9 @@ app.post('/api/report-problem', requireAuth, (req, res) => {
   } catch (e) {}
   res.json({ ok: true });
 });
+
+// Make sure every company already in the system has its "HaulProof Help" admin login (idempotent).
+try { backfillSupportAdmins(); } catch (e) { console.error('backfillSupportAdmins', e && e.message); }
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
