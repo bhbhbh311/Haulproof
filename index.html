@@ -347,6 +347,24 @@
       </div>
     </div>
 
+    <!-- In-app document viewer — opens the PDF inside the app (no new browser tab, no popup blocker) -->
+    <div id="docViewer" class="histOverlay hide" style="z-index:10050;">
+      <div class="histBox" style="max-width:960px;width:94vw;height:92vh;display:flex;flex-direction:column;">
+        <div class="histHead" style="flex-shrink:0;">
+          <h1 style="margin:0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span id="docViewerName">Document</span></h1>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <a id="docViewerNewTab" class="dl" href="#" target="_blank" rel="noopener" style="font-size:12.5px;" title="Open in a separate browser tab">Open in new tab ↗</a>
+            <button id="docViewerDownload" class="ghost btn-sm" type="button" title="Download a copy">⬇ Download</button>
+            <button id="docViewerClose" class="ghost" type="button">✕ Close</button>
+          </div>
+        </div>
+        <div id="docViewerBody" style="flex:1;min-height:0;margin-top:10px;background:#f1f4f9;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;">
+          <div id="docViewerLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;">Loading document…</div>
+          <iframe id="docViewerFrame" title="Document preview" style="width:100%;height:100%;border:0;display:none;"></iframe>
+        </div>
+      </div>
+    </div>
+
     <!-- Split a multi-page document into separate per-stop documents -->
     <div id="splitModal" class="histOverlay hide">
       <div class="histBox" style="max-width:660px;">
@@ -794,12 +812,12 @@
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
-          <button class="ghost ld-editonly hide" id="ldAddStopToggle" type="button">＋ Add stop / documents</button>
+          <button class="ghost hide" id="ldAddStopToggle" type="button" style="display:none !important;">＋ Add stop / documents</button>
         </div>
         <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
         <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
-          <div class="row" style="grid-template-columns:0.6fr 1fr 1fr;">
-            <div><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
+          <div class="row" style="grid-template-columns:1fr 1fr;">
+            <div style="display:none !important;"><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
             <div><label>Document type</label><select id="ldDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
             <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select>
               <button type="button" id="ldReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
@@ -940,10 +958,12 @@
           <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
           <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
-        <div class="row" style="grid-template-columns:1fr 0.6fr 1fr;margin-top:12px;align-items:start;">
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;align-items:start;">
           <div><label>Document type</label>
             <select id="uType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
-          <div><label>Stop # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
+          <!-- Stop # hidden: documents are filed first, then their stop is set on the load. Kept in the DOM (hidden,
+               blank) so existing JS references resolve and the upload stays stop-less (its own load, never merged). -->
+          <div style="display:none !important;"><label>Stop # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
             <input id="uStop" type="number" min="1" step="1" placeholder="e.g. 1">
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Files another stop on the same PO/Load.</div></div>
           <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
@@ -2895,6 +2915,44 @@
       } });
     });
   }
+  // In-app document viewer — fetches the PDF with the session cookie and shows it in a modal, so viewing a
+  // document never depends on a new browser tab (which can show blank while loading, or be popup-blocked).
+  var _docViewerUrl = null;
+  async function openDocViewer(p) {
+    if (!p || !p.fileUrl) { alert('No document to open yet.'); return; }
+    const modal = $('docViewer'); if (!modal) { window.open(p.fileUrl, '_blank'); return; }
+    if ($('docViewerName')) $('docViewerName').textContent = p.filename || ('PO ' + (p.poNumber || '') + ' document');
+    const nt = $('docViewerNewTab'); if (nt) nt.href = p.fileUrl;
+    const frame = $('docViewerFrame'), loading = $('docViewerLoading');
+    if (frame) { frame.style.display = 'none'; frame.src = 'about:blank'; }
+    if (loading) { loading.style.display = 'flex'; loading.textContent = 'Loading document…'; }
+    modal.classList.remove('hide');
+    try {
+      const resp = await fetch(p.fileUrl, { credentials: 'include' });
+      if (!resp.ok) throw new Error('That document could not be opened (' + resp.status + '). Try refreshing.');
+      const blob = await resp.blob();
+      if (_docViewerUrl) { try { URL.revokeObjectURL(_docViewerUrl); } catch (e) {} }
+      _docViewerUrl = URL.createObjectURL(blob);
+      if (frame) { frame.src = _docViewerUrl; frame.style.display = 'block'; }
+      if (loading) loading.style.display = 'none';
+    } catch (e) {
+      if (loading) { loading.style.display = 'flex'; loading.textContent = e.message || 'Could not open the document.'; }
+    }
+  }
+  function closeDocViewer() {
+    const modal = $('docViewer'); if (modal) modal.classList.add('hide');
+    const frame = $('docViewerFrame'); if (frame) frame.src = 'about:blank';
+    if (_docViewerUrl) { try { URL.revokeObjectURL(_docViewerUrl); } catch (e) {} _docViewerUrl = null; }
+  }
+  if ($('docViewerClose')) $('docViewerClose').onclick = closeDocViewer;
+  if ($('docViewer')) $('docViewer').addEventListener('click', e => { if (e.target === $('docViewer')) closeDocViewer(); });
+  if ($('docViewerDownload')) $('docViewerDownload').onclick = () => {
+    if (!_docViewerUrl) return;
+    var nm = (($('docViewerName') && $('docViewerName').textContent) || 'document').replace(/[^\w.-]+/g, '_');
+    if (!/\.pdf$/i.test(nm)) nm += '.pdf';
+    const a = document.createElement('a'); a.href = _docViewerUrl; a.download = nm; document.body.appendChild(a); a.click();
+    setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 500);
+  };
   function renderLoadDocs(allPods) {
     const box = $('ldDocs'); if (!box) return;
     const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
@@ -2943,9 +3001,9 @@
           ${p.status === 'needs_reupload'
             ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
-            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener">Open ↗</a>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
             : p.fileUrl
-            ? `<a class="dl" href="${p.fileUrl}" target="_blank" rel="noopener" title="Open the uploaded document in a new tab">Open ↗</a>&nbsp;`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" title="View the document" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;`
             : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="First, split a multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>&nbsp;` : ''}
           ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Next, crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>&nbsp;` : ''}
@@ -2966,6 +3024,7 @@
       okLabel: 'Yes, discard',
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
+    box.querySelectorAll('.ldOpenDoc').forEach(b => b.onclick = () => openDocViewer(byId[b.dataset.id]));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldCrop').forEach(b => b.onclick = () => openCrop(byId[b.dataset.id]));
     box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
