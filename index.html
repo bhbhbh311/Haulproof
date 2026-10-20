@@ -3121,10 +3121,8 @@
     const box = $('splitPages'); box.innerHTML = ''; _splitInputs = [];
     const pdf = _splitPdf; if (!pdf) return Promise.resolve();
     if ($('splitCount')) $('splitCount').textContent = '· ' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's');
-    if (pdf.numPages < 2) {
-      box.innerHTML = '<div style="font-size:13px;color:var(--muted);">This document has only one page, so there\'s nothing to split. Use <b>✂ Crop</b> or <b>Edit</b> on the document instead.</div>';
-      if ($('splitSave')) $('splitSave').disabled = true; return Promise.resolve();
-    }
+    // Single-page docs still RENDER the page here (don't dead-end with a text message) — the dispatcher opened
+    // "View the document" to actually see it, crop it if needed, and set its stop, then Save & continue.
     if ($('splitSave')) $('splitSave').disabled = false;
     const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;';
     let chain = Promise.resolve();
