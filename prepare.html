@@ -119,7 +119,7 @@
         <div class="lyhint" id="lyEmptyHint" style="display:none;">No saved layouts for this customer yet. Place your boxes, then choose <b>Save current as layout</b>.</div>
       </div>
     </div>
-    <button class="btn ghost" id="cropBtn" type="button" title="Crop the document's pages (e.g. a photo that caught the whole table) before placing signatures">✂ Crop pages</button>
+    <button class="btn ghost" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures">✂ Crop / clean up</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
   </div>
@@ -181,10 +181,10 @@
 <div id="cropModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:320;align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto;">
   <div style="background:#fff;border-radius:14px;max-width:880px;width:100%;padding:20px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-      <h1 style="font-size:18px;margin:0;">✂ Crop pages <span id="cropCount" style="font-size:13px;font-weight:700;color:#1655d1;"></span></h1>
+      <h1 style="font-size:18px;margin:0;">✂ Crop &amp; clean up pages <span id="cropCount" style="font-size:13px;font-weight:700;color:#1655d1;"></span></h1>
       <button class="btn ghost" id="cropClose" type="button">✕ Close</button>
     </div>
-    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Pick a page, drag a box around just the document to trim off the background, then Apply. Save replaces the file and clears any signature boxes (place them after cropping).</p>
+    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Pick a page, then <b>drag a box</b> around just the document to trim off the background and Apply, and/or tap <b>✨ Clean up this page</b> to sharpen and brighten a soft or dim photo. Save replaces the file and clears any signature boxes (place them after).</p>
     <div style="display:flex;gap:16px;flex-wrap:wrap;">
       <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
       <div style="flex:1 1 360px;min-width:300px;">
@@ -194,6 +194,7 @@
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn" id="cropApply" type="button" disabled>Apply crop to this page</button>
+          <button class="btn ghost" id="cropEnhance" type="button" title="Sharpen and brighten this page — good for a soft, dim, or washed-out phone photo">✨ Clean up this page</button>
           <button class="btn ghost" id="cropReset" type="button">Reset page</button>
           <span id="cropPageMsg" style="font-size:12.5px;color:#5c6b7a;"></span>
         </div>
@@ -584,11 +585,13 @@
   });
 
   // ===== Crop the document's pages (trim background off a bad "use whole photo" scan) =====
-  var _cropBuf=null,_cropPdf=null,_cropEdits={},_cropPageIdx=0,_cropRect=null,_cropDrag=null;
+  var _cropBuf=null,_cropPdf=null,_cropEdits={},_cropKind={},_cropPageIdx=0,_cropRect=null,_cropDrag=null;
+  // Track what was done to each page so the thumbnail tag reads "✓ cropped", "✓ cleaned up", or both.
+  function markKind(pi,op){ var cur=_cropKind[pi]; if(!cur) _cropKind[pi]=op; else if(cur!==op && cur.indexOf('+')<0) _cropKind[pi]='cropped + cleaned up'; }
   function cropOpen(){
     if(!DOC_ID) return;
     if(!window.pdfjsLib||!window.PDFLib){ toast('PDF tools are still loading — try again in a second'); return; }
-    _cropBuf=null;_cropPdf=null;_cropEdits={};_cropPageIdx=0;_cropRect=null;_cropDrag=null;
+    _cropBuf=null;_cropPdf=null;_cropEdits={};_cropKind={};_cropPageIdx=0;_cropRect=null;_cropDrag=null;
     $('#cropMsg').textContent='';$('#cropMsg').style.color='#5c6b7a';$('#cropPageMsg').textContent='';$('#cropCount').textContent='';
     $('#cropSave').disabled=false;$('#cropSel').style.display='none';$('#cropThumbs').innerHTML='Loading…';
     $('#cropModal').style.display='flex';
@@ -610,7 +613,7 @@
         var lbl=document.createElement('div'); lbl.style.cssText='font-size:11px;color:#5c6b7a;margin-bottom:3px;'; lbl.textContent='Page '+(pi+1);
         cv.addEventListener('click',function(){ cropShow(pi); });
         var tag=document.createElement('div'); tag.className='cropTag'; tag.setAttribute('data-idx',String(pi));
-        tag.style.cssText='font-size:10px;margin-top:2px;color:#12784a;font-weight:700;min-height:12px;'; tag.textContent=_cropEdits[pi]?'✓ cropped':'';
+        tag.style.cssText='font-size:10px;margin-top:2px;color:#12784a;font-weight:700;min-height:12px;'; tag.textContent=_cropEdits[pi]?('✓ '+(_cropKind[pi]||'edited')):'';
         wrap.appendChild(lbl); wrap.appendChild(cv); wrap.appendChild(tag); box.appendChild(wrap);
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
@@ -618,7 +621,7 @@
     return chain.then(function(){ cropHighlight(); });
   }
   function cropHighlight(){ Array.prototype.forEach.call($('#cropThumbs').querySelectorAll('canvas'),function(cv,i){ cv.style.borderColor=(i===_cropPageIdx)?'#1655d1':'#dde4ec'; }); }
-  function cropTags(){ Array.prototype.forEach.call($('#cropThumbs').querySelectorAll('.cropTag'),function(t){ var i=+t.getAttribute('data-idx'); t.textContent=_cropEdits[i]?'✓ cropped':''; }); }
+  function cropTags(){ Array.prototype.forEach.call($('#cropThumbs').querySelectorAll('.cropTag'),function(t){ var i=+t.getAttribute('data-idx'); t.textContent=_cropEdits[i]?('✓ '+(_cropKind[i]||'edited')):''; }); }
   function cropShow(pi){
     _cropPageIdx=pi; _cropRect=null; $('#cropSel').style.display='none'; $('#cropApply').disabled=true;
     $('#cropPageMsg').textContent=_cropEdits[pi]?'This page is cropped. Drag a new box to re-crop, or Reset page.':'Drag a box around just the document.';
@@ -641,7 +644,7 @@
     if(_cropEdits[pi]){
       var sub=document.createElement('canvas'); sub.width=Math.round(_cropRect.w); sub.height=Math.round(_cropRect.h);
       sub.getContext('2d').drawImage(stage,_cropRect.x,_cropRect.y,_cropRect.w,_cropRect.h,0,0,_cropRect.w,_cropRect.h);
-      _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); cropTags(); cropShow(pi).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop another page.'; });
+      _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); markKind(pi,'cropped'); cropTags(); cropShow(pi).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop/clean up another page.'; });
     } else {
       _cropPdf.getPage(pi+1).then(function(page){
         var vp0=page.getViewport({scale:1}), hvp=page.getViewport({scale:1700/vp0.width});
@@ -651,19 +654,72 @@
           var sx=_cropRect.x*kx, sy=_cropRect.y*ky, sw=_cropRect.w*kx, sh=_cropRect.h*ky;
           var sub=document.createElement('canvas'); sub.width=Math.round(sw); sub.height=Math.round(sh);
           sub.getContext('2d').drawImage(hc,sx,sy,sw,sh,0,0,sw,sh);
-          _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); cropTags(); return cropShow(pi);
+          _cropEdits[pi]=sub.toDataURL('image/jpeg',0.9); markKind(pi,'cropped'); cropTags(); return cropShow(pi);
         });
-      }).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop another page.'; }).catch(function(){ $('#cropPageMsg').textContent='Could not crop this page.'; });
+      }).then(function(){ $('#cropPageMsg').textContent='✓ Cropped. Save when done, or crop/clean up another page.'; }).catch(function(){ $('#cropPageMsg').textContent='Could not crop this page.'; });
     }
   });
-  $('#cropReset').addEventListener('click',function(){ delete _cropEdits[_cropPageIdx]; cropTags(); cropShow(_cropPageIdx); });
-  function cropClose(){ $('#cropModal').style.display='none'; _cropBuf=null; _cropPdf=null; _cropEdits={}; _cropRect=null; _cropDrag=null; }
+  $('#cropReset').addEventListener('click',function(){ delete _cropEdits[_cropPageIdx]; delete _cropKind[_cropPageIdx]; cropTags(); cropShow(_cropPageIdx); });
+  // ===== Clean up (enhance) the current page: contrast-stretch + sharpen a soft/dim photo, stored like a crop. =====
+  function cropEnhance(){
+    if(!_cropPdf) return;
+    var pi=_cropPageIdx;
+    $('#cropEnhance').disabled=true; $('#cropPageMsg').textContent='Cleaning up…';
+    function processCanvas(cv){
+      var w=cv.width, h=cv.height, g=cv.getContext('2d');
+      var id=g.getImageData(0,0,w,h), src=id.data, out=g.createImageData(w,h), d=out.data;
+      autoEnhance(src,d,w,h); g.putImageData(out,0,0);
+      _cropEdits[pi]=cv.toDataURL('image/jpeg',0.92); markKind(pi,'cleaned up'); cropTags();
+      return cropShow(pi);
+    }
+    var done=function(){ $('#cropPageMsg').textContent='✓ Cleaned up. Save when done, or clean up/crop another page.'; $('#cropEnhance').disabled=false; };
+    var fail=function(){ $('#cropPageMsg').textContent='Could not clean up this page.'; $('#cropEnhance').disabled=false; };
+    if(_cropEdits[pi]){
+      // Already cropped/edited — enhance that image so crop + clean-up compose.
+      var img=new Image();
+      img.onload=function(){ var c=document.createElement('canvas'); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height; c.getContext('2d').drawImage(img,0,0); processCanvas(c).then(done).catch(fail); };
+      img.onerror=fail; img.src=_cropEdits[pi];
+    } else {
+      // Fresh page — render at high resolution first so the clean-up has real pixels to work with.
+      _cropPdf.getPage(pi+1).then(function(page){
+        var vp0=page.getViewport({scale:1}), hvp=page.getViewport({scale:1700/vp0.width});
+        var hc=document.createElement('canvas'); hc.width=hvp.width; hc.height=hvp.height;
+        return page.render({canvasContext:hc.getContext('2d'),viewport:hvp}).promise.then(function(){ return processCanvas(hc); });
+      }).then(done).catch(fail);
+    }
+  }
+  if($('#cropEnhance')) $('#cropEnhance').addEventListener('click',cropEnhance);
+  // Document clean-up pipeline (ported from the driver scan editor): stretch contrast between the 2nd and 98.5th
+  // brightness percentiles, apply a mild gamma, then unsharp-mask so faint/soft text reads crisply.
+  function percentileFromHist(hist,n,p){ var t=n*p, acc=0; for(var i=0;i<256;i++){ acc+=hist[i]; if(acc>=t) return i; } return 255; }
+  function autoEnhance(src,d,w,h){
+    var n=w*h, hist=new Uint32Array(256);
+    for(var i=0;i<n;i++){ var o=i*4; hist[(0.299*src[o]+0.587*src[o+1]+0.114*src[o+2])|0]++; }
+    var lo=percentileFromHist(hist,n,0.02), hi=percentileFromHist(hist,n,0.985);
+    if(hi<=lo){ lo=0; hi=255; } var range=hi-lo;
+    for(var i=0;i<n;i++){ var o=i*4;
+      for(var ch=0;ch<3;ch++){ var val=(src[o+ch]-lo)*255/range; val=Math.min(1,Math.max(0,val/255)); d[o+ch]=255*Math.pow(val,0.85); }
+      d[o+3]=255;
+    }
+    unsharpRGB(d,w,h,0.9);
+  }
+  function unsharpRGB(d,w,h,amount){
+    if(w<3||h<3) return;
+    var src=new Uint8ClampedArray(d), kw=w*4;
+    for(var y=1;y<h-1;y++){ for(var x=1;x<w-1;x++){ var o=(y*w+x)*4;
+      for(var ch=0;ch<3;ch++){ var c=o+ch;
+        var blur=(src[c-4]+src[c+4]+src[c-kw]+src[c+kw]+src[c-kw-4]+src[c-kw+4]+src[c+kw-4]+src[c+kw+4]+src[c])/9;
+        var val=src[c]+amount*(src[c]-blur); d[c]=val<0?0:(val>255?255:val);
+      }
+    } }
+  }
+  function cropClose(){ $('#cropModal').style.display='none'; _cropBuf=null; _cropPdf=null; _cropEdits={}; _cropKind={}; _cropRect=null; _cropDrag=null; }
   $('#cropClose').addEventListener('click',cropClose);
   $('#cropCancel').addEventListener('click',cropClose);
   $('#cropModal').addEventListener('click',function(e){ if(e.target===$('#cropModal')) cropClose(); });
   $('#cropSave').addEventListener('click',function(){
     if(!_cropBuf) return;
-    if(!Object.keys(_cropEdits).length){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent='Crop at least one page first, or Cancel.'; return; }
+    if(!Object.keys(_cropEdits).length){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent='Crop or clean up at least one page first, or Cancel.'; return; }
     $('#cropSave').disabled=true; $('#cropMsg').style.color='#5c6b7a'; $('#cropMsg').textContent='Saving…';
     PDFLib.PDFDocument.load(_cropBuf,{ignoreEncryption:true}).then(function(srcDoc){
       return PDFLib.PDFDocument.create().then(function(out){
@@ -681,7 +737,7 @@
     }).then(function(outBytes){
       return fetch('/api/pods/'+DOC_ID+'/replace-file',{method:'POST',credentials:'include',headers:{'Content-Type':'application/pdf'},body:outBytes});
     }).then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok||j.error) throw new Error(j.error||'Save failed'); return j; }); })
-      .then(function(){ dirty=false; toast('Cropped — reloading the clean document…'); setTimeout(function(){ location.reload(); }, 700); })
+      .then(function(){ dirty=false; toast('Saved — reloading the cleaned-up document…'); setTimeout(function(){ location.reload(); }, 700); })
       .catch(function(e){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent=e.message||'Save failed'; $('#cropSave').disabled=false; });
   });
   // Drag-to-select on the crop stage (mouse + touch).
