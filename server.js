@@ -10,6 +10,7 @@ const { sendMail, helpEmail } = require('./mailer');
 const jwt = require('jsonwebtoken');
 const { login, requireAuth, requireSuper, createUser, effectiveCaps, signToken, JWT_SECRET, ensureSupportAdmin, backfillSupportAdmins } = require('./auth');
 const { db } = require('./db');
+const digest = require('./digest');
 const { resolveUiFlags, setUiFlags } = require('./uiflags');
 const { verifyUnsub, optOut, optIn, listOptedOut, statusOptOut, statusOptIn, listStatusOptedOut } = require('./optout');
 const { router: msRouter, ssoConfigured, REDIRECT_URI, PORTAL_URL } = require('./msauth');
@@ -192,6 +193,12 @@ app.use('/api/customers', customersRouter);
 app.use('/api/trash', trashRouter);
 
 // --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
+// Master-admin: send the daily digest right now (to test it / get an on-demand copy). The scheduled one still
+// fires once a day on its own.
+app.post('/api/digest/test', requireAuth, requireSuper, async (_req, res) => {
+  try { const r = await digest.sendNow(); res.json({ ok: true, to: digest.RECIPIENT, sent: !!(r && (r.sent || r.simulated)), simulated: !!(r && r.simulated), error: r && r.error || null }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/stats', requireAuth, requireSuper, (_req, res) => {
   const one = (sql, ...args) => { try { const r = db.prepare(sql).get(...args); return r ? Number(Object.values(r)[0]) || 0 : 0; } catch (e) { return 0; } };
   const byKind = (kind) => one('SELECT COUNT(*) c FROM orgs WHERE kind = ?', kind);
@@ -536,6 +543,7 @@ app.post('/api/report-problem', requireAuth, (req, res) => {
 try { backfillSupportAdmins(); } catch (e) { console.error('backfillSupportAdmins', e && e.message); }
 
 const PORT = process.env.PORT || 4000;
+try { digest.startDailyDigest(); } catch (e) { console.error('digest arm', e && e.message); }
 app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);
   if (ssoConfigured()) {

@@ -48,6 +48,7 @@
   input[type=checkbox]{width:auto;}
   .umsg-ok{color:var(--ok);} .umsg-err{color:var(--danger);}
   .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,#e0a030);background:var(--warn-soft,#fff6e6);color:#8a5a00;border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
+  input.listFilter{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--surface,#fff);}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
   /* Buttons — one system: solid primary (default), .ghost (secondary/outline), .btn-ok (green),
@@ -569,7 +570,8 @@
         </div>
         <div id="ncAfter" class="hide" style="margin-top:14px;padding:12px 14px;border:1px solid var(--ok);border-radius:9px;background:var(--ok-soft);font-size:13px;"></div>
       </div>
-      <div id="custList" style="margin-top:16px;"></div>
+      <input type="search" id="custFilter" class="listFilter" placeholder="🔍 Search customers by name, MC#, or DOT#" style="width:100%;box-sizing:border-box;margin-top:16px;">
+      <div id="custList" style="margin-top:10px;"></div>
     </div>
 
     <!-- CARRIERS (super-admin) -->
@@ -607,7 +609,8 @@
           <div id="acVerified" class="sub" style="margin-top:8px;"></div>
         </div>
       </div>
-      <div id="carrierList" style="margin-top:16px;"></div>
+      <input type="search" id="carFilter" class="listFilter" placeholder="🔍 Search carriers by name, MC#, or DOT#" style="width:100%;box-sizing:border-box;margin-top:16px;">
+      <div id="carrierList" style="margin-top:10px;"></div>
     </div>
 
     <!-- BROKERS (super-admin) -->
@@ -645,7 +648,8 @@
           <div id="abVerified" class="sub" style="margin-top:8px;"></div>
         </div>
       </div>
-      <div id="brokerList" style="margin-top:16px;"></div>
+      <input type="search" id="brFilter" class="listFilter" placeholder="🔍 Search brokers by name, MC#, or DOT#" style="width:100%;box-sizing:border-box;margin-top:16px;">
+      <div id="brokerList" style="margin-top:10px;"></div>
     </div>
 
     <!-- MANAGE ONE CUSTOMER (super-admin) -->
@@ -1061,7 +1065,8 @@
           <span id="nrMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
-      <div id="receiverRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
+      <input type="search" id="recvFilter" class="listFilter" placeholder="🔍 Search receivers by name, address, or parent company" style="width:100%;box-sizing:border-box;margin-top:14px;">
+      <div id="receiverRows" style="margin-top:10px;"><div class="empty">Loading…</div></div>
     </div>
 
     <!-- YOUR CUSTOMER LIST (carrier/broker admins) — the companies you haul for -->
@@ -1952,6 +1957,29 @@
   const isCustomerUser = () => user && user.orgKind === 'customer';
 
   // --- Carriers (super-admin): FMCSA lookup, add carrier + login, manage ---
+  // Generic client-side filter for an admin list: type to show only the table rows that match. Works on whatever
+  // is rendered into the container (no coupling to how each list builds its rows), and re-applies itself after the
+  // list re-renders (e.g. after a deactivate/edit) via a MutationObserver. Matches against the whole row text.
+  function wireListFilter(inputId, containerId) {
+    const inp = $(inputId), box = $(containerId); if (!inp || !box) return;
+    let busy = false;
+    function apply() {
+      busy = true;
+      const q = (inp.value || '').trim().toLowerCase();
+      const rows = box.querySelectorAll('table tbody tr'); let shown = 0;
+      for (let i = 0; i < rows.length; i++) { const hit = !q || (rows[i].textContent || '').toLowerCase().indexOf(q) > -1; rows[i].style.display = hit ? '' : 'none'; if (hit) shown++; }
+      let nm = box.querySelector('.listFilterNone');
+      if (q && !shown && rows.length) { if (!nm) { nm = document.createElement('div'); nm.className = 'listFilterNone empty'; nm.style.marginTop = '10px'; box.appendChild(nm); } nm.textContent = 'No matches for “' + inp.value.trim() + '”.'; nm.style.display = ''; }
+      else if (nm) { nm.style.display = 'none'; }
+      busy = false;
+    }
+    inp.addEventListener('input', apply);
+    try { new MutationObserver(function () { if (!busy && inp.value.trim()) apply(); }).observe(box, { childList: true }); } catch (e) {}
+  }
+  wireListFilter('carFilter', 'carrierList');
+  wireListFilter('custFilter', 'custList');
+  wireListFilter('brFilter', 'brokerList');
+  wireListFilter('recvFilter', 'receiverRows');
   async function loadCarriers() {
     const box = $('carrierList');
     const inc = $('carShowInactive') && $('carShowInactive').checked;
