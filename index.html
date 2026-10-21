@@ -3773,7 +3773,14 @@
   function buildSetupSteps(){
     // Simple mode: drop steps for any optional field the org has turned off (Load # here; Delivered-to and Sales-rep
     // fall away on their own because their table columns aren't rendered, so firstRecv()/firstRep() return null).
-    var steps = SW_STEPS.slice().filter(function(st){ return st.key === 'load' ? fieldOn('loadNumber') : true; });
+    // Once a load is handed to a carrier/broker, THEY assign the driver — so drop the driver step from the
+    // customer's/broker's guide (a carrier login still gets it, since picking the driver is their job).
+    var handedOff = !!(curLoad && (curLoad.carrierId || curLoad.brokerId)) && !isCarrierUser();
+    var steps = SW_STEPS.slice().filter(function(st){
+      if (st.key === 'load') return fieldOn('loadNumber');
+      if (st.key === 'driver') return !handedOff;
+      return true;
+    });
     // Customer links the saved signature layout, so prompt it right after the PO # (when the load has a customer
     // picker at all — some assigned loads don't — and the org hasn't hidden the Customer field).
     var csid = fieldOn('customer') ? customerSelectId() : null;
