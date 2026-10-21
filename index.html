@@ -871,7 +871,7 @@
           <div id="ldCarResults" style="margin-top:10px;"></div>
         </div>
       </div>
-      <div class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
+      <div id="ldDriverSection" class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <div id="ldDrvToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
           <span id="ldDrvCaret" style="font-size:14px;color:var(--muted);width:14px;">▸</span>
           <h1 style="font-size:16px;margin:0;">Driver &amp; equipment</h1>
@@ -2436,7 +2436,7 @@
       $('ldLookupWrap').classList.toggle('hide', brokerUser);
       $('ldBrokerAssign').classList.toggle('hide', !brokerUser);
       if (brokerUser) await fillApprovedSelect(); else { setAssignMode('carrier'); if (isCustomerUser()) fillRosterSelect(); }
-      renderCarrierNow(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
+      renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
       $('ldDrvMsg').textContent = '';
       // Driver & equipment: collapsed by default for customers, but OPEN for carriers (assigning a
       // driver is their main action here). The header shows who's set.
@@ -2844,6 +2844,7 @@
       // For now, carriers can't hand a load to a broker or another carrier (no broker authority) — hide the
       // assign section for carrier logins. (Revisit once we detect double authority via FMCSA.)
       if (isCarrierUser() && $('ldCarrierSection')) $('ldCarrierSection').classList.add('hide');
+      applyAssignVisibility();   // keep the assign pickers / driver hidden once a carrier or broker is assigned
       // New/empty load → open the "add document" area so setup prompts for everything, including the file.
       if ($('ldStopForm') && (!_lastPods || !_lastPods.length)) $('ldStopForm').classList.remove('hide');
       if ($('ldEditMsg')) $('ldEditMsg').textContent = '';
@@ -4227,6 +4228,22 @@
       openLoad(curLoad.id);
     } catch (e) { $('ldUploadMsg').textContent = e.message; $('ldUploadMsg').className = 'umsg-err'; }
   };
+  // Once a carrier or broker is assigned, the load is handed off: hide the "assign a different carrier/broker"
+  // pickers and (for the owner/broker view) the driver picker, since the assigned party sets the driver. The
+  // current assignment + its "✕ unassign" link stay; unassigning brings the pickers back.
+  function applyAssignVisibility() {
+    if (!curLoad) return;
+    const assigned = !!(curLoad.carrierId || curLoad.brokerId);
+    const carrierUser = isCarrierUser(), brokerUser = isBrokerUser();
+    const hidePickers = assigned;   // carriers never see these anyway (ldCarrierSection is hidden for them)
+    if ($('ldAssignToggle')) $('ldAssignToggle').classList.toggle('hide', brokerUser || hidePickers);
+    if ($('ldLookupWrap')) $('ldLookupWrap').classList.toggle('hide', brokerUser || hidePickers);
+    if ($('ldBrokerAssign')) $('ldBrokerAssign').classList.toggle('hide', !brokerUser || hidePickers);
+    if ($('ldRosterWrap') && hidePickers) $('ldRosterWrap').classList.add('hide');
+    // Driver & equipment: the assigned carrier handles the driver, so hide it from the owner/broker once assigned.
+    // Carrier logins (who actually set the driver) always keep it.
+    if ($('ldDriverSection')) $('ldDriverSection').classList.toggle('hide', !carrierUser && assigned);
+  }
   function renderCarrierNow() {
     const unassignBtn = (kind) => ' <button class="ldUnassign" data-kind="' + kind + '" type="button" style="background:none;border:none;padding:0 0 0 6px;color:var(--danger);cursor:pointer;font:inherit;font-size:12px;">✕ unassign</button>';
     const parts = [];
@@ -4238,7 +4255,7 @@
   async function unassignParty(kind) {
     try {
       const r = await api('/api/loads/' + curLoad.id + '/unassign-' + kind, { method: 'POST', body: '{}' });
-      curLoad = r.load; renderCarrierNow();
+      curLoad = r.load; renderCarrierNow(); applyAssignVisibility();
       if ($('ldCarResults')) $('ldCarResults').innerHTML = '<div class="sub">' + (kind === 'broker' ? 'Broker' : 'Carrier') + ' unassigned.</div>';
       loadHistory(curLoad.id);
     } catch (e) { alert(e.message); }
@@ -4286,7 +4303,7 @@
   };
   async function assignBrokerId(brokerId) {
     const r = await api('/api/loads/' + curLoad.id + '/assign-broker', { method: 'POST', body: JSON.stringify({ brokerId }) });
-    curLoad = r.load; renderCarrierNow(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Handed to broker ✓ — they’ll assign the carrier.</div>'; loadHistory(curLoad.id);
+    curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Handed to broker ✓ — they’ll assign the carrier.</div>'; loadHistory(curLoad.id);
   }
   async function assignBrokerFromFmcsa(c) {
     try {
@@ -4423,7 +4440,7 @@
   }
   async function assignCarrierId(carrierId) {
     const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
-    curLoad = r.load; renderCarrierNow(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
+    curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
   }
   // Populate the "Assign a driver" dropdown from this account's registered drivers.
   let _ldSelectedDriverId = '';
