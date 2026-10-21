@@ -211,7 +211,13 @@ router.post('/', requireAuth, async (req, res) => {
   if (b.authBroker !== undefined || b.authCarrier !== undefined) auth = { broker: !!b.authBroker, carrier: !!b.authCarrier };
   else if (dotNumber) { try { auth = await fetchAuthority(dotNumber); } catch (e) { auth = null; } }
   if (auth && auth.broker && !auth.carrier) {
-    return res.status(409).json({ code: 'broker_only', error: name + ' holds FMCSA Broker authority only — add it as a Broker, not a Carrier.' });
+    // Broker-only companies normally can't be carriers — but an admin can override and add it anyway
+    // (confirmed in the UI), so a company you work through can still be assigned as a carrier when needed.
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    if (!(isAdmin && b.override)) {
+      return res.status(409).json({ code: 'broker_only', canOverride: isAdmin,
+        error: name + ' holds FMCSA Broker authority only — it should be added as a Broker, not a Carrier.' });
+    }
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)

@@ -285,7 +285,8 @@ router.post('/:id/assign-broker', requireAuth, (req, res) => {
   const brokerId = (req.body && req.body.brokerId || '').trim();
   const broker = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='broker'`).get(brokerId);
   if (!broker) return res.status(400).json({ error: 'Pick a broker from the list' });
-  db.prepare(`UPDATE loads SET brokerId = ?, brokerName = ?, status = 'assigned' WHERE id = ?`).run(broker.id, broker.name, load.id);
+  // A load is handled by a broker OR a direct carrier, not both — handing it to a broker clears any direct carrier.
+  db.prepare(`UPDATE loads SET brokerId = ?, brokerName = ?, carrierId = NULL, carrierName = NULL, status = 'assigned' WHERE id = ?`).run(broker.id, broker.name, load.id);
   const tag = broker.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
     detail: 'Handed to broker ' + broker.name + (broker.mcNumber ? ' (MC ' + broker.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
@@ -304,10 +305,37 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
   const isAssignedBroker = isBroker(req) && (load.brokerId || null) === (req.user.orgId || null);
   if (!isOwner && !isAssignedBroker) return res.status(404).json({ error: 'Load not found' });
   if (isAssignedBroker && !brokerApproved(req.user.orgId, carrier.id)) return res.status(403).json({ error: 'Approve this carrier before assigning it a load' });
-  db.prepare(`UPDATE loads SET carrierId = ?, carrierName = ?, status = 'assigned' WHERE id = ?`).run(carrier.id, carrier.name, load.id);
+  // A load has a direct carrier OR a broker, not both. When the OWNER assigns a carrier directly, clear any broker.
+  // When the ASSIGNED BROKER assigns a carrier, that carrier sits UNDER the broker, so the broker stays.
+  if (isAssignedBroker) db.prepare(`UPDATE loads SET carrierId = ?, carrierName = ?, status = 'assigned' WHERE id = ?`).run(carrier.id, carrier.name, load.id);
+  else db.prepare(`UPDATE loads SET carrierId = ?, carrierName = ?, brokerId = NULL, brokerName = NULL, status = 'assigned' WHERE id = ?`).run(carrier.id, carrier.name, load.id);
   const tag = carrier.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
     detail: (isAssignedBroker ? 'Broker assigned ' : 'Assigned to ') + carrier.name + (carrier.mcNumber ? ' (MC ' + carrier.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+});
+
+// Unassign the direct carrier from a load (owner, super, or the assigned broker).
+router.post('/:id/unassign-carrier', requireAuth, (req, res) => {
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const isOwner = req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null);
+  const isAssignedBroker = isBroker(req) && (load.brokerId || null) === (req.user.orgId || null);
+  if (!isOwner && !isAssignedBroker) return res.status(404).json({ error: 'Load not found' });
+  const newStatus = (!load.brokerId && load.status === 'assigned') ? 'open' : load.status;
+  db.prepare(`UPDATE loads SET carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
+    detail: 'Carrier unassigned' + (load.carrierName ? ' (' + load.carrierName + ')' : ''), actor: actorOf(req) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+});
+// Unassign the broker from a load (owner or super). Also clears any carrier the broker had put on it.
+router.post('/:id/unassign-broker', requireAuth, (req, res) => {
+  const load = ownedLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const newStatus = load.status === 'assigned' ? 'open' : load.status;
+  db.prepare(`UPDATE loads SET brokerId = NULL, brokerName = NULL, carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
+    detail: 'Broker unassigned' + (load.brokerName ? ' (' + load.brokerName + ')' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
 });
 

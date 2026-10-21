@@ -4228,10 +4228,20 @@
     } catch (e) { $('ldUploadMsg').textContent = e.message; $('ldUploadMsg').className = 'umsg-err'; }
   };
   function renderCarrierNow() {
+    const unassignBtn = (kind) => ' <button class="ldUnassign" data-kind="' + kind + '" type="button" style="background:none;border:none;padding:0 0 0 6px;color:var(--danger);cursor:pointer;font:inherit;font-size:12px;">✕ unassign</button>';
     const parts = [];
-    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>');
-    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>');
+    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + unassignBtn('broker'));
+    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + unassignBtn('carrier'));
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
+    $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
+  }
+  async function unassignParty(kind) {
+    try {
+      const r = await api('/api/loads/' + curLoad.id + '/unassign-' + kind, { method: 'POST', body: '{}' });
+      curLoad = r.load; renderCarrierNow();
+      if ($('ldCarResults')) $('ldCarResults').innerHTML = '<div class="sub">' + (kind === 'broker' ? 'Broker' : 'Carrier') + ' unassigned.</div>';
+      loadHistory(curLoad.id);
+    } catch (e) { alert(e.message); }
   }
   // Customer/super: toggle between assigning a carrier directly or handing to a broker.
   let ldMode = 'carrier';
@@ -4392,10 +4402,23 @@
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
-  async function assignFromFmcsa(c) {
+  async function assignFromFmcsa(c, override) {
     try {
-      const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) });
-      await assignCarrierId(cr.carrier.id);
+      // Raw fetch (not api()) so we can read the broker-only response and offer an admin override.
+      const res = await fetch('/api/carriers', { method: 'POST', credentials: 'include',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, (token ? { Authorization: 'Bearer ' + token } : {})),
+        body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, override: !!override }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (body.code === 'broker_only' && body.canOverride && !override) {
+          confirmDialog({ title: 'Broker authority only',
+            message: (c.name || 'This company') + ' holds FMCSA Broker authority only — it should normally be added as a Broker. Add it as a Carrier anyway?',
+            okLabel: 'Add as carrier anyway', onOk: () => assignFromFmcsa(c, true) });
+          return;
+        }
+        throw new Error(body.error || 'Could not add carrier');
+      }
+      await assignCarrierId(body.carrier.id);
     } catch (e) { alert(e.message); }
   }
   async function assignCarrierId(carrierId) {
