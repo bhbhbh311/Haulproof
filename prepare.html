@@ -75,6 +75,10 @@
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
   .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid #c6d0db;}
   .btn.ok{background:var(--ok);}
+  .lymenu{position:absolute;top:calc(100% + 6px);left:0;min-width:236px;background:var(--surface);border:1px solid #c6d0db;border-radius:10px;box-shadow:0 8px 24px rgba(20,30,50,.20);padding:6px;z-index:60;}
+  .lyitem{display:block;width:100%;text-align:left;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:none;border:none;border-radius:7px;padding:9px 11px;cursor:pointer;}
+  .lyitem:hover{background:#eef4ff;}
+  .lyhint{font-size:12px;color:#5c6b7a;padding:8px 11px;line-height:1.4;border-top:1px solid #eef2f7;margin-top:4px;}
   .hint{max-width:1200px;margin:12px auto 0;padding:0 16px;color:var(--muted);font-size:13px;line-height:1.5;}
   #pages{max-width:1200px;margin:10px auto 60px;padding:0 16px;}
   .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:#fff;}
@@ -106,9 +110,15 @@
   <div class="barhead">
     <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
     <span class="ctx" id="ctx"></span>
-    <button class="btn" id="applyTplBtn" type="button" style="display:none;" title="Drop this customer's saved signature layout onto the document">↴ Apply saved layout</button>
-    <button class="btn ghost" id="saveTplBtn" type="button" title="Save this layout so you can reuse it for this customer next time">☆ Save as layout</button>
-    <button class="btn ghost" id="layoutsBtn" type="button" style="display:none;" title="See and manage this customer's saved signature layouts">🗂 Saved layouts</button>
+    <div id="lyDrop" style="position:relative;display:inline-block;">
+      <button class="btn ghost" id="lyMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Save, apply, or manage this customer's saved signature layouts">🗂 Layouts ▾</button>
+      <div class="lymenu" id="lyMenu" role="menu" style="display:none;">
+        <button class="lyitem" id="applyTplBtn" type="button" role="menuitem" style="display:none;" title="Drop this customer's saved layout onto the document">↴ Apply saved layout</button>
+        <button class="lyitem" id="saveTplBtn" type="button" role="menuitem" title="Save the boxes currently on this document as the reusable layout for this customer">☆ Save current as layout</button>
+        <button class="lyitem" id="layoutsBtn" type="button" role="menuitem" style="display:none;" title="See, edit, or delete this customer's saved layouts">🗂 Manage saved layouts…</button>
+        <div class="lyhint" id="lyEmptyHint" style="display:none;">No saved layouts for this customer yet. Place your boxes, then choose <b>Save current as layout</b>.</div>
+      </div>
+    </div>
     <button class="btn ghost" id="cropBtn" type="button" title="Crop the document's pages (e.g. a photo that caught the whole table) before placing signatures">✂ Crop pages</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
@@ -204,7 +214,7 @@
       <h1 style="font-size:18px;margin:0;" id="layoutsTitle">Saved layouts</h1>
       <button class="btn ghost" id="layoutsClose" type="button">✕ Close</button>
     </div>
-    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Saved signature layouts for this customer, one per document type. Delete any you no longer want. To change one, apply it here and re-save.</p>
+    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Saved signature layouts for this customer, one per document type. <b>To edit a layout:</b> tap <b>Open / edit</b> to drop it onto this document, move or add boxes, then use <b>Layouts ▾ → Save current as layout</b> — it replaces the saved one. Delete any you no longer want.</p>
     <div id="layoutsList" style="font-size:13.5px;">Loading…</div>
     <div style="margin-top:16px;text-align:right;"><button class="btn" id="layoutsBack" type="button">← Back to signature setup</button></div>
   </div>
@@ -446,10 +456,27 @@
   // ---- Reusable layouts: apply a saved layout, or save the current one for this customer + doc type ----
   var _tpl=null;   // { exists, hasCustomer, docType, customerName, fields }
   function updateTplButtons(){
-    var a=$('#applyTplBtn'); if(a) a.style.display=(_tpl&&_tpl.exists&&(_tpl.fields||[]).length)?'':'none';
-    // "Saved layouts" manager button shows whenever this doc has a customer to manage layouts for.
-    var lb=$('#layoutsBtn'); if(lb) lb.style.display=(_tpl&&_tpl.customerId)?'':'none';
+    var hasApply=!!(_tpl&&_tpl.exists&&(_tpl.fields||[]).length);
+    var hasMgr=!!(_tpl&&_tpl.customerId);
+    var a=$('#applyTplBtn'); if(a) a.style.display=hasApply?'':'none';
+    // "Manage saved layouts" item shows whenever this doc has a customer to manage layouts for.
+    var lb=$('#layoutsBtn'); if(lb) lb.style.display=hasMgr?'':'none';
+    // When nothing is saved yet, the only live item is "Save current as layout" — show a one-line hint so the
+    // menu doesn't look half-empty.
+    var hint=$('#lyEmptyHint'); if(hint) hint.style.display=(!hasApply&&!hasMgr)?'':'none';
   }
+  // ---- "Layouts ▾" dropdown: one toolbar entry that opens Apply / Save / Manage. Closes on outside click. ----
+  (function(){
+    var dd=$('#lyDrop'), btn=$('#lyMenuBtn'), menu=$('#lyMenu');
+    if(!dd||!btn||!menu) return;
+    function close(){ menu.style.display='none'; btn.setAttribute('aria-expanded','false'); }
+    function open(){ menu.style.display='block'; btn.setAttribute('aria-expanded','true'); }
+    btn.addEventListener('click', function(e){ e.stopPropagation(); (menu.style.display==='block')?close():open(); });
+    // Let each item's own handler run, then close the menu.
+    menu.addEventListener('click', function(){ setTimeout(close,0); });
+    document.addEventListener('click', function(e){ if(!dd.contains(e.target)) close(); });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+  })();
   // ---- Saved-layouts manager (list + delete), opened from this page and closed to return right here. ----
   function fmtDate(ms){ try{ return ms?new Date(ms).toLocaleDateString():''; }catch(e){ return ''; } }
   function openLayouts(){
@@ -464,14 +491,14 @@
   var _layoutCache={};   // docType -> fields, so the "Use" button can apply without another round-trip
   function renderLayouts(list){
     var box=$('#layoutsList');
-    if(!list.length){ box.innerHTML='<div style="color:#5c6b7a;">No saved layouts for this customer yet. Place your fields, then tap <b>☆ Save as layout</b>.</div>'; return; }
+    if(!list.length){ box.innerHTML='<div style="color:#5c6b7a;">No saved layouts for this customer yet. Place your boxes, then choose <b>Layouts ▾ → Save current as layout</b>.</div>'; return; }
     _layoutCache={};
     list.forEach(function(t){ _layoutCache[t.docType||'BOL']=t.fields||[]; });
     box.innerHTML='<div style="border:1px solid #dde4ec;border-radius:8px;overflow:hidden;">'+list.map(function(t){
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f7;">'
         +'<div><b>'+esc(t.docType||'BOL')+'</b><div style="color:#5c6b7a;font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
         +'<div style="display:flex;gap:6px;">'
-        +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="padding:6px 12px;font-size:12px;">↴ Use</button>'
+        +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'BOL')+'" type="button" title="Drop this layout onto the current document so you can review or edit it" style="padding:6px 12px;font-size:12px;">↴ Open / edit</button>'
         +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
         +'</div>'
         +'</div>';
@@ -552,7 +579,7 @@
       .then(function(r){return r.json();}).then(function(j){
         if(j.error){ toast(j.error); return; }
         _tpl={exists:true,hasCustomer:true,docType:j.docType,customerName:j.customerName,fields:out}; updateTplButtons();
-        toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — reuse it next time with “Apply saved layout”.');
+        toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — it will auto-apply to new '+j.docType+' documents for this customer.');
       }).catch(function(){ toast('Could not save the layout'); });
   });
 
