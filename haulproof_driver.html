@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29b · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29c · auto-capture scanning</div>
   </section>
 </main>
 
@@ -2145,8 +2145,8 @@ window.__startApp=function(){
       // Blob centroid — used to push each corner outward (undoing the erosion ring + threshold shrink that were
       // leaving the dots sitting *inside* the paper).
       var cx=0, cy=0; for(var k=0;k<bn;k++){ cx+=bxs[k]; cy+=bys[k]; } cx/=bn; cy/=bn;
-      // True extreme-point corners: the outermost blob pixel in each diagonal direction. Unlike the old 2nd/98th
-      // percentile box, these land ON the real paper edge and stay snug even when the page is tilted.
+      // True extreme-point corners: the outermost blob pixel in each diagonal direction. These land ON the real
+      // paper edge and stay snug even when the page is tilted.
       //   TL = min(x+y)   TR = max(x-y)   BR = max(x+y)   BL = min(x-y)
       var sMin=1e9,sMax=-1e9,dMin=1e9,dMax=-1e9, pTL=null,pBR=null,pTR=null,pBL=null;
       for(var k=0;k<bn;k++){ var px=bxs[k], py=bys[k], s=px+py, df=px-py;
@@ -2162,6 +2162,18 @@ window.__startApp=function(){
         var ex=p[0]+dx/L*pad, ey=p[1]+dy/L*pad;
         return {x:Math.max(0,Math.min(W, ex/scl)), y:Math.max(0,Math.min(H, ey/scl))};
       });
+      // Rescue a single flown-out corner: a document is ~a parallelogram, so each corner should sit near
+      // (prev + next − opposite). If exactly one corner is well off (e.g. a bright bridge dragged it onto the
+      // table) while the other three agree, snap it back to that predicted spot — what a manual fix would do.
+      (function(){
+        var diag=Math.sqrt(W*W+H*H), tol=0.16*diag, dev=[0,0,0,0], pred=[null,null,null,null];
+        for(var c=0;c<4;c++){ var pv=corners[(c+3)%4], nx=corners[(c+1)%4], op=corners[(c+2)%4];
+          pred[c]={x:pv.x+nx.x-op.x, y:pv.y+nx.y-op.y};
+          dev[c]=Math.sqrt((corners[c].x-pred[c].x)*(corners[c].x-pred[c].x)+(corners[c].y-pred[c].y)*(corners[c].y-pred[c].y)); }
+        var w=0; for(var c=1;c<4;c++) if(dev[c]>dev[w]) w=c;
+        var othersOk=[0,1,2,3].every(function(c){ return c===w || dev[c]<tol; });
+        if(dev[w]>tol && othersOk){ corners[w]={x:Math.max(0,Math.min(W,pred[w].x)), y:Math.max(0,Math.min(H,pred[w].y))}; }
+      })();
       // Too small to be the page → let the fallback pad it.
       var spanx=Math.max(corners[1].x,corners[2].x)-Math.min(corners[0].x,corners[3].x);
       var spany=Math.max(corners[2].y,corners[3].y)-Math.min(corners[0].y,corners[1].y);
