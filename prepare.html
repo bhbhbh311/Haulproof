@@ -262,7 +262,7 @@
   var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38}};
 
   var activeTool={role:'Consignee',kind:'sigdate'};
-  var pageRecs=[]; var fields=[]; var selected=null;
+  var pageRecs=[]; var fields=[]; var selected=null; var _pagesReady=false;
   // Track unsaved changes so we can warn before leaving, and clear it after a Save (or when loading a saved layout).
   var dirty=false; function markDirty(){ dirty=true; }
 
@@ -353,7 +353,7 @@
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
     })(n); }
-    chain.then(function(){ loadExisting(); });
+    chain.then(function(){ loadExisting(); _pagesReady=true; maybeAutoApplyTemplate(); });
   }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
 
   function buildFieldEl(f,left,top,w,h){
@@ -528,7 +528,18 @@
   if($('#layoutsModal')) $('#layoutsModal').addEventListener('click', function(e){ if(e.target===$('#layoutsModal')) $('#layoutsModal').style.display='none'; });
   function checkTemplate(){
     fetch('/api/pods/'+DOC_ID+'/template',{credentials:'include'})
-      .then(function(r){return r.json();}).then(function(j){ _tpl=j||null; updateTplButtons(); }).catch(function(){});
+      .then(function(r){return r.json();}).then(function(j){ _tpl=j||null; updateTplButtons(); maybeAutoApplyTemplate(); }).catch(function(){});
+  }
+  // Auto-reuse: when a document opens for setup with NO fields yet and this customer + document type already
+  // has a saved layout, apply it automatically so the dispatcher just reviews & saves instead of re-placing every
+  // box. Runs once both the pages and the template have loaded; never clobbers a document that already has fields.
+  var _autoApplied=false;
+  function maybeAutoApplyTemplate(){
+    if(_autoApplied || VIEW || !_pagesReady) return;
+    if(fields.length) return;                                   // doc already has its own fields — leave them
+    if(!_tpl || !_tpl.exists || !((_tpl.fields||[]).length)) return;
+    _autoApplied=true;
+    applyLayoutFields(_tpl.fields, (_tpl.customerName?(_tpl.customerName+' · '):'')+(_tpl.docType||'BOL'));
   }
   $('#applyTplBtn').addEventListener('click',function(){
     if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
