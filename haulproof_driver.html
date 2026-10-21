@@ -379,6 +379,7 @@
     <div class="signon">
       <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
       <h1>Enter your PIN</h1>
+      <div id="pinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:#12386e;line-height:1.35;"></div>
       <p class="sub" id="pinSub">This driver link is protected. Enter your PIN to unlock it on this phone — you'll only need to do this once.</p>
       <div class="fields">
         <input class="ti" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••" style="text-align:center;letter-spacing:.45em;font-size:22px;">
@@ -408,6 +409,7 @@
     <div class="signon">
       <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
       <h1 id="setPinTitle">Set your own PIN</h1>
+      <div id="setPinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:#12386e;line-height:1.35;"></div>
       <p class="sub" id="setPinSub">Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
       <div class="fields">
         <input class="ti" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;margin-bottom:10px;">
@@ -438,7 +440,7 @@
   <section class="view" id="viewRoute">
     <div class="welcome hide" id="welcomeCard">
       <div class="welcome-in">
-        <div class="welcome-txt"><div class="wgreet" id="welcomeGreet"></div><div class="wmsg" id="welcomeMsg"></div></div>
+        <div class="welcome-txt"><div class="wgreet" id="welcomeGreet"></div><div class="wmsg" id="welcomeMsg"></div><div class="wwho" id="welcomeWho" style="margin-top:7px;font-size:12.5px;font-weight:600;opacity:.92;line-height:1.35;"></div></div>
         <button class="wclose" id="welcomeClose" type="button" aria-label="Dismiss">×</button>
       </div>
     </div>
@@ -575,7 +577,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-27c · company + role shown</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-28a · full name + company shown</div>
   </section>
 </main>
 
@@ -956,6 +958,13 @@ window.__startApp=function(){
     var n=driverName(), first=n?n.split(/\s+/)[0]:"";
     $("welcomeGreet").textContent = greetWord() + (first?(", "+first):"") + " 👋";
     $("welcomeMsg").textContent = WELCOME_LINES[dayIndex()%WELCOME_LINES.length];
+    // Full name + company, so a driver can tell at a glance exactly which link this phone is on — two drivers
+    // who share a first name (e.g. two "Callahan…") no longer look identical.
+    if($("welcomeWho")){
+      var c=driverCompany();
+      $("welcomeWho").textContent = n ? (n + (c?(" · "+c):"")) : "";
+      $("welcomeWho").style.display = n ? "" : "none";
+    }
     $("welcomeCard").classList.remove("hide");
   }
   $("welcomeClose").addEventListener("click", function(){ $("welcomeCard").classList.add("hide"); });
@@ -1005,7 +1014,15 @@ window.__startApp=function(){
   setInterval(drvRefreshRoute, 30000);
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) drvRefreshRoute(); });
   window.addEventListener("focus", drvRefreshRoute);
-  function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
+  // Show the full driver name + company on the lock screens, so the person can confirm which link this phone is
+  // on before they unlock — two drivers who share a first name no longer look the same.
+  function fillWhoEl(id){
+    var el=$(id); if(!el) return;
+    var n=driverName(), c=driverCompany();
+    if(n){ el.textContent = n + (c?(" · "+c):""); el.style.display=""; }
+    else { el.textContent=""; el.style.display="none"; }
+  }
+  function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; fillWhoEl("pinWho"); showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
   async function verifyPin(){
     var pin=$("pinInput").value.trim();
     if(!/^\d{4,6}$/.test(pin)){ $("pinErr").textContent="Enter your 4–6 digit PIN"; return; }
@@ -1027,6 +1044,7 @@ window.__startApp=function(){
   function showSetPinGate(isCreate){ if($("setPin1"))$("setPin1").value=""; if($("setPin2"))$("setPin2").value=""; if($("setPinErr"))$("setPinErr").textContent="";
     if($("setPinTitle")) $("setPinTitle").textContent = isCreate ? "Create your PIN" : "Set your own PIN";
     if($("setPinSub")) $("setPinSub").textContent = isCreate ? "Welcome! Pick a 4–6 digit PIN only you know — you'll use it to unlock this link on your phone." : "Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.";
+    fillWhoEl("setPinWho");
     showView("setpin"); setTimeout(function(){ try{ $("setPin1").focus(); }catch(e){} },40); }
   async function saveNewPin(){
     var p1=($("setPin1").value||"").trim(), p2=($("setPin2").value||"").trim(), err=$("setPinErr");
