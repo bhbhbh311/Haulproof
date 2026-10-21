@@ -47,6 +47,7 @@
   input[type=file]{padding:8px 10px;background:#fff;}
   input[type=checkbox]{width:auto;}
   .umsg-ok{color:var(--ok);} .umsg-err{color:var(--danger);}
+  .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,#e0a030);background:var(--warn-soft,#fff6e6);color:#8a5a00;border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
   /* Buttons — one system: solid primary (default), .ghost (secondary/outline), .btn-ok (green),
@@ -679,6 +680,7 @@
           <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmdEmail" type="email" placeholder="driver@email.com"></div>
           <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank & the driver sets it</span></label><input id="cmdPin" inputmode="numeric" maxlength="6" placeholder="Leave blank — driver creates their own"></div>
         </div>
+        <div id="cmdDupWarn" class="dup-warn hide"></div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="cmdBtn" type="button">Add driver</button>
           <span id="cmdMsg" style="font-size:13px;font-weight:600;"></span>
@@ -854,6 +856,7 @@
               <div style="flex:1;min-width:140px;"><label>Mobile (optional)</label><input id="ldBdPhone" placeholder="(555) 123-4567" inputmode="tel"></div>
               <div style="flex:1;min-width:160px;"><label>Email (optional)</label><input id="ldBdEmail" placeholder="driver@email.com" inputmode="email"></div>
             </div>
+            <div id="ldBdDupWarn" class="dup-warn hide"></div>
             <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
               <button id="ldBdSave" type="button">Add driver</button>
               <button id="ldBdCancel" type="button" class="ghost">Cancel</button>
@@ -1267,6 +1270,7 @@
         <div><label>Email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ndEmail" type="email" placeholder="driver@email.com"></div>
         <div><label>PIN <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — leave blank & the driver sets it</span></label><input id="ndPin" inputmode="numeric" maxlength="6" placeholder="Leave blank — driver creates their own"></div>
       </div>
+      <div id="ndDupWarn" class="dup-warn hide"></div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="ndBtn" type="button">Add driver</button>
         <span id="ndMsg" style="font-size:13px;font-weight:600;"></span>
@@ -2179,8 +2183,28 @@
       </td></tr>`).join('');
   }
   async function loadDrivers(orgId, tbody) {
-    try { const r = await api('/api/drivers' + (orgId ? ('?orgId=' + encodeURIComponent(orgId)) : '')); tbody.innerHTML = driverRowsHtml(r.drivers); }
+    try {
+      const r = await api('/api/drivers' + (orgId ? ('?orgId=' + encodeURIComponent(orgId)) : ''));
+      tbody.innerHTML = driverRowsHtml(r.drivers);
+      // Cache the ACTIVE driver names on the table, so the add form can warn live about a name that already exists
+      // (matches what the server blocks). Also refresh any warning currently showing against this roster.
+      tbody._drvNames = (r.drivers || []).filter(d => d.active !== false).map(d => (d.name || '').trim().toLowerCase());
+      if (tbody._dupRefresh) try { tbody._dupRefresh(); } catch (e) {}
+    }
     catch (e) { tbody.innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
+  }
+  // Live "name already exists" heads-up on an add-driver form. getNames() returns the lowercased existing names;
+  // warnEl shows a soft warning as the user types a name that's already on the roster (they can still add it).
+  function attachDupNameWarn(nameEl, warnEl, getNames) {
+    if (!nameEl || !warnEl) return;
+    const run = function () {
+      const v = (nameEl.value || '').trim().toLowerCase();
+      const hit = v && (getNames() || []).indexOf(v) > -1;
+      if (hit) { warnEl.innerHTML = '⚠ A driver named “' + esc(nameEl.value.trim()) + '” is already on this list. If it’s the same person, use the existing one instead of adding a duplicate.'; warnEl.classList.remove('hide'); }
+      else { warnEl.textContent = ''; warnEl.classList.add('hide'); }
+    };
+    nameEl.addEventListener('input', run);
+    return run;   // caller can store this to re-run when the roster reloads
   }
   function wireDriverTable(tbody, orgId) {
     tbody.onclick = async (e) => {
@@ -2257,6 +2281,11 @@
     }
   }
   $('ndBtn').onclick = () => addDriver('', $('ndName'), $('ndPhone'), $('ndEmail'), $('ndPin'), $('ndMsg'), $('driverRows'));
+  // Live duplicate-name heads-up on the Drivers tab add form (checks the org's own roster).
+  if ($('ndName') && $('ndDupWarn')) {
+    const _r = attachDupNameWarn($('ndName'), $('ndDupWarn'), function () { return ($('driverRows') && $('driverRows')._drvNames) || []; });
+    if ($('driverRows')) $('driverRows')._dupRefresh = _r;
+  }
 
   // --- Loads, carrier assignment (FMCSA), driver/equipment, history ---
   const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -4400,6 +4429,8 @@
   }
   // --- Broker adds / sees the assigned carrier's drivers (only when that carrier turned the option on) ---
   var _bdBusy = false;
+  var _ldBrokerDrvNames = [];   // active names on the assigned carrier's roster, for the live duplicate warning
+  var _ldBdDupRefresh = null;
   async function refreshBrokerDrivers() {
     const box = $('ldBrokerDrivers'); if (!box) return;
     // Only for a broker, only once a carrier is actually assigned to this load.
@@ -4412,6 +4443,9 @@
       const cname = (r.carrier && r.carrier.name) || curLoad.carrierName || 'the carrier';
       if ($('ldBrokerDriversTitle')) $('ldBrokerDriversTitle').textContent = 'Drivers at ' + cname;
       renderBrokerDriverList(r.drivers || []);
+      // Cache active names so the "Add a driver for them" form can warn live about a name already on this roster.
+      _ldBrokerDrvNames = (r.drivers || []).filter(function (d) { return d.active !== false; }).map(function (d) { return (d.name || '').trim().toLowerCase(); });
+      if (_ldBdDupRefresh) try { _ldBdDupRefresh(); } catch (e) {}
       box.classList.remove('hide');
     } catch (e) {
       // 403 (carrier hasn't enabled it, or no load relationship) / anything else → just hide the panel quietly.
@@ -4450,6 +4484,7 @@
     $('ldBrokerDriverForm').classList.add('hide');
     ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
     if ($('ldBdMsg')) $('ldBdMsg').textContent = '';
+    if ($('ldBdDupWarn')) { $('ldBdDupWarn').textContent = ''; $('ldBdDupWarn').classList.add('hide'); }
   };
   if ($('ldBdSave')) $('ldBdSave').onclick = async function () {
     if (_bdBusy) return;
@@ -4485,6 +4520,8 @@
     _bdBusy = false;
   };
   if (typeof attachPhoneFormat === 'function') { try { attachPhoneFormat('ldBdPhone'); } catch (e) {} }
+  // Live duplicate-name heads-up on the broker's "Add a driver for them" form (checks the carrier's roster).
+  if ($('ldBdName') && $('ldBdDupWarn')) { _ldBdDupRefresh = attachDupNameWarn($('ldBdName'), $('ldBdDupWarn'), function () { return _ldBrokerDrvNames; }); }
 
   // Customer/super: toggle between assigning a carrier directly or handing to a broker.
   let ldMode = 'carrier';
@@ -4949,6 +4986,11 @@
     if (d) { try { await api('/api/users/' + d.dataset.id + '?orgId=' + encodeURIComponent(cmOrgId), { method: 'DELETE' }); cmLoadUsers(); } catch (err) { cmMsg($('cmuMsg'), err.message, 'err'); } }
   });
   $('cmdBtn').onclick = () => addDriver(cmOrgId, $('cmdName'), $('cmdPhone'), $('cmdEmail'), $('cmdPin'), $('cmdMsg'), $('cmDriverRows'));
+  // Live duplicate-name heads-up on the super-admin manage-view add form (checks that org's roster).
+  if ($('cmdName') && $('cmdDupWarn')) {
+    const _rc = attachDupNameWarn($('cmdName'), $('cmdDupWarn'), function () { return ($('cmDriverRows') && $('cmDriverRows')._drvNames) || []; });
+    if ($('cmDriverRows')) $('cmDriverRows')._dupRefresh = _rc;
+  }
 
   // --- Customers (super-admin only) ---
   function ncMsg(t, kind) { const el = $('ncMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
