@@ -320,13 +320,11 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
 });
 
-// Unassign the direct carrier from a load (owner, super, or the assigned broker).
+// Unassign the carrier from a load. Only the owner (the customer who created it) or super — a broker the load
+// was handed to can ADD a carrier/driver but not tear down what the customer set up; removing is the owner's call.
 router.post('/:id/unassign-carrier', requireAuth, (req, res) => {
-  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
+  const load = ownedLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
-  const isOwner = req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null);
-  const isAssignedBroker = isBroker(req) && (load.brokerId || null) === (req.user.orgId || null);
-  if (!isOwner && !isAssignedBroker) return res.status(404).json({ error: 'Load not found' });
   const newStatus = (!load.brokerId && load.status === 'assigned') ? 'open' : load.status;
   db.prepare(`UPDATE loads SET carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',

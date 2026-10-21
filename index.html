@@ -802,7 +802,7 @@
               <button class="ghost" id="ldCustAddBtn" type="button" style="white-space:nowrap;">＋ Add / find customer</button>
             </div></div>
         </div>
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+        <div id="ldDeleteBlock" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
           <button class="ghost" id="ldDeleteBtn" type="button" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
           <span style="color:var(--muted);font-size:12px;margin-left:8px;">Removes the PO/load and all its documents.</span>
         </div>
@@ -1543,6 +1543,8 @@
       SUPER_CARDS.forEach(id => show(id, false));
       show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.add('hide');       // brokers don't create loads
+      // A broker works loads a customer handed them — they never delete the whole load (that's the owner's call).
+      if ($('ldDeleteBlock')) $('ldDeleteBlock').classList.add('hide');
       show('loadsCard', true); loadLoads();
       show('brokerCarriersCard', true); loadApprovedCarriers();
       ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
@@ -1723,6 +1725,9 @@
   function buildTabs(){
     var bar=$('tabBar'); if(!bar) return; bar.innerHTML='';
     var shown = TAB_DEFS.filter(function(t){ return tabAllowed(t.key) && t.cards.some(cardExistsForRole); });
+    // Settings is always the very last tab, wherever it sits in TAB_DEFS.
+    var _si = shown.findIndex(function(t){ return t.key === 'settings'; });
+    if (_si > -1) shown.push(shown.splice(_si, 1)[0]);
     // Reflect the rollout-preview banner state whenever tabs rebuild.
     var rb=$('rolloutBanner'); if(rb) rb.classList.toggle('hide', !(isTester() && !testerShowAll()));
     shown.forEach(function(t){
@@ -3841,6 +3846,16 @@
       if (st.key === 'driver') return !handedOff;
       return true;
     });
+    // Broker: before assigning a driver, prompt them to set the carrier who'll haul the load (from their
+    // approved carriers). Sits just ahead of the driver step; once a carrier is set, the driver step offers
+    // that carrier's roster.
+    if (isBrokerUser()) {
+      var _di = steps.findIndex(function(st){ return st.key === 'driver'; });
+      var carrierStep = { key:'carrier', kind:'carrier', required:false,
+        title:'Assign the carrier',
+        help:'Pick the carrier who will haul this load from your approved carriers. Once it’s set, you can add or assign their driver in the next step.' };
+      if (_di < 0) steps.push(carrierStep); else steps.splice(_di, 0, carrierStep);
+    }
     // Customer links the saved signature layout, so prompt it right after the PO # (when the load has a customer
     // picker at all — some assigned loads don't — and the org hasn't hidden the Customer field).
     var csid = fieldOn('customer') ? customerSelectId() : null;
@@ -4016,6 +4031,42 @@
       note.className = 'sub'; note.style.cssText = 'margin-top:10px;font-size:12.5px;';
       note.textContent = 'Opens the page view — look it over, crop a page or set the stop if you need to, then tap “Create stops.” Or tap Next here if it already looks right.';
       body.appendChild(note);
+    } else if (s.kind === 'carrier') {
+      // Broker picks the carrier from their approved list and assigns it right here. The assignment is its own
+      // action (a separate save), so it's button-driven — tap Assign, then Next moves on to the driver.
+      const sel = document.createElement('select'); sel.id = 'swInput'; sel.style.cssText = 'width:100%;box-sizing:border-box;';
+      sel.innerHTML = '<option value="">— loading your carriers… —</option>';
+      body.appendChild(sel);
+      const stat = document.createElement('div'); stat.className = 'sub'; stat.style.cssText = 'margin-top:8px;font-size:12.5px;';
+      stat.textContent = (curLoad && curLoad.carrierName) ? ('Currently assigned: ' + curLoad.carrierName) : 'No carrier assigned yet.';
+      body.appendChild(stat);
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.textContent = (curLoad && curLoad.carrierId) ? 'Change carrier' : 'Assign carrier';
+      btn.style.cssText = 'margin-top:10px;width:100%;box-sizing:border-box;font-weight:700;';
+      btn.onclick = async () => {
+        const cid = sel.value;
+        if (!cid) { $('swMsg').textContent = 'Pick a carrier, or approve one under “Approved carriers” first.'; return; }
+        btn.disabled = true; const o = btn.textContent; btn.textContent = 'Assigning…'; $('swMsg').textContent = '';
+        try { await assignCarrierId(cid); stat.textContent = '✓ Assigned: ' + (curLoad.carrierName || ''); btn.textContent = 'Change carrier'; }
+        catch (e) { $('swMsg').textContent = e.message; btn.textContent = o; }
+        btn.disabled = false;
+      };
+      body.appendChild(btn);
+      const note = document.createElement('div');
+      note.className = 'sub'; note.style.cssText = 'margin-top:8px;font-size:12.5px;';
+      note.innerHTML = 'Not in the list? Approve the carrier under <b>Approved carriers</b>, then come back.';
+      body.appendChild(note);
+      // Fill the dropdown from the broker's approved carriers (independent of the inline picker's load timing).
+      (async function(){
+        try {
+          const r = await api('/api/brokers/my-carriers');
+          if (!r.carriers || !r.carriers.length) { sel.innerHTML = '<option value="">— approve a carrier first —</option>'; }
+          else {
+            sel.innerHTML = r.carriers.map(function(c){ return '<option value="' + c.id + '">' + esc(c.name) + (c.mcNumber ? (' (MC ' + esc(c.mcNumber) + ')') : '') + '</option>'; }).join('');
+            if (curLoad && curLoad.carrierId) sel.value = curLoad.carrierId;
+          }
+        } catch (e) { sel.innerHTML = '<option value="">' + esc(e.message) + '</option>'; }
+      })();
     } else if (s.kind === 'action') {
       // Walk signatures stop by stop: target the next document that still needs a layout. After it's saved on the
       // signature page it returns here (auto-reopened) pointed at the following stop, until every stop is set up.
@@ -4181,8 +4232,15 @@
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
       // 2) Driver (only if one is selected AND it actually changed — so repeated auto-saves don't re-log/re-notify)
       if (_ldSelectedDriverId && _ldSelectedDriverId !== _ldLastSavedDriverId) {
-        await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
+        const _dr = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
         _ldLastSavedDriverId = _ldSelectedDriverId;
+        if (_dr && _dr.load) curLoad = _dr.load;
+        // Confirm the auto-save of the driver right by the picker — "Saved ✓ — sent to the driver's app".
+        try {
+          var _dName = (curLoad && curLoad.driverName) || (($('ldDrvSelect') && $('ldDrvSelect').selectedOptions[0]) ? $('ldDrvSelect').selectedOptions[0].dataset.name : '') || '';
+          if ($('ldDrvMsg')) { $('ldDrvMsg').textContent = 'Saved ✓ — sent to the driver’s app'; $('ldDrvMsg').className = 'umsg-ok'; clearTimeout(_ldDrvMsgTimer); _ldDrvMsgTimer = setTimeout(function(){ if ($('ldDrvMsg')) $('ldDrvMsg').textContent = ''; }, 4000); }
+          if ($('ldDrvSummary')) { $('ldDrvSummary').textContent = _dName + (curLoad && curLoad.truck ? (' · Truck ' + curLoad.truck) : ''); $('ldDrvSummary').classList.remove('ld-missing'); }
+        } catch (e) {}
       }
       // 3) Load-update recipients
       if ($('ldSubsList')) {
@@ -4322,8 +4380,12 @@
   function renderCarrierNow() {
     const unassignBtn = (kind) => ' <button class="ldUnassign" data-kind="' + kind + '" type="button" style="background:none;border:none;padding:0 0 0 6px;color:var(--danger);cursor:pointer;font:inherit;font-size:12px;">✕ unassign</button>';
     const parts = [];
-    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + unassignBtn('broker'));
-    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + unassignBtn('carrier'));
+    // When a customer hands a load to a broker, only that customer (the owner) can remove the broker OR the
+    // carrier. The broker's job here is to ADD a carrier/driver, not to tear down what the customer set up — so
+    // a broker (and a carrier) never see the unassign controls. Owner/super still do.
+    const canUnassign = !isBrokerUser() && !isCarrierUser();
+    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + (canUnassign ? unassignBtn('broker') : ''));
+    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + (canUnassign ? unassignBtn('carrier') : ''));
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
   }
@@ -4645,8 +4707,14 @@
     } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
     _ldLastSavedDriverId = _ldSelectedDriverId;   // baseline: the driver already on the load, so auto-save won't re-assign it
   }
-  if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () { _ldSelectedDriverId = this.value || ''; };
+  let _ldDrvMsgTimer = null;
+  if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () {
+    _ldSelectedDriverId = this.value || '';
+    // Immediate feedback while the auto-save runs; it flips to "Saved ✓" when the assign completes.
+    if ($('ldDrvMsg')) { clearTimeout(_ldDrvMsgTimer); $('ldDrvMsg').textContent = _ldSelectedDriverId ? 'Saving…' : ''; $('ldDrvMsg').className = ''; }
+  };
   $('ldDrvBtn').onclick = async () => {
+    clearTimeout(_ldDrvMsgTimer);
     if (!_ldSelectedDriverId) { $('ldDrvMsg').textContent = 'Choose a driver'; $('ldDrvMsg').className = 'umsg-err'; return; }
     $('ldDrvMsg').textContent = 'Saving…'; $('ldDrvMsg').className = '';
     try {
