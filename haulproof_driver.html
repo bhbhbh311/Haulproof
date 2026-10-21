@@ -3407,5 +3407,33 @@ window.__startApp=function(){
 };
 if(window.__LIBS) window.__startApp();
 </script>
+<script>
+/* Keep the driver app fresh: register the network-first service worker, then check for a newer build every
+   minute and whenever the app is reopened. When a new build is live, reload to it — but never while the driver
+   is mid-signature (adopt sheet, camera, or split sheet open); a held-back reload applies on the next safe tick. */
+(function(){
+  if(!("serviceWorker" in navigator)) return;
+  var reloading=false, pending=false, hadController=!!navigator.serviceWorker.controller;
+  function busy(){
+    var m=document.getElementById("modal"), c=document.getElementById("camView"), s=document.getElementById("stopSplit");
+    if(m && m.classList.contains("on")) return true;      // adopting / drawing a signature
+    if(c && c.classList.contains("on")) return true;      // camera open
+    if(s && !s.classList.contains("hide")) return true;   // split-into-stops sheet open
+    return false;
+  }
+  function tryReload(){ if(pending && !reloading && !busy()){ reloading=true; try{ location.reload(); }catch(e){} } }
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if(!hadController){ hadController=true; return; }      // first install on this phone is not an update
+    pending=true; tryReload();
+  });
+  navigator.serviceWorker.register("/sw.js").then(function(reg){
+    function tick(){ try{ reg.update(); }catch(e){} tryReload(); }
+    setInterval(tick, 60000);                                                           // re-check every minute
+    document.addEventListener("visibilitychange", function(){ if(!document.hidden) tick(); });  // and on reopen
+    window.addEventListener("focus", tick);
+    window.addEventListener("pageshow", function(e){ if(e && e.persisted) tick(); });
+  }).catch(function(){});
+})();
+</script>
 </body>
 </html>
