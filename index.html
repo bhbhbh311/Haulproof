@@ -840,6 +840,27 @@
       <div style="margin-top:18px;" id="ldCarrierSection" class="ld-editonly hide">
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
+        <!-- broker only: once a carrier is assigned AND that carrier allows it, add / see the carrier's drivers -->
+        <div id="ldBrokerDrivers" class="hide" style="margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel,#f7f9fc);">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <b id="ldBrokerDriversTitle" style="font-size:14px;">Drivers at the carrier</b>
+            <button class="ghost sm" id="ldBrokerDriverAdd" type="button" style="margin-left:auto;padding:5px 10px;font-size:12.5px;">＋ Add a driver for them</button>
+          </div>
+          <p class="sub" style="margin:6px 0 0;">Add a driver straight into this carrier’s account so their phone gets the signing link — handy for an owner-operator who drives themselves. The carrier can manage these too.</p>
+          <div id="ldBrokerDriverList" style="margin-top:10px;"></div>
+          <div id="ldBrokerDriverForm" class="hide" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+              <div style="flex:1;min-width:140px;"><label>Name</label><input id="ldBdName" placeholder="Driver name"></div>
+              <div style="flex:1;min-width:140px;"><label>Mobile (optional)</label><input id="ldBdPhone" placeholder="(555) 123-4567" inputmode="tel"></div>
+              <div style="flex:1;min-width:160px;"><label>Email (optional)</label><input id="ldBdEmail" placeholder="driver@email.com" inputmode="email"></div>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <button id="ldBdSave" type="button">Add driver</button>
+              <button id="ldBdCancel" type="button" class="ghost">Cancel</button>
+              <span id="ldBdMsg" style="font-size:13px;font-weight:600;"></span>
+            </div>
+          </div>
+        </div>
         <!-- customer/super: choose whether to hand the load to a carrier directly, or to a broker -->
         <div id="ldAssignToggle" style="display:flex;gap:8px;margin:10px 0;">
           <button class="ghost sm" id="ldModeCarrier" type="button" style="padding:6px 12px;font-size:13px;">Assign a carrier</button>
@@ -1182,7 +1203,7 @@
         <div id="mnList" style="display:flex;flex-wrap:wrap;gap:8px 18px;"><div class="empty">Loading…</div></div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="mnSave" type="button">Save master list</button><span id="mnMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
-      <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
+      <div id="simplifyBlock" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;margin-bottom:4px;">Simplify the app</h1>
         <p class="sub" style="margin-top:0;">Show only the fields you use. Hiding one removes it everywhere — dispatch screens, the setup guide, and the driver app — for everyone on your account. Nothing is deleted; turn a field back on anytime and its values return. Customer&nbsp;PO&nbsp;#, the document, and signatures are always required.</p>
         <div style="display:flex;flex-direction:column;gap:14px;max-width:560px;">
@@ -1213,8 +1234,25 @@
             </div>
           </div>
         </div>
+        <div id="brokerDriversSetting" class="hide" style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Brokers</div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowBrokerDrivers"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Let brokers add drivers for us</b><span id="ft_allowBrokerDrivers_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">When a broker assigns you one of their loads, allow them to add a driver into your account so your driver gets the signing link right away. You keep full control — any driver a broker adds shows up here for you to edit or turn off.</div>
+            </div>
+          </div>
+        </div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
+    </div>
+
+    <!-- Settings tab: the account's toggles (Simplify + Brokers) relocate here from the Team card on load. -->
+    <div class="card hide" id="settingsCard">
+      <h1>Settings</h1>
+      <p class="sub">Turn the app's optional fields on or off, and control what brokers can do on your account. Changes apply to everyone on this account.</p>
+      <div id="settingsHost"></div>
     </div>
 
     <!-- DRIVERS (admin only) -->
@@ -1385,7 +1423,7 @@
   const $ = id => document.getElementById(id);
   // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
-  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true };
+  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
   function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); }
@@ -1557,6 +1595,18 @@
       show('myCustomersCard', true);
       loadMyCustomersTab();
     }
+    // Settings tab: lift the account toggles (Simplify + Brokers) out of the Team-logins card into their own
+    // Settings card, and show that card to the same admins who manage the account. The toggle inputs keep their
+    // ids, so renderFieldToggles() (run by loadUsers) still populates them wherever they live.
+    try {
+      var _sb = $('simplifyBlock'), _sh = $('settingsHost');
+      if (_sb && _sh && _sb.parentNode !== _sh) { _sb.style.marginTop = '0'; _sb.style.paddingTop = '0'; _sb.style.borderTop = 'none'; _sh.appendChild(_sb); }
+      // "Let brokers add drivers for us" only makes sense for a carrier (the account a broker hands loads to).
+      if ($('brokerDriversSetting')) $('brokerDriversSetting').classList.toggle('hide', u.orgKind !== 'carrier');
+      var _canManageAcct = u.role !== 'superadmin' && (u.role === 'admin' || hasCap('manage_users'))
+        && ['customer','carrier','broker'].some(function(r){ return roles.indexOf(r) > -1; });
+      show('settingsCard', !!_canManageAcct);
+    } catch(e){}
     buildTabs();
     refreshAwaitingBadge();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
@@ -1632,6 +1682,7 @@
     { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
+    { key:'settings',  label:'Settings',   cards:['settingsCard'] },
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
@@ -1709,6 +1760,14 @@
       if(user && user.role!=='superadmin'){ var _lc=$('loadsCard'); if(_lc) _lc.classList.remove('hide'); }
       setFindVisForDetail(false);   // back on the home list — show Find a document + recent docs again
       try { refreshAwaitingBadge(); } catch(e) {}
+    }
+    // Opening the Drivers tab re-pulls the list so it's never stale (e.g. drivers added in another tab/session).
+    if(key==='drivers' && $('driversCard') && !$('driversCard').classList.contains('hide')){
+      try { loadDrivers('', $('driverRows')); if(typeof wireDriverTable==='function') wireDriverTable($('driverRows'), ''); } catch(e){}
+    }
+    // Opening Settings re-reads the account's current field flags so the toggles reflect the latest saved state.
+    if(key==='settings' && $('settingsCard') && !$('settingsCard').classList.contains('hide')){
+      try { refreshOrgFields().then(function(){ renderFieldToggles(); }); } catch(e){ try { renderFieldToggles(); } catch(_){} }
     }
     var active={};
     TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
@@ -2178,6 +2237,7 @@
     } catch (e) {
       // Duplicate name: don't create a confusing second same-name driver silently — confirm first.
       if (/^DUPLICATE_NAME/.test(e.message || '')) {
+        loadDrivers(orgId, tbody);   // the server found an existing driver — our list was stale, so refresh it to show them
         const clean = e.message.replace(/^DUPLICATE_NAME:\s*/, '');
         if (confirm(clean + '\n\nAdd a second driver with this same name anyway?')) {
           try {
@@ -2185,7 +2245,7 @@
             await api('/api/drivers', { method: 'POST', body: JSON.stringify(body2) });
             msgEl.textContent = okMsg; msgEl.className = 'umsg-ok'; clearAndReload();
           } catch (e2) { msgEl.textContent = e2.message; msgEl.className = 'umsg-err'; }
-        } else { msgEl.textContent = 'Cancelled — no driver added. Use the existing driver instead.'; msgEl.className = ''; }
+        } else { msgEl.textContent = 'That driver is already on the list below — use the existing one.'; msgEl.className = ''; }
         return;
       }
       msgEl.textContent = e.message; msgEl.className = 'umsg-err';
@@ -4034,12 +4094,12 @@
   // ---- "Simplify the app" field toggles (Team logins card) ----
   // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
   function renderFieldToggles() {
-    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail' };
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
   }
   // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
-  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail'];
+  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers'];
   // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
   function updSwitchStates() {
     _ftSwitchIds.forEach(function(id){
@@ -4055,6 +4115,7 @@
       salesRep:   !!($('ft_salesRep')   && $('ft_salesRep').checked),
       customer:   !!($('ft_customer')   && $('ft_customer').checked),
       auditTrail: !!($('ft_auditTrail') && $('ft_auditTrail').checked),
+      allowBrokerDrivers: !!($('ft_allowBrokerDrivers') && $('ft_allowBrokerDrivers').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
     try {
@@ -4246,6 +4307,8 @@
       // Broker: assigns a carrier from its approved roster (until one is set) AND the driver. The driver
       // section stays as the edit toggle set it. (Later: once a carrier is set, hand driver duties to them.)
       if ($('ldBrokerAssign')) $('ldBrokerAssign').classList.toggle('hide', hasCarrier);
+      // Once a carrier is assigned, offer to add/see that carrier's drivers (if the carrier allows it).
+      refreshBrokerDrivers();
     } else if (!carrierUser) {
       // Customer/owner: once a carrier OR broker is assigned, the load is handed off — hide the pickers + driver.
       const assigned = hasCarrier || hasBroker;
@@ -4272,6 +4335,93 @@
       loadHistory(curLoad.id);
     } catch (e) { alert(e.message); }
   }
+  // --- Broker adds / sees the assigned carrier's drivers (only when that carrier turned the option on) ---
+  var _bdBusy = false;
+  async function refreshBrokerDrivers() {
+    const box = $('ldBrokerDrivers'); if (!box) return;
+    // Only for a broker, only once a carrier is actually assigned to this load.
+    if (!isBrokerUser() || !curLoad || !curLoad.carrierId) { box.classList.add('hide'); return; }
+    const cid = curLoad.carrierId;
+    try {
+      const r = await api('/api/drivers/for-carrier/' + encodeURIComponent(cid));
+      // Stale guard: the load may have changed while the request was in flight.
+      if (!curLoad || curLoad.carrierId !== cid) return;
+      const cname = (r.carrier && r.carrier.name) || curLoad.carrierName || 'the carrier';
+      if ($('ldBrokerDriversTitle')) $('ldBrokerDriversTitle').textContent = 'Drivers at ' + cname;
+      renderBrokerDriverList(r.drivers || []);
+      box.classList.remove('hide');
+    } catch (e) {
+      // 403 (carrier hasn't enabled it, or no load relationship) / anything else → just hide the panel quietly.
+      box.classList.add('hide');
+    }
+  }
+  function renderBrokerDriverList(list) {
+    const host = $('ldBrokerDriverList'); if (!host) return;
+    if (!list.length) { host.innerHTML = '<div class="sub" style="margin:0;">No drivers on this carrier’s account yet.</div>'; return; }
+    host.innerHTML = list.map(function (d) {
+      const added = d.addedByName ? ('<span class="sub" style="font-size:11.5px;display:block;margin-top:1px;">added by ' + esc(d.addedByName) + '</span>') : '';
+      const off = d.active ? '' : ' <span class="sub" style="color:var(--danger);">(inactive)</span>';
+      return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);">'
+        + '<div style="flex:1;min-width:120px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + off
+        + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + added + '</div>'
+        + '<button class="ghost bdCopy" data-link="' + esc(d.link) + '" data-name="' + esc(d.name || 'Driver') + '" style="padding:5px 9px;font-size:12px;">Copy link</button>'
+        + (d.email ? ('<button class="ghost bdEmail" data-id="' + esc(d.id) + '" style="padding:5px 9px;font-size:12px;">Email link</button>') : '')
+        + '</div>';
+    }).join('');
+    const cid = curLoad.carrierId;
+    host.querySelectorAll('.bdCopy').forEach(function (b) { b.onclick = async function () { const ok = await copyRichLink(b.dataset.link, 'HaulProof — ' + (b.dataset.name || 'Driver')); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { b.textContent = 'Copy link'; }, 1600); }; });
+    host.querySelectorAll('.bdEmail').forEach(function (b) { b.onclick = async function () {
+      b.disabled = true; const o = b.textContent; b.textContent = 'Sending…';
+      try { const r = await api('/api/drivers/for-carrier/' + encodeURIComponent(cid) + '/' + encodeURIComponent(b.dataset.id) + '/email-link', { method: 'POST', body: '{}' }); b.textContent = r.simulated ? 'Queued ✓' : 'Sent ✓'; }
+      catch (e) { b.textContent = 'Failed'; alert(e.message); }
+      setTimeout(function () { b.textContent = o; b.disabled = false; }, 1800);
+    }; });
+  }
+  if ($('ldBrokerDriverAdd')) $('ldBrokerDriverAdd').onclick = function () {
+    const f = $('ldBrokerDriverForm'); if (!f) return;
+    const show = f.classList.contains('hide');
+    f.classList.toggle('hide', !show);
+    if (show) { if ($('ldBdName')) $('ldBdName').focus(); }
+  };
+  if ($('ldBdCancel')) $('ldBdCancel').onclick = function () {
+    $('ldBrokerDriverForm').classList.add('hide');
+    ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
+    if ($('ldBdMsg')) $('ldBdMsg').textContent = '';
+  };
+  if ($('ldBdSave')) $('ldBdSave').onclick = async function () {
+    if (_bdBusy) return;
+    if (!curLoad || !curLoad.carrierId) return;
+    const name = ($('ldBdName') && $('ldBdName').value || '').trim();
+    const phone = ($('ldBdPhone') && $('ldBdPhone').value || '').trim();
+    const email = ($('ldBdEmail') && $('ldBdEmail').value || '').trim();
+    const msg = $('ldBdMsg');
+    if (!name) { if (msg) { msg.textContent = 'Enter a name'; msg.className = 'umsg-err'; } return; }
+    _bdBusy = true; if (msg) { msg.textContent = 'Adding…'; msg.className = ''; }
+    const cid = curLoad.carrierId;
+    try {
+      await api('/api/drivers/for-carrier/' + encodeURIComponent(cid), { method: 'POST', body: JSON.stringify({ name: name, phone: phone, email: email }) });
+      if (msg) { msg.textContent = 'Added ✓'; msg.className = 'umsg-ok'; }
+      ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
+      $('ldBrokerDriverForm').classList.add('hide');
+      refreshBrokerDrivers();
+    } catch (e) {
+      // Namesake confirm: the server returns DUPLICATE_NAME when an active driver with this name already exists.
+      if (/DUPLICATE_NAME/.test(e.message || '')) {
+        _bdBusy = false;
+        if (confirm(e.message.replace(/^DUPLICATE_NAME:\s*/, '') + '\n\nAdd anyway as a second driver with the same name?')) {
+          _bdBusy = true;
+          try { await api('/api/drivers/for-carrier/' + encodeURIComponent(cid), { method: 'POST', body: JSON.stringify({ name: name, phone: phone, email: email, allowDuplicateName: true }) });
+            if (msg) { msg.textContent = 'Added ✓'; msg.className = 'umsg-ok'; }
+            ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
+            $('ldBrokerDriverForm').classList.add('hide'); refreshBrokerDrivers();
+          } catch (e2) { if (msg) { msg.textContent = e2.message; msg.className = 'umsg-err'; } }
+        } else { if (msg) { msg.textContent = ''; } }
+      } else { if (msg) { msg.textContent = e.message; msg.className = 'umsg-err'; } }
+    }
+    _bdBusy = false;
+  };
+  if (typeof attachPhoneFormat === 'function') { try { attachPhoneFormat('ldBdPhone'); } catch (e) {} }
+
   // Customer/super: toggle between assigning a carrier directly or handing to a broker.
   let ldMode = 'carrier';
   function setAssignMode(mode) {

@@ -375,6 +375,71 @@ router.post('/pods/:id/details', (req, res) => {
   res.json({ ok: true, poNumber: po, loadNumber: ln, consignee: cons, customerId: setCustomer ? customerId : (load ? load.customerId : null) });
 });
 
+// --- BROKER managing a CARRIER's roster on their behalf ---------------------------------------------------
+// A broker who has handed one of their loads to a carrier can (when that carrier allows it) see the carrier's
+// drivers and add new ones straight into the carrier's account — so a small owner-operator doesn't have to set
+// themselves up. Gated by: caller is a broker (or super-admin), the target is an active carrier, that carrier's
+// allowBrokerDrivers flag is ON, and the broker actually has a load currently assigned to that carrier.
+function brokerMayManageCarrier(req, carrierId) {
+  if (!carrierId) return { ok: false, code: 400, error: 'No carrier specified' };
+  const isSuper = req.user.role === 'superadmin';
+  if (!isSuper && req.user.orgKind !== 'broker') return { ok: false, code: 403, error: 'Only a broker can manage a carrier’s drivers.' };
+  const carrier = db.prepare(`SELECT * FROM orgs WHERE id = ? AND active = 1`).get(carrierId);
+  if (!carrier || carrier.kind !== 'carrier') return { ok: false, code: 404, error: 'Carrier not found' };
+  let flags = {}; try { flags = resolveUiFlags(carrierId); } catch (e) {}
+  if (!flags.allowBrokerDrivers) return { ok: false, code: 403, errcode: 'broker_drivers_off', error: carrier.name + ' hasn’t turned on broker-added drivers, so only they can manage their roster.' };
+  if (isSuper) return { ok: true, carrier };
+  const link = db.prepare(`SELECT 1 FROM loads WHERE brokerId IS ? AND carrierId IS ? LIMIT 1`).get(req.user.orgId || null, carrierId);
+  if (!link) return { ok: false, code: 403, error: 'You can only manage drivers for a carrier you’ve assigned one of your loads to.' };
+  return { ok: true, carrier };
+}
+function brokerDriverOut(req, d) {
+  return Object.assign(driverOut(req, d), { addedByOrgId: d.addedByOrgId || null, addedByName: d.addedByName || null });
+}
+// List a carrier's drivers (broker view).
+router.get('/for-carrier/:carrierId', requireAuth, requireDriverManager, (req, res) => {
+  const g = brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) return res.status(g.code || 403).json({ code: g.errcode, error: g.error });
+  const rows = db.prepare(`SELECT * FROM drivers WHERE orgId = ? ORDER BY active DESC, createdAt DESC`).all(req.params.carrierId);
+  res.json({ carrier: { id: g.carrier.id, name: g.carrier.name }, drivers: rows.map(d => brokerDriverOut(req, d)) });
+});
+// Add a driver into the carrier's account on the broker's behalf (stamped with the broker's name as provenance).
+router.post('/for-carrier/:carrierId', requireAuth, requireDriverManager, (req, res) => {
+  const g = brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) return res.status(g.code || 403).json({ code: g.errcode, error: g.error });
+  const orgId = req.params.carrierId;
+  const name = (req.body && req.body.name || '').trim();
+  const phone = (req.body && req.body.phone || '').trim();
+  const email = (req.body && req.body.email || '').trim();
+  if (!name) return res.status(400).json({ error: "Enter the driver's name" });
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (!(req.body && req.body.allowDuplicateName)) {
+    const dupe = db.prepare(`SELECT id FROM drivers WHERE orgId IS ? AND active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))`).get(orgId, name);
+    if (dupe) return res.status(409).json({ error: 'DUPLICATE_NAME: A driver named "' + name + '" is already on ' + g.carrier.name + '’s account. If it’s the same person, use the existing one.' });
+  }
+  const id = crypto.randomUUID();
+  // No PIN — the driver sets their own on first use. mustChangePin handles that uniformly.
+  db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, addedByOrgId, addedByName, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?,?,?)`)
+    .run(id, orgId, name, phone || null, email || null, null, newToken(), req.user.orgId || null, req.user.orgName || null, Date.now());
+  res.status(201).json({ driver: brokerDriverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(id)) });
+});
+// Email the carrier's driver their personal link (so the broker can get a mom-and-pop set up without copy/paste).
+router.post('/for-carrier/:carrierId/:driverId/email-link', requireAuth, requireDriverManager, async (req, res) => {
+  const g = brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) return res.status(g.code || 403).json({ code: g.errcode, error: g.error });
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ? AND orgId = ?`).get(req.params.driverId, req.params.carrierId);
+  if (!d) return res.status(404).json({ error: 'Driver not found' });
+  const to = (d.email || '').trim();
+  if (!to) return res.status(400).json({ error: 'This driver has no email on file — add one first, or use Copy link.' });
+  const link = originOf(req) + '/driver?k=' + encodeURIComponent(d.token);
+  const first = (d.name || '').split(/\s+/)[0] || 'there';
+  try {
+    const r = await sendMail({ to, subject: 'Your HaulProof driver link', text: driverLinkText(first, g.carrier.name, link), html: driverLinkHtml(first, g.carrier.name, link) });
+    if (r && (r.sent || r.simulated)) return res.json({ ok: true, sentTo: to, simulated: !!r.simulated });
+    return res.status(502).json({ error: 'Email could not be sent right now' + (r && r.error ? ' (' + r.error + ')' : '') });
+  } catch (e) { console.error('broker email-link', e); return res.status(500).json({ error: 'Email could not be sent right now' }); }
+});
+
 // List a customer's drivers.
 router.get('/', requireAuth, requireDriverManager, (req, res) => {
   const orgId = scopeOrgId(req);

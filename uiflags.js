@@ -8,7 +8,10 @@ const { db } = require('./db');
 // auditTrail is a document setting rather than a hidden field: ON (default) appends the signature
 // audit-trail page (signer/role/time/GPS) to the signed PDF; OFF skips that page. The GPS/time data is
 // still captured, stored on the load, and stamped under each signature either way — only the summary page drops.
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true };
+// allowBrokerDrivers (carriers): may a broker who's been assigned one of this carrier's loads add drivers
+// into this carrier's account on their behalf? ON by default so small owner-operators are set up for them;
+// a carrier that manages its own roster can turn it off.
+const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).

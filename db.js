@@ -221,6 +221,10 @@ addColumn('pods', 'parkedAt', 'INTEGER');       // when it was set aside
 addColumn('pods', 'parkedFromPodId', 'TEXT');   // the live pod this snapshot was taken from (the one sent back to the driver)
 addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)
+// Provenance when a BROKER adds a driver into a carrier's roster on their behalf (the carrier allows it via
+// the allowBrokerDrivers flag). The driver belongs to the carrier's org as normal; these just record who added it.
+addColumn('drivers', 'addedByOrgId', 'TEXT');   // broker org that created this driver for the carrier (NULL = the carrier added it themselves)
+addColumn('drivers', 'addedByName',  'TEXT');   // that broker org's name, for a friendly "added by …" note
 // Backfill roles for existing orgs from their single kind.
 try {
   const _needRoles = db.prepare(`SELECT id, kind FROM orgs WHERE roles IS NULL OR roles = ''`).all();
