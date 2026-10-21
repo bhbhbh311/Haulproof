@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29c · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29d · auto-capture scanning</div>
   </section>
 </main>
 
@@ -2120,12 +2120,15 @@ window.__startApp=function(){
       // wood, cardboard) don't sneak into the mask with the white page.
       var thr=Math.max(otsu(gray), 130);
       var mask=new Uint8Array(gw*gh); for(var i=0;i<gray.length;i++) mask[i]=gray[i]>=thr?1:0;
-      // Erode once (a pixel survives only if its 4 neighbours are also bright) — kills speckle and the thin
-      // bright bridges that used to fuse the document to other papers/highlights in the frame.
-      var er=new Uint8Array(gw*gh);
-      for(var y=1;y<gh-1;y++){ for(var x=1;x<gw-1;x++){ var idx=y*gw+x;
-        er[idx]=(mask[idx]&&mask[idx-1]&&mask[idx+1]&&mask[idx-gw]&&mask[idx+gw])?1:0; } }
-      mask=er;
+      // Erode twice (a pixel survives only if its 4 neighbours are also bright) — kills speckle, the thin bright
+      // bridges that fuse the document to other papers/highlights, and the soft bright halo/shadow just beyond the
+      // paper edge that was pushing the detected corners out into the background. Two passes trims ~2px of that
+      // fringe so the extreme-point corners sit on the real paper edge, not just outside it.
+      function erodeOnce(m){ var e=new Uint8Array(gw*gh);
+        for(var y=1;y<gh-1;y++){ for(var x=1;x<gw-1;x++){ var idx=y*gw+x;
+          e[idx]=(m[idx]&&m[idx-1]&&m[idx+1]&&m[idx-gw]&&m[idx+gw])?1:0; } }
+        return e; }
+      mask=erodeOnce(erodeOnce(mask));
       // Largest connected bright blob = the document. Collect its pixel coords.
       var labels=new Uint8Array(gw*gh), stack=new Int32Array(gw*gh), best=null;
       for(var start=0;start<mask.length;start++){
@@ -2154,9 +2157,10 @@ window.__startApp=function(){
         if(df>dMax){dMax=df;pTR=[px,py];} if(df<dMin){dMin=df;pBL=[px,py];} }
       var raw=[pTL,pTR,pBR,pBL];
       if(raw.indexOf(null)>=0) throw 0;
-      // Nudge each corner ~1.6 downscaled px outward from the centre, so the dots sit on the paper edge rather
-      // than one eroded ring inside it. Clamp to the frame.
-      var pad=1.6;
+      // Nudge each corner a touch outward from the centre to offset the erosion rings, so the dots sit right on
+      // the paper edge (dead-on) rather than inside it. Kept small so high-contrast photos don't overshoot into
+      // the background. Clamp to the frame.
+      var pad=1.0;
       var corners=raw.map(function(p){
         var dx=p[0]-cx, dy=p[1]-cy, L=Math.sqrt(dx*dx+dy*dy)||1;
         var ex=p[0]+dx/L*pad, ey=p[1]+dy/L*pad;
