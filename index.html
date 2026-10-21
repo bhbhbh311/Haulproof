@@ -750,22 +750,13 @@
         <p class="sub" style="margin:0 0 10px;">Here's how dispatch works, start to finish:</p>
         <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.65;color:var(--ink);">
           <li><b>Add your drivers</b> on the <b>Drivers</b> tab — each one gets a personal link and PIN to open on their phone.</li>
-          <li><b>Get a document in, either way:</b> a driver uploads it from their phone (it appears here flagged <b>⚙ Set&nbsp;up</b>), <b>or</b> you upload it yourself with <b>＋ New upload</b> and assign it to a driver.</li>
+          <li><b>Get a document in, either way:</b> a driver uploads it from their phone (it appears here flagged <b>⚙ Set&nbsp;up</b>), <b>or</b> you start one yourself with <b>＋ New load</b> — upload the BOL (or add it later) and assign it to a driver.</li>
           <li><b>Set up the signature boxes and save</b> — it's released to that driver's phone to sign, and signed copies email out automatically.</li>
         </ol>
         <p class="sub" style="margin:10px 0 0;">Everything stays searchable by PO # below, anytime.</p>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Create a load by PO #, assign an FMCSA-verified carrier, and track its full history.</p></div>
-        <button class="ghost hide" id="nlToggle" type="button">＋ New load</button>
-      </div>
-      <div id="nlForm" class="hide" style="margin-top:14px;">
-        <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-          <div><label>PO # <span style="color:#c0392b;">*required</span></label><input id="nlPo" placeholder="e.g. 4501-88"></div>
-          <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nlLoad"></div>
-          <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nlCons"></div>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="nlBtn" type="button">Create load</button><span id="nlMsg" style="font-size:13px;font-weight:600;"></span></div>
+        <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Your loads — assign an FMCSA-verified carrier and track full history. Start a new one with <b>＋ New load</b> below (upload the BOL, or create it and add paperwork later).</p></div>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;"><input id="lSearch" placeholder="Search loads by PO #, carrier, consignee"><button class="ghost" id="lSearchBtn" type="button">Search</button></div>
       <div id="loadList" style="margin-top:12px;"></div>
@@ -974,8 +965,8 @@
 
     <div class="card hide" id="uploadCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div><h1 style="margin-bottom:0;">Upload &amp; file a document</h1><p class="sub" style="margin-bottom:0;">Add a signed BOL or paperwork. It's searchable by PO # right away.</p></div>
-        <button class="ghost" id="upToggle" type="button">＋ New upload</button>
+        <div><h1 style="margin-bottom:0;">New load</h1><p class="sub" style="margin-bottom:0;">Create a load from a PO #. Upload the BOL now to file it in the same step — or create the load and add the paperwork later. Searchable by PO # right away.</p></div>
+        <button class="ghost" id="upToggle" type="button">＋ New load</button>
       </div>
       <div id="upForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
@@ -995,10 +986,13 @@
             <select id="uReceiver"><option value="">— none —</option></select>
             <button type="button" id="uReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
         </div>
-        <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
+        <div class="row" id="uFileRow" style="grid-template-columns:1fr;margin-top:12px;">
           <div><label>PDF file(s)</label><input id="uFile" type="file" accept="application/pdf" multiple>
             <label id="uMergeWrap" class="hide" style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-top:8px;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="uMerge" checked style="width:auto;margin-top:2px;"><span>Combine these into <b>one</b> document. Uncheck to file each PDF as its <b>own</b> separate document (Stop 1, Stop 2, …) on this PO.</span></label>
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick one or more PDFs. When you choose several, pick above whether to merge them into one document or file each one separately.</div></div>
+        </div>
+        <div style="margin-top:12px;">
+          <label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="uNoDoc" style="width:auto;margin-top:2px;"><span><b>No document yet</b> — just create the load now and add the paperwork later (the driver can upload it from their phone, or you can add it here).</span></label>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="uBtn" type="button">Upload</button>
@@ -2363,7 +2357,7 @@
       const archCount = r.archivedCount || 0;
       if (!active.length) {
         const emptyMsg = _showArchived ? 'No archived loads. Use “🗄 Archive” on any load to hide it from your list.'
-          : (q ? 'No loads match that search.' : 'No loads yet — loads appear here automatically when a driver uploads a document for you to set up. You can also create one above with “＋ New load”.');
+          : (q ? 'No loads match that search.' : 'No loads yet — loads appear here automatically when a driver uploads a document for you to set up. You can also start one yourself with “＋ New load” below.');
         const backLink = _showArchived ? '<div style="margin-top:8px;"><a href="#" id="lArchBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to active loads</a></div>' : '';
         box.innerHTML = '<div class="empty">' + emptyMsg + backLink + '</div>';
         const bk = $('lArchBack'); if (bk) bk.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
@@ -2476,23 +2470,8 @@
       });
     } catch (e) { box.innerHTML = '<div class="empty">' + (e.message || 'Could not load the recovery bin') + '<div style="margin-top:8px;"><a href="#" id="lTrashBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to loads</a></div></div>'; const bb = $('lTrashBack'); if (bb) bb.onclick = (ev) => { ev.preventDefault(); loadLoads(); }; }
   }
-  $('nlToggle').onclick = () => { $('nlForm').classList.toggle('hide'); if (!$('nlForm').classList.contains('hide')) $('nlPo').focus(); };
-  $('nlBtn').onclick = async () => {
-    const poNumber = $('nlPo').value.trim();
-    if (!poNumber) { $('nlMsg').textContent = 'PO # is required'; $('nlMsg').className = 'umsg-err'; return; }
-    $('nlMsg').textContent = 'Creating…'; $('nlMsg').className = '';
-    try {
-      const r = await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber, loadNumber: $('nlLoad').value.trim(), consignee: $('nlCons').value.trim() }) });
-      $('nlMsg').textContent = 'Created ✓'; $('nlMsg').className = 'umsg-ok';
-      $('nlPo').value = ''; $('nlLoad').value = ''; $('nlCons').value = ''; $('nlForm').classList.add('hide');
-      const newId = r && r.load && r.load.id;
-      if (newId) {
-        // Open the new load straight into edit mode with the add-stop form ready, so stops, receivers,
-        // sales reps and documents can all be added right here — the load and its stops in one place.
-        await openLoad(newId, { setup: true });   // opens the one-page setup form with the add-document area ready
-      } else { loadLoads(); }
-    } catch (e) { $('nlMsg').textContent = e.message; $('nlMsg').className = 'umsg-err'; }
-  };
+  // (The separate "New load" button was removed — creating a load now goes through the single "＋ New load"
+  //  entry on the upload card below, which creates the load and optionally files the BOL in one step.)
   $('lSearchBtn').onclick = loadLoads;
   $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadLoads(); });
   // Record the last keystroke in the search box so auto-refresh can stay live on a FILTERED view (the common
@@ -5681,6 +5660,13 @@
   $('upToggle').onclick = () => { applyUploadFieldVisibility(); $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
   $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); };
   if ($('uFile')) $('uFile').addEventListener('change', () => { const n = (($('uFile')||{}).files || []).length; if ($('uMergeWrap')) $('uMergeWrap').classList.toggle('hide', n < 2); });
+  // "No document yet" — the load is created without a file; the BOL can be added later.
+  if ($('uNoDoc')) $('uNoDoc').addEventListener('change', function () {
+    const on = this.checked;
+    if ($('uBtn')) $('uBtn').textContent = on ? 'Create load' : 'Upload';
+    const fr = $('uFileRow'); if (fr) fr.style.opacity = on ? '.45' : '';
+    if ($('uFile')) $('uFile').disabled = on;
+  });
   // Merge several PDFs (in the order picked) into one, using pdf-lib. Returns an ArrayBuffer.
   async function mergePdfs(files) {
     if (!window.PDFLib) throw new Error('PDF tools failed to load — refresh and try again');
@@ -5697,7 +5683,22 @@
     const load = $('uLoad').value.trim();
     const files = Array.from($('uFile').files || []);
     if (!po) { uMsg('Customer PO # is required', 'err'); $('uPo').focus(); return; }
-    if (!files.length) { uMsg('Choose a PDF file', 'err'); return; }
+    // "No document yet" path: create an empty load from the PO and open it, so the carrier/driver can be set
+    // and the BOL added later (here, or by the driver from their phone).
+    if ($('uNoDoc') && $('uNoDoc').checked) {
+      uMsg('Creating load…');
+      try {
+        const r = await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber: po, loadNumber: load, consignee: $('uCons').value.trim() }) });
+        uMsg('Load created ✓', 'ok');
+        ['uPo','uLoad','uCons'].forEach(id => { if ($(id)) $(id).value = ''; });
+        if ($('uNoDoc')) { $('uNoDoc').checked = false; $('uNoDoc').dispatchEvent(new Event('change')); }
+        $('upForm').classList.add('hide');
+        const newId = r && r.load && r.load.id;
+        if (newId) await openLoad(newId); else { try { loadLoads(); } catch (e) {} }
+      } catch (e) { uMsg(e.message || 'Could not create the load', 'err'); }
+      return;
+    }
+    if (!files.length) { uMsg('Choose a PDF file, or check "No document yet" to create the load now', 'err'); return; }
     if (files.some(f => f.type && f.type !== 'application/pdf')) { uMsg('All files must be PDFs', 'err'); return; }
     const stop = $('uStop') ? $('uStop').value.trim() : '';
     const combine = !$('uMerge') || $('uMerge').checked;   // default: merge several PDFs into one document
