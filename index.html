@@ -1411,7 +1411,7 @@
     });
     if (el.value) el.value = formatUSPhone(el.value);
   }
-  ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone', 'custModalPhone'].forEach(attachPhoneFormat);
+  ['ncPhone', 'cmdPhone', 'ndPhone', 'eoPhone', 'custModalPhone', 'recvFPhone', 'drvPhone', 'edPhone'].forEach(attachPhoneFormat);
   // PIN inputs: digits only, max 6.
   ['ndPin', 'cmdPin', 'edPin'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, '').slice(0, 6); }); });
   // Build a pre-filled text / email so dispatch can send a driver their personal link in one tap.
@@ -5682,7 +5682,7 @@
     $('recvMName').value = r.name || '';
     $('recvFAddr').value = r.address || ''; $('recvFCity').value = r.city || '';
     $('recvFState').value = r.state || ''; $('recvFZip').value = r.zip || '';
-    $('recvFPhone').value = r.contactPhone || '';
+    $('recvFPhone').value = formatUSPhone(r.contactPhone || '');
     $('recvContacts').innerHTML = '';
     const cs = (r.contacts || []); if (cs.length) cs.forEach(c => addContactRow(c)); else addContactRow();
     populateRecvParent(r.parentId || '', r.id);
@@ -5716,7 +5716,7 @@
     const name = $('recvMName').value.trim();
     if (!name) { $('recvCreateMsg').textContent = 'Enter a name'; $('recvCreateMsg').className = 'umsg-err'; return; }
     const body = { name, address: $('recvFAddr').value.trim(), city: $('recvFCity').value.trim(),
-      state: $('recvFState').value.trim(), zip: $('recvFZip').value.trim(), phone: $('recvFPhone').value.trim(),
+      state: $('recvFState').value.trim(), zip: $('recvFZip').value.trim(), phone: formatUSPhone($('recvFPhone').value.trim()),
       parentId: ($('recvFParent') ? $('recvFParent').value : ''),
       contacts: recvGatherContacts() };
     if (recvCtx.customerId) body.customerId = recvCtx.customerId;

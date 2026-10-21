@@ -65,6 +65,36 @@ async function fetchMcByDot(dot) {
     return pick.docketNumber != null ? String(pick.docketNumber).replace(/\D/g, '') : '';
   } catch (e) { return ''; }
 }
+// FMCSA operating authority lives on a SEPARATE sub-record. Returns { broker, carrier } booleans
+// (carrier = active common OR contract authority), or null when FMCSA didn't answer / had no data —
+// callers treat null as "unknown" and must NOT block on it.
+async function fetchAuthority(dot) {
+  const d = String(dot || '').replace(/\D/g, '');
+  if (!WEBKEY || !d) return null;
+  const url = FMCSA_BASE + 'carriers/' + encodeURIComponent(d) + '/authority?webKey=' + encodeURIComponent(WEBKEY);
+  try {
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const json = await r.json();
+    const arr = Array.isArray(json.content) ? json.content : (json.content ? [json.content] : []);
+    let broker = false, common = false, contract = false, sawAny = false;
+    // The three status fields can sit at the top of each record or nested — scan recursively. "A" = active.
+    const scan = (o) => {
+      if (!o || typeof o !== 'object') return;
+      for (const k in o) {
+        const v = o[k];
+        if (v && typeof v === 'object') { scan(v); continue; }
+        const key = k.toLowerCase(), act = String(v == null ? '' : v).toUpperCase() === 'A';
+        if (key === 'brokerauthoritystatus') { sawAny = true; if (act) broker = true; }
+        else if (key === 'commonauthoritystatus') { sawAny = true; if (act) common = true; }
+        else if (key === 'contractauthoritystatus') { sawAny = true; if (act) contract = true; }
+      }
+    };
+    arr.forEach(scan);
+    if (!sawAny) return null;
+    return { broker, carrier: (common || contract) };
+  } catch (e) { return null; }
+}
 
 // Call FMCSA QCMobile. Returns { configured, results, error }.
 async function fmcsaLookup({ mc, dot, name }) {
@@ -84,6 +114,11 @@ async function fmcsaLookup({ mc, dot, name }) {
     // Fill in the MC# from the docket sub-record wherever we don't already have one.
     await Promise.all(carriers.map(async (c) => {
       if (!c.mcNumber && c.dotNumber) { c.mcNumber = await fetchMcByDot(c.dotNumber); }
+      if (c.dotNumber) {
+        const a = await fetchAuthority(c.dotNumber);
+        // null = FMCSA didn't tell us; leave the flags undefined so the UI/rules treat it as "unknown".
+        if (a) { c.authBroker = a.broker; c.authCarrier = a.carrier; }
+      }
     }));
     return { configured: true, results: carriers };
   } catch (e) {
@@ -149,7 +184,7 @@ function carrierOut(o) {
 
 // Save a carrier into the registry (from an FMCSA result, or an admin override for one FMCSA didn't return).
 // A NON-verified (override) carrier requires an admin/super — a plain dispatcher cannot invent carriers.
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const b = req.body || {};
   const name = (b.name || '').trim();
   const mcNumber = (b.mcNumber || '').trim();
@@ -168,6 +203,15 @@ router.post('/', requireAuth, (req, res) => {
     if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
     return res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
+  }
+  // Authority rule: a company with FMCSA BROKER authority but NO carrier (common/contract) authority may not be
+  // added as a carrier — it can only broker loads. Use the flags the lookup already carried when present;
+  // otherwise re-check FMCSA by DOT. Unknown authority never blocks the add (fail-open on an FMCSA hiccup).
+  let auth = null;
+  if (b.authBroker !== undefined || b.authCarrier !== undefined) auth = { broker: !!b.authBroker, carrier: !!b.authCarrier };
+  else if (dotNumber) { try { auth = await fetchAuthority(dotNumber); } catch (e) { auth = null; } }
+  if (auth && auth.broker && !auth.carrier) {
+    return res.status(409).json({ code: 'broker_only', error: name + ' holds FMCSA Broker authority only — add it as a Broker, not a Carrier.' });
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
