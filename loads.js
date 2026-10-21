@@ -33,7 +33,24 @@ function accessibleLoad(req, id) {
   if (isBroker(req)) return ((load.brokerId || null) === (req.user.orgId || null) || (load.orgId || null) === (req.user.orgId || null)) ? load : null;
   return (load.orgId || null) === (req.user.orgId || null) ? load : null;
 }
-function loadOut(l) { return l; }
+// Should this viewer have the carrier hidden? A CUSTOMER who handed a load to a broker does not see which carrier
+// the broker then assigned — that's the broker's business; the customer only ever sees the party they themselves
+// assigned (the broker). The broker, the carrier, and master admin all see everything.
+function hideCarrierFrom(req, l) {
+  if (!l || !l.brokerId) return false;
+  if (!req || !req.user || req.user.role === 'superadmin') return false;
+  const my = req.user.orgId || null;
+  const isBroker = (l.brokerId || null) === my, isCarrier = (l.carrierId || null) === my, isOwner = (l.orgId || null) === my;
+  return isOwner && !isBroker && !isCarrier;
+}
+// Serialize a load for a given viewer (drops the carrier for a customer who handed the load to a broker).
+function loadOut(l, req) {
+  if (!l) return l;
+  if ((l.carrierId || l.carrierName) && hideCarrierFrom(req, l)) {
+    return Object.assign({}, l, { carrierId: null, carrierName: null });
+  }
+  return l;
+}
 
 // Create/name a load (PO# is the primary identifier, unique per customer).
 router.post('/', requireAuth, (req, res) => {
@@ -42,7 +59,7 @@ router.post('/', requireAuth, (req, res) => {
   if (!poNumber && !loadNumber) return res.status(400).json({ error: 'Provide a PO number or a load number' });
   if (poNumber) {
     const existing = db.prepare(`SELECT * FROM loads WHERE orgId IS ? AND poNumber = ?`).get(orgId, poNumber);
-    if (existing) return res.json({ load: loadOut(existing), existed: true });
+    if (existing) return res.json({ load: loadOut(existing, req), existed: true });
   }
   const id = crypto.randomUUID();
   // A carrier creating its own load IS the carrier — default it to their company (they can change it later).
@@ -53,7 +70,7 @@ router.post('/', requireAuth, (req, res) => {
     .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, req.user.email, Date.now());
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : ''), actor: actorOf(req) });
-  res.json({ load: loadOut(load), existed: false });
+  res.json({ load: loadOut(load, req), existed: false });
 });
 
 // Search loads. Customers see their own; a carrier sees loads assigned to it.
@@ -110,7 +127,14 @@ router.get('/', requireAuth, (req, res) => {
      SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared
      FROM pods WHERE loadId = ? AND status != 'parked'`);
   const out = rows.map(l => {
-    const o = { ...loadOut(l), lastEvent: lastEv.get(l.id) || null };
+    // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak
+    // the broker's carrier to the customer.
+    let le = lastEv.get(l.id) || null;
+    if (le && hideCarrierFrom(req, l)) {
+      const cn = (l.carrierName || '').toLowerCase();
+      if (le.type === 'carrier_assigned' || (cn && (le.detail || '').toLowerCase().includes(cn))) le = null;
+    }
+    const o = { ...loadOut(l, req), lastEvent: le };
     const ps = podStat.get(l.id); o.complete = !!(ps && ps.total > 0 && Number(ps.done) === Number(ps.total));
     // Actionable document state (drives a clear status pill instead of a vague "Updated"):
     o.needsSetup = !!(ps && Number(ps.awaiting) > 0);   // a driver uploaded a doc for dispatch to set up
@@ -137,7 +161,7 @@ router.get('/:id', requireAuth, (req, res) => {
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
-  res.json({ load: { ...loadOut(load), archived }, pods });
+  res.json({ load: { ...loadOut(load, req), archived }, pods });
 });
 
 // Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).
@@ -183,7 +207,7 @@ router.put('/:id', requireAuth, (req, res) => {
   // A broker/carrier can OPEN a brokered/assigned load, but the customer's fields (PO, load #, customer) are
   // not theirs to edit — return the load unchanged so their auto-save doesn't fail with "Load not found".
   if (!(req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null))) {
-    return res.json({ load: loadOut(load) });
+    return res.json({ load: loadOut(load, req) });
   }
   const b = req.body || {};
   const loadNumber = (b.loadNumber !== undefined) ? ((b.loadNumber || '').trim() || null) : load.loadNumber;
@@ -239,7 +263,7 @@ router.put('/:id', requireAuth, (req, res) => {
     if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
     logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   }
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
 // Delete a load and all its documents. Owner (or super) only. Irreversible — the app confirms twice first.
@@ -295,7 +319,7 @@ router.post('/:id/assign-broker', requireAuth, (req, res) => {
   const tag = broker.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
     detail: 'Handed to broker ' + broker.name + (broker.mcNumber ? ' (MC ' + broker.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
 // Assign a carrier to a load. The owning customer, super, OR the broker the load was handed to.
@@ -317,7 +341,7 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
   const tag = carrier.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
     detail: (isAssignedBroker ? 'Broker assigned ' : 'Assigned to ') + carrier.name + (carrier.mcNumber ? ' (MC ' + carrier.mcNumber + ')' : '') + ' — ' + tag, actor: actorOf(req) });
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
 // Unassign the carrier from a load. Only the owner (the customer who created it) or super — a broker the load
@@ -329,7 +353,7 @@ router.post('/:id/unassign-carrier', requireAuth, (req, res) => {
   db.prepare(`UPDATE loads SET carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
     detail: 'Carrier unassigned' + (load.carrierName ? ' (' + load.carrierName + ')' : ''), actor: actorOf(req) });
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 // Unassign the broker from a load (owner or super). Also clears any carrier the broker had put on it.
 router.post('/:id/unassign-broker', requireAuth, (req, res) => {
@@ -339,7 +363,7 @@ router.post('/:id/unassign-broker', requireAuth, (req, res) => {
   db.prepare(`UPDATE loads SET brokerId = NULL, brokerName = NULL, carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
     detail: 'Broker unassigned' + (load.brokerName ? ' (' + load.brokerName + ')' : ''), actor: actorOf(req) });
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
 // Record the driver + truck + trailer on a load. The assigned carrier, the owning customer, or super.
@@ -377,15 +401,21 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
   db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_assigned',
     detail: 'Driver ' + driverName + (truck ? ' · Truck ' + truck : '') + (trailer ? ' · Trailer ' + trailer : ''), actor: actorOf(req) });
-  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id)) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
 // The recorded history of a load / PO#.
 router.get('/:id/history', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
-  const events = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt ASC`).all(load.id);
-  res.json({ load: loadOut(load), events });
+  let events = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt ASC`).all(load.id);
+  // Customer who handed off to a broker shouldn't see the carrier the broker picked — drop carrier-assignment
+  // events (and anything naming the carrier) from their history view.
+  if (hideCarrierFrom(req, load)) {
+    const cn = (load.carrierName || '').toLowerCase();
+    events = events.filter(e => e.type !== 'carrier_assigned' && !(cn && (e.detail || '').toLowerCase().includes(cn)));
+  }
+  res.json({ load: loadOut(load, req), events });
 });
 
 module.exports = router;
