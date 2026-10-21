@@ -900,7 +900,7 @@
         </div>
         <div id="ldDrvBody" class="hide" style="margin-top:12px;">
           <div class="row" style="grid-template-columns:1fr;margin-bottom:10px;">
-            <div><label>Assign a driver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">pick from your drivers — routes the load to their phone</span></label>
+            <div><label>Assign a driver <span id="ldDrvSelectHint" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">pick from your drivers — routes the load to their phone</span></label>
               <select id="ldDrvSelect"><option value="">— choose a driver —</option></select>
               <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button></div>
           </div>
@@ -4331,6 +4331,7 @@
     try {
       const r = await api('/api/loads/' + curLoad.id + '/unassign-' + kind, { method: 'POST', body: '{}' });
       curLoad = r.load; renderCarrierNow(); applyAssignVisibility();
+      if (isBrokerUser()) { try { populateLdDrivers(); } catch (e) {} }   // carrier gone → dropdown reverts to the broker's own drivers
       if ($('ldCarResults')) $('ldCarResults').innerHTML = '<div class="sub">' + (kind === 'broker' ? 'Broker' : 'Carrier') + ' unassigned.</div>';
       loadHistory(curLoad.id);
     } catch (e) { alert(e.message); }
@@ -4404,6 +4405,7 @@
       ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
       $('ldBrokerDriverForm').classList.add('hide');
       refreshBrokerDrivers();
+      try { populateLdDrivers(); } catch (e) {}   // new driver also appears in the "Assign a driver" dropdown
     } catch (e) {
       // Namesake confirm: the server returns DUPLICATE_NAME when an active driver with this name already exists.
       if (/DUPLICATE_NAME/.test(e.message || '')) {
@@ -4413,7 +4415,7 @@
           try { await api('/api/drivers/for-carrier/' + encodeURIComponent(cid), { method: 'POST', body: JSON.stringify({ name: name, phone: phone, email: email, allowDuplicateName: true }) });
             if (msg) { msg.textContent = 'Added ✓'; msg.className = 'umsg-ok'; }
             ['ldBdName','ldBdPhone','ldBdEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
-            $('ldBrokerDriverForm').classList.add('hide'); refreshBrokerDrivers();
+            $('ldBrokerDriverForm').classList.add('hide'); refreshBrokerDrivers(); try { populateLdDrivers(); } catch (e3) {}
           } catch (e2) { if (msg) { msg.textContent = e2.message; msg.className = 'umsg-err'; } }
         } else { if (msg) { msg.textContent = ''; } }
       } else { if (msg) { msg.textContent = e.message; msg.className = 'umsg-err'; } }
@@ -4603,6 +4605,8 @@
   async function assignCarrierId(carrierId) {
     const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
     curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
+    // Broker just picked the carrier → the "Assign a driver" dropdown should now show that carrier's roster.
+    if (isBrokerUser()) { try { populateLdDrivers(); } catch (e) {} if ($('ldDrvBody') && $('ldDrvBody').classList.contains('hide')) { $('ldDrvBody').classList.remove('hide'); if ($('ldDrvCaret')) $('ldDrvCaret').textContent = '▾'; } }
   }
   // Populate the "Assign a driver" dropdown from this account's registered drivers.
   let _ldSelectedDriverId = '';
@@ -4616,10 +4620,24 @@
     const sel = $('ldDrvSelect'); if (!sel) return;
     _ldSelectedDriverId = '';
     sel.innerHTML = '<option value="">— choose a driver —</option>';
+    // The label hint changes for a broker: they're picking from the CARRIER's drivers, not their own.
+    var hint = $('ldDrvSelectHint');
     try {
-      const scope = ldScopeOrgId();
-      const r = await api('/api/drivers' + (scope ? ('?orgId=' + encodeURIComponent(scope)) : ''));
-      (r.drivers || []).filter(d => d.active !== false).forEach(d => {
+      let drivers = null, fromCarrier = false;
+      // Broker with a carrier assigned: the people who actually haul & sign this load are the CARRIER's
+      // drivers — the same roster shown in the "Drivers at <carrier>" panel above — so offer those, not the
+      // broker's own. Falls back to the broker's own list only if the carrier hasn't opened their roster.
+      if (isBrokerUser() && curLoad && curLoad.carrierId) {
+        try { const cr = await api('/api/drivers/for-carrier/' + encodeURIComponent(curLoad.carrierId)); drivers = cr.drivers || []; fromCarrier = true; }
+        catch (e) { drivers = null; }
+      }
+      if (drivers === null) {
+        const scope = ldScopeOrgId();
+        const r = await api('/api/drivers' + (scope ? ('?orgId=' + encodeURIComponent(scope)) : ''));
+        drivers = r.drivers || [];
+      }
+      if (hint) hint.textContent = fromCarrier ? ('pick from ' + (curLoad.carrierName || 'the carrier') + '’s drivers — routes the load to their phone') : 'pick from your drivers — routes the load to their phone';
+      drivers.filter(d => d.active !== false).forEach(d => {
         const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : (d.email ? ' · ' + d.email : ' · #' + String(d.id).slice(-4))); o.dataset.name = d.name;
         if (curLoad && curLoad.driverName && d.name === curLoad.driverName) { o.selected = true; _ldSelectedDriverId = d.id; }
         sel.appendChild(o);
