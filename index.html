@@ -777,6 +777,7 @@
         <div><h1 style="margin-bottom:0;" id="ldTitle">Load</h1><p class="sub" id="ldSummary" style="margin-bottom:0;"></p></div>
         <div style="display:flex;gap:8px;">
           <button class="ld-viewonly btn-sm" id="ldEditBtn" type="button">✎ Edit load / stops</button>
+          <button class="ld-viewonly btn-sm ghost hide" id="ldCopyBtn" type="button" title="Start a new load with the same carrier, driver and customer — just give it a new PO">⧉ Copy load</button>
           <!-- Archive lives on the Documents/Loads home list (each row's 🗄 Archive), not inside a single load. Hidden here. -->
           <button class="ghost" id="ldArchiveBtn" type="button" style="display:none !important;" title="Hide this load from your list (does not delete it)">🗄 Archive</button>
           <button class="ld-editonly hide" id="ldGuideBtn" type="button" title="Walk through setup step by step">🧭 Guide me</button>
@@ -979,8 +980,8 @@
       <div id="upForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
           <div><label>Customer PO # <span style="color:#c0392b;">*required</span></label><input id="uPo" placeholder="e.g. 4501-88"></div>
-          <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
-          <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
+          <div id="uLoadWrap"><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
+          <div id="uConsWrap"><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
         <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;align-items:start;">
           <div><label>Document type</label>
@@ -1430,7 +1431,13 @@
   const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
-  function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); }
+  function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); try { applyUploadFieldVisibility(); } catch (e) {} }
+  // The standalone "Upload & file a document" form must honor the same Simple-mode settings as everywhere else:
+  // hide Load # when it's off, and hide Consignee when "Delivered to" is off.
+  function applyUploadFieldVisibility() {
+    var lw = $('uLoadWrap'); if (lw) lw.classList.toggle('hide', !fieldOn('loadNumber'));
+    var cw = $('uConsWrap'); if (cw) cw.classList.toggle('hide', !fieldOn('receiver'));
+  }
   async function refreshOrgFields() { try { const r = await api('/api/org-fields'); if (r && r.fields) applyOrgFields(r.fields); } catch (e) {} }
   // Pretty US phone formatting as you type: 5555551234 -> (555) 555-1234
   function formatUSPhone(raw) {
@@ -4224,6 +4231,23 @@
   // Editing a load launches the guided wizard, walking the correct order (PO → load → driver → split → crop →
   // signatures). "Exit guide" drops them onto the normal edit screen to fix just what they need.
   if ($('ldEditBtn')) $('ldEditBtn').onclick = () => { openSetupWizard(); };
+  // Copy load: start a NEW load carrying this one's carrier, driver and customer — "same as last time" in one
+  // click. Only the new PO differs; documents are not copied (each load gets its own).
+  if ($('ldCopyBtn')) $('ldCopyBtn').onclick = async () => {
+    if (!curLoad) return;
+    const carry = [];
+    if (curLoad.carrierName) carry.push('carrier ' + curLoad.carrierName);
+    else if (curLoad.brokerName) carry.push('broker ' + curLoad.brokerName);
+    if (curLoad.driverName) carry.push('driver ' + curLoad.driverName);
+    if (curLoad.customer) carry.push('customer ' + curLoad.customer);
+    const msg = 'New PO # for the copy' + (carry.length ? ('\n\nIt will carry over: ' + carry.join(', ') + '.') : '.') + '\n\nDocuments are not copied — you\'ll upload the new one.';
+    const po = (window.prompt(msg, '') || '').trim();
+    if (!po) return;
+    try {
+      const r = await api('/api/loads/' + curLoad.id + '/duplicate', { method: 'POST', body: JSON.stringify({ poNumber: po }) });
+      openLoad(r.load.id);
+    } catch (e) { alert(e.message); }
+  };
   // Stop pulsing the Customer PO # the moment something is typed (and resume if it's cleared).
   if ($('ldEditPo')) $('ldEditPo').addEventListener('input', () => { $('ldEditPo').classList.toggle('lead-cta', $('loadDetailCard').classList.contains('editing') && !$('ldEditPo').value.trim()); });
   // Reflect the open load's archived state on the header button (label + tooltip).
@@ -4240,6 +4264,8 @@
     const block = $('ldDeleteBlock'), btn = $('ldDeleteBtn'), note = $('ldDeleteNote');
     if (!block || !btn || !curLoad) return;
     const isOwner = (user && user.role === 'superadmin') || (!!curLoad.orgId && user && curLoad.orgId === user.orgId);
+    // "Copy load" is an owner action (it starts a new load they'll own). Show it only to the owner / master-admin.
+    if ($('ldCopyBtn')) $('ldCopyBtn').classList.toggle('hide', !isOwner);
     block.classList.remove('hide');
     if (isOwner) {
       btn.dataset.mode = 'delete';
@@ -4909,7 +4935,7 @@
           <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${x.uploadedAt ? new Date(x.uploadedAt).toLocaleDateString() : '—'}</td>
           <td style="white-space:nowrap;text-align:right;">
             <a class="dl" href="${x.fileUrl}" target="_blank" rel="noopener">Open PDF ↗</a>
-            <a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>${assign}
+            ${(x.status !== 'needs_reupload' && x.status !== 'signed' && x.status !== 'emailed') ? `<a class="dl" href="/prepare?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="margin-left:12px;">Sign-setup</a>` : ''}${assign}
           </td></tr>`;
       }
       // Group by load (PO#): a multi-document PO shows as one clickable section that expands to its stops.
@@ -5652,7 +5678,7 @@
 
   // --- Upload & file a document ---
   function uMsg(t, kind) { const el = $('uMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
-  $('upToggle').onclick = () => { $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
+  $('upToggle').onclick = () => { applyUploadFieldVisibility(); $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
   $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); };
   if ($('uFile')) $('uFile').addEventListener('change', () => { const n = (($('uFile')||{}).files || []).length; if ($('uMergeWrap')) $('uMergeWrap').classList.toggle('hide', n < 2); });
   // Merge several PDFs (in the order picked) into one, using pdf-lib. Returns an ArrayBuffer.

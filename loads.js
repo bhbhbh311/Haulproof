@@ -73,6 +73,31 @@ router.post('/', requireAuth, (req, res) => {
   res.json({ load: loadOut(load, req), existed: false });
 });
 
+// Copy a load: create a NEW load that carries the customer, carrier, broker, driver and equipment from an
+// existing one ("same carrier, same driver as last time"), with a fresh PO and NO documents. Owner / super only.
+router.post('/:id/duplicate', requireAuth, (req, res) => {
+  const src = ownedLoad(req, req.params.id);
+  if (!src) return res.status(404).json({ error: 'Load not found' });
+  const poNumber = (req.body && req.body.poNumber || '').trim();
+  const loadNumber = (req.body && req.body.loadNumber || '').trim();
+  if (!poNumber) return res.status(400).json({ error: 'A new PO # is required for the copy.' });
+  const orgId = src.orgId || null;
+  const clash = db.prepare(`SELECT 1 FROM loads WHERE orgId IS ? AND poNumber = ?`).get(orgId, poNumber);
+  if (clash) return res.status(409).json({ error: 'A load with PO ' + poNumber + ' already exists — pick a different PO.' });
+  const id = crypto.randomUUID();
+  const assigned = !!(src.carrierId || src.brokerId);
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, customerId, consignee, origin, destination, carrierId, carrierName, brokerId, brokerName, driverName, truck, trailer, status, createdBy, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, orgId, loadNumber || null, poNumber, src.customer || null, src.customerId || null, null, src.origin || null, src.destination || null,
+         src.carrierId || null, src.carrierName || null, src.brokerId || null, src.brokerName || null, src.driverName || null, src.truck || null, src.trailer || null,
+         assigned ? 'assigned' : 'open', req.user.email, Date.now());
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
+  logEvent({ orgId, loadId: id, poNumber, type: 'created',
+    detail: 'Copied from PO ' + (src.poNumber || src.loadNumber || 'a previous load') + (src.carrierName ? ' · carrier ' + src.carrierName : '') + (src.driverName ? ' · driver ' + src.driverName : ''),
+    actor: actorOf(req) });
+  res.json({ load: loadOut(load, req) });
+});
+
 // Search loads. Customers see their own; a carrier sees loads assigned to it.
 router.get('/', requireAuth, (req, res) => {
   const { q, po, load } = req.query;
