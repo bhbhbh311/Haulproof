@@ -666,6 +666,8 @@ router.get('/:id', requireAuth, (req, res) => {
 router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  // A completed document is a finished record — never let a signature re-setup flip it back to "ready to sign".
+  if (row && (row.status === 'signed' || row.status === 'emailed')) return res.status(409).json({ error: 'This document is already signed and completed — its signature setup can’t be changed.' });
   const fields = Array.isArray(req.body && req.body.fields) ? req.body.fields : [];
   const status = fields.length ? 'prepared' : row.status;
   db.prepare(`UPDATE pods SET fields = ?, status = ? WHERE id = ?`).run(JSON.stringify(fields), status, row.id);
