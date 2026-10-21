@@ -329,6 +329,10 @@
   #camView .cam-bot{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;padding:16px 16px calc(26px + env(safe-area-inset-bottom));z-index:3;}
   #camView .cam-shot{width:76px;height:76px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.45);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.45);padding:0;}
   #camView .cam-shot:active{transform:scale(.93);}
+  #camView .cam-shot.arming{box-shadow:0 0 0 0 rgba(63,208,122,.7);animation:camArm .5s ease-out infinite;}
+  @keyframes camArm{0%{box-shadow:0 0 0 0 rgba(63,208,122,.75);}100%{box-shadow:0 0 0 22px rgba(63,208,122,0);}}
+  #camView .cam-auto{background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12.5px;font-weight:700;border-radius:20px;padding:7px 12px;cursor:pointer;z-index:3;white-space:nowrap;}
+  #camView .cam-auto.off{opacity:.5;}
   #camView .cam-native{position:absolute;right:16px;bottom:calc(40px + env(safe-area-inset-bottom));background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12px;font-weight:600;border-radius:9px;padding:9px 11px;cursor:pointer;z-index:3;}
   /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
   #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,#eceff3);}
@@ -577,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-28a · full name + company shown</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29a · auto-capture scanning</div>
   </section>
 </main>
 
@@ -604,7 +608,7 @@
 <div id="camView" aria-hidden="true">
   <video id="camVideo" autoplay playsinline muted></video>
   <div class="cam-guide"><div class="cam-frame" id="camFrame"></div></div>
-  <div class="cam-top"><span class="cam-title">Photograph the BOL</span><button class="cam-x" id="camX" type="button" aria-label="Close camera">×</button></div>
+  <div class="cam-top"><span class="cam-title">Photograph the BOL</span><div style="margin-left:auto;display:flex;align-items:center;gap:8px;"><button class="cam-auto" id="camAutoBtn" type="button" aria-pressed="true" title="Capture automatically when the page is framed and steady">⚡ Auto on</button><button class="cam-x" id="camX" type="button" aria-label="Close camera" style="margin-left:0;">×</button></div></div>
   <div class="cam-hint" id="camHintPill">Line the page up inside the box — get close so it fills the outline.</div>
   <div class="cam-bot"><button class="cam-shot" id="camShot" type="button" aria-label="Take photo"></button></div>
   <button class="cam-native" id="camNativeBtn" type="button">Use phone camera</button>
@@ -1772,7 +1776,10 @@ window.__startApp=function(){
       $("camView").classList.add("on"); $("camView").setAttribute("aria-hidden","false");
       layoutCamFrame();
       try{ await v.play(); }catch(e){}
-      cam.running=true; setHint(false); scheduleCloseness();
+      // Auto-capture: on by default (remembered per phone). Snaps once the page is framed AND held steady.
+      try{ cam.auto = (localStorage.getItem("hp_cam_auto") !== "0"); }catch(e){ cam.auto = true; }
+      cam.steady = 0; cam.lastQuad = null; cam.firing = false; updateAutoBtn();
+      cam.running=true; setHint(false, 0); scheduleCloseness();
     }catch(e){
       // getUserMedia failed (permission denied / no camera / insecure context). We can't just programmatically
       // click the native file input here — iOS ignores a file-input click that happens after this await (the user
@@ -1797,10 +1804,29 @@ window.__startApp=function(){
     var v=$("camVideo"); try{ v.pause(); v.srcObject=null; }catch(e){}
     $("camView").classList.remove("on"); $("camView").setAttribute("aria-hidden","true");
   }
-  function setHint(good){
-    var pill=$("camHintPill"), fr=$("camFrame"); if(!pill||!fr) return;
-    if(good){ pill.textContent="Looks good — hold steady and tap the shutter."; pill.classList.add("good"); fr.classList.add("good"); }
-    else{ pill.textContent="Line the page up inside the box — get close so it fills the outline."; pill.classList.remove("good"); fr.classList.remove("good"); }
+  function setHint(good, steady){
+    var pill=$("camHintPill"), fr=$("camFrame"), shot=$("camShot"); if(!pill||!fr) return;
+    if(good){
+      fr.classList.add("good"); pill.classList.add("good");
+      if(cam.auto){ pill.textContent = (steady>=2) ? "Hold steady — capturing…" : "Looks good — hold steady, it captures on its own."; }
+      else { pill.textContent = "Looks good — tap the shutter."; }
+      if(shot) shot.classList.toggle("arming", !!(cam.auto && steady>=2));
+    } else {
+      pill.classList.remove("good"); fr.classList.remove("good");
+      pill.textContent="Line the page up inside the box — get close so it fills the outline.";
+      if(shot) shot.classList.remove("arming");
+    }
+  }
+  function updateAutoBtn(){ var b=$("camAutoBtn"); if(!b) return; b.textContent = cam.auto ? "⚡ Auto on" : "⚡ Auto off"; b.classList.toggle("off", !cam.auto); b.setAttribute("aria-pressed", cam.auto?"true":"false"); }
+  if($("camAutoBtn")) $("camAutoBtn").addEventListener("click", function(){
+    cam.auto = !cam.auto; cam.steady = 0; try{ localStorage.setItem("hp_cam_auto", cam.auto?"1":"0"); }catch(e){}
+    updateAutoBtn(); setHint($("camFrame").classList.contains("good"), 0);
+  });
+  // Are two detected quads close enough to call the phone "steady"? (corners within ~5% of the 320px work width)
+  function quadStable(a,b){
+    if(!a||!b||a.length!==4||b.length!==4) return false;
+    var m=0; for(var i=0;i<4;i++){ var dx=a[i].x-b[i].x, dy=a[i].y-b[i].y, d=Math.sqrt(dx*dx+dy*dy); if(d>m)m=d; }
+    return m < 320*0.05;
   }
   // Cheap live check: detect the document on a small frame; turn the outline green when it fills enough.
   var _ccv=document.createElement("canvas");
@@ -1821,7 +1847,16 @@ window.__startApp=function(){
           var isFallback = q[0].x<W*0.10 && q[0].y<H*0.10 && q[2].x>W*0.90 && q[2].y>H*0.90;
           good = !isFallback && frac>=0.50 && frac<=0.985;
         }
-        setHint(good);
+        // Auto-capture: once the page is framed AND held steady for ~4 ticks (~1.2s), snap on its own.
+        if(good && cam.auto){
+          cam.steady = quadStable(q, cam.lastQuad) ? (cam.steady+1) : 1;
+          cam.lastQuad = q;
+          setHint(true, cam.steady);
+          if(cam.steady >= 4 && !cam.firing){ cam.firing = true; shootInAppCamera(); return; }
+        } else {
+          cam.steady = 0; cam.lastQuad = good ? q : null;
+          setHint(good, 0);
+        }
       }catch(e){}
     }
     scheduleCloseness();
