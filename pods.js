@@ -57,6 +57,12 @@ function carrierOrgId(req) {
   if (!req.viaKey && req.user && req.user.orgKind === 'carrier') return req.user.orgId || null;
   return null;
 }
+// The broker org this request belongs to (a broker handles loads a customer handed them).
+function brokerOrgId(req) {
+  if (req.viaKey && req.org && req.org.kind === 'broker') return req.org.id;
+  if (!req.viaKey && req.user && req.user.orgKind === 'broker') return req.user.orgId || null;
+  return null;
+}
 // Can this request touch this document?
 function canAccess(req, doc) {
   if (!doc) return false;
@@ -67,6 +73,13 @@ function canAccess(req, doc) {
     if (!doc.loadId) return false;
     const l = db.prepare(`SELECT carrierId FROM loads WHERE id = ?`).get(doc.loadId);
     return !!l && l.carrierId === cOrg;                          // signed on a load assigned to the carrier
+  }
+  const bOrg = brokerOrgId(req);
+  if (bOrg) {
+    if ((doc.orgId || null) === bOrg) return true;              // the broker's own document
+    if (!doc.loadId) return false;
+    const lb = db.prepare(`SELECT brokerId FROM loads WHERE id = ?`).get(doc.loadId);
+    return !!lb && lb.brokerId === bOrg;                        // a document on a load handed to this broker
   }
   const my = reqOrgId(req);
   if ((doc.orgId || null) === my) return true;                  // the customer's own document
