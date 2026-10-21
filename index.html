@@ -1645,7 +1645,7 @@
   // --- Staged rollout: these sections aren't rolled out to regular users yet. They stay hidden for
   //     everyone except a "tester" (the master admin, or a login the master admin granted tester access),
   //     who can flip them on/off with the "Show all sections" toggle in the header. ---
-  var BETA_TABS = { approvedcarriers:1, received:1, receivers:1, dashboard:1, customers:1, carriers:1, brokers:1, requests:1 };
+  var BETA_TABS = { received:1, receivers:1, dashboard:1, customers:1, carriers:1, brokers:1, requests:1 };
   function isTester(){ return !!(user && user.betaAccess); }
   // A tester's view preference (per device). Defaults to showing everything so testing isn't interrupted;
   // they can switch to the rollout view to preview what a regular user sees.
@@ -3773,9 +3773,9 @@
   function buildSetupSteps(){
     // Simple mode: drop steps for any optional field the org has turned off (Load # here; Delivered-to and Sales-rep
     // fall away on their own because their table columns aren't rendered, so firstRecv()/firstRep() return null).
-    // Once a load is handed to a carrier/broker, THEY assign the driver — so drop the driver step from the
-    // customer's/broker's guide (a carrier login still gets it, since picking the driver is their job).
-    var handedOff = !!(curLoad && (curLoad.carrierId || curLoad.brokerId)) && !isCarrierUser();
+    // Once a CUSTOMER hands a load off (to a carrier or broker), THEY assign the driver — so drop the driver
+    // step from the customer's guide. Brokers (who assign the driver for now) and carriers keep the step.
+    var handedOff = isCustomerUser() && !!(curLoad && (curLoad.carrierId || curLoad.brokerId));
     var steps = SW_STEPS.slice().filter(function(st){
       if (st.key === 'load') return fieldOn('loadNumber');
       if (st.key === 'driver') return !handedOff;
@@ -4240,16 +4240,21 @@
   // current assignment + its "✕ unassign" link stay; unassigning brings the pickers back.
   function applyAssignVisibility() {
     if (!curLoad) return;
-    const assigned = !!(curLoad.carrierId || curLoad.brokerId);
     const carrierUser = isCarrierUser(), brokerUser = isBrokerUser();
-    const hidePickers = assigned;   // carriers never see these anyway (ldCarrierSection is hidden for them)
-    if ($('ldAssignToggle')) $('ldAssignToggle').classList.toggle('hide', brokerUser || hidePickers);
-    if ($('ldLookupWrap')) $('ldLookupWrap').classList.toggle('hide', brokerUser || hidePickers);
-    if ($('ldBrokerAssign')) $('ldBrokerAssign').classList.toggle('hide', !brokerUser || hidePickers);
-    if ($('ldRosterWrap') && hidePickers) $('ldRosterWrap').classList.add('hide');
-    // Driver & equipment: the assigned carrier handles the driver, so hide it from the owner/broker once assigned.
-    // Carrier logins (who actually set the driver) always keep it.
-    if ($('ldDriverSection')) $('ldDriverSection').classList.toggle('hide', !carrierUser && assigned);
+    const hasCarrier = !!curLoad.carrierId, hasBroker = !!curLoad.brokerId;
+    if (brokerUser) {
+      // Broker: assigns a carrier from its approved roster (until one is set) AND the driver. The driver
+      // section stays as the edit toggle set it. (Later: once a carrier is set, hand driver duties to them.)
+      if ($('ldBrokerAssign')) $('ldBrokerAssign').classList.toggle('hide', hasCarrier);
+    } else if (!carrierUser) {
+      // Customer/owner: once a carrier OR broker is assigned, the load is handed off — hide the pickers + driver.
+      const assigned = hasCarrier || hasBroker;
+      if ($('ldAssignToggle')) $('ldAssignToggle').classList.toggle('hide', assigned);
+      if ($('ldLookupWrap')) $('ldLookupWrap').classList.toggle('hide', assigned);
+      if ($('ldRosterWrap') && assigned) $('ldRosterWrap').classList.add('hide');
+      if ($('ldDriverSection') && assigned) $('ldDriverSection').classList.add('hide');
+    }
+    // carrierUser: no assign pickers (ldCarrierSection is hidden for them); the driver section stays.
   }
   function renderCarrierNow() {
     const unassignBtn = (kind) => ' <button class="ldUnassign" data-kind="' + kind + '" type="button" style="background:none;border:none;padding:0 0 0 6px;color:var(--danger);cursor:pointer;font:inherit;font-size:12px;">✕ unassign</button>';

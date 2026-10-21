@@ -178,8 +178,13 @@ router.put('/:id/subscribers', requireAuth, (req, res) => {
 
 // Edit a load's basic fields (owning customer or super). Changing the PO # cascades to its documents.
 router.put('/:id', requireAuth, (req, res) => {
-  const load = ownedLoad(req, req.params.id);
+  const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
+  // A broker/carrier can OPEN a brokered/assigned load, but the customer's fields (PO, load #, customer) are
+  // not theirs to edit — return the load unchanged so their auto-save doesn't fail with "Load not found".
+  if (!(req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null))) {
+    return res.json({ load: loadOut(load) });
+  }
   const b = req.body || {};
   const loadNumber = (b.loadNumber !== undefined) ? ((b.loadNumber || '').trim() || null) : load.loadNumber;
   const consignee = (b.consignee !== undefined) ? ((b.consignee || '').trim() || null) : load.consignee;
