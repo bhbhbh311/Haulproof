@@ -250,8 +250,16 @@ router.get('/my-loads', (req, res) => {
       FROM pods WHERE loadId IN (${ph2}) GROUP BY loadId`).all(...loadIds)
       .forEach(r => { prog[r.loadId] = { signed: Number(r.signed || 0), total: Number(r.total || 0) }; });
   }
+  // Pickup status per load, so the app shows "✓ Picked up" instead of the button once it's been tapped.
+  const pickup = {};
+  if (loadIds.length) {
+    const ph3 = loadIds.map(() => '?').join(',');
+    db.prepare(`SELECT id, pickedUpAt, pickedUpGps FROM loads WHERE id IN (${ph3})`).all(...loadIds)
+      .forEach(l => { pickup[l.id] = { at: l.pickedUpAt || null, gps: l.pickedUpGps || null }; });
+  }
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+    pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null,
     customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
@@ -260,6 +268,32 @@ router.get('/my-loads', (req, res) => {
   // Per-org "Simple mode" field flags so the driver app hides the same optional inputs dispatch turned off.
   let uiFlags = {}; try { uiFlags = resolveUiFlags(org); } catch (e) {}
   res.json({ loads, uiFlags });
+});
+
+// Driver taps "Pickup complete" — stamp the load with a GPS + timestamp pickup event. No signature: this is a
+// lightweight "I've got the freight / I'm rolling" status so dispatch can see where the driver is on the load.
+// Re-tapping just refreshes the time/location (idempotent).
+router.post('/my-loads/:loadId/pickup', express.json(), (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  // The driver must be engaged on this load: their org owns / carries / brokers it, or a pod on it is theirs.
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  const b = req.body || {};
+  const at = Date.now();
+  let gps = null;
+  if (b.gps && typeof b.gps.lat === 'number' && typeof b.gps.lng === 'number') {
+    gps = { lat: b.gps.lat, lng: b.gps.lng, acc: (typeof b.gps.acc === 'number' ? Math.round(b.gps.acc) : null) };
+  }
+  try { db.prepare(`UPDATE loads SET pickedUpAt = ?, pickedUpGps = ? WHERE id = ?`).run(at, gps ? JSON.stringify(gps) : null, load.id); } catch (e) {}
+  const where = gps ? (' near ' + gps.lat.toFixed(5) + ', ' + gps.lng.toFixed(5)) : ' (location unavailable)';
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'picked_up',
+    detail: 'Picked up by ' + (r.driver.name || 'driver') + where, actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps });
 });
 
 // This driver's own signed documents — recent by default, or a full-history search when ?q= is given.

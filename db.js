@@ -220,6 +220,8 @@ addColumn('pods', 'parkedReason', 'TEXT');      // why it was set aside (dispatc
 addColumn('pods', 'parkedAt', 'INTEGER');       // when it was set aside
 addColumn('pods', 'parkedFromPodId', 'TEXT');   // the live pod this snapshot was taken from (the one sent back to the driver)
 addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
+addColumn('loads', 'pickedUpAt', 'INTEGER');    // driver tapped "Pickup complete" — ms epoch (no signature needed)
+addColumn('loads', 'pickedUpGps', 'TEXT');      // JSON {lat,lng,acc} captured at the moment of pickup
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)
 // Provenance when a BROKER adds a driver into a carrier's roster on their behalf (the carrier allows it via
 // the allowBrokerDrivers flag). The driver belongs to the carrier's org as normal; these just record who added it.

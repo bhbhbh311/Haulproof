@@ -2352,6 +2352,20 @@
     const m = map[t] || (l.status === 'signed' ? ['signed', 'Signed'] : l.status === 'assigned' ? ['prepared', 'Assigned'] : ['received', 'Open']);
     return `<span class="chip ${m[0]}">${m[1]}</span>`;
   }
+  // "📍 Picked up …" badge — the driver tapped Pickup complete (GPS + time). Shown under the status so dispatch
+  // can see at a glance the freight is on the truck. Returns '' when no pickup has been recorded.
+  function pickupBadge(l) {
+    if (!l || !l.pickedUpAt) return '';
+    let t = ''; try { t = new Date(l.pickedUpAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
+    let mapLink = '';
+    try {
+      const g = l.pickedUpGps ? (typeof l.pickedUpGps === 'string' ? JSON.parse(l.pickedUpGps) : l.pickedUpGps) : null;
+      if (g && typeof g.lat === 'number' && typeof g.lng === 'number') {
+        mapLink = ' · <a href="https://www.google.com/maps?q=' + g.lat + ',' + g.lng + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">map</a>';
+      }
+    } catch (e) {}
+    return `<div style="margin-top:4px;font-size:11.5px;color:#146c2e;font-weight:700;white-space:nowrap;">📍 Picked up ${esc(t)}${mapLink}</div>`;
+  }
   let _showArchived = false;   // when true, the Loads list shows this user's archived (hidden) loads instead
   let _inTrashView = false;    // when true, the box is showing the recovery bin — auto-refresh must not clobber it
   async function archiveLoad(id, on) {
@@ -2414,7 +2428,7 @@
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
-          <td>${loadStatusChip(l)}</td>
+          <td>${loadStatusChip(l)}${pickupBadge(l)}</td>
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost ldArch" data-id="${l.id}" data-on="${l.archived ? '0' : '1'}" title="${l.archived ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)'}" style="padding:6px 9px;font-size:12px;margin-right:6px;">${l.archived ? '↩ Unarchive' : '🗄 Archive'}</button>
             <button class="${l.needsSetup ? 'ldOpen btn-sm' : 'ghost ldOpen'}" data-id="${l.id}" data-needsetup="${l.needsSetup ? '1' : ''}" style="padding:6px 10px;font-size:12px;">${l.needsSetup ? '⚙ Set up ›' : 'Open ›'}</button>
@@ -2925,6 +2939,16 @@
       ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
       : '<span class="ld-missing">Not set</span>';
     rows.push(['Driver & equipment', drv]);
+    // Pickup (driver tapped "Pickup complete" — GPS + time, no signature). Only shown once it's happened.
+    if (curLoad.pickedUpAt) {
+      let pt = ''; try { pt = new Date(curLoad.pickedUpAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
+      let pmap = '';
+      try {
+        const g = curLoad.pickedUpGps ? (typeof curLoad.pickedUpGps === 'string' ? JSON.parse(curLoad.pickedUpGps) : curLoad.pickedUpGps) : null;
+        if (g && typeof g.lat === 'number' && typeof g.lng === 'number') pmap = ' · <a href="https://www.google.com/maps?q=' + g.lat + ',' + g.lng + '" target="_blank" rel="noopener">📍 ' + g.lat.toFixed(4) + ', ' + g.lng.toFixed(4) + '</a>';
+      } catch (e) {}
+      rows.push(['Pickup', '<span style="color:#146c2e;font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap]);
+    }
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
     (function () {

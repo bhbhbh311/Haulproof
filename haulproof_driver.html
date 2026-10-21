@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29d · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29f · auto-capture scanning</div>
   </section>
 </main>
 
@@ -1405,6 +1405,21 @@ window.__startApp=function(){
         var rub=row.querySelector(".myLoadReup");
         if(rub) rub.addEventListener("click", function(){ openReupload(reup[0]); });
         box.appendChild(row);
+        // Pickup complete (per load): one-tap GPS + time so dispatch sees the freight is picked up. No signature.
+        var loadId = g.docs[0] && g.docs[0].loadId;
+        if(loadId){
+          var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
+          var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
+          var pr=document.createElement("div"); pr.style.cssText="padding:2px 0 8px;";
+          if(puAt){
+            pr.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(puAt))+pickupGpsHtml(puGps)+'</div>';
+          } else {
+            pr.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:#0f6f3f;">📍 Pickup complete</button>';
+          }
+          box.appendChild(pr);
+          var pb=pr.querySelector(".myLoadPickup");
+          if(pb) pb.addEventListener("click", function(){ markPickup(loadId, pb, pr); });
+        }
       });
     }catch(e){ card.classList.add("hide"); }
   }
@@ -1505,6 +1520,30 @@ window.__startApp=function(){
   function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   // Wrap a lat/lng as a tappable Google Maps link (label shown, precise coords in the URL).
   function gmap(lat,lng,label){ return '<a href="https://www.google.com/maps?q='+lat+','+lng+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">'+label+'</a>'; }
+  // ---- Pickup complete: one-tap GPS + time stamp on a load (no signature), so dispatch sees it's on the truck ----
+  function pickupGpsHtml(gps){
+    try{ var g=(typeof gps==="string")?JSON.parse(gps):gps;
+      if(g&&typeof g.lat==="number"&&typeof g.lng==="number"){ return ' · '+gmap(g.lat.toFixed(5),g.lng.toFixed(5),'📍 map'); } }catch(e){}
+    return '';
+  }
+  function getPickupGps(){ return new Promise(function(res){ var done=false;
+    function d(g){ if(done)return; done=true; res(g&&typeof g.lat==="number"?{lat:g.lat,lng:g.lng,acc:(g.acc!=null?g.acc:null)}:null); }
+    try{ getLoc(d); }catch(e){ d(null); }
+    setTimeout(function(){ d(null); }, 22000); }); }
+  async function markPickup(loadId, btn, container){
+    if(!loadId) return;
+    btn.disabled=true; var _t=btn.textContent; btn.textContent="📍 Getting location…";
+    var gps=null; try{ gps=await getPickupGps(); }catch(e){}
+    try{
+      var key=currentKey(); if(!key||!online()){ btn.disabled=false; btn.textContent=_t; toast("You're offline — try the pickup again with a connection"); return; }
+      var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/pickup"),{method:"POST",headers:hdr,body:JSON.stringify({gps:gps})});
+      var j=await r.json().catch(function(){return {};});
+      if(!r.ok||j.error){ btn.disabled=false; btn.textContent=_t; toast(j.error||"Couldn't save pickup"); return; }
+      container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(j.pickedUpAt||Date.now()))+pickupGpsHtml(j.pickedUpGps)+'</div>';
+      toast(gps?"Pickup recorded with location":"Pickup recorded (no location this time)");
+    }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save pickup — try again"); }
+  }
 
   function arrive(s){
     s.status="arrived"; s.arriveAt=Date.now();
@@ -2679,19 +2718,28 @@ window.__startApp=function(){
     if(b) b.textContent="I'm the "+(nextRole||"Driver")+" — start signing";
     var mod=$("handoffModal"); if(mod) mod.classList.remove("hide");
   }
+  // The finish button names the stop it completes, so the driver's last tap is unambiguous and dispatch's
+  // "stop delivered" signal reads clearly: multi-stop → "Stop N complete", single delivery → "Delivery complete",
+  // a dispatch upload / one-off with no route stop → plain "Finish".
+  function finishLabel(){
+    if(currentStop && route && route.stops && route.stops.length>1) return "Stop "+currentStop.n+" complete";
+    if(currentStop) return "Delivery complete";
+    return "Finish";
+  }
+  function setFinishBtn(btn){ var fl=finishLabel(); btn.textContent=(fl==="Finish")?"Finish":("✓ "+fl); return fl; }
   function updateProgress(){
     var bn=$("banner"),btn=$("nextBtn");
     // A doc with only value fields (times/notes/initials, no signatures) — just let the driver fill and finish.
     if(sigs().length===0){
       $("roleChip").textContent="Ready"; $("roleChip").classList.remove("driver");
       $("progText").textContent="Fill any fields, then finish"; $("meterFill").style.width="100%";
-      bn.classList.add("done"); $("progSub").textContent="Tap the fields to fill them, then Finish";
-      btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); return;
+      bn.classList.add("done"); var fl0=setFinishBtn(btn); $("progSub").textContent="Tap the fields to fill them, then "+fl0;
+      btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); return;
     }
     var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
-    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; $("progSub").textContent="All signatures collected — tap Finish"; btn.textContent="Finish"; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); }   // bulge Finish so it's clear that's the next tap
+    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; var fl=setFinishBtn(btn); $("progSub").textContent="All signatures collected — tap "+fl; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); }   // bulge the finish action so it's clear that's the next tap
     else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); btn.classList.add("lead-cta"); }   // always pulse the "sign next" action, not just for first-timers
   }
   $("nextBtn").addEventListener("click", function(){
@@ -2710,7 +2758,7 @@ window.__startApp=function(){
     handoffPending=false; var mod=$("handoffModal"); if(mod) mod.classList.add("hide");
     showView("route"); if(online()){ try{ loadMyLoads(); }catch(e){} }
   });
-  function allDone(){ updateProgress(); toast("All signed — tap Finish");
+  function allDone(){ updateProgress(); toast("All signed — tap "+finishLabel());
     // Everything's signed — scroll the whole sign screen back to the very top so the green Finish button in the
     // sticky banner is clearly in view (a plain scroll-to-top is more reliable than scrollIntoView on a sticky el).
     try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){ try{ window.scrollTo(0,0); }catch(_){} } }
