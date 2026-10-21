@@ -7,6 +7,8 @@ const { db, DATA_DIR } = require('./db');
 const { sendMail, portalUrl } = require('./mailer');
 
 const RECIPIENT    = (process.env.DIGEST_EMAIL || 'brian@haulproofepod.com').trim();
+// CC a copy to the Callahan inbox so it's visible there too (set DIGEST_CC='' to turn the CC off).
+const CC           = (process.env.DIGEST_CC == null ? 'BHarris@callahantrans.com' : process.env.DIGEST_CC).trim();
 const SEND_HOUR_UTC = Number(process.env.DIGEST_HOUR_UTC || 12);   // ~7am US Central (CDT). Override via env.
 const STATE_FILE   = path.join(DATA_DIR, 'digest-state.json');
 
@@ -107,9 +109,9 @@ async function sendNow() {
   const sinceTs = st.lastSentTs || (Date.now() - 24 * 3600 * 1000);
   const d = buildDigest(sinceTs);
   const msg = render(d);
-  const r = await sendMail({ to: RECIPIENT, subject: msg.subject, text: msg.text, html: msg.html });
+  const r = await sendMail({ to: RECIPIENT, cc: CC || undefined, subject: msg.subject, text: msg.text, html: msg.html });
   writeState({ lastSentDay: dayKeyUTC(new Date()), lastSentTs: Date.now() });
-  console.log('[digest] sent to ' + RECIPIENT + ' — ' + msg.subject + (r && r.sent ? '' : ' (' + (r && r.simulated ? 'simulated' : (r && r.error) || 'not sent') + ')'));
+  console.log('[digest] sent to ' + RECIPIENT + (CC ? ' (cc ' + CC + ')' : '') + ' — ' + msg.subject + (r && r.sent ? '' : ' (' + (r && r.simulated ? 'simulated' : (r && r.error) || 'not sent') + ')'));
   return r;
 }
 

@@ -97,13 +97,19 @@ async function emailPodCopy({ to, pod, filePath }) {
 }
 
 // Generic transactional email (access requests, approvals, questions). Fails soft if SMTP isn't set.
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, cc, subject, text, html }) {
   const list = (Array.isArray(to) ? to : [to]).map(s => String(s || '').trim()).filter(Boolean);
   if (!list.length) return { sent: false, reason: 'no recipients' };
+  // Optional CC. Drop any address already on the To line so nobody gets two copies.
+  const lower = list.map(s => s.toLowerCase());
+  const ccList = (Array.isArray(cc) ? cc : (cc ? [cc] : [])).map(s => String(s || '').trim()).filter(Boolean)
+    .filter(s => lower.indexOf(s.toLowerCase()) < 0);
   const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
   try {
-    const info = await getTransport().sendMail({ from, to: list.join(', '), subject: subject || 'HaulProof', text, html });
-    if (!process.env.SMTP_HOST) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}`); return { sent: false, simulated: true }; }
+    const msg = { from, to: list.join(', '), subject: subject || 'HaulProof', text, html };
+    if (ccList.length) msg.cc = ccList.join(', ');
+    const info = await getTransport().sendMail(msg);
+    if (!process.env.SMTP_HOST) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}${ccList.length ? ' (cc ' + ccList.join(', ') + ')' : ''}`); return { sent: false, simulated: true }; }
     return { sent: true, messageId: info.messageId };
   } catch (e) { console.error('sendMail', e.message); return { sent: false, error: e.message }; }
 }
