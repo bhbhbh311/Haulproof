@@ -805,8 +805,8 @@
             </div></div>
         </div>
         <div id="ldDeleteBlock" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-          <button class="ghost" id="ldDeleteBtn" type="button" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
-          <span style="color:var(--muted);font-size:12px;margin-left:8px;">Removes the PO/load and all its documents.</span>
+          <button class="ghost" id="ldDeleteBtn" type="button" data-mode="delete" style="color:var(--danger);border-color:var(--danger);font-size:13px;">🗑 Delete this load</button>
+          <span id="ldDeleteNote" style="color:var(--muted);font-size:12px;margin-left:8px;">Removes the PO/load and all its documents.</span>
         </div>
       </div>
 
@@ -1547,8 +1547,6 @@
       SUPER_CARDS.forEach(id => show(id, false));
       show('offeredCard', false); show('driverCard', false); show('loadDetailCard', false);
       if ($('nlToggle')) $('nlToggle').classList.add('hide');       // brokers don't create loads
-      // A broker works loads a customer handed them — they never delete the whole load (that's the owner's call).
-      if ($('ldDeleteBlock')) $('ldDeleteBlock').classList.add('hide');
       show('loadsCard', true); loadLoads();
       show('brokerCarriersCard', true); loadApprovedCarriers();
       ['findCard','resultsCard'].forEach(id => show(id, true)); search();   // own documents
@@ -1657,6 +1655,7 @@
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
       updateLdArchiveBtn();
+      configureLoadDeleteControl();
       renderLoadDocs(_lastPods);
     } catch (e) {}
   }
@@ -2557,6 +2556,7 @@
       populateLdCustomer();
       renderLdView();
       updateLdArchiveBtn();
+      configureLoadDeleteControl();
       // Drop straight into the one-page setup form when the load needs setting up (a driver upload is
       // waiting, or the caller asked for setup) — no hunting for the Edit button.
       const _needsSetup = (r.pods || []).some(p => p.status === 'awaiting_build');
@@ -2866,6 +2866,20 @@
   // Delete the whole load — two confirmations before it happens.
   if ($('ldDeleteBtn')) $('ldDeleteBtn').onclick = () => {
     if (!curLoad) return;
+    // Non-owner (assigned carrier/broker): the button is "Remove from my list" — archive it for this user only,
+    // never delete the shared load. The customer/broker keep it.
+    if ($('ldDeleteBtn').dataset.mode === 'archive') {
+      (async () => {
+        try {
+          await api('/api/loads/' + curLoad.id + '/archive', { method: 'PUT', body: JSON.stringify({ archived: true }) });
+          const back = _ldBackFn; _ldBackFn = null;
+          $('loadDetailCard').classList.add('hide'); setFindVisForDetail(false);
+          if (typeof back === 'function') back(); else { try { selectTab('documents'); } catch (e) {} }
+          try { loadLoads(); } catch (e) {}
+        } catch (e) { alert(e.message || 'Could not update'); }
+      })();
+      return;
+    }
     const po = curLoad.poNumber || 'this load';
     if (!confirm('Remove load PO ' + po + ' and all of its documents?')) return;
     if (!confirm('Are you sure? This permanently deletes the load and its documents and cannot be undone.')) return;
@@ -4218,6 +4232,24 @@
     const on = !!curLoad.archived;
     b.textContent = on ? '↩ Unarchive' : '🗄 Archive';
     b.title = on ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)';
+  }
+  // Only the OWNER of a load (the customer/org that created it) or a master admin can delete it outright. A
+  // carrier or broker who was just assigned the load can't delete the shared record — for them the button becomes
+  // "Remove from my list", which archives it for that user only, leaving the customer and broker to manage it.
+  function configureLoadDeleteControl() {
+    const block = $('ldDeleteBlock'), btn = $('ldDeleteBtn'), note = $('ldDeleteNote');
+    if (!block || !btn || !curLoad) return;
+    const isOwner = (user && user.role === 'superadmin') || (!!curLoad.orgId && user && curLoad.orgId === user.orgId);
+    block.classList.remove('hide');
+    if (isOwner) {
+      btn.dataset.mode = 'delete';
+      btn.textContent = '🗑 Delete this load';
+      if (note) note.textContent = 'Removes the PO/load and all its documents.';
+    } else {
+      btn.dataset.mode = 'archive';
+      btn.textContent = '🗄 Remove from my list';
+      if (note) note.textContent = 'Hides this load from your list only — the customer and broker still see and manage it. Nothing is deleted.';
+    }
   }
   if ($('ldArchiveBtn')) $('ldArchiveBtn').onclick = async () => {
     if (!curLoad) return;
