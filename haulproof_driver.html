@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29g · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29i · auto-capture scanning</div>
   </section>
 </main>
 
@@ -1418,22 +1418,16 @@ window.__startApp=function(){
         if(rub) rub.addEventListener("click", function(){ openReupload(reup[0]); });
         box.appendChild(row);
         // Pickup complete (per load): one-tap GPS + time so dispatch sees the freight is picked up. No signature.
+        // Only offered once dispatch has set the signature up (a "ready" stop) — not while the load is still
+        // "waiting on dispatch". If it was already picked up, keep showing that status either way.
         var loadId = g.docs[0] && g.docs[0].loadId;
-        if(loadId){
-          var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
+        var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
+        if(loadId && (ready.length || puAt)){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
           var pr=document.createElement("div"); pr.style.cssText="padding:2px 0 8px;";
-          if(puAt){
-            pr.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(puAt))+pickupGpsHtml(puGps)+'</div>';
-          } else {
-            pr.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:#0f6f3f;">📍 Pickup complete</button>';
-          }
           box.appendChild(pr);
-          var pb=pr.querySelector(".myLoadPickup");
-          if(pb) pb.addEventListener("click", function(){
-            if(drvFieldOn("requirePickupPhoto")) openPickupSheet(loadId, pb, pr);
-            else markPickup(loadId, pb, pr, []);
-          });
+          if(puAt) renderPickedUp(pr, loadId, puAt, puGps, 0);
+          else showPickupButton(pr, loadId);
         }
       });
     }catch(e){ card.classList.add("hide"); }
@@ -1557,9 +1551,34 @@ window.__startApp=function(){
       var j=await r.json().catch(function(){return {};});
       if(!r.ok||j.error){ btn.disabled=false; btn.textContent=_t; toast(j.error||"Couldn't save pickup"); return; }
       var pc=j.photoCount||0;
-      container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(j.pickedUpAt||Date.now()))+pickupGpsHtml(j.pickedUpGps)+(pc?(' · 📷 '+pc+' photo'+(pc===1?'':'s')):'')+'</div>';
+      renderPickedUp(container, loadId, j.pickedUpAt||Date.now(), j.pickedUpGps, pc);
       toast(pc?("Pickup recorded · "+pc+" photo"+(pc===1?"":"s")):(gps?"Pickup recorded with location":"Pickup recorded (no location this time)"));
     }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save pickup — try again"); }
+  }
+  // Render the green "Pickup complete" button (wired to mark pickup), into a container.
+  function showPickupButton(container, loadId){
+    container.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:#0f6f3f;">📍 Pickup complete</button>';
+    var pb=container.querySelector(".myLoadPickup");
+    if(pb) pb.addEventListener("click", function(){ if(drvFieldOn("requirePickupPhoto")) openPickupSheet(loadId, pb, container); else markPickup(loadId, pb, container, []); });
+  }
+  // Render the "✓ Picked up …" status with a self-serve Undo (reverses an accidental tap on the spot).
+  function renderPickedUp(container, loadId, atMs, gps, pc){
+    container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(atMs))+pickupGpsHtml(gps)+(pc?(' · 📷 '+pc+' photo'+(pc===1?'':'s')):'')+' <a href="#" class="pkUndo" style="color:#b42318;font-weight:700;margin-left:6px;text-decoration:underline;">Undo</a></div>';
+    var u=container.querySelector('.pkUndo');
+    if(u) u.addEventListener('click', function(e){ e.preventDefault(); undoPickup(loadId, container, u); });
+  }
+  async function undoPickup(loadId, container, link){
+    if(!loadId) return;
+    if(link){ link.textContent='Undoing…'; link.style.pointerEvents='none'; }
+    try{
+      var key=currentKey(); if(!key||!online()){ toast("You're offline — try the undo again with a connection"); if(link){link.textContent='Undo';link.style.pointerEvents='';} return; }
+      var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/pickup/undo"),{method:"POST",headers:hdr,body:"{}"});
+      var j=await r.json().catch(function(){return {};});
+      if(!r.ok||j.error){ toast(j.error||"Couldn't undo the pickup"); if(link){link.textContent='Undo';link.style.pointerEvents='';} return; }
+      showPickupButton(container, loadId);
+      toast("Pickup undone");
+    }catch(e){ toast("Couldn't undo — try again"); if(link){link.textContent='Undo';link.style.pointerEvents='';} }
   }
   // ---- Pickup photo sheet: collect 1–6 proof photos, then record the pickup with them ----
   var _pkPhotos=[], _pkCtx=null;
@@ -2251,17 +2270,20 @@ window.__startApp=function(){
         var ex=p[0]+dx/L*pad, ey=p[1]+dy/L*pad;
         return {x:Math.max(0,Math.min(W, ex/scl)), y:Math.max(0,Math.min(H, ey/scl))};
       });
-      // Rescue a single flown-out corner: a document is ~a parallelogram, so each corner should sit near
-      // (prev + next − opposite). If exactly one corner is well off (e.g. a bright bridge dragged it onto the
-      // table) while the other three agree, snap it back to that predicted spot — what a manual fix would do.
+      // Rescue a single flown-out corner (a bright granite speckle/bridge dragging one corner onto the table).
+      // For each corner, see what the quad would look like if that corner were moved to where the OTHER three
+      // put it (prev + next − opposite, i.e. completing a parallelogram). Replacing the *flown* corner collapses
+      // the quad back down onto the real paper (smallest area); replacing a good corner inflates it. So the
+      // smallest-area replacement identifies the bad corner — and we only apply it when the original quad was
+      // clearly inflated by a flyaway, so clean / tilted / mild-perspective shots are left untouched.
       (function(){
-        var diag=Math.sqrt(W*W+H*H), tol=0.16*diag, dev=[0,0,0,0], pred=[null,null,null,null];
-        for(var c=0;c<4;c++){ var pv=corners[(c+3)%4], nx=corners[(c+1)%4], op=corners[(c+2)%4];
-          pred[c]={x:pv.x+nx.x-op.x, y:pv.y+nx.y-op.y};
-          dev[c]=Math.sqrt((corners[c].x-pred[c].x)*(corners[c].x-pred[c].x)+(corners[c].y-pred[c].y)*(corners[c].y-pred[c].y)); }
-        var w=0; for(var c=1;c<4;c++) if(dev[c]>dev[w]) w=c;
-        var othersOk=[0,1,2,3].every(function(c){ return c===w || dev[c]<tol; });
-        if(dev[w]>tol && othersOk){ corners[w]={x:Math.max(0,Math.min(W,pred[w].x)), y:Math.max(0,Math.min(H,pred[w].y))}; }
+        function predOf(i){ var pv=corners[(i+3)%4], nx=corners[(i+1)%4], op=corners[(i+2)%4]; return {x:pv.x+nx.x-op.x, y:pv.y+nx.y-op.y}; }
+        var origA=quadArea(corners), best=-1, bestA=1e18, bestP=null;
+        for(var i=0;i<4;i++){ var p=predOf(i), test=corners.slice(); test[i]={x:p.x,y:p.y};
+          var A=quadArea(test); if(A>0 && A<bestA){ bestA=A; best=i; bestP=p; } }
+        if(best>=0 && bestA>0 && origA > bestA*1.2){
+          corners[best]={ x:Math.max(0,Math.min(W, bestP.x)), y:Math.max(0,Math.min(H, bestP.y)) };
+        }
       })();
       // Too small to be the page → let the fallback pad it.
       var spanx=Math.max(corners[1].x,corners[2].x)-Math.min(corners[0].x,corners[3].x);

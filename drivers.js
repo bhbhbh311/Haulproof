@@ -322,6 +322,27 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
   res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: photoRefs.length });
 });
 
+// Driver self-undo of a pickup they just recorded (e.g. an accidental tap). Clears the time/GPS/photos and logs
+// it, so the record stays honest. Same engagement check as marking a pickup.
+router.post('/my-loads/:loadId/pickup/undo', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  try {
+    const photos = load.pickedUpPhotos ? JSON.parse(load.pickedUpPhotos) : [];
+    (photos || []).forEach(p => { if (p && /^[a-f0-9-]{36}$/i.test(p.id)) { try { fs.unlinkSync(path.join(DATA_DIR, 'pickup-photos', p.id + '.jpg')); } catch (e) {} } });
+  } catch (e) {}
+  try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id); }
+  catch (e) { try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL WHERE id = ?`).run(load.id); } catch (e2) {} }
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'pickup_cleared', detail: 'Pickup undone by ' + (r.driver.name || 'driver'), actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true });
+});
+
 // This driver's own signed documents — recent by default, or a full-history search when ?q= is given.
 // Read-only: the app lets the driver VIEW / SEND / DOWNLOAD these; it never re-opens them for signing.
 router.get('/my-documents', (req, res) => {
