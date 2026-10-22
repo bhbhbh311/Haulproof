@@ -48,7 +48,9 @@
   input[type=checkbox]{width:auto;}
   .umsg-ok{color:var(--ok);} .umsg-err{color:var(--danger);}
   .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,#e0a030);background:var(--warn-soft,#fff6e6);color:#8a5a00;border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
-  input.listFilter{padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:var(--surface,#fff);}
+  input.listFilter{padding:11px 13px;border:1.5px solid #b7c2d0;border-radius:10px;font-size:14px;background:var(--surface,#fff);box-shadow:0 1px 2px rgba(20,30,50,.05);}
+  input.listFilter::placeholder{color:#8a93a3;}
+  input.listFilter:focus{outline:none;border-color:var(--primary,#1757d6);box-shadow:0 0 0 3px rgba(23,87,214,.14);}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
   /* Buttons — one system: solid primary (default), .ghost (secondary/outline), .btn-ok (green),
@@ -3181,12 +3183,9 @@
             ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
             ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
-            : p.fileUrl
-            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" title="View the document" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;`
             : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldSplit ghost btn-sm" data-id="${p.id}" type="button" style="display:none;" title="First, split a multi-page document into one document per stop">⎘ Split into stops<span class="ldSplitPages" data-id="${p.id}"></span></button>&nbsp;` : ''}
-          ${(p.status === 'awaiting_build' || (editing && p.status !== 'signed' && p.status !== 'emailed' && p.status !== 'needs_reupload')) ? `<button class="ldCrop ghost btn-sm" data-id="${p.id}" type="button" title="Next, crop a page down to just the document (e.g. a photo that caught the whole table)">✂ Crop</button>&nbsp;` : ''}
-          ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Last, set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
+          ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
+          ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -3204,8 +3203,10 @@
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
     box.querySelectorAll('.ldOpenDoc').forEach(b => b.onclick = () => openDocViewer(byId[b.dataset.id]));
+    // One "Review" button opens the review popup (view the doc, crop a page, split into stops, or send a page
+    // back to re-shoot). Replaces the old separate Split and Crop buttons.
+    box.querySelectorAll('.ldReview').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
-    box.querySelectorAll('.ldCrop').forEach(b => b.onclick = () => openCrop(byId[b.dataset.id]));
     box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
