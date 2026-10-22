@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29i · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29j · auto-capture scanning</div>
   </section>
 </main>
 
@@ -788,6 +788,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
+  var APP_BUILD="2026-08-29j";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -883,6 +884,7 @@ window.__startApp=function(){
           if(p.unsigned) hdrs["X-POD-Status"]="prepared";   // saved to sign later, not a signed POD
           if(p.driver) hdrs["X-POD-Driver"]=he(p.driver);   // who sent it — so it lands on their "Your loads" even on a shared device
           if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
+          hdrs["X-POD-App-Build"]=APP_BUILD;                 // which driver-app build sent this → shown in the load history
           if(p.stopNum) hdrs["X-POD-Stop"]=String(p.stopNum); // one upload split into per-stop docs on the same load
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
           if(!res.ok){
@@ -1348,7 +1350,7 @@ window.__startApp=function(){
       }
       var bytes=new Uint8Array(await out.save());
       var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
-      var hdr={ "Content-Type":"application/pdf" }; if(key) hdr["X-Api-Key"]=key; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var hdr={ "Content-Type":"application/pdf","X-POD-App-Build":APP_BUILD }; if(key) hdr["X-Api-Key"]=key; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
       toast("Sending…");
       var res=await fetch(base+"/"+_reup.podId+"/reupload",{method:"POST",headers:hdr,body:new Blob([bytes],{type:"application/pdf"})});
       if(!res.ok){ var eb=await res.json().catch(function(){return {};}); if(isLinkError(res.status, eb.error)){ showLinkExpired(); return; } toast(eb.error||("Upload failed ("+res.status+")")); return; }
@@ -3119,6 +3121,7 @@ window.__startApp=function(){
           // Stamp WHO sent it so dispatch uploads from a shared device still land on this driver's "Your loads".
           if(driverName()) hdrs["X-POD-Driver"]=he(driverName());
           if(_dispatchUpload) hdrs["X-POD-Build"]="dispatch";
+          hdrs["X-POD-App-Build"]=APP_BUILD;
           if(key) hdrs["X-Api-Key"]=key;
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           var _ug=lastGps||bestGps(); if(_ug&&_ug.lat!=null){ hdrs["X-POD-Gps"]=_ug.lat+","+_ug.lng;

@@ -243,6 +243,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       gpsAcc: h['x-pod-gps-acc'] ? Math.round(Number(h['x-pod-gps-acc'])) : null,   // approx accuracy in meters
       signedAt: h['x-pod-signedat'] ? Number(h['x-pod-signedat']) : Date.now(),
       driver: dec(h['x-pod-driver']) || null,
+      appBuild: (dec(h['x-pod-app-build']) || '').trim().slice(0, 40) || null,   // which driver-app build sent this (shown in history)
       recipients: (dec(h['x-pod-emails']) || '').split(',').map(s => s.trim()).filter(Boolean),
       filename: dec(h['x-pod-name']) || 'Signed POD',
       stopNumber: h['x-pod-stop'] ? (Math.max(1, parseInt(h['x-pod-stop'], 10) || 0) || null) : null,   // driver split one upload into per-stop docs
@@ -357,7 +358,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // cleanup, and no delivery email. It now shows on the load ready to be signed.
     if (asPrepared) {
       try { logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'note',
-        detail: (forDispatch ? 'Uploaded for dispatch to set up' : 'Document saved to sign later') + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : ''), actor: meta.driver || 'driver' }); } catch (e) {}
+        detail: (forDispatch ? 'Uploaded for dispatch to set up' : 'Document saved to sign later') + (meta.driver ? ' — driver ' + meta.driver : '') + (meta.consignee ? ' · ' + meta.consignee : '') + (meta.appBuild ? ' · driver app build ' + meta.appBuild : ''), actor: meta.driver || 'driver' }); } catch (e) {}
       // Driver handed a document up to dispatch → notify the Always-notify team it's waiting for setup. Best-effort.
       if (forDispatch) { try { notify.notifyDriverUploaded({ load, poNumber: meta.poNumber || load.poNumber, driverName: meta.driver }); } catch (e) {} }
       return res.json({ ok: true, podId: id, loadId: load.id, prepared: true, awaiting: forDispatch, poNumber: meta.poNumber, poRenamed, originalPo });
@@ -876,8 +877,9 @@ router.post('/:id/reupload', requireApiKey, raw, (req, res) => {
   db.prepare(`UPDATE pods SET status = 'awaiting_build', rejectedPage = NULL, rejectReason = NULL, rejectedAt = NULL, rejectedBy = NULL, sizeBytes = ?, uploadedAt = ? WHERE id = ?`)
     .run(req.body.length, Date.now(), row.id);
   const drvName = (req.driver && req.driver.name) || row.assignedDriverName || null;
+  const reAppBuild = (req.headers['x-pod-app-build'] || '').trim().slice(0, 40);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_uploaded',
-    detail: 'Driver re-shot page ' + (row.rejectedPage || '') + ' and resubmitted' + (drvName ? ' — ' + drvName : ''), actor: drvName || 'driver' }); } catch (e) {}
+    detail: 'Driver re-shot page ' + (row.rejectedPage || '') + ' and resubmitted' + (drvName ? ' — ' + drvName : '') + (reAppBuild ? ' · driver app build ' + reAppBuild : ''), actor: drvName || 'driver' }); } catch (e) {}
   try { if (load) notify.notifyDriverUploaded({ load, poNumber: row.poNumber, driverName: drvName }); } catch (e) {}
   res.json({ ok: true, podId: row.id });
 });

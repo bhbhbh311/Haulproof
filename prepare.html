@@ -714,9 +714,14 @@
     } }
   }
   function cropClose(){ $('#cropModal').style.display='none'; _cropBuf=null; _cropPdf=null; _cropEdits={}; _cropKind={}; _cropRect=null; _cropDrag=null; }
-  $('#cropClose').addEventListener('click',cropClose);
-  $('#cropCancel').addEventListener('click',cropClose);
-  $('#cropModal').addEventListener('click',function(e){ if(e.target===$('#cropModal')) cropClose(); });
+  // Guard: if a page was cropped/cleaned up but not yet Saved, warn before closing so the work isn't lost silently.
+  function cropCloseGuarded(){
+    if(Object.keys(_cropEdits).length && !confirm('Discard your crop / clean-up changes?\n\nThey haven’t been saved yet — tap “Save cropped document” first to keep them.')) return;
+    cropClose();
+  }
+  $('#cropClose').addEventListener('click',cropCloseGuarded);
+  $('#cropCancel').addEventListener('click',cropCloseGuarded);
+  $('#cropModal').addEventListener('click',function(e){ if(e.target===$('#cropModal')) cropCloseGuarded(); });
   $('#cropSave').addEventListener('click',function(){
     if(!_cropBuf) return;
     if(!Object.keys(_cropEdits).length){ $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent='Crop or clean up at least one page first, or Cancel.'; return; }
