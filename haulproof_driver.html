@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29j · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-22a · auto-capture scanning</div>
   </section>
 </main>
 
@@ -788,7 +788,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-08-29j";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-22a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -989,7 +989,7 @@ window.__startApp=function(){
   $("drvBadge").addEventListener("click", function(){ showView("route"); showWelcome(); });
 
   /* ============ start-up: identity + optional PIN ============ */
-  function finishStart(){ renderDrvBadge(); showView("route"); showWelcome(); if(online()){ syncOutbox(); loadMyLoads(); loadMyDocuments(); loadNotices(); } }
+  function finishStart(){ _finishing=false; renderDrvBadge(); showView("route"); showWelcome(); if(online()){ syncOutbox(); loadMyLoads(); loadMyDocuments(); loadNotices(); } }
   // Notices from dispatch (e.g. a doc the driver was waiting on got removed) — shown at the top of the route.
   async function loadNotices(){
     var key=currentKey(), o=serverOrigin();
@@ -2788,6 +2788,22 @@ window.__startApp=function(){
     if(b) b.textContent="I'm the "+(nextRole||"Driver")+" — start signing";
     var mod=$("handoffModal"); if(mod) mod.classList.remove("hide");
   }
+  // Re-entry guard for finish() — set once the signed PDF starts building, cleared when the driver returns to the
+  // route (finishStart). Stops a double-build if the auto-finish timer and a manual Finish tap ever race.
+  var _finishing=false;
+  // When the last signature lands we can skip the extra "Finish" tap and go straight to building the PDF + the
+  // send screen — BUT only in the clean case: the Customer PO # is already filled (finish() requires it), and there
+  // are no value fields (initials / arrive-leave time / notes) the driver still needs to type. Otherwise we leave
+  // the manual Finish tap in place so nothing gets skipped.
+  function autoFinishOK(){
+    try{
+      var po = $("poNum") ? $("poNum").value.trim() : "";
+      if(!po) return false;
+      var pending = fields.filter(function(f){ return (f.kind==="initials"||f.kind==="time"||f.kind==="text") && !(f.value && String(f.value).trim()); });
+      if(pending.length) return false;
+      return true;
+    }catch(e){ return false; }
+  }
   // The finish button names the stop it completes, so the driver's last tap is unambiguous and dispatch's
   // "stop delivered" signal reads clearly: multi-stop → "Stop N complete", single delivery → "Delivery complete",
   // a dispatch upload / one-off with no route stop → plain "Finish".
@@ -2828,7 +2844,16 @@ window.__startApp=function(){
     handoffPending=false; var mod=$("handoffModal"); if(mod) mod.classList.add("hide");
     showView("route"); if(online()){ try{ loadMyLoads(); }catch(e){} }
   });
-  function allDone(){ updateProgress(); toast("All signed — tap "+finishLabel());
+  function allDone(){ updateProgress();
+    // Clean case: everything's signed, PO # is in, nothing left to type → auto-finish so the driver doesn't have
+    // to tap the (now redundant) Finish button. A short beat lets the last signature render first. The send screen
+    // that finish() opens still has its own "Send documents & complete" confirmation, so nothing uploads silently.
+    if(autoFinishOK() && !_finishing){
+      toast("All signed — finishing…");
+      setTimeout(function(){ try{ finish(); }catch(e){} }, 400);
+      return;
+    }
+    toast("All signed — tap "+finishLabel());
     // Everything's signed — scroll the whole sign screen back to the very top so the green Finish button in the
     // sticky banner is clearly in view (a plain scroll-to-top is more reliable than scrollIntoView on a sticky el).
     try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){ try{ window.scrollTo(0,0); }catch(_){} } }
@@ -2976,6 +3001,7 @@ window.__startApp=function(){
       return;
     }
     if($("poNum")) $("poNum").parentElement.classList.remove("missing");
+    if(_finishing) return; _finishing=true;   // guard against a double build (auto-finish timer racing a manual tap)
     var consInput = $("consName") ? $("consName").value.trim() : "";
     try{ toast("Building signed PDF…");
       var doc=await PDFLib.PDFDocument.load(origBytes), pages=doc.getPages();
@@ -3070,7 +3096,7 @@ window.__startApp=function(){
       // Note: we DON'T upload yet — the driver may still add the consignee's email on this screen.
       // Upload fires when they leave the completion screen (or from the Outbox / when signal returns).
       renderCloud();
-    }catch(e){ console.error(e); toast("Couldn't build the PDF"); }
+    }catch(e){ console.error(e); toast("Couldn't build the PDF"); _finishing=false; }
   }
   // Save the scanned document to the load WITHOUT signing it yet. It uploads as a "prepared" doc so it
   // shows up on the load ready to be signed later — by this driver, or organized/fixed by dispatch.
