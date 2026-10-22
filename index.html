@@ -1677,7 +1677,48 @@
       renderLoadDocs(_lastPods);
     } catch (e) {}
   }
-  function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); }
+  // --- Portal auto-refresh: reload the page itself when a new build is deployed ---
+  // The data above keeps refreshing on a stale page, but the page's *code* stays whatever
+  // version was loaded when the tab opened — so after a deploy, a long-open tab can keep
+  // running old JS (that was behind the "Open didn't open the signed doc" delay). We poll a
+  // tiny version probe; when the server's index.html mtime changes from what we first saw,
+  // we reload — but ONLY when it's safe: nothing open that a reload would interrupt, and the
+  // dispatcher isn't mid-edit or mid-type. If it's not safe right now we leave the flag set
+  // and reload the moment they land on a safe screen (next tick / focus).
+  var _appVerBaseline = null, _appVerPending = false, _lastVerCheckAt = 0;
+  function safeToReload() {
+    try {
+      if (document.hidden) return false;
+      // Any viewer / editor overlay open → don't yank it away mid-use.
+      var dv = $('docViewer'); if (dv && !dv.classList.contains('hide')) return false;
+      var sm = $('splitModal'); if (sm && !sm.classList.contains('hide')) return false;
+      var cm = $('cropModal'); if (cm && !cm.classList.contains('hide')) return false;
+      // A load's detail card being edited → unsaved changes; never reload.
+      var det = $('loadDetailCard');
+      if (det && det.classList.contains('editing')) return false;
+      // Dispatcher actively typing somewhere → don't interrupt.
+      var ae = document.activeElement;
+      if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+  async function checkAppVersion() {
+    try {
+      if (_appVerPending && safeToReload()) { location.reload(); return; }
+      if ((Date.now() - _lastVerCheckAt) < 45000) return;   // throttle actual fetches to ~45s
+      _lastVerCheckAt = Date.now();
+      var r = await fetch('/api/app-version', { cache: 'no-store' });
+      if (!r.ok) return;
+      var d = await r.json();
+      if (!d || !d.version) return;
+      if (_appVerBaseline === null) { _appVerBaseline = d.version; return; }   // first read = baseline
+      if (d.version !== _appVerBaseline) {
+        _appVerPending = true;                                 // a new build is live
+        if (safeToReload()) location.reload();                // reload now if we can, else wait for a safe moment
+      }
+    } catch (e) {}
+  }
+  function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); checkAppVersion(); }
   setInterval(autoRefreshTick, 12000);                                   // poll every 12s while the tab is awake
   document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshTick(); });
   window.addEventListener('focus', autoRefreshTick);                     // and the moment the window regains focus
@@ -3327,6 +3368,7 @@
   //  edited inline right in the Stops & documents table.)
   // ---- Split a multi-page document into separate per-stop documents ----
   let _splitPod = null, _splitBuf = null, _splitInputs = [], _splitPdf = null;
+  let _splitDirty = false;   // true once a page has been cropped in this review — so the single-stop save writes the cropped file back
   // Enlarge one page of the document being split so the dispatcher can read it and pick the right stop.
   async function showSplitZoom(pi) {
     if (!_splitPdf) return;
@@ -3561,6 +3603,7 @@
       }
       const outBytes = await out.save();
       _splitBuf = outBytes;
+      _splitDirty = true;   // the document was cropped — the save must persist these bytes, not just retag the stop
       _splitPdf = await pdfjsLib.getDocument({ data: outBytes.slice(0) }).promise;
       const prev = {}; _splitInputs.forEach(it => { prev[it.pageIdx] = it.inp.value; });
       await buildSplitGrid(null, prev);
@@ -3571,7 +3614,7 @@
   async function openSplit(p) {
     if (!p) return;
     if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
-    _splitPod = p; _splitBuf = null; _splitInputs = [];
+    _splitPod = p; _splitBuf = null; _splitInputs = []; _splitDirty = false;
     const box = $('splitPages'); box.innerHTML = 'Loading pages…';
     if ($('splitCount')) $('splitCount').textContent = '';
     $('splitMsg').textContent = ''; $('splitMsg').className = '';
@@ -3592,7 +3635,7 @@
       await buildSplitGrid(p.stopNumber, null);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
-  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _scRect = null; _scDrag = null; }
+  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _splitDirty = false; _scRect = null; _scDrag = null; }
   if ($('splitClose')) $('splitClose').onclick = () => { _wizardResumeKey = null; closeSplit(); };
   if ($('splitCancel')) $('splitCancel').onclick = () => { _wizardResumeKey = null; closeSplit(); };
   if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) { _wizardResumeKey = null; closeSplit(); } });
@@ -3608,11 +3651,18 @@
     if (!stops.length) return;
     if (stops.length < 2) {
       // Everything landed on one stop — just retag the existing document instead of rebuilding it.
+      // BUT if the page was cropped in this review, we must write the cropped bytes back first — otherwise
+      // the crop is thrown away when the modal closes (the single-stop path used to only retag the stop).
       try {
+        if (_splitDirty && _splitBuf) {
+          $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = 'Saving cropped page…';
+          const rc = await fetch('/api/pods/' + _splitPod.id + '/replace-file', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/pdf' }, body: _splitBuf });
+          if (!rc.ok) { const e = await rc.json().catch(() => ({})); throw new Error(e.error || 'Could not save the cropped page'); }
+        }
         await api('/api/pods/' + _splitPod.id, { method: 'PUT', body: JSON.stringify({ stopNumber: String(stops[0]) }) });
         if (_wizardResumeKey) _wizardResumeKey = 'past-review';   // finished the review screen → continue the normal flow
         closeSplit(); openLoad(curLoad.id);
-      } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
+      } catch (e) { $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; if ($('splitSave')) $('splitSave').disabled = false; }
       return;
     }
     $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = 'Building documents…';

@@ -799,6 +799,9 @@ router.get('/:id/file', requireAuthOrKey, (req, res) => {
   if (!canAccess(req, row) || !row || !fs.existsSync(row.filepath)) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${(row.filename || 'BOL').replace(/[^\w.\- ]+/g, '_')}.pdf"`);
+  // The file on disk is replaced in place when dispatch crops/cleans a page (same URL, new bytes), so never let the
+  // browser serve a stale cached copy — otherwise a just-cropped document shows up uncropped on the next screen.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   fs.createReadStream(row.filepath).pipe(res);
 });
 
