@@ -11,7 +11,9 @@ const { db } = require('./db');
 // allowBrokerDrivers (carriers): may a broker who's been assigned one of this carrier's loads add drivers
 // into this carrier's account on their behalf? ON by default so small owner-operators are set up for them;
 // a carrier that manages its own roster can turn it off.
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true };
+// requirePickupPhoto: when ON, a driver must take at least one photo (up to 6) to record "Pickup complete" —
+// proof-of-condition at the origin. OFF by default (pickup stays a one-tap GPS+time stamp).
+const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, requirePickupPhoto: false };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).

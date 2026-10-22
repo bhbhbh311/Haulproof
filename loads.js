@@ -2,6 +2,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireCap } = require('./auth');
 const { logEvent } = require('./events');
@@ -187,6 +188,21 @@ router.get('/:id', requireAuth, (req, res) => {
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
   res.json({ load: { ...loadOut(load, req), archived }, pods });
+});
+
+// Serve one of a load's pickup proof-photos (dispatcher/portal view). Auth'd like the load itself.
+router.get('/:loadId/pickup-photo/:photoId', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.loadId);
+  if (!load) return res.status(404).end();
+  const pid = req.params.photoId;
+  if (!/^[a-f0-9-]{36}$/i.test(pid)) return res.status(404).end();
+  let photos = []; try { photos = load.pickedUpPhotos ? JSON.parse(load.pickedUpPhotos) : []; } catch (e) {}
+  if (!photos.some(p => p && p.id === pid)) return res.status(404).end();
+  const fp = path.join(DATA_DIR, 'pickup-photos', pid + '.jpg');
+  if (!fs.existsSync(fp)) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  fs.createReadStream(fp).pipe(res);
 });
 
 // Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).

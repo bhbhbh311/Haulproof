@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29f · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-08-29g · auto-capture scanning</div>
   </section>
 </main>
 
@@ -709,6 +709,18 @@
     <button class="btn ghost block" id="camHelpClose" type="button" style="font-size:14px;margin-top:8px;">Cancel</button>
   </div>
 </div>
+<!-- Pickup proof photos: required (or optional) photos captured when the driver taps "Pickup complete". -->
+<div id="pickupSheet" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.62);z-index:1300;display:flex;align-items:flex-end;justify-content:center;">
+  <div style="background:var(--surface,#fff);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(10,20,50,.4);">
+    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;color:var(--ink,#12386e);margin-bottom:4px;">📷 Photo of the load at pickup</div>
+    <div style="font-size:14px;color:var(--muted,#5c6b7a);line-height:1.45;margin-bottom:14px;">Take a clear photo of the freight — and the BOL or any pre-existing damage. You can add up to 6. <span id="pkCount" style="font-weight:700;color:var(--ink,#12386e);"></span></div>
+    <div id="pkThumbs" style="margin-bottom:12px;"></div>
+    <button class="btn ghost block" id="pkAdd" type="button" style="font-size:16px;margin-bottom:10px;">📷 Add photo</button>
+    <button class="btn primary block" id="pkRecord" type="button" style="font-size:16px;background:#0f6f3f;border-color:#0f6f3f;" disabled>Record pickup</button>
+    <button class="btn ghost block" id="pkCancel" type="button" style="font-size:14px;margin-top:8px;">Cancel</button>
+    <input type="file" id="pickupCamInput" accept="image/*" capture="environment" hidden>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script id="lib-data">
@@ -770,7 +782,7 @@ window.__startApp=function(){
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // Per-org "Simple mode" field flags (which optional inputs dispatch left on). Delivered via /my-loads and cached,
   // so the driver app hides the same fields as the dispatch side. Defaults match the server until the first fetch.
-  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true };
+  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, requirePickupPhoto:false };
   var _uiFlags=null;
   function loadUiFlags(){ if(!_uiFlags){ _uiFlags=lsGet("hp_uiflags",null); } return _uiFlags||{}; }
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
@@ -1418,7 +1430,10 @@ window.__startApp=function(){
           }
           box.appendChild(pr);
           var pb=pr.querySelector(".myLoadPickup");
-          if(pb) pb.addEventListener("click", function(){ markPickup(loadId, pb, pr); });
+          if(pb) pb.addEventListener("click", function(){
+            if(drvFieldOn("requirePickupPhoto")) openPickupSheet(loadId, pb, pr);
+            else markPickup(loadId, pb, pr, []);
+          });
         }
       });
     }catch(e){ card.classList.add("hide"); }
@@ -1530,20 +1545,51 @@ window.__startApp=function(){
     function d(g){ if(done)return; done=true; res(g&&typeof g.lat==="number"?{lat:g.lat,lng:g.lng,acc:(g.acc!=null?g.acc:null)}:null); }
     try{ getLoc(d); }catch(e){ d(null); }
     setTimeout(function(){ d(null); }, 22000); }); }
-  async function markPickup(loadId, btn, container){
-    if(!loadId) return;
+  async function markPickup(loadId, btn, container, photos){
+    if(!loadId) return; photos=photos||[];
     btn.disabled=true; var _t=btn.textContent; btn.textContent="📍 Getting location…";
     var gps=null; try{ gps=await getPickupGps(); }catch(e){}
     try{
       var key=currentKey(); if(!key||!online()){ btn.disabled=false; btn.textContent=_t; toast("You're offline — try the pickup again with a connection"); return; }
       var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
-      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/pickup"),{method:"POST",headers:hdr,body:JSON.stringify({gps:gps})});
+      btn.textContent = photos.length ? "📤 Saving pickup…" : "📍 Saving…";
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/pickup"),{method:"POST",headers:hdr,body:JSON.stringify({gps:gps, photos:photos})});
       var j=await r.json().catch(function(){return {};});
       if(!r.ok||j.error){ btn.disabled=false; btn.textContent=_t; toast(j.error||"Couldn't save pickup"); return; }
-      container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(j.pickedUpAt||Date.now()))+pickupGpsHtml(j.pickedUpGps)+'</div>';
-      toast(gps?"Pickup recorded with location":"Pickup recorded (no location this time)");
+      var pc=j.photoCount||0;
+      container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(j.pickedUpAt||Date.now()))+pickupGpsHtml(j.pickedUpGps)+(pc?(' · 📷 '+pc+' photo'+(pc===1?'':'s')):'')+'</div>';
+      toast(pc?("Pickup recorded · "+pc+" photo"+(pc===1?"":"s")):(gps?"Pickup recorded with location":"Pickup recorded (no location this time)"));
     }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save pickup — try again"); }
   }
+  // ---- Pickup photo sheet: collect 1–6 proof photos, then record the pickup with them ----
+  var _pkPhotos=[], _pkCtx=null;
+  function openPickupSheet(loadId, btn, container){ _pkPhotos=[]; _pkCtx={loadId:loadId, btn:btn, container:container}; renderPkThumbs(); var m=$("pickupSheet"); if(m) m.classList.remove("hide"); }
+  function closePickupSheet(){ var m=$("pickupSheet"); if(m) m.classList.add("hide"); _pkCtx=null; _pkPhotos=[]; var inp=$("pickupCamInput"); if(inp) inp.value=""; }
+  function renderPkThumbs(){
+    var box=$("pkThumbs"); if(!box) return;
+    box.innerHTML=_pkPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:74px;height:74px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e2e8f0);"><button type="button" data-i="'+i+'" class="pkDel" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
+    Array.prototype.forEach.call(box.querySelectorAll(".pkDel"),function(b){ b.addEventListener("click",function(){ _pkPhotos.splice(+b.dataset.i,1); renderPkThumbs(); }); });
+    var rec=$("pkRecord"); if(rec){ rec.disabled=_pkPhotos.length===0; rec.textContent=_pkPhotos.length?("✓ Record pickup ("+_pkPhotos.length+")"):"Record pickup"; }
+    var add=$("pkAdd"); if(add){ add.disabled=_pkPhotos.length>=6; add.style.opacity=_pkPhotos.length>=6?.5:1; }
+    var cnt=$("pkCount"); if(cnt) cnt.textContent=_pkPhotos.length?(_pkPhotos.length+" of 6 added"):"";
+  }
+  function compressPickupPhoto(dataUrl){
+    return new Promise(function(res,rej){ var im=new Image();
+      im.onload=function(){ var maxD=1600, w=im.naturalWidth||im.width, h=im.naturalHeight||im.height, s=Math.min(1,maxD/Math.max(w,h));
+        var cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
+        var c=document.createElement("canvas"); c.width=cw; c.height=ch; var g=c.getContext("2d"); g.drawImage(im,0,0,cw,ch);
+        res(c.toDataURL("image/jpeg",0.8)); };
+      im.onerror=function(){ rej(new Error("decode failed")); }; im.src=dataUrl; });
+  }
+  if($("pickupCamInput")) $("pickupCamInput").addEventListener("change", async function(e){
+    var f=(e.target.files||[])[0]; e.target.value="";
+    if(!f) return; if(_pkPhotos.length>=6){ toast("Up to 6 photos"); return; }
+    try{ var durl=await fileToDataUrl(f); var small=await compressPickupPhoto(durl); _pkPhotos.push(small); renderPkThumbs(); }
+    catch(err){ toast("Couldn't read that photo — try again"); }
+  });
+  if($("pkAdd")) $("pkAdd").addEventListener("click", function(){ var inp=$("pickupCamInput"); if(inp) inp.click(); });
+  if($("pkCancel")) $("pkCancel").addEventListener("click", closePickupSheet);
+  if($("pkRecord")) $("pkRecord").addEventListener("click", function(){ if(!_pkCtx||!_pkPhotos.length) return; var ctx=_pkCtx, photos=_pkPhotos.slice(); closePickupSheet(); markPickup(ctx.loadId, ctx.btn, ctx.container, photos); });
 
   function arrive(s){
     s.status="arrived"; s.arriveAt=Date.now();

@@ -3,7 +3,9 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { db } = require('./db');
+const fs = require('fs');
+const path = require('path');
+const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
 const { sendMail, helpEmail, emailPodCopy } = require('./mailer');
 const { resolveUiFlags } = require('./uiflags');
@@ -273,7 +275,7 @@ router.get('/my-loads', (req, res) => {
 // Driver taps "Pickup complete" — stamp the load with a GPS + timestamp pickup event. No signature: this is a
 // lightweight "I've got the freight / I'm rolling" status so dispatch can see where the driver is on the load.
 // Re-tapping just refreshes the time/location (idempotent).
-router.post('/my-loads/:loadId/pickup', express.json(), (req, res) => {
+router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
@@ -284,16 +286,40 @@ router.post('/my-loads/:loadId/pickup', express.json(), (req, res) => {
     || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
   if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
   const b = req.body || {};
+  // Is a pickup photo required for this load? (Account-wide setting for now.)
+  let requirePhoto = false;
+  try { requirePhoto = !!resolveUiFlags(load.orgId || org).requirePickupPhoto; } catch (e) {}
+  const photosIn = Array.isArray(b.photos)
+    ? b.photos.filter(s => typeof s === 'string' && s.indexOf('data:image/') === 0).slice(0, 6) : [];
+  if (requirePhoto && !photosIn.length) return res.status(400).json({ error: 'A photo is required at pickup — take at least one.' });
   const at = Date.now();
   let gps = null;
   if (b.gps && typeof b.gps.lat === 'number' && typeof b.gps.lng === 'number') {
     gps = { lat: b.gps.lat, lng: b.gps.lng, acc: (typeof b.gps.acc === 'number' ? Math.round(b.gps.acc) : null) };
   }
-  try { db.prepare(`UPDATE loads SET pickedUpAt = ?, pickedUpGps = ? WHERE id = ?`).run(at, gps ? JSON.stringify(gps) : null, load.id); } catch (e) {}
+  // Save each photo to disk; keep only the ids/time in the load row.
+  const photoRefs = [];
+  if (photosIn.length) {
+    try {
+      const dir = path.join(DATA_DIR, 'pickup-photos');
+      fs.mkdirSync(dir, { recursive: true });
+      photosIn.forEach(durl => {
+        const m = /^data:image\/[\w.+-]+;base64,(.+)$/.exec(durl);
+        if (!m) return;
+        const pid = crypto.randomUUID();
+        try { fs.writeFileSync(path.join(dir, pid + '.jpg'), Buffer.from(m[1], 'base64')); photoRefs.push({ id: pid, at }); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+  try {
+    db.prepare(`UPDATE loads SET pickedUpAt = ?, pickedUpGps = ?, pickedUpPhotos = ? WHERE id = ?`)
+      .run(at, gps ? JSON.stringify(gps) : null, photoRefs.length ? JSON.stringify(photoRefs) : null, load.id);
+  } catch (e) {}
   const where = gps ? (' near ' + gps.lat.toFixed(5) + ', ' + gps.lng.toFixed(5)) : ' (location unavailable)';
+  const photoNote = photoRefs.length ? (' with ' + photoRefs.length + ' photo' + (photoRefs.length === 1 ? '' : 's')) : '';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'picked_up',
-    detail: 'Picked up by ' + (r.driver.name || 'driver') + where, actor: (r.driver.name || 'Driver') });
-  res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps });
+    detail: 'Picked up by ' + (r.driver.name || 'driver') + where + photoNote, actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: photoRefs.length });
 });
 
 // This driver's own signed documents — recent by default, or a full-history search when ?q= is given.
