@@ -205,6 +205,21 @@ router.get('/:loadId/pickup-photo/:photoId', requireAuth, (req, res) => {
   fs.createReadStream(fp).pipe(res);
 });
 
+// Dispatch correction: reset a recorded pickup (e.g. a driver tapped "Pickup complete" by mistake). Clears the
+// time / GPS / photos (and deletes the photo files) and logs it. Anyone who can manage the load may do it.
+router.post('/:id/clear-pickup', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  try {
+    const photos = load.pickedUpPhotos ? JSON.parse(load.pickedUpPhotos) : [];
+    (photos || []).forEach(p => { if (p && /^[a-f0-9-]{36}$/i.test(p.id)) { try { fs.unlinkSync(path.join(DATA_DIR, 'pickup-photos', p.id + '.jpg')); } catch (e) {} } });
+  } catch (e) {}
+  db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'pickup_cleared', detail: 'Pickup reset by dispatch', actor: actorOf(req) });
+  const updated = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id);
+  res.json({ ok: true, load: loadOut(updated, req) });
+});
+
 // Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).
 // Body { archived: true } hides it from this user's Loads list; { archived: false } brings it back.
 router.put('/:id/archive', requireAuth, (req, res) => {

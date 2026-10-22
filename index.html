@@ -2964,7 +2964,8 @@
         const plist = curLoad.pickedUpPhotos ? (typeof curLoad.pickedUpPhotos === 'string' ? JSON.parse(curLoad.pickedUpPhotos) : curLoad.pickedUpPhotos) : [];
         if (plist && plist.length) pphotos = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + plist.map(p => { const u = '/api/loads/' + curLoad.id + '/pickup-photo/' + encodeURIComponent(p.id); return '<a href="' + u + '" target="_blank" rel="noopener" title="Open pickup photo"><img src="' + u + '" loading="lazy" style="width:62px;height:62px;object-fit:cover;border-radius:6px;border:1px solid var(--line);"></a>'; }).join('') + '</div>';
       } catch (e) {}
-      rows.push(['Pickup', '<span style="color:#146c2e;font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap + pphotos]);
+      const resetBtn = ' <button id="ldClearPickup" type="button" class="ghost" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">Reset pickup</button>';
+      rows.push(['Pickup', '<span style="color:#146c2e;font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap + resetBtn + pphotos]);
     }
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
@@ -2986,6 +2987,20 @@
     $('ldView').innerHTML = '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:14px;align-items:baseline;">' +
       rows.map(r => '<div style="color:var(--muted);font-weight:600;white-space:nowrap;">' + r[0] + '</div><div>' + r[1] + '</div>').join('') +
       '</div>';
+    // Reset pickup (dispatch correction — clears the recorded pickup time/GPS/photos, driver can mark it again).
+    const _cp = $('ldClearPickup');
+    if (_cp) _cp.onclick = async () => {
+      if (!curLoad) return;
+      if (!confirm('Reset the pickup on this load?\n\nThis clears the recorded pickup time, location and photos. The driver can mark pickup again later.')) return;
+      _cp.disabled = true; _cp.textContent = 'Resetting…';
+      try {
+        const r = await api('/api/loads/' + curLoad.id + '/clear-pickup', { method: 'POST' });
+        if (r && r.load) curLoad = r.load;
+        renderLdView();
+        try { loadHistory(curLoad.id); } catch (e) {}
+        try { autoRefreshLoads(); } catch (e) {}
+      } catch (e) { alert(e.message || 'Could not reset pickup'); _cp.disabled = false; _cp.textContent = 'Reset pickup'; }
+    };
   }
   // Toggle the whole load between read-only (view) and editable.
   function setLoadEditMode(on) {
