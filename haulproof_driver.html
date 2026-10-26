@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26b · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26c · auto-capture scanning</div>
   </section>
 </main>
 
@@ -788,7 +788,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-26b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-26c";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -2276,92 +2276,99 @@ window.__startApp=function(){
   function insetRect(W,H,f){ var ix=W*f, iy=H*f; return [{x:ix,y:iy},{x:W-ix,y:iy},{x:W-ix,y:H-iy},{x:ix,y:H-iy}]; }
 
   // Best-effort document corner detection: brightest connected region, then its extreme points.
+  // --- Document-edge detection (v2): generate several candidate outlines (bright blob, dark blob, gradient
+  // region), then pick the one whose four sides sit on a real paper<->background boundary (bright-vs-dark across
+  // each edge). Far more robust on busy / low-contrast backgrounds (granite, wood) than plain brightness. ---
+  function _hpDil(m,gw,gh){ var e=new Uint8Array(gw*gh);
+    for(var y=1;y<gh-1;y++) for(var x=1;x<gw-1;x++){ var i=y*gw+x; e[i]=(m[i]||m[i-1]||m[i+1]||m[i-gw]||m[i+gw])?1:0; } return e; }
+  function _hpEro(m,gw,gh){ var e=new Uint8Array(gw*gh);
+    for(var y=1;y<gh-1;y++) for(var x=1;x<gw-1;x++){ var i=y*gw+x; e[i]=(m[i]&&m[i-1]&&m[i+1]&&m[i-gw]&&m[i+gw])?1:0; } return e; }
+  function _hpOpen(m,gw,gh,n){ for(var k=0;k<n;k++) m=_hpEro(m,gw,gh); for(var k2=0;k2<n;k2++) m=_hpDil(m,gw,gh); return m; }
+  function _hpClose(m,gw,gh,n){ for(var k=0;k<n;k++) m=_hpDil(m,gw,gh); for(var k2=0;k2<n;k2++) m=_hpEro(m,gw,gh); return m; }
+  function _hpBlob(mask,gw,gh){
+    var labels=new Uint8Array(gw*gh), stack=new Int32Array(gw*gh), best=null;
+    for(var start=0;start<mask.length;start++){ if(mask[start]&&!labels[start]){
+      var sp=0; stack[sp++]=start; labels[start]=1; var xs=[],ys=[];
+      while(sp>0){ var idx=stack[--sp]; var x=idx%gw,y=(idx-x)/gw; xs.push(x); ys.push(y);
+        if(x>0){var n=idx-1; if(mask[n]&&!labels[n]){labels[n]=1;stack[sp++]=n;}}
+        if(x<gw-1){var n2=idx+1; if(mask[n2]&&!labels[n2]){labels[n2]=1;stack[sp++]=n2;}}
+        if(y>0){var n3=idx-gw; if(mask[n3]&&!labels[n3]){labels[n3]=1;stack[sp++]=n3;}}
+        if(y<gh-1){var n4=idx+gw; if(mask[n4]&&!labels[n4]){labels[n4]=1;stack[sp++]=n4;}} }
+      if(!best||xs.length>best.xs.length) best={xs:xs,ys:ys};
+    } } return best;
+  }
+  function _hpCorners(xs,ys){
+    var sMin=1e9,sMax=-1e9,dMin=1e9,dMax=-1e9,pTL=null,pBR=null,pTR=null,pBL=null,n=xs.length;
+    for(var k=0;k<n;k++){ var px=xs[k],py=ys[k],s=px+py,df=px-py;
+      if(s<sMin){sMin=s;pTL=[px,py];} if(s>sMax){sMax=s;pBR=[px,py];}
+      if(df>dMax){dMax=df;pTR=[px,py];} if(df<dMin){dMin=df;pBL=[px,py];} }
+    if(!pTL||!pTR||!pBR||!pBL) return null;
+    return [{x:pTL[0],y:pTL[1]},{x:pTR[0],y:pTR[1]},{x:pBR[0],y:pBR[1]},{x:pBL[0],y:pBL[1]}];
+  }
+  function _hpSobel(gray,gw,gh){ var mag=new Float32Array(gw*gh);
+    for(var y=1;y<gh-1;y++) for(var x=1;x<gw-1;x++){ var i=y*gw+x;
+      var gx=(gray[i-gw+1]+2*gray[i+1]+gray[i+gw+1])-(gray[i-gw-1]+2*gray[i-1]+gray[i+gw-1]);
+      var gy=(gray[i+gw-1]+2*gray[i+gw]+gray[i+gw+1])-(gray[i-gw-1]+2*gray[i-gw]+gray[i-gw+1]);
+      mag[i]=Math.sqrt(gx*gx+gy*gy); } return mag; }
+  function _hpMaskCorners(src,gw,gh,pred){
+    var mask=new Uint8Array(gw*gh); for(var i=0;i<src.length;i++) mask[i]=pred(src[i])?1:0;
+    mask=_hpOpen(mask,gw,gh,2); mask=_hpClose(mask,gw,gh,2);
+    var blob=_hpBlob(mask,gw,gh); if(!blob||blob.xs.length<gw*gh*0.10) return null;
+    var corners=_hpCorners(blob.xs,blob.ys); if(!corners) return null;
+    (function(){ function predOf(i){ var pv=corners[(i+3)%4],nx=corners[(i+1)%4],op=corners[(i+2)%4]; return {x:pv.x+nx.x-op.x,y:pv.y+nx.y-op.y}; }
+      var origA=quadArea(corners),bi=-1,bA=1e18,bP=null;
+      for(var i=0;i<4;i++){ var p=predOf(i),test=corners.slice(); test[i]={x:p.x,y:p.y}; var A=quadArea(test); if(A>0&&A<bA){bA=A;bi=i;bP=p;} }
+      if(bi>=0&&bA>0&&origA>bA*1.18){ corners[bi]={x:Math.max(0,Math.min(gw,bP.x)),y:Math.max(0,Math.min(gh,bP.y))}; } })();
+    return corners;
+  }
+  function _hpSamp(g,gw,gh,x,y){ var xi=x|0,yi=y|0; if(xi<0)xi=0; if(yi<0)yi=0; if(xi>gw-1)xi=gw-1; if(yi>gh-1)yi=gh-1; return g[yi*gw+xi]; }
+  function _hpContrast(corners,gray,gw,gh){
+    var cx=0,cy=0; for(var i=0;i<4;i++){cx+=corners[i].x;cy+=corners[i].y;} cx/=4;cy/=4;
+    var band=Math.max(4,gw*0.03),sides=[];
+    for(var s=0;s<4;s++){ var a=corners[s],b=corners[(s+1)%4];
+      var dx=b.x-a.x,dy=b.y-a.y,L=Math.sqrt(dx*dx+dy*dy)||1,nx=-dy/L,ny=dx/L,mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      if((mx+nx-cx)*(mx+nx-cx)+(my+ny-cy)*(my+ny-cy)<(mx-cx)*(mx-cx)+(my-cy)*(my-cy)){nx=-nx;ny=-ny;}
+      var diffs=[];
+      for(var t=0.1;t<=0.9;t+=0.04){ var x=a.x+dx*t,y=a.y+dy*t;
+        diffs.push(Math.abs(_hpSamp(gray,gw,gh,x-nx*band,y-ny*band)-_hpSamp(gray,gw,gh,x+nx*band,y+ny*band))); }
+      diffs.sort(function(p,q){return p-q;}); sides.push(diffs[diffs.length>>1]); }
+    return {min:Math.min(sides[0],sides[1],sides[2],sides[3]),mean:(sides[0]+sides[1]+sides[2]+sides[3])/4};
+  }
+  function _hpDetect(gray,gw,gh){
+    var cands=[], thr=otsu(gray), tb=Math.max(thr,120);
+    var cB=_hpMaskCorners(gray,gw,gh,function(v){return v>=tb;}); if(cB) cands.push(cB);
+    var cD=_hpMaskCorners(gray,gw,gh,function(v){return v<thr;}); if(cD) cands.push(cD);
+    var mag=_hpSobel(gray,gw,gh),mm=0,ss=0,n=mag.length;
+    for(var i=0;i<n;i++) mm+=mag[i]; mm/=n;
+    for(var j=0;j<n;j++){ var dd=mag[j]-mm; ss+=dd*dd; } ss=Math.sqrt(ss/n);
+    var gthr=mm+0.8*ss;
+    var cG=_hpMaskCorners(mag,gw,gh,function(v){return v>=gthr;}); if(cG) cands.push(cG);
+    if(!cands.length) return null;
+    var best=null,bestScore=-1,A=gw*gh,ic=[[0,0],[gw,0],[gw,gh],[0,gh]];
+    for(var ci=0;ci<cands.length;ci++){ var c=cands[ci], a=quadArea(c)/A; if(a<0.14||a>0.99) continue;
+      var sc=_hpContrast(c,gray,gw,gh), pen=(a>0.82&&sc.min<16)?0.5:1.0, jam=0;
+      for(var cc=0;cc<4;cc++){ if(Math.abs(c[cc].x-ic[cc][0])<gw*0.03&&Math.abs(c[cc].y-ic[cc][1])<gh*0.03) jam++; }
+      if(jam>=1) pen*=Math.pow(0.55,jam);
+      var score=(0.4*sc.mean+0.6*sc.min)*(0.7+0.3*Math.min(a/0.5,1.3))*pen;
+      if(score>bestScore){bestScore=score;best=c;} }
+    if(!best) return null;
+    var fa=quadArea(best)/A,fjam=0;
+    for(var k=0;k<4;k++){ if(Math.abs(best[k].x-ic[k][0])<gw*0.03&&Math.abs(best[k].y-ic[k][1])<gh*0.03) fjam++; }
+    if(fjam>=2||fa>0.93) return null;
+    return best;
+  }
   function detectQuad(imgData,W,H){
     try{
       var data=imgData.data;
-      var gw=Math.min(240,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
+      var gw=Math.min(420,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
       var gray=new Float32Array(gw*gh);
       for(var y=0;y<gh;y++){ var sy=Math.min(H-1,Math.floor(y/scl));
         for(var x=0;x<gw;x++){ var sx=Math.min(W-1,Math.floor(x/scl)); var o=(sy*W+sx)*4;
           gray[y*gw+x]=0.299*data[o]+0.587*data[o+1]+0.114*data[o+2]; } }
-      // Paper is the bright region. Otsu picks the split; nudge it up a touch so mid-tone surfaces (granite,
-      // wood, cardboard) don't sneak into the mask with the white page.
-      var thr=Math.max(otsu(gray), 130);
-      var mask=new Uint8Array(gw*gh); for(var i=0;i<gray.length;i++) mask[i]=gray[i]>=thr?1:0;
-      // Erode twice (a pixel survives only if its 4 neighbours are also bright) — kills speckle, the thin bright
-      // bridges that fuse the document to other papers/highlights, and the soft bright halo/shadow just beyond the
-      // paper edge that was pushing the detected corners out into the background. Two passes trims ~2px of that
-      // fringe so the extreme-point corners sit on the real paper edge, not just outside it.
-      function erodeOnce(m){ var e=new Uint8Array(gw*gh);
-        for(var y=1;y<gh-1;y++){ for(var x=1;x<gw-1;x++){ var idx=y*gw+x;
-          e[idx]=(m[idx]&&m[idx-1]&&m[idx+1]&&m[idx-gw]&&m[idx+gw])?1:0; } }
-        return e; }
-      mask=erodeOnce(erodeOnce(mask));
-      // Largest connected bright blob = the document. Collect its pixel coords.
-      var labels=new Uint8Array(gw*gh), stack=new Int32Array(gw*gh), best=null;
-      for(var start=0;start<mask.length;start++){
-        if(mask[start] && !labels[start]){
-          var sp=0; stack[sp++]=start; labels[start]=1; var xs=[], ys=[];
-          while(sp>0){ var idx=stack[--sp]; var x=idx%gw, y=(idx-x)/gw; xs.push(x); ys.push(y);
-            if(x>0){var n=idx-1; if(mask[n]&&!labels[n]){labels[n]=1;stack[sp++]=n;}}
-            if(x<gw-1){var n2=idx+1; if(mask[n2]&&!labels[n2]){labels[n2]=1;stack[sp++]=n2;}}
-            if(y>0){var n3=idx-gw; if(mask[n3]&&!labels[n3]){labels[n3]=1;stack[sp++]=n3;}}
-            if(y<gh-1){var n4=idx+gw; if(mask[n4]&&!labels[n4]){labels[n4]=1;stack[sp++]=n4;}}
-          }
-          if(!best || xs.length>best.xs.length) best={xs:xs,ys:ys};
-        }
-      }
-      if(!best || best.xs.length < gw*gh*0.10) throw 0;
-      var bxs=best.xs, bys=best.ys, bn=bxs.length;
-      // Blob centroid — used to push each corner outward (undoing the erosion ring + threshold shrink that were
-      // leaving the dots sitting *inside* the paper).
-      var cx=0, cy=0; for(var k=0;k<bn;k++){ cx+=bxs[k]; cy+=bys[k]; } cx/=bn; cy/=bn;
-      // True extreme-point corners: the outermost blob pixel in each diagonal direction. These land ON the real
-      // paper edge and stay snug even when the page is tilted.
-      //   TL = min(x+y)   TR = max(x-y)   BR = max(x+y)   BL = min(x-y)
-      var sMin=1e9,sMax=-1e9,dMin=1e9,dMax=-1e9, pTL=null,pBR=null,pTR=null,pBL=null;
-      for(var k=0;k<bn;k++){ var px=bxs[k], py=bys[k], s=px+py, df=px-py;
-        if(s<sMin){sMin=s;pTL=[px,py];} if(s>sMax){sMax=s;pBR=[px,py];}
-        if(df>dMax){dMax=df;pTR=[px,py];} if(df<dMin){dMin=df;pBL=[px,py];} }
-      var raw=[pTL,pTR,pBR,pBL];
-      if(raw.indexOf(null)>=0) throw 0;
-      // Nudge each corner a touch outward from the centre to offset the erosion rings, so the dots sit right on
-      // the paper edge (dead-on) rather than inside it. Kept small so high-contrast photos don't overshoot into
-      // the background. Clamp to the frame.
-      var pad=1.0;
-      var corners=raw.map(function(p){
-        var dx=p[0]-cx, dy=p[1]-cy, L=Math.sqrt(dx*dx+dy*dy)||1;
-        var ex=p[0]+dx/L*pad, ey=p[1]+dy/L*pad;
-        return {x:Math.max(0,Math.min(W, ex/scl)), y:Math.max(0,Math.min(H, ey/scl))};
-      });
-      // Rescue a single flown-out corner (a bright granite speckle/bridge dragging one corner onto the table).
-      // For each corner, see what the quad would look like if that corner were moved to where the OTHER three
-      // put it (prev + next − opposite, i.e. completing a parallelogram). Replacing the *flown* corner collapses
-      // the quad back down onto the real paper (smallest area); replacing a good corner inflates it. So the
-      // smallest-area replacement identifies the bad corner — and we only apply it when the original quad was
-      // clearly inflated by a flyaway, so clean / tilted / mild-perspective shots are left untouched.
-      (function(){
-        function predOf(i){ var pv=corners[(i+3)%4], nx=corners[(i+1)%4], op=corners[(i+2)%4]; return {x:pv.x+nx.x-op.x, y:pv.y+nx.y-op.y}; }
-        var origA=quadArea(corners), best=-1, bestA=1e18, bestP=null;
-        for(var i=0;i<4;i++){ var p=predOf(i), test=corners.slice(); test[i]={x:p.x,y:p.y};
-          var A=quadArea(test); if(A>0 && A<bestA){ bestA=A; best=i; bestP=p; } }
-        if(best>=0 && bestA>0 && origA > bestA*1.2){
-          corners[best]={ x:Math.max(0,Math.min(W, bestP.x)), y:Math.max(0,Math.min(H, bestP.y)) };
-        }
-      })();
-      // Too small to be the page → let the fallback pad it.
-      var spanx=Math.max(corners[1].x,corners[2].x)-Math.min(corners[0].x,corners[3].x);
-      var spany=Math.max(corners[2].y,corners[3].y)-Math.min(corners[0].y,corners[1].y);
-      if(spanx < W*0.15 || spany < H*0.15) throw 0;
-      var a=quadArea(corners);
-      if(a < W*H*0.06 || a > W*H*0.999) throw 0;
-      // Sanity: if the detected shape is wildly irregular (a sign it fused the page with a busy background
-      // like granite), don't hand back a crooked box — give a clean axis-aligned rectangle around that region so
-      // the starting dots are predictable and the driver just nudges them (or taps "Use whole photo").
-      var bx0=Math.min(corners[0].x,corners[3].x), bx1=Math.max(corners[1].x,corners[2].x);
-      var by0=Math.min(corners[0].y,corners[1].y), by1=Math.max(corners[2].y,corners[3].y);
-      var bboxA=Math.max(1,(bx1-bx0)*(by1-by0));
-      if(a/bboxA < 0.62){ return [{x:bx0,y:by0},{x:bx1,y:by0},{x:bx1,y:by1},{x:bx0,y:by1}]; }
+      var q=_hpDetect(gray,gw,gh);
+      if(!q) throw 0;
+      var corners=q.map(function(c){ return {x:Math.max(0,Math.min(W,c.x/scl)), y:Math.max(0,Math.min(H,c.y/scl))}; });
+      if(quadArea(corners) < W*H*0.06) throw 0;
       return corners;
     }catch(e){ return insetRect(W,H,0.08); }
   }
