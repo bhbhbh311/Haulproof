@@ -495,6 +495,19 @@ function pdfjsFile(name) {
 }
 app.get('/vendor/pdf.js', (_req, res) => { const f = pdfjsFile('pdf.min.js') || pdfjsFile('pdf.js'); if (!f) return res.status(404).send('pdfjs missing — run npm install'); res.type('text/javascript'); fs.createReadStream(f).pipe(res); });
 app.get('/vendor/pdf.worker.js', (_req, res) => { const f = pdfjsFile('pdf.worker.min.js') || pdfjsFile('pdf.worker.js'); if (!f) return res.status(404).send('pdfjs worker missing'); res.type('text/javascript'); fs.createReadStream(f).pipe(res); });
+// --- On-device AI document detector assets (onnxruntime-web runtime + the segmentation model). Served under
+// /vendor/ so the driver app's service worker caches them for offline use after the first load. Marked immutable
+// so the browser never re-downloads the ~10MB runtime once it's cached. ---
+function _aiAsset(res, file, type) {
+  const p = path.join(__dirname, file);
+  if (!fs.existsSync(p)) return res.status(404).send('asset missing');
+  res.set('Content-Type', type);
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  fs.createReadStream(p).pipe(res);
+}
+app.get('/vendor/ort.wasm.min.js', (_req, res) => _aiAsset(res, 'ort.wasm.min.js', 'text/javascript'));
+app.get('/vendor/ort-wasm-simd.wasm', (_req, res) => _aiAsset(res, 'ort-wasm-simd.wasm', 'application/wasm'));
+app.get('/vendor/u2netp.onnx', (_req, res) => _aiAsset(res, 'u2netp.onnx', 'application/octet-stream'));
 
 // --- public marketing landing page at the root; the portal app lives at /app ---
 //     (explicit routes; we do NOT serve the whole folder so source files,
