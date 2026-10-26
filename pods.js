@@ -14,8 +14,57 @@ const { filterOptedOut } = require('./optout');
 const { descendantOrgIds } = require('./hierarchy');
 const { customerDocEmails, customerRepEmails } = require('./customers');
 
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+
 const router = express.Router();
 const raw = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: '30mb' });
+
+// Build the signed document WITH its proof photos appended as pages: the load's pickup photos (load-wide) and this
+// stop's delivery photos, each on its own captioned page after the signed pages. Used when a FINAL (signed/emailed)
+// document is viewed, downloaded, or emailed, so the photos travel with the BOL and reach the customer. Returns null
+// when there's nothing to add (no photos, not a final doc, missing file) — callers then serve the raw signed PDF.
+async function combinedPodBytes(pod) {
+  try {
+    if (!pod || (pod.status !== 'signed' && pod.status !== 'emailed')) return null;
+    if (!pod.loadId || !pod.filepath || !fs.existsSync(pod.filepath)) return null;
+    const load = db.prepare(`SELECT pickedUpPhotos, deliveredPhotos FROM loads WHERE id = ?`).get(pod.loadId);
+    if (!load) return null;
+    let pickup = [], delivery = [];
+    try { pickup = load.pickedUpPhotos ? (JSON.parse(load.pickedUpPhotos) || []) : []; } catch (e) {}
+    try { delivery = load.deliveredPhotos ? (JSON.parse(load.deliveredPhotos) || []) : []; } catch (e) {}
+    const stop = (pod.stopNumber != null && pod.stopNumber !== '') ? Number(pod.stopNumber) : null;
+    // Delivery photos belong to a specific stop; include only this pod's stop (or ones with no stop tag). Pickup is
+    // load-wide, so every signed stop on the load carries the pickup proof.
+    const items = [];
+    pickup.forEach(p => { if (p && p.id) items.push({ id: p.id, dir: 'pickup-photos', label: 'Pickup photo' }); });
+    delivery.forEach(p => {
+      if (!p || !p.id) return;
+      const ps = (p.stopNumber != null && p.stopNumber !== '') ? Number(p.stopNumber) : null;
+      if (stop == null || ps == null || ps === stop) items.push({ id: p.id, dir: 'delivery-photos', label: 'Delivery photo' + (ps ? ' — Stop ' + ps : '') });
+    });
+    if (!items.length) return null;
+    const baseBytes = fs.readFileSync(pod.filepath);
+    const doc = await PDFDocument.load(baseBytes, { ignoreEncryption: true });
+    const font = await doc.embedFont(StandardFonts.HelveticaBold);
+    const PW = 612, PH = 792, M = 36;
+    let added = 0;
+    for (const it of items) {
+      let imgBytes;
+      try { imgBytes = fs.readFileSync(path.join(DATA_DIR, it.dir, it.id + '.jpg')); } catch (e) { continue; }
+      let img;
+      try { img = await doc.embedJpg(imgBytes); } catch (e) { continue; }
+      const page = doc.addPage([PW, PH]);
+      page.drawText(it.label, { x: M, y: PH - M, size: 14, font, color: rgb(0.07, 0.22, 0.43) });
+      page.drawText('PO ' + (pod.poNumber || '') + (pod.consignee ? '  ·  ' + String(pod.consignee).slice(0, 48) : ''), { x: M, y: PH - M - 18, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+      const availW = PW - 2 * M, availH = PH - 2 * M - 44;
+      let w = img.width, h = img.height; const sc = Math.min(availW / w, availH / h, 1); w *= sc; h *= sc;
+      page.drawImage(img, { x: (PW - w) / 2, y: M + (availH - h) / 2, width: w, height: h });
+      added++;
+    }
+    if (!added) return null;
+    return await doc.save();
+  } catch (e) { console.error('combinedPodBytes', e && e.message); return null; }
+}
 
 function uriDec(v) { if (v == null) return v; try { return decodeURIComponent(v); } catch { return v; } }
 function decoder(h) { return h['x-enc'] === 'uri' || h['x-pod-enc'] === 'uri' ? uriDec : (v) => v; }
@@ -439,7 +488,11 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails]));
     let mail = { sent: false };
     if (allRecipients.length) {
-      mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath });
+      // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
+      // carries the condition photos. Falls back to the raw file when there are none.
+      let combined = null;
+      try { const pr = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(id); combined = await combinedPodBytes(pr); } catch (e) {}
+      mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath, contentBytes: combined });
       if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
     }
     // Persist the FULL recipient list on the record (not just the consignee email typed at signing) and
@@ -595,7 +648,9 @@ router.post('/:id/send', requireAuth, express.json(), async (req, res) => {
     : [];
   if (!emails.length) return res.status(400).json({ error: 'Add at least one valid email address' });
   try {
-    const mail = await emailPodCopy({ to: emails, pod: { id: pod.id, poNumber: pod.poNumber, loadNumber: pod.loadNumber, consignee: pod.consignee, docType: pod.docType, filename: pod.filename, signedAt: pod.signedAt }, filePath: pod.filepath });
+    // Attach the signed PDF with its proof photos appended (falls back to the raw file when there are none).
+    let combined = null; try { combined = await combinedPodBytes(pod); } catch (e) {}
+    const mail = await emailPodCopy({ to: emails, pod: { id: pod.id, poNumber: pod.poNumber, loadNumber: pod.loadNumber, consignee: pod.consignee, docType: pod.docType, filename: pod.filename, signedAt: pod.signedAt }, filePath: pod.filepath, contentBytes: combined });
     const sentTo = mail.sentTo || (mail.simulated ? emails : []), blocked = mail.blocked || [];
     try { const prev = safeJson(pod.recipients) || []; const merged = Array.from(new Set([...prev, ...emails])); db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(merged), pod.id); } catch (e) {}
     try { logEvent({ orgId: pod.orgId, loadId: pod.loadId, poNumber: pod.poNumber, type: 'emailed',
@@ -794,7 +849,7 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
 });
 
 // ---- DOWNLOAD the PDF. Session OR device key; same customer only. ----
-router.get('/:id/file', requireAuthOrKey, (req, res) => {
+router.get('/:id/file', requireAuthOrKey, async (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row) || !row || !fs.existsSync(row.filepath)) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Content-Type', 'application/pdf');
@@ -802,6 +857,11 @@ router.get('/:id/file', requireAuthOrKey, (req, res) => {
   // The file on disk is replaced in place when dispatch crops/cleans a page (same URL, new bytes), so never let the
   // browser serve a stale cached copy — otherwise a just-cropped document shows up uncropped on the next screen.
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  // For a FINAL (signed) document, append the pickup/delivery proof photos as pages so they travel with the BOL.
+  // combinedPodBytes returns null for anything else (or when there are no photos) — then we stream the raw file.
+  let combined = null;
+  try { combined = await combinedPodBytes(row); } catch (e) {}
+  if (combined && combined.length) { const buf = Buffer.from(combined); res.setHeader('Content-Length', buf.length); return res.end(buf); }
   fs.createReadStream(row.filepath).pipe(res);
 });
 

@@ -55,7 +55,7 @@ function getTransport() {
   return transport;
 }
 
-async function emailPodCopy({ to, pod, filePath }) {
+async function emailPodCopy({ to, pod, filePath, contentBytes }) {
   if (!to || !to.length) return { sent: false, reason: 'no recipients' };
   // Legal/CAN-SPAM: drop anyone who has opted out BEFORE sending. Each remaining recipient gets their
   // own message so their unsubscribe link and List-Unsubscribe header carry a token for their address.
@@ -82,7 +82,7 @@ async function emailPodCopy({ to, pod, filePath }) {
         subject,
         text: body + footerText(rcpt),
         html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.</p><p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thank you,<br>HaulProof</p>` + footerHtml(rcpt),
-        attachments: [{ filename: (pod.filename || 'POD') + '.pdf', path: filePath }],
+        attachments: [{ filename: (pod.filename || 'POD') + '.pdf', ...(contentBytes ? { content: Buffer.from(contentBytes) } : { path: filePath }) }],
         headers: {
           'List-Unsubscribe': `<${unsubUrl(rcpt)}>`,
           'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',

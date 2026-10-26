@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26a · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26b · auto-capture scanning</div>
   </section>
 </main>
 
@@ -788,7 +788,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-26a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-26b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1647,12 +1647,14 @@ window.__startApp=function(){
   }
   // Send the captured delivery photos to the load. Best-effort: queues locally if offline / on failure, and the
   // queue flushes on the next successful sync — so a required photo is never lost even if signal drops at send.
+  // Returns a promise so the completion screen can AWAIT the photos landing before it uploads the signed PDF —
+  // that way the server has them on the load when it auto-emails the customer, so the emailed BOL includes them.
   function sendDeliveryPhotos(loadId, stopNum, photos){
-    if(!loadId || !photos || !photos.length) return;
+    if(!loadId || !photos || !photos.length) return Promise.resolve();
     var key=currentKey();
-    if(!online() || !key){ queueDeliveryPhotos(loadId, stopNum, photos); return; }
+    if(!online() || !key){ queueDeliveryPhotos(loadId, stopNum, photos); return Promise.resolve(); }
     var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var u=loadUnlock(); if(u) hdr["X-Driver-Unlock"]=u;
-    fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/delivery-photos"),{method:"POST",headers:hdr,body:JSON.stringify({photos:photos, stopNumber:stopNum})})
+    return fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/delivery-photos"),{method:"POST",headers:hdr,body:JSON.stringify({photos:photos, stopNumber:stopNum})})
       .then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok||j.error) throw new Error(j.error||"save failed"); }); })
       .catch(function(){ queueDeliveryPhotos(loadId, stopNum, photos); });
   }
@@ -3362,8 +3364,9 @@ window.__startApp=function(){
       bSend.disabled=true;
       bSend.textContent = online() ? "Sending…" : "Saving…";
       holdPodId=null;   // release THIS stop so it uploads now — its consignee emails go out immediately
-      // Fire the delivery photos alongside the document upload (best-effort; queues + retries if offline).
-      if(dvLoadId && _dvPhotos.length){ try{ sendDeliveryPhotos(dvLoadId, dvStop, _dvPhotos.slice()); }catch(e){} }
+      // Land the delivery photos on the load FIRST (await), so when the signed PDF is ingested and auto-emailed the
+      // server can append them to the customer's copy. Offline, this queues and returns at once so the send proceeds.
+      if(dvLoadId && _dvPhotos.length){ try{ await sendDeliveryPhotos(dvLoadId, dvStop, _dvPhotos.slice()); }catch(e){} }
       if(compPod) compPod.recipients=compRecips.slice();   // the emails just entered ride along with the upload
       if(online() && _compBytes && compPod){
         // PRIMARY online path: upload the signed PDF straight from memory. No dependency on phone storage, so a

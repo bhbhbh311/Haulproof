@@ -17,6 +17,7 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.14",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174"
   }
 }
