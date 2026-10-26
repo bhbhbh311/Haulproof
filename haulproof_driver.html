@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26e · AI document detection</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26f · auto pickup date</div>
   </section>
 </main>
 
@@ -793,7 +793,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-26e";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-26f";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -827,6 +827,10 @@ window.__startApp=function(){
   var route=loadRoute();
 
   function todayStr(){ var d=new Date(); return (d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear(); }
+  function dateStrMs(ms){ try{ var d=new Date(ms); return (d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear(); }catch(e){ return ""; } }
+  // The pickup date for an auto "Pickup date" field: taken from when the driver marked the load picked up in the
+  // app (carried on the prepared-doc meta). Empty when the load hasn't been marked picked up yet.
+  function pickupDateStr(){ try{ var t=(typeof pulledMeta!=="undefined"&&pulledMeta&&pulledMeta.pickedUpAt)||0; return t?dateStrMs(t):""; }catch(e){ return ""; } }
   function timeStr(d){ d=d||new Date(); var h=d.getHours(),m=d.getMinutes(),ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+(m<10?"0":"")+m+" "+ap; }
   // Color per signer role — matches the dispatcher's setup screen so field colors line up.
   function roleColor(role){
@@ -1482,7 +1486,7 @@ window.__startApp=function(){
     }
     (tpl||[]).forEach(function(f){
       var rec=pageRecs[f.pageIdx]; if(!rec || rec.isAudit) return;   // skip fields saved on an audit-trail page
-      var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text"].indexOf(k)<0) k="sig";
+      var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text","pickupdate"].indexOf(k)<0) k="sig";
       addField(rec, k, f.role||"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf, f.label||"");
     });
     // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
@@ -2853,6 +2857,7 @@ window.__startApp=function(){
     // would clip a full label). The role + action lives in an always-legible caption pill below the box instead.
     if(kind==="sigdate"||kind==="sig") content='<span class="lab">✎</span>';
     else if(kind==="date") content='🗓 '+todayStr();
+    else if(kind==="pickupdate"){ var _pd=pickupDateStr(); content='📦 '+(_pd||'Pickup date'); }
     else content=valueContent(o);   // initials / time / text
     el.innerHTML='<span class="content">'+content+'</span><span class="rsz"></span>';
     if(isSig){
@@ -3192,6 +3197,8 @@ window.__startApp=function(){
           var cap=(t.name?t.name+"  ·  ":"")+timeStr(t.when)+(t.gps?"  "+t.gps.lat.toFixed(3)+","+t.gps.lng.toFixed(3):""); pg.drawText(cap,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)});
         } }
       dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=Math.min(12,Math.max(9,df.hPdf*0.4)),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      // Auto "Pickup date" fields — stamped with the date the load was marked picked up in the app (blank if not yet).
+      fields.filter(function(f){ return f.kind==="pickupdate"; }).forEach(function(pf){ var pp=pages[pf.pageIdx]; if(!pp) return; var ds=pickupDateStr(); if(!ds) return; var size=Math.min(12,Math.max(9,pf.hPdf*0.4)),tw=font.widthOfTextAtSize(ds,size); pp.drawText(ds,{x:pf.xPdf+Math.max(2,(pf.wPdf-tw)/2),y:pf.yPdf+(pf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Value fields the driver typed (initials / arrive-leave time / free text) — draw the entered text, shrunk to fit.
       fields.filter(function(f){ return (f.kind==="initials"||f.kind==="time"||f.kind==="text") && f.value; }).forEach(function(vf){
         var vp2=pages[vf.pageIdx]; if(!vp2) return;

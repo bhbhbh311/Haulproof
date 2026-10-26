@@ -97,8 +97,14 @@
   .load{max-width:1200px;margin:40px auto;text-align:center;color:var(--muted);}
   /* Read-only preview mode (?view=1): show the doc + placed signature boxes, hide all the editing controls. */
   body.viewonly #signerRow, body.viewonly #fieldRow, body.viewonly #labelRow,
-  body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn, body.viewonly #cropBtn,
-  body.viewonly #armed, body.viewonly #howto, body.viewonly #hint { display:none !important; }
+  body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn, body.viewonly #cropBtn, body.viewonly #aiBtn,
+  body.viewonly #armed, body.viewonly #howto, body.viewonly #hint, body.viewonly #cmdRow { display:none !important; }
+  #cmdInput{font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;min-width:260px;flex:1 1 260px;max-width:460px;}
+  #cmdMic.listening{border-color:#c0392b;color:#c0392b;box-shadow:0 0 0 3px rgba(192,57,43,.22);}
+  /* AI auto-place progress banner (shown while OCR reads the document to suggest signature spots). */
+  .aibanner{max-width:1200px;margin:12px auto 0;padding:11px 14px;background:#eef4ff;border:1px solid #c3d5f5;color:#12386e;border-radius:10px;font-size:14px;font-weight:600;display:none;align-items:center;gap:10px;}
+  .aispin{width:16px;height:16px;border-radius:50%;border:2.5px solid #c3d5f5;border-top-color:#1655d1;animation:aispin .8s linear infinite;display:inline-block;flex:0 0 auto;}
+  @keyframes aispin{to{transform:rotate(360deg);}}
   body.viewonly .fld{ cursor:default; }
   body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
   .viewbar{max-width:1200px;margin:12px auto 0;padding:0 16px;}
@@ -119,6 +125,7 @@
         <div class="lyhint" id="lyEmptyHint" style="display:none;">No saved layouts for this customer yet. Place your boxes, then choose <b>Save current as layout</b>.</div>
       </div>
     </div>
+    <button class="btn ghost" id="aiBtn" type="button" title="Let AI read the document and suggest where each signature and date goes">✨ AI place</button>
     <button class="btn ghost" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures">✂ Crop / clean up</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
@@ -136,6 +143,7 @@
     <button class="ftype" data-kind="sig" type="button">Signature</button>
     <button class="ftype" data-kind="initials" type="button">Initials</button>
     <button class="ftype" data-kind="date" type="button">Date</button>
+    <button class="ftype" data-kind="pickupdate" type="button" title="Fills itself with the pickup date when the driver marks the load picked up — nobody signs or types it">Pickup date (auto)</button>
     <button class="ftype" data-kind="time" type="button">Time</button>
     <button class="ftype" data-kind="text" type="button">Text box</button>
   </div>
@@ -143,6 +151,13 @@
     <span class="plabel2">Label</span>
     <input id="fieldLabel" type="text" placeholder="Optional — e.g. Arrive time, Leave time, Seal #">
     <span class="lhint">Select a field, then type its label. Handy for Time and Text fields.</span>
+  </div>
+  <div class="prow" id="cmdRow">
+    <span class="plabel2">Tell&nbsp;AI</span>
+    <input id="cmdInput" type="text" placeholder="e.g. “remove shipper”, “add carrier sign and date”, “clear all”" autocomplete="off">
+    <button class="btn ghost" id="cmdMic" type="button" title="Speak a command">🎤 Speak</button>
+    <button class="btn" id="cmdGo" type="button">Apply</button>
+    <span class="lhint" id="cmdHint">Type or speak a change and tap Apply. Try “remove shipper”, “add carrier sign and date”, “add pickup date”, “clear all”.</span>
   </div>
   <div class="armed" id="armed"></div>
 </div>
@@ -239,7 +254,7 @@
   }catch(e){} }
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-  var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box'};
+  var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box',pickupdate:'Pickup date (auto)'};
   // Always show, in plain words, exactly what tapping the document will place right now (which signer + field).
   function updateArmed(){
     var el=$('#armed'); if(!el) return;
@@ -254,7 +269,7 @@
 
   // Color per signer role — fixed for the built-ins, stable-hashed for custom names. Mirrors the driver app.
   function roleColor(role){
-    var m={Consignee:'#1655d1',Driver:'#b5731a',Shipper:'#12784a'};
+    var m={Consignee:'#1655d1',Driver:'#b5731a',Shipper:'#12784a',Pickup:'#7a3cc0'};
     if(m[role]) return m[role];
     var pal=['#7b2ff7','#c2185b','#00838f','#5d4037','#a15c00','#0f6d8c'];
     var h=0; for(var i=0;i<role.length;i++){ h=(h*31+role.charCodeAt(i))>>>0; }
@@ -265,12 +280,13 @@
     if(kind==='sigdate') return role+'\nSign + date';
     if(kind==='sig') return role+'\nSignature';
     if(kind==='initials') return (label||'Initials')+'\n('+role+')';
-    if(kind==='date') return label||'Date';
+    if(kind==='date') return label||'Date\n(auto)';
     if(kind==='time') return label||'Time';
     if(kind==='text') return label||'Text';
+    if(kind==='pickupdate') return 'Pickup date\n(auto)';
     return role;
   }
-  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38}};
+  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38},pickupdate:{w:140,h:34}};
 
   var activeTool={role:'Consignee',kind:'sigdate'};
   var pageRecs=[]; var fields=[]; var selected=null; var _pagesReady=false;
@@ -356,7 +372,7 @@
         var cv=document.createElement('canvas'); cv.width=Math.floor(vp.width); cv.height=Math.floor(vp.height); pd.appendChild(cv);
         var lb=document.createElement('div'); lb.className='plabel'; lb.textContent='Page '+n+' / '+pdf.numPages; pd.appendChild(lb);
         wrap.appendChild(pd);
-        var rec={idx:n-1,div:pd,vp:vp,scale:scale,baseW:base.width,baseH:base.height};
+        var rec={idx:n-1,div:pd,vp:vp,scale:scale,baseW:base.width,baseH:base.height,page:page};
         pageRecs.push(rec);
         if(!VIEW) pd.addEventListener('click',function(e){ if(e.target!==pd&&e.target!==cv) return; if(rec.isAudit){ toast('That’s the signature audit-trail page — it isn’t signed.'); return; } addField(rec,e); });
         // Flag a HaulProof audit-trail page so "Apply/Use layout" never stamps signature fields onto it.
@@ -364,7 +380,7 @@
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
     })(n); }
-    chain.then(function(){ loadExisting(); _pagesReady=true; maybeAutoApplyTemplate(); });
+    chain.then(function(){ loadExisting(); _pagesReady=true; maybeAutoAssist(); });
   }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
 
   function buildFieldEl(f,left,top,w,h){
@@ -431,7 +447,8 @@
     var left=Math.min(tl[0],br[0]), top=Math.min(tl[1],br[1]), w=Math.abs(br[0]-tl[0]), hh=Math.abs(br[1]-tl[1]);
     var f={pageIdx:fd.pageIdx,kind:fd.kind||'sigdate',role:fd.role||'Consignee',label:fd.label||'',rec:rec};
     // Any custom signer saved earlier should appear as a chip so it can be reused on this doc.
-    if(f.role && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
+    // (Pickup-date fields carry a 'Pickup' role for colour only — they're not a signer, so no chip.)
+    if(f.role && f.kind!=='pickupdate' && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
       var b=document.createElement('button'); b.className='signer'; b.type='button'; b.dataset.role=f.role;
       b.innerHTML='<span class="dot"></span>'+f.role; $('#addSigner').parentNode.insertBefore(b,$('#addSigner')); wireSigner(b);
     }
@@ -556,19 +573,202 @@
   if($('#layoutsModal')) $('#layoutsModal').addEventListener('click', function(e){ if(e.target===$('#layoutsModal')) $('#layoutsModal').style.display='none'; });
   function checkTemplate(){
     fetch('/api/pods/'+DOC_ID+'/template',{credentials:'include'})
-      .then(function(r){return r.json();}).then(function(j){ _tpl=j||null; updateTplButtons(); maybeAutoApplyTemplate(); }).catch(function(){});
+      .then(function(r){return r.json();}).then(function(j){ _tpl=j||null; _tplChecked=true; updateTplButtons(); maybeAutoAssist(); }).catch(function(){ _tplChecked=true; maybeAutoAssist(); });
   }
   // Auto-reuse: when a document opens for setup with NO fields yet and this customer + document type already
   // has a saved layout, apply it automatically so the dispatcher just reviews & saves instead of re-placing every
   // box. Runs once both the pages and the template have loaded; never clobbers a document that already has fields.
-  var _autoApplied=false;
-  function maybeAutoApplyTemplate(){
-    if(_autoApplied || VIEW || !_pagesReady) return;
+  // Combined first-open assist. Runs once, only after BOTH the pages and the template lookup have resolved and
+  // only when the document has no fields yet. If this customer+doc-type has a saved layout, drop it on (existing
+  // behaviour). Otherwise — a brand-new customer/form — let AI read the document and suggest the signature spots.
+  var _tplChecked=false, _autoAssisted=false;
+  function maybeAutoAssist(){
+    if(_autoAssisted || VIEW) return;
+    if(!_pagesReady || !_tplChecked) return;                    // wait for both the doc and the template lookup
     if(fields.length) return;                                   // doc already has its own fields — leave them
-    if(!_tpl || !_tpl.exists || !((_tpl.fields||[]).length)) return;
-    _autoApplied=true;
-    applyLayoutFields(_tpl.fields, (_tpl.customerName?(_tpl.customerName+' · '):'')+(_tpl.docType||'BOL'));
+    _autoAssisted=true;
+    if(_tpl && _tpl.exists && ((_tpl.fields||[]).length)){
+      applyLayoutFields(_tpl.fields, (_tpl.customerName?(_tpl.customerName+' · '):'')+(_tpl.docType||'BOL'));
+    } else {
+      autoOCRPlace(false);                                      // no saved layout → AI suggestion
+    }
   }
+
+  // ===== AI auto-place: OCR the document, find signature/date labels, suggest a field in the blank beside each =====
+  function aiBanner(show,msg){
+    var b=document.getElementById('aiBanner');
+    if(show){ if(!b){ b=document.createElement('div'); b.id='aiBanner'; b.className='aibanner'; var pg=$('#pages'); if(pg&&pg.parentNode) pg.parentNode.insertBefore(b,pg); } b.innerHTML='<span class="aispin"></span><span>'+esc(msg||'Reading…')+'</span>'; b.style.display='flex'; }
+    else if(b){ b.style.display='none'; }
+  }
+  var _tjsLoading=null;
+  function loadTesseract(){
+    if(window.Tesseract) return Promise.resolve(window.Tesseract);
+    if(_tjsLoading) return _tjsLoading;
+    _tjsLoading=new Promise(function(res,rej){
+      var s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+      s.onload=function(){ window.Tesseract?res(window.Tesseract):rej(new Error('ocr')); };
+      s.onerror=function(){ rej(new Error('ocr')); };
+      document.head.appendChild(s);
+    });
+    return _tjsLoading;
+  }
+  // Turn OCR word boxes into signature/date suggestions. Per-ANCHOR (not per-line, which merged the side-by-side
+  // Receiver/Carrier columns unpredictably): for each short label — "Receiver" / "Carrier" (→ sign) and "Date"
+  // (→ the signer's auto date, or the top "Pickup Date") — drop a field in the blank to its right, measured on the
+  // label's own horizontal band. Requiring a real blank beside the label is what filters out prose words like
+  // "...the carrier may decline..." (no blank follows them). Consignor/Shipper is left off by default.
+  function ocrSlotsFromData(data, W, H){
+    var words=[];
+    (data.blocks||[]).forEach(function(b){ (b.paragraphs||[]).forEach(function(p){ (p.lines||[]).forEach(function(l){ (l.words||[]).forEach(function(w){
+      if(w && w.bbox && w.text && String(w.text).trim() && (w.confidence==null||w.confidence>=40)) words.push(w);
+    }); }); }); });
+    function norm(t){ return String(t).trim().toLowerCase().replace(/[^a-z:]/g,''); }
+    function cyOf(w){ return (w.bbox.y0+w.bbox.y1)/2; }
+    function matesOf(w){ var c=cyOf(w),h=w.bbox.y1-w.bbox.y0; return words.filter(function(x){ return x!==w && Math.abs(cyOf(x)-c)<h*0.7; }); }
+    var out=[];
+    words.forEach(function(w){
+      var tl=norm(w.text);
+      var isRecv=/^rece[il1]ver:?$/.test(tl), isCarr=/^carr[il1]er:?$/.test(tl), isDate=/^date:?$/.test(tl);
+      if(!(isRecv||isCarr||isDate)) return;
+      var bh=Math.max(6,w.bbox.y1-w.bbox.y0), mt=matesOf(w);
+      var pickup=mt.some(function(m){ return /pickup/.test(norm(m.text)) && m.bbox.x0<w.bbox.x0; });
+      if(cyOf(w)<=H*0.5 && !pickup) return;                        // signature block is low on the page (or the top Pickup Date)
+      var right=mt.filter(function(m){ return m.bbox.x0>=w.bbox.x1-2; }).sort(function(a,b){ return a.bbox.x0-b.bbox.x0; })[0];
+      var nextX=right?right.bbox.x0:Math.min(w.bbox.x1+bh*9,W-4);
+      var fx0=w.bbox.x1+bh*0.25, gap=(nextX-bh*0.25)-fx0;
+      if(gap<bh*1.8) return;                                       // need a real blank beside the label (also filters prose)
+      var role=null, kind=null;
+      if(isRecv){ role='Consignee'; kind='sig'; }
+      else if(isCarr && !pickup){ role='Driver'; kind='sig'; }
+      else if(isDate){
+        if(pickup){ role='Pickup'; kind='pickupdate'; }            // top "Pickup Date:" -> fills from the app's pickup event
+        else { var L=mt.filter(function(m){ var n=norm(m.text); return m.bbox.x1<=w.bbox.x0+2 && (/^rece[il1]ver:?$/.test(n)||/^carr[il1]er:?$/.test(n)); }).sort(function(a,b){ return b.bbox.x1-a.bbox.x1; });
+          if(!L.length) return; role=/^rece/.test(norm(L[0].text))?'Consignee':'Driver'; kind='date'; }  // signer's own Date column (auto-stamps signing date)
+      }
+      if(!kind) return;
+      var maxW=(kind==='sig')? W*0.33 : W*0.16;                    // keep boxes tidy, not sprawling across columns
+      out.push({role:role, kind:kind, x0:fx0, y0:w.bbox.y0-bh*0.35, x1:fx0+Math.min(gap,maxW), y1:w.bbox.y1+bh*0.35, cy:cyOf(w)});
+    });
+    // Dedupe: at most one per signer role+kind, and exactly ONE Pickup date (the top-most).
+    var slots=[], pds=out.filter(function(s){ return s.kind==='pickupdate'; }).sort(function(a,b){ return a.cy-b.cy; });
+    if(pds.length) slots.push(pds[0]);
+    out.filter(function(s){ return s.kind!=='pickupdate'; }).forEach(function(s){
+      if(!slots.some(function(k){ return k.role===s.role && k.kind===s.kind; })) slots.push(s);
+    });
+    return slots;
+  }
+  var _ocrRunning=false;
+  function autoOCRPlace(manual){
+    if(_ocrRunning) return;
+    var signPages=pageRecs.filter(function(r){ return !r.isAudit; });
+    if(!signPages.length){ if(manual) toast('No document pages to read yet.'); return; }
+    _ocrRunning=true; if($('#aiBtn')) $('#aiBtn').disabled=true;
+    aiBanner(true,'✨ Reading your document to suggest signature spots…');
+    var _worker=null;
+    loadTesseract().then(function(T){
+      return T.createWorker('eng', 1, { langPath:'https://tessdata.projectnaptha.com/4.0.0' });
+    }).then(function(worker){
+      _worker=worker; var placed=[], chain=Promise.resolve();
+      signPages.forEach(function(rec){
+        chain=chain.then(function(){
+          var s=Math.min(2.5, 1600/rec.baseW);
+          var hvp=rec.page.getViewport({scale:s});
+          var cv=document.createElement('canvas'); cv.width=Math.floor(hvp.width); cv.height=Math.floor(hvp.height);
+          return rec.page.render({canvasContext:cv.getContext('2d'),viewport:hvp}).promise.then(function(){
+            return worker.recognize(cv, {}, { blocks:true });
+          }).then(function(res){
+            ocrSlotsFromData(res.data, cv.width, cv.height).forEach(function(sl){
+              var p1=hvp.convertToPdfPoint(sl.x0, sl.y1), p2=hvp.convertToPdfPoint(sl.x1, sl.y0);
+              placeFromData({pageIdx:rec.idx, kind:sl.kind, role:sl.role, label:'',
+                xPdf:Math.min(p1[0],p2[0]), yPdf:Math.min(p1[1],p2[1]),
+                wPdf:Math.abs(p2[0]-p1[0]), hPdf:Math.abs(p1[1]-p2[1]),
+                baseW:rec.baseW, baseH:rec.baseH});
+              placed.push(sl);
+            });
+          });
+        });
+      });
+      return chain.then(function(){ return placed; });
+    }).then(function(placed){
+      if(_worker){ try{ _worker.terminate(); }catch(e){} }
+      _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false);
+      if(placed.length){ selectField(null); markDirty();
+        // Name what it placed so a missed signer is obvious at a glance (then "add consignee sign and date" fixes it).
+        var by={}; placed.forEach(function(s){ (by[s.role]=by[s.role]||{})[s.kind]=1; });
+        var parts=[];
+        if(by.Consignee) parts.push('Consignee sign'+(by.Consignee.date?' + date':''));
+        if(by.Driver) parts.push('Carrier sign'+(by.Driver.date?' + date':''));
+        if(by.Pickup) parts.push('Pickup date');
+        toast('✨ AI placed: '+parts.join(', ')+'. Review, add anything missing (e.g. say “add consignee sign and date”), then Save setup.');
+      } else if(manual){ toast('AI didn’t find clear signature labels — place them by hand, or try Crop / clean up first.'); }
+    }).catch(function(e){
+      if(_worker){ try{ _worker.terminate(); }catch(_e){} }
+      _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false);
+      if(manual) toast('Couldn’t load the AI reader (needs internet). Place signatures by hand.');
+    });
+  }
+  if($('#aiBtn')) $('#aiBtn').addEventListener('click',function(){
+    if(fields.length && !confirm('Add AI-suggested signature spots on top of the '+fields.length+' field'+(fields.length===1?'':'s')+' already on this document?')) return;
+    autoOCRPlace(true);
+  });
+
+  // ===== Type / speak a change ("remove shipper", "add carrier sign and date", "clear all") =====
+  function firstSignPage(){ for(var i=0;i<pageRecs.length;i++){ if(!pageRecs[i].isAudit) return pageRecs[i]; } return pageRecs[0]; }
+  var _addSlot=0;
+  // Drop a field at a tidy default spot (the signer then drags it where it belongs). Staggered so several
+  // added in a row don't land on top of each other.
+  function placeManual(role,kind){
+    var rec=firstSignPage(); if(!rec){ toast('Still loading the document — try again in a moment.'); return null; }
+    var d=DEFAULT[kind]||DEFAULT.text, cols=[0.06,0.40,0.70];
+    var left=Math.max(0,Math.min(rec.div.clientWidth-d.w, rec.div.clientWidth*cols[_addSlot%3]));
+    var top=Math.max(0,Math.min(rec.div.clientHeight-d.h, rec.div.clientHeight*0.72 + Math.floor(_addSlot/3)*(d.h+12)));
+    _addSlot++;
+    var f={pageIdx:rec.idx,kind:kind,role:role,label:defaultLabel(kind),rec:rec};
+    buildFieldEl(f,left,top,d.w,d.h); fields.push(f); markDirty(); return f;
+  }
+  function removeRole(role,kindFilter){ var hit=fields.filter(function(f){ return f.role===role && (!kindFilter||kindFilter(f)); }); hit.forEach(removeField); return hit.length; }
+  function runCommand(raw){
+    var t=String(raw||'').toLowerCase().replace(/[“”]/g,'"').trim();
+    if(!t){ toast('Type or speak a command first.'); return; }
+    var remove=/\b(remove|delete|clear|drop|get rid|take off|erase)\b/.test(t);
+    if(remove && /\b(all|everything|every field|start over)\b/.test(t)){
+      var n=fields.length; fields.slice().forEach(removeField); selectField(null);
+      toast(n?('Cleared '+n+' field'+(n===1?'':'s')+'.'):'Nothing to clear.'); return;
+    }
+    if(/pickup/.test(t) && /date/.test(t)){
+      if(remove){ var pr=removeRole('Pickup'); toast(pr?'Removed the pickup date.':'No pickup date to remove.'); return; }
+      placeManual('Pickup','pickupdate'); selectField(null);
+      toast('Added an auto Pickup-date field — drag it onto the Pickup Date line, then Save.'); return;
+    }
+    var role = /\b(shipper|consignor)\b/.test(t) ? 'Shipper'
+             : /\b(consignee|receiver|customer)\b/.test(t) ? 'Consignee'
+             : /\b(carrier|driver|trucker)\b/.test(t) ? 'Driver' : null;
+    if(!role){ toast('Name a signer — e.g. "remove shipper", "add carrier sign and date", "add pickup date", or "clear all".'); return; }
+    var label = role==='Driver' ? 'Carrier/Driver' : role;
+    if(remove){ var rm=removeRole(role); selectField(null); toast(rm?('Removed '+rm+' '+label+' field'+(rm===1?'':'s')+'.'):('No '+label+' fields found.')); return; }
+    var noDate=/\b(only|no date|without date|just sign|sign only|signature only)\b/.test(t);
+    placeManual(role,'sig');
+    if(!noDate) placeManual(role,'date');
+    selectField(null);
+    toast('Added '+label+' signature'+(noDate?'':' + auto date')+' — drag into place, then Save.'); return;
+  }
+  // Voice input (browser speech recognition — Chrome/Edge). Falls back to typing where unsupported.
+  var _sr=null, _listening=false;
+  function toggleMic(){
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ toast('Voice isn’t supported in this browser — type the command instead.'); return; }
+    if(_listening){ try{ _sr.stop(); }catch(e){} return; }
+    _sr=new SR(); _sr.lang='en-US'; _sr.interimResults=false; _sr.maxAlternatives=1;
+    _sr.onstart=function(){ _listening=true; var m=$('#cmdMic'); if(m){ m.classList.add('listening'); m.textContent='● Listening…'; } };
+    _sr.onresult=function(e){ var txt=''; try{ txt=e.results[0][0].transcript||''; }catch(_){ } if($('#cmdInput')) $('#cmdInput').value=txt; if(txt){ runCommand(txt); } };
+    _sr.onerror=function(){ toast('Didn’t catch that — try again, or type it.'); };
+    _sr.onend=function(){ _listening=false; var m=$('#cmdMic'); if(m){ m.classList.remove('listening'); m.textContent='🎤 Speak'; } };
+    try{ _sr.start(); }catch(e){}
+  }
+  if($('#cmdGo')) $('#cmdGo').addEventListener('click',function(){ runCommand($('#cmdInput').value); $('#cmdInput').value=''; });
+  if($('#cmdInput')) $('#cmdInput').addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); runCommand(this.value); this.value=''; } });
+  if($('#cmdMic')) $('#cmdMic').addEventListener('click',toggleMic);
   $('#applyTplBtn').addEventListener('click',function(){
     if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
     applyLayoutFields(_tpl.fields, _tpl.docType||_tpl.customerName||'saved');
