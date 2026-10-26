@@ -30,7 +30,18 @@ const app = express();
 // Same-origin portal + credentialed cookies: reflect the request origin and allow credentials.
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '2mb' }));
+// Normal JSON endpoints stay capped small (2mb) to limit memory/DoS. The photo-upload routes — pickup and
+// delivery photos — carry base64 images and legitimately need a much larger body, so route them to a 28mb parser
+// instead. (A single global 2mb cap was silently 413-rejecting photo pickups before they ever reached the route,
+// which is why a one-tap pickup worked but a pickup WITH a photo looked like it did nothing.) The match targets the
+// two upload POSTs only: "…/pickup" (and /pickup/undo) and "…/delivery-photos" — not the singular "…/pickup-photo"
+// / "…/delivery-photo" image-serve GETs, nor "…/clear-pickup".
+const _jsonSmall = express.json({ limit: '2mb' });
+const _jsonPhotos = express.json({ limit: '28mb' });
+app.use((req, res, next) => {
+  if (/(?:\/pickup|\/delivery-photos)(?:$|[/?])/.test(req.path)) return _jsonPhotos(req, res, next);
+  return _jsonSmall(req, res, next);
+});
 
 const SESSION_SECURE = (process.env.PORTAL_URL || '').startsWith('https://');
 
