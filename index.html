@@ -1252,10 +1252,34 @@
         <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of pickup</div>
           <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowPickupPhoto"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Let drivers add pickup photos</b><span id="ft_allowPickupPhoto_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">When on, the driver is offered a photo step at pickup (up to 6) but can skip it. Off keeps pickup a one-tap check-in.</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;">
             <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_requirePickupPhoto"><span class="hp-track"></span></label>
             <div style="font-size:14px;">
               <div><b>Require a photo at pickup</b><span id="ft_requirePickupPhoto_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, a driver must take at least one photo (up to 6) to record “Pickup complete” — proof of the load's condition at the origin, stamped with time and GPS. Off keeps pickup a one-tap check-in.</div>
+              <div style="color:var(--muted);margin-top:3px;">When on, a driver must take at least one photo to record “Pickup complete” — proof of condition at the origin, stamped with time and GPS. (Requiring a photo always offers the step, whether or not the option above is on.)</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of delivery</div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowDeliveryPhoto"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Let drivers add delivery photos</b><span id="ft_allowDeliveryPhoto_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">When on, the driver can attach photos on the “Send documents &amp; complete” screen after signing (up to 6). Off collects no delivery photos.</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_requireDeliveryPhoto"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Require a photo at delivery</b><span id="ft_requireDeliveryPhoto_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">When on, the driver must attach at least one delivery photo before they can send &amp; complete the stop. (Requiring a photo always offers the step, whether or not the option above is on.)</div>
             </div>
           </div>
         </div>
@@ -1439,7 +1463,7 @@
   const $ = id => document.getElementById(id);
   // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
-  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, requirePickupPhoto: false };
+  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
   function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); try { applyUploadFieldVisibility(); } catch (e) {} }
@@ -3010,6 +3034,14 @@
       const resetBtn = ' <button id="ldClearPickup" type="button" class="ghost" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">Reset pickup</button>';
       rows.push(['Pickup', '<span style="color:#146c2e;font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap + resetBtn + pphotos]);
     }
+    // Delivery proof photos (driver attached them on the "Send & complete" screen). Grouped by stop when present.
+    try {
+      const dlist = curLoad.deliveredPhotos ? (typeof curLoad.deliveredPhotos === 'string' ? JSON.parse(curLoad.deliveredPhotos) : curLoad.deliveredPhotos) : [];
+      if (dlist && dlist.length) {
+        const thumbs = dlist.map(p => { const u = '/api/loads/' + curLoad.id + '/delivery-photo/' + encodeURIComponent(p.id); const st = p.stopNumber ? ' title="Stop ' + p.stopNumber + '"' : ' title="Delivery photo"'; return '<a href="' + u + '" target="_blank" rel="noopener"' + st + '><img src="' + u + '" loading="lazy" style="width:62px;height:62px;object-fit:cover;border-radius:6px;border:1px solid var(--line);"></a>'; }).join('');
+        rows.push(['Delivery photos', '<span style="color:#146c2e;font-weight:700;">📷 ' + dlist.length + ' photo' + (dlist.length === 1 ? '' : 's') + '</span><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + thumbs + '</div>']);
+      }
+    } catch (e) {}
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
     (function () {
@@ -4309,12 +4341,12 @@
   // ---- "Simplify the app" field toggles (Team logins card) ----
   // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
   function renderFieldToggles() {
-    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_requirePickupPhoto: 'requirePickupPhoto' };
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
   }
   // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
-  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_requirePickupPhoto'];
+  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto'];
   // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
   function updSwitchStates() {
     _ftSwitchIds.forEach(function(id){
@@ -4331,7 +4363,10 @@
       customer:   !!($('ft_customer')   && $('ft_customer').checked),
       auditTrail: !!($('ft_auditTrail') && $('ft_auditTrail').checked),
       allowBrokerDrivers: !!($('ft_allowBrokerDrivers') && $('ft_allowBrokerDrivers').checked),
+      allowPickupPhoto: !!($('ft_allowPickupPhoto') && $('ft_allowPickupPhoto').checked),
       requirePickupPhoto: !!($('ft_requirePickupPhoto') && $('ft_requirePickupPhoto').checked),
+      allowDeliveryPhoto: !!($('ft_allowDeliveryPhoto') && $('ft_allowDeliveryPhoto').checked),
+      requireDeliveryPhoto: !!($('ft_requireDeliveryPhoto') && $('ft_requireDeliveryPhoto').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
     try {

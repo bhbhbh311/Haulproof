@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-22a · auto-capture scanning</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26a · auto-capture scanning</div>
   </section>
 </main>
 
@@ -782,13 +782,13 @@ window.__startApp=function(){
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // Per-org "Simple mode" field flags (which optional inputs dispatch left on). Delivered via /my-loads and cached,
   // so the driver app hides the same fields as the dispatch side. Defaults match the server until the first fetch.
-  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, requirePickupPhoto:false };
+  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, allowPickupPhoto:false, requirePickupPhoto:false, allowDeliveryPhoto:false, requireDeliveryPhoto:false };
   var _uiFlags=null;
   function loadUiFlags(){ if(!_uiFlags){ _uiFlags=lsGet("hp_uiflags",null); } return _uiFlags||{}; }
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-22a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-26a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -849,6 +849,7 @@ window.__startApp=function(){
   var syncing=false;
   async function syncOutbox(){
     if(!online()) { renderOutbox(); return; }
+    try{ flushDeliveryPhotoQueue(); }catch(e){}   // retry any delivery photos that couldn't upload when signal dropped
     if(syncing) return;            // prevent overlapping runs from double-uploading the same POD
     syncing=true;
     try{ await doSync(); } finally { syncing=false; }
@@ -1561,7 +1562,11 @@ window.__startApp=function(){
   function showPickupButton(container, loadId){
     container.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:#0f6f3f;">📍 Pickup complete</button>';
     var pb=container.querySelector(".myLoadPickup");
-    if(pb) pb.addEventListener("click", function(){ if(drvFieldOn("requirePickupPhoto")) openPickupSheet(loadId, pb, container); else markPickup(loadId, pb, container, []); });
+    if(pb) pb.addEventListener("click", function(){
+      var req=drvFieldOn("requirePickupPhoto"), allow=drvFieldOn("allowPickupPhoto");
+      if(req || allow) openPickupSheet(loadId, pb, container, req);   // offer the photo sheet (req=must add >=1, else optional)
+      else markPickup(loadId, pb, container, []);                     // no photos — one-tap pickup
+    });
   }
   // Render the "✓ Picked up …" status with a self-serve Undo (reverses an accidental tap on the spot).
   function renderPickedUp(container, loadId, atMs, gps, pc){
@@ -1583,14 +1588,14 @@ window.__startApp=function(){
     }catch(e){ toast("Couldn't undo — try again"); if(link){link.textContent='Undo';link.style.pointerEvents='';} }
   }
   // ---- Pickup photo sheet: collect 1–6 proof photos, then record the pickup with them ----
-  var _pkPhotos=[], _pkCtx=null;
-  function openPickupSheet(loadId, btn, container){ _pkPhotos=[]; _pkCtx={loadId:loadId, btn:btn, container:container}; renderPkThumbs(); var m=$("pickupSheet"); if(m) m.classList.remove("hide"); }
+  var _pkPhotos=[], _pkCtx=null, _pkRequired=true;
+  function openPickupSheet(loadId, btn, container, required){ _pkPhotos=[]; _pkRequired=(required!==false); _pkCtx={loadId:loadId, btn:btn, container:container}; renderPkThumbs(); var m=$("pickupSheet"); if(m) m.classList.remove("hide"); }
   function closePickupSheet(){ var m=$("pickupSheet"); if(m) m.classList.add("hide"); _pkCtx=null; _pkPhotos=[]; var inp=$("pickupCamInput"); if(inp) inp.value=""; }
   function renderPkThumbs(){
     var box=$("pkThumbs"); if(!box) return;
     box.innerHTML=_pkPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:74px;height:74px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e2e8f0);"><button type="button" data-i="'+i+'" class="pkDel" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
     Array.prototype.forEach.call(box.querySelectorAll(".pkDel"),function(b){ b.addEventListener("click",function(){ _pkPhotos.splice(+b.dataset.i,1); renderPkThumbs(); }); });
-    var rec=$("pkRecord"); if(rec){ rec.disabled=_pkPhotos.length===0; rec.textContent=_pkPhotos.length?("✓ Record pickup ("+_pkPhotos.length+")"):"Record pickup"; }
+    var rec=$("pkRecord"); if(rec){ rec.disabled=(_pkRequired && _pkPhotos.length===0); rec.textContent=_pkPhotos.length?("✓ Record pickup ("+_pkPhotos.length+")"):(_pkRequired?"Record pickup":"Record pickup (no photo)"); }
     var add=$("pkAdd"); if(add){ add.disabled=_pkPhotos.length>=6; add.style.opacity=_pkPhotos.length>=6?.5:1; }
     var cnt=$("pkCount"); if(cnt) cnt.textContent=_pkPhotos.length?(_pkPhotos.length+" of 6 added"):"";
   }
@@ -1610,7 +1615,62 @@ window.__startApp=function(){
   });
   if($("pkAdd")) $("pkAdd").addEventListener("click", function(){ var inp=$("pickupCamInput"); if(inp) inp.click(); });
   if($("pkCancel")) $("pkCancel").addEventListener("click", closePickupSheet);
-  if($("pkRecord")) $("pkRecord").addEventListener("click", function(){ if(!_pkCtx||!_pkPhotos.length) return; var ctx=_pkCtx, photos=_pkPhotos.slice(); closePickupSheet(); markPickup(ctx.loadId, ctx.btn, ctx.container, photos); });
+  if($("pkRecord")) $("pkRecord").addEventListener("click", function(){ if(!_pkCtx) return; if(_pkRequired && !_pkPhotos.length) return; var ctx=_pkCtx, photos=_pkPhotos.slice(); closePickupSheet(); markPickup(ctx.loadId, ctx.btn, ctx.container, photos); });
+
+  // ---- Delivery proof photos (optional/required) — captured on the "Send documents & complete" screen ----
+  var _dvPhotos=[];
+  // Build the delivery-photo capture card appended to the completion screen. Reuses compressPickupPhoto.
+  function buildDeliveryPhotoBox(required){
+    var wrap=document.createElement("div");
+    wrap.style.cssText="border:1px solid "+(required?"#f0b37e":"var(--line,#e2e8f0)")+";border-radius:12px;padding:12px;margin-bottom:12px;background:"+(required?"#fff7ed":"var(--surface,#fff)")+";";
+    var title=document.createElement("div"); title.style.cssText="font-weight:800;font-size:15px;color:var(--ink,#12386e);margin-bottom:2px;";
+    title.textContent=required?"📷 Delivery photos — required":"📷 Delivery photos (optional)";
+    var sub=document.createElement("div"); sub.style.cssText="font-size:13px;color:var(--muted,#5c6b7a);line-height:1.4;margin-bottom:10px;";
+    sub.textContent=required?"Add at least one photo of the delivered freight before you send. Up to 6.":"Add a photo of the delivered freight if you'd like. Up to 6.";
+    var thumbs=document.createElement("div"); thumbs.style.marginBottom="8px";
+    var add=document.createElement("button"); add.className="btn ghost block"; add.type="button"; add.style.fontSize="15px"; add.textContent="📷 Add delivery photo";
+    var inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.setAttribute("capture","environment"); inp.hidden=true;
+    function render(){
+      thumbs.innerHTML=_dvPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:66px;height:66px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e2e8f0);"><button type="button" data-i="'+i+'" class="dvDel" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:14px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
+      Array.prototype.forEach.call(thumbs.querySelectorAll(".dvDel"),function(b){ b.addEventListener("click",function(){ _dvPhotos.splice(+b.dataset.i,1); render(); }); });
+      add.disabled=_dvPhotos.length>=6; add.style.opacity=_dvPhotos.length>=6?.5:1;
+    }
+    add.addEventListener("click",function(){ inp.click(); });
+    inp.addEventListener("change",function(e){
+      var f=(e.target.files||[])[0]; e.target.value="";
+      if(!f) return; if(_dvPhotos.length>=6){ toast("Up to 6 photos"); return; }
+      fileToDataUrl(f).then(compressPickupPhoto).then(function(small){ _dvPhotos.push(small); render(); })
+        .catch(function(){ toast("Couldn't read that photo — try again"); });
+    });
+    wrap.appendChild(title); wrap.appendChild(sub); wrap.appendChild(thumbs); wrap.appendChild(add); wrap.appendChild(inp);
+    render(); return wrap;
+  }
+  // Send the captured delivery photos to the load. Best-effort: queues locally if offline / on failure, and the
+  // queue flushes on the next successful sync — so a required photo is never lost even if signal drops at send.
+  function sendDeliveryPhotos(loadId, stopNum, photos){
+    if(!loadId || !photos || !photos.length) return;
+    var key=currentKey();
+    if(!online() || !key){ queueDeliveryPhotos(loadId, stopNum, photos); return; }
+    var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var u=loadUnlock(); if(u) hdr["X-Driver-Unlock"]=u;
+    fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/delivery-photos"),{method:"POST",headers:hdr,body:JSON.stringify({photos:photos, stopNumber:stopNum})})
+      .then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ if(!r.ok||j.error) throw new Error(j.error||"save failed"); }); })
+      .catch(function(){ queueDeliveryPhotos(loadId, stopNum, photos); });
+  }
+  function queueDeliveryPhotos(loadId, stopNum, photos){
+    try{ var q=lsGet("hp_dvq",[])||[]; q.push({loadId:loadId, stopNumber:stopNum, photos:photos, at:Date.now()}); lsSet("hp_dvq",q); }catch(e){}
+  }
+  function flushDeliveryPhotoQueue(){
+    if(!online()) return; var key=currentKey(); if(!key) return;
+    var q; try{ q=lsGet("hp_dvq",[])||[]; }catch(e){ return; }
+    if(!q.length) return;
+    var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var u=loadUnlock(); if(u) hdr["X-Driver-Unlock"]=u;
+    var remaining=[], pending=q.length;
+    q.forEach(function(item){
+      fetch(driverApi("/my-loads/"+encodeURIComponent(item.loadId)+"/delivery-photos"),{method:"POST",headers:hdr,body:JSON.stringify({photos:item.photos, stopNumber:item.stopNumber})})
+        .then(function(r){ if(!r.ok) remaining.push(item); }).catch(function(){ remaining.push(item); })
+        .then(function(){ pending--; if(pending<=0){ try{ lsSet("hp_dvq",remaining); }catch(e){} } });
+    });
+  }
 
   function arrive(s){
     s.status="arrived"; s.arriveAt=Date.now();
@@ -3273,6 +3333,12 @@ window.__startApp=function(){
     window.__hpBusy=true;   // still in the sign flow (entering emails) — hold any auto-update reload
     holdPodId=pod.id;       // hold this stop's upload until they tap Send, so their emails are included
     compPod=pod; compCtx=getCtx(); compRecips=[];
+    // Delivery-photo setup: offer (and maybe require) a proof photo on this screen. We can only attach them to a
+    // real load, so the capture appears only when this delivery has a loadId (dispatched loads). Reset the list.
+    _dvPhotos=[];
+    var dvRequired=drvFieldOn("requireDeliveryPhoto"), dvAllow=dvRequired||drvFieldOn("allowDeliveryPhoto");
+    var dvLoadId=(pulledMeta&&pulledMeta.loadId)||null;
+    var dvStop=(currentStop&&currentStop.n)||(pulledMeta&&pulledMeta.stopNumber)||null;
     $("banner").classList.remove("on"); if($("saveLaterRow")) $("saveLaterRow").classList.add("hide"); var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     // Clear "Stop N completed" headline when this signature closes out a route stop.
     if(currentStop){
@@ -3284,14 +3350,20 @@ window.__startApp=function(){
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="14px";
     sb.textContent=online()?"✓ Signed & saved on device":"✓ Saved on device · will send when you have signal"; da.appendChild(sb);
     da.appendChild(buildEmailBox());
+    // Delivery proof-photo capture — only when the admin enabled it AND we have a load to attach it to.
+    if(dvAllow && dvLoadId){ da.appendChild(buildDeliveryPhotoBox(dvRequired)); }
     var stopN = currentStop ? currentStop.n : null;
     // PRIMARY action: send the signed document (with any emails just entered) and go back to the loads screen.
     // This is the clear "I'm done" button — it forces the upload now instead of waiting for a background sync,
     // shows progress, and then drops the driver back on their available loads.
     var bSend=mkBtn("✅ Send documents & complete","primary",async function(){
+      // Require a delivery photo before completing, when the admin turned that on (and this load can hold one).
+      if(dvRequired && dvLoadId && !_dvPhotos.length){ toast("Add at least one delivery photo first"); try{ da.scrollTop=da.scrollHeight; }catch(e){} return; }
       bSend.disabled=true;
       bSend.textContent = online() ? "Sending…" : "Saving…";
       holdPodId=null;   // release THIS stop so it uploads now — its consignee emails go out immediately
+      // Fire the delivery photos alongside the document upload (best-effort; queues + retries if offline).
+      if(dvLoadId && _dvPhotos.length){ try{ sendDeliveryPhotos(dvLoadId, dvStop, _dvPhotos.slice()); }catch(e){} }
       if(compPod) compPod.recipients=compRecips.slice();   // the emails just entered ride along with the upload
       if(online() && _compBytes && compPod){
         // PRIMARY online path: upload the signed PDF straight from memory. No dependency on phone storage, so a

@@ -343,6 +343,45 @@ router.post('/my-loads/:loadId/pickup/undo', (req, res) => {
   res.json({ ok: true });
 });
 
+// Driver attaches delivery proof photos on the "Send documents & complete" screen. Unlike pickup (one per load),
+// a load can have several deliveries (stops), so these APPEND to the load's delivery-photo list, each tagged with
+// its stop number. Same engagement check as pickup.
+router.post('/my-loads/:loadId/delivery-photos', express.json({ limit: '28mb' }), (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  const b = req.body || {};
+  const photosIn = Array.isArray(b.photos)
+    ? b.photos.filter(s => typeof s === 'string' && s.indexOf('data:image/') === 0).slice(0, 6) : [];
+  if (!photosIn.length) return res.status(400).json({ error: 'No photos to save' });
+  let stopNumber = null; { const n = parseInt(b.stopNumber, 10); if (Number.isFinite(n) && n > 0) stopNumber = n; }
+  const at = Date.now();
+  const newRefs = [];
+  try {
+    const dir = path.join(DATA_DIR, 'delivery-photos');
+    fs.mkdirSync(dir, { recursive: true });
+    photosIn.forEach(durl => {
+      const m = /^data:image\/[\w.+-]+;base64,(.+)$/.exec(durl);
+      if (!m) return;
+      const pid = crypto.randomUUID();
+      try { fs.writeFileSync(path.join(dir, pid + '.jpg'), Buffer.from(m[1], 'base64')); newRefs.push({ id: pid, at, stopNumber: stopNumber }); } catch (e) {}
+    });
+  } catch (e) {}
+  if (!newRefs.length) return res.status(500).json({ error: 'Could not save the photos' });
+  let existing = []; try { existing = load.deliveredPhotos ? (JSON.parse(load.deliveredPhotos) || []) : []; } catch (e) { existing = []; }
+  const merged = existing.concat(newRefs).slice(0, 60);   // generous cap across all stops on a load
+  try { db.prepare(`UPDATE loads SET deliveredPhotos = ? WHERE id = ?`).run(JSON.stringify(merged), load.id); }
+  catch (e) { return res.status(500).json({ error: 'Could not record the photos' }); }
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'delivery_photos',
+    detail: (r.driver.name || 'Driver') + ' added ' + newRefs.length + ' delivery photo' + (newRefs.length === 1 ? '' : 's') + (stopNumber ? ' (Stop ' + stopNumber + ')' : ''), actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true, added: newRefs.length, total: merged.length });
+});
+
 // This driver's own signed documents — recent by default, or a full-history search when ?q= is given.
 // Read-only: the app lets the driver VIEW / SEND / DOWNLOAD these; it never re-opens them for signing.
 router.get('/my-documents', (req, res) => {

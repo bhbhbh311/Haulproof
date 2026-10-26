@@ -205,6 +205,21 @@ router.get('/:loadId/pickup-photo/:photoId', requireAuth, (req, res) => {
   fs.createReadStream(fp).pipe(res);
 });
 
+// Serve one of a load's delivery proof-photos (dispatcher/portal view). Auth'd like the load itself.
+router.get('/:loadId/delivery-photo/:photoId', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.loadId);
+  if (!load) return res.status(404).end();
+  const pid = req.params.photoId;
+  if (!/^[a-f0-9-]{36}$/i.test(pid)) return res.status(404).end();
+  let photos = []; try { photos = load.deliveredPhotos ? JSON.parse(load.deliveredPhotos) : []; } catch (e) {}
+  if (!photos.some(p => p && p.id === pid)) return res.status(404).end();
+  const fp = path.join(DATA_DIR, 'delivery-photos', pid + '.jpg');
+  if (!fs.existsSync(fp)) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  fs.createReadStream(fp).pipe(res);
+});
+
 // Dispatch correction: reset a recorded pickup (e.g. a driver tapped "Pickup complete" by mistake). Clears the
 // time / GPS / photos (and deletes the photo files) and logs it. Anyone who can manage the load may do it.
 router.post('/:id/clear-pickup', requireAuth, (req, res) => {
@@ -214,7 +229,10 @@ router.post('/:id/clear-pickup', requireAuth, (req, res) => {
     const photos = load.pickedUpPhotos ? JSON.parse(load.pickedUpPhotos) : [];
     (photos || []).forEach(p => { if (p && /^[a-f0-9-]{36}$/i.test(p.id)) { try { fs.unlinkSync(path.join(DATA_DIR, 'pickup-photos', p.id + '.jpg')); } catch (e) {} } });
   } catch (e) {}
-  db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id);
+  // Clear time/GPS/photos. Fall back to just time/GPS if the pickedUpPhotos column isn't present yet (e.g. db.js
+  // not deployed in the same push), so a reset never fails for a schema-version mismatch.
+  try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id); }
+  catch (e) { try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL WHERE id = ?`).run(load.id); } catch (e2) {} }
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'pickup_cleared', detail: 'Pickup reset by dispatch', actor: actorOf(req) });
   const updated = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id);
   res.json({ ok: true, load: loadOut(updated, req) });
