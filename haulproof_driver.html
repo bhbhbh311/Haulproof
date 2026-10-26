@@ -581,7 +581,7 @@
       <div class="cfgact"><button class="btn primary sm" id="syncBtn" type="button">Sync now</button><span class="cfgsaved" id="cfgSaved"></span></div>
     </div>
     <div id="podList"></div>
-    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26d · AI document detection</div>
+    <div style="text-align:center;color:var(--muted);font-size:11px;margin-top:22px;letter-spacing:.02em;">HaulProof driver · build 2026-10-26e · AI document detection</div>
   </section>
 </main>
 
@@ -615,12 +615,17 @@
 </div>
 
 <!-- Scan editor: deskew a photographed document and clean it up -->
+<style>@keyframes scspin{to{transform:rotate(360deg)}} #scWrap.sc-detecting .sc-handle{display:none!important;} #scWrap.sc-detecting #scQuad{opacity:0;}</style>
 <div id="scanEditor" aria-hidden="true">
   <div class="sc-head"><b id="scTitle">Line up the document</b><span class="sc-step" id="scStep">Step 1 of 2</span></div>
   <div class="sc-stage">
     <div class="sc-canvas-wrap" id="scWrap">
       <canvas id="scCanvas"></canvas>
       <svg class="sc-quad" id="scQuad" preserveAspectRatio="none"><polygon points="0,0 0,0 0,0 0,0"></polygon></svg>
+      <div id="scSpinner" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(8,14,26,.46);z-index:20;pointer-events:none;border-radius:inherit;">
+        <div style="width:58px;height:58px;border-radius:50%;border:5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:scspin .8s linear infinite;"></div>
+        <div style="color:#fff;font-weight:800;font-size:18px;text-shadow:0 1px 4px rgba(0,0,0,.55);letter-spacing:.01em;">Finding the document…</div>
+      </div>
     </div>
   </div>
   <div class="sc-hint" id="scHint">Drag the four dots onto the corners of the document.</div>
@@ -788,7 +793,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-26d";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-26e";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1924,7 +1929,7 @@ window.__startApp=function(){
 
   // ---- In-app camera: live video + a page-shaped outline; shutter grabs a full-resolution frame ----
   var cam = { stream:null, tick:0, running:false };
-  function startPhotoCapture(){ openInAppCamera(); }
+  function startPhotoCapture(){ try{ if(online()) loadAi().catch(function(){}); }catch(e){}  /* warm the AI model while they frame the shot, so it's ready by the time they crop */ openInAppCamera(); }
   function startNativeCamera(){ $("camInput").value=""; $("camInput").click(); }
   function layoutCamFrame(){
     var vw=window.innerWidth, vh=window.innerHeight;
@@ -2149,11 +2154,20 @@ window.__startApp=function(){
       // adjusting them, moved off step 1, or opened a different scan. Any failure just leaves the classical dots.
       if(!(priorCorners && priorCorners.length===4)){
         (function(myScan){
-          var hint=$("scHint"), prev=hint?hint.textContent:"";
-          if(hint) hint.textContent="🔎 Finding the document…";
-          aiDetectQuad(workData,wW,wH).then(function(aic){
-            if(aic && scan===myScan && scan.stage===1 && !scan._userMoved){ scan.corners=aic; buildHandles(); updateQuad(); }
-          }).catch(function(){}).then(function(){ if(hint && scan===myScan && hint.textContent==="🔎 Finding the document…") hint.textContent=prev; });
+          // Show a clear spinner over the image (dots hidden), run the AI, then reveal the detected outline. A
+          // timeout guarantees we never spin forever — on a slow first-ever model download it falls back to the
+          // classical dots (already computed) and the model keeps warming for the next scan.
+          showScanSpinner();
+          var settled=false;
+          function reveal(corners){
+            if(settled || scan!==myScan) return; settled=true;
+            if(corners && scan.stage===1 && !scan._userMoved) scan.corners=corners;
+            hideScanSpinner(); buildHandles(); updateQuad();
+          }
+          var warm = !!_aiSession;
+          var t=setTimeout(function(){ reveal(null); }, warm?3500:6500);   // allow longer on a cold first-load download
+          aiDetectQuad(workData,wW,wH).then(function(aic){ clearTimeout(t); reveal(aic); })
+            .catch(function(){ clearTimeout(t); reveal(null); });
         })(scan);
       }
     };
@@ -2203,6 +2217,7 @@ window.__startApp=function(){
   }
 
   function goStage2(){
+    hideScanSpinner();
     scan.stage=2;
     scan.flat = buildFlat(scan.workData, scan.wW, scan.wH, scan.corners);   // crop if square, warp only if skewed
     $("scTitle").textContent="Clean it up";
@@ -2240,6 +2255,7 @@ window.__startApp=function(){
     var cb=scan.done; closeScan(); if(cb) cb(url, meta);
   }
   function closeScan(){
+    hideScanSpinner();
     $("scanEditor").classList.remove("on"); $("scanEditor").setAttribute("aria-hidden","true");
     Array.prototype.slice.call($("scWrap").querySelectorAll(".sc-handle")).forEach(function(h){h.remove();});
     scan=null;
@@ -2352,6 +2368,8 @@ window.__startApp=function(){
       return sess.run(feeds).then(function(res){ return _aiPost(res[sess.outputNames[0]].data, wW, wH); });
     });
   }
+  function showScanSpinner(){ try{ var w=$("scWrap"); if(w) w.classList.add("sc-detecting"); var s=$("scSpinner"); if(s) s.style.display="flex"; }catch(e){} }
+  function hideScanSpinner(){ try{ var w=$("scWrap"); if(w) w.classList.remove("sc-detecting"); var s=$("scSpinner"); if(s) s.style.display="none"; }catch(e){} }
 
   // --- Document-edge detection (v2): generate several candidate outlines (bright blob, dark blob, gradient
   // region), then pick the one whose four sides sit on a real paper<->background boundary (bright-vs-dark across
