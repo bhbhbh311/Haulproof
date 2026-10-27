@@ -63,6 +63,16 @@
   .drvbadge #drvName,.drvbadge #drvCompany{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
   /* Very narrow phones: drop the wordmark so the badge + Help + sync pill all fit. */
   @media (max-width:380px){ .wordmark{display:none;} }
+  /* Phones: Help + Report shrink to icon-only buttons, and once a driver is signed on the wordmark gives its room
+     to the driver badge (the logo mark stays) — otherwise the badge is squeezed to an empty pill and the sync
+     pill is pushed off the right edge. */
+  .pill .pi{font-weight:800;}
+  @media (max-width:560px){
+    .pill .pl{display:none;}
+    .pill.ico{padding:5px 0;width:30px;justify-content:center;}
+    .bar.hasdrv .wordmark{display:none;}
+    .bar.hasdrv .drvbadge{margin-right:auto;max-width:none;}
+  }
   .drvbadge svg{width:13px;height:13px;flex:none;}
   .drvbadge span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .welcome{margin:0 0 16px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,var(--primary),#3f7ae8);color:#fff;box-shadow:var(--btn-shadow);}
@@ -137,6 +147,22 @@
   .docmeta label.f input.locked:focus{border-color:var(--line-strong);box-shadow:none;}
   .pullcard{background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;box-shadow:var(--shadow);padding:12px 13px;margin-bottom:16px;}
   .pulltitle{font-weight:700;font-size:14px;margin-bottom:9px;}
+  /* Your loads: each load is its own card. The card shows the PO + a one-line status; tapping it opens the
+     load to show its actions (sign, pickup, check in/out) and times. */
+  .ldcard{border:1px solid var(--line-strong);border-radius:12px;background:var(--surface-2);margin-bottom:10px;overflow:hidden;}
+  .ldcard.open{border-color:var(--driver-line);box-shadow:0 0 0 1px var(--driver-line);background:var(--surface);}
+  .ldcard.reup{border-left:4px solid #b42318;}
+  .ldhead{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .ldhead.static{cursor:default;}
+  .ldpo{font-weight:700;font-family:"IBM Plex Mono",monospace;font-size:14px;overflow-wrap:anywhere;}
+  .ldsub{color:var(--muted);font-size:13px;}
+  .ldstat{font-size:12px;font-weight:700;margin-top:3px;}
+  .ldchev{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--primary-soft);color:var(--primary);font-weight:800;font-size:20px;line-height:1;transition:transform .15s;}
+  .ldcard.open .ldchev{transform:rotate(90deg);}
+  .ldbody{border-top:1px solid var(--line);padding:10px 12px 6px;}
+  .ldbody .btn.sm{width:100%;}
+  .ldsec{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:8px 0 4px;}
+  .pill.ico{font-size:13px;}
   .pullrow{display:flex;gap:8px;align-items:center;}
   .pullrow .ti{flex:1;min-width:0;}
   .pullnote{font-size:12px;color:var(--muted);margin-top:8px;}
@@ -360,8 +386,8 @@
     <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
     <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;"><span id="drvName"></span><span id="drvCompany" style="font-size:10px;opacity:.7;font-weight:600;"></span></span>
   </button>
-  <a href="/help" target="_blank" rel="noopener" class="pill" id="helpPill" style="text-decoration:none;" title="Help &amp; how-to">Help</a>
-  <button class="pill" id="reportPill" type="button" title="Report a problem with the app">⚠ Report</button>
+  <a href="/help" target="_blank" rel="noopener" class="pill ico" id="helpPill" style="text-decoration:none;" title="Help &amp; how-to" aria-label="Help"><span class="pi" aria-hidden="true">?</span><span class="pl">Help</span></a>
+  <button class="pill ico" id="reportPill" type="button" title="Report a problem with the app" aria-label="Report a problem"><span aria-hidden="true">⚠</span><span class="pl">Report</span></button>
   <button class="pill" id="cloudPill" type="button"><span class="dot"></span><span id="cloudTxt">…</span></button>
 </header>
 
@@ -456,7 +482,7 @@
     <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,#3f74e0);">
       <div class="pulltitle">📋 Your loads <span id="myLoadsCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></div>
       <div id="myLoadsList"></div>
-      <div class="pullnote">Loads dispatch assigned to you — tap one to open it and sign.</div>
+      <div class="pullnote">Loads dispatch assigned to you — tap a load to open it, check in and sign.</div>
     </div>
     <!-- "Pull a prepared BOL" hidden for now — drivers open assigned loads from "Your loads" above. Kept in the
          DOM (its inputs/handlers stay wired) so it can be re-enabled later by removing the `hide` class. -->
@@ -982,6 +1008,8 @@ window.__startApp=function(){
       if($("drvCompany")) $("drvCompany").textContent = c ? (c + (kl?(" · "+kl):"")) : kl;
       b.classList.remove("hide");
     } else { b.classList.add("hide"); }
+    var bar=document.querySelector(".bar"); if(bar) bar.classList.toggle("hasdrv", !!n);
+    syncBarHeight();
   }
   // The driver's name comes from their personal link — no sign-on needed. A friendly daily welcome instead.
   var WELCOME_LINES=[
@@ -1383,6 +1411,8 @@ window.__startApp=function(){
       showView("route"); setTimeout(function(){ try{ loadMyLoads(); }catch(e){} },350);
     }catch(e){ console.error(e); toast("Couldn't build the corrected document"); }
   }
+  // Which load cards the driver has opened (by load key) — kept across the re-render after each check-in/pickup.
+  var _openLoads={};
   // Fetch loads dispatch assigned to THIS driver and show them at the top of the route.
   async function loadMyLoads(){
     var card=$("myLoadsCard"); if(!card) return;
@@ -1395,80 +1425,105 @@ window.__startApp=function(){
       var _j=(await r.json())||{}; if(_j.uiFlags) saveUiFlags(_j.uiFlags);
       var loads=_j.loads||[];
       if(!loads.length){ card.classList.add("hide"); return; }
+      renderMyLoads(loads);
+    }catch(e){ card.classList.add("hide"); }
+  }
+  var _lastMyLoads=[];
+  // Draw the "Your loads" cards. Opening/closing a card just redraws from the last fetch (no network round trip).
+  function renderMyLoads(loads){
+    var card=$("myLoadsCard"); if(!card) return;
+    _lastMyLoads=loads;
+    try{
       card.classList.remove("hide");
       // Group by PO#/load so a multi-stop load shows as ONE entry; tapping it lets the driver pick the stop.
       var groups=[], gmap={};
       loads.forEach(function(d){ var key=d.loadId||("po:"+(d.poNumber||"")); var g=gmap[key]; if(!g){ g=gmap[key]={key:key,poNumber:d.poNumber,loadNumber:d.loadNumber,consignee:d.consignee,docs:[]}; groups.push(g);} g.docs.push(d); });
       $("myLoadsCount").textContent="("+groups.length+")";
       var box=$("myLoadsList"); box.innerHTML="";
+      var timesOn = drvFieldOn("stopTimes");
+      // A load the driver can act on opens when tapped; with only one such load, open it straight away.
+      var actionable = groups.filter(function(g){ return g.docs.some(function(d){ return !d.awaiting || d.reupload || d.pickedUpAt; }); });
       groups.forEach(function(g){
         var reup = g.docs.filter(function(d){ return d.reupload; });
         var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload; });
         var waiting = g.docs.filter(function(d){ return d.awaiting && !d.reupload; });
-        var row=document.createElement("div");
-        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);";
         // Signing progress: total stops on the load and how many are already signed (from the server).
         var total = g.docs.reduce(function(m,d){ return Math.max(m, d.loadTotal||0); }, 0) || (ready.length+waiting.length);
         var signed = g.docs.reduce(function(m,d){ return Math.max(m, d.loadSigned||0); }, 0);
-        var sub = ready.length>1 ? (ready.length+" stop"+(ready.length===1?"":"s")+" to sign") : (g.consignee||"");
-        var right;
+        var loadId = g.docs[0] && g.docs[0].loadId;
+        var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
+        var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
+        var canOpen = !!(reup.length || ready.length || puAt);
+        var sub = ready.length>1 ? (ready.length+" stops to sign") : (g.consignee||"");
+        // One-line status shown on the closed card, so the driver can tell the loads apart at a glance.
+        var stat, statColor;
+        var atDel = null; ready.forEach(function(d){ var t=d.stopTimes; if(!atDel && t && t.inAt && !t.outAt) atDel={sn:d.stopNumber||1, at:t.inAt}; });
+        if(reup.length){ stat="📷 Dispatch asked you to re-shoot page "+(reup[0].rejectedPage||""); statColor="#b42318"; }
+        else if(!canOpen){ stat=""; sub="Sent to dispatch — they'll set it up"; }
+        else if(timesOn && atDel){ stat="🕘 At "+((total>1||ready.length>1)?("stop "+atDel.sn):"delivery")+" since "+timeStr(new Date(atDel.at)); statColor="#1f3b63"; }
+        else if(puAt){ stat="🚚 Picked up "+timeStr(new Date(puAt)); statColor="#146c2e"; }
+        else if(timesOn && puT && puT.inAt && !puT.outAt){ stat="🕘 At pickup since "+timeStr(new Date(puT.inAt)); statColor="#1f3b63"; }
+        else if(ready.length){ stat="✍ Ready to sign"; statColor="var(--primary)"; }
+        else { stat=""; }
+        if(signed>0 && total>0) stat=(stat?stat+" · ":"")+"✓ "+signed+" of "+total+" signed";
+        var cardEl=document.createElement("div"); cardEl.className="ldcard"+(reup.length?" reup":"");
+        var isOpen = canOpen && (_openLoads[g.key]!=null ? _openLoads[g.key] : actionable.length===1);
+        if(isOpen) cardEl.classList.add("open");
+        var right = canOpen
+          ? '<span class="ldchev" aria-hidden="true">›</span>'
+          : '<span style="background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
+        cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
+          '<div class="ldpo">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
+          (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
+          (stat?'<div class="ldstat" style="color:'+statColor+';">'+esc(stat)+'</div>':'')+
+          '</div>'+right+'</div>';
+        box.appendChild(cardEl);
+        if(!canOpen) return;
+        var head=cardEl.querySelector(".ldhead");
+        function toggle(){ _openLoads[g.key]=!cardEl.classList.contains("open"); renderMyLoads(_lastMyLoads); }
+        head.addEventListener("click", toggle);
+        head.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(); } });
+        if(!isOpen) return;
+        // ---- Opened load: everything the driver does on it ----
+        var body=document.createElement("div"); body.className="ldbody"; cardEl.appendChild(body);
+        function sec(t){ var h=document.createElement("div"); h.className="ldsec"; h.textContent=t; body.appendChild(h); }
+        function slot(pad){ var d=document.createElement("div"); d.style.cssText="padding:"+(pad||"2px 0 6px")+";"; body.appendChild(d); return d; }
         if(reup.length){
           // Dispatch bounced a page back — the re-shoot takes priority over any other action on this load.
-          right='<button class="btn sm myLoadReup" type="button" style="background:#b42318;color:#fff;border-color:#b42318;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+'</button>';
-          sub = "Dispatch asked you to re-shoot a page";
-        } else if(ready.length){
-          right='<button class="btn primary sm myLoadOpen" type="button">Open &amp; sign</button>';
-        } else {
-          // All docs on this load are still with dispatch — show a waiting badge, not a sign button.
-          right='<span style="background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
-          sub = "Sent to dispatch — they'll set it up";
+          var rs=slot(); rs.innerHTML='<div style="color:#b42318;font-size:12px;font-weight:700;margin-bottom:6px;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+(reup[0].rejectReason?(" — "+esc(reup[0].rejectReason)):"")+'</div>'+
+            '<button class="btn sm" type="button" style="background:#b42318;color:#fff;border-color:#b42318;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+'</button>';
+          rs.querySelector("button").addEventListener("click", function(){ openReupload(reup[0]); });
         }
-        // Once at least one stop is signed, show the progress + how many still need signing so the driver knows
-        // to come back for the rest (e.g. after signing Stop 1 of 2).
-        var progLine = (signed>0 && total>0)
-          ? '<div style="color:#146c2e;font-size:12px;font-weight:700;margin-top:2px;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed'+(ready.length? ' · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing':'')+'</div>'
-          : '';
-        var reupLine = reup.length ? '<div style="color:#b42318;font-size:12px;font-weight:700;margin-top:2px;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+(reup[0].rejectReason?(" — "+esc(reup[0].rejectReason)):"")+'</div>' : '';
-        row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:14px;">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
-          (sub?'<div style="color:var(--muted);font-size:13px;">'+esc(sub)+'</div>':'')+
-          reupLine+
-          progLine+
-          (ready.length && waiting.length ? '<div style="color:#b5731a;font-size:12px;margin-top:2px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>' : '')+
-          '</div>'+ right;
-        var ob=row.querySelector(".myLoadOpen");
-        if(ob) ob.addEventListener("click", async function(){
-          var d = ready.length>1 ? await chooseStop(ready) : ready[0];
-          if(d) openPreparedDoc(d);
-        });
-        var rub=row.querySelector(".myLoadReup");
-        if(rub) rub.addEventListener("click", function(){ openReupload(reup[0]); });
-        box.appendChild(row);
         // Pickup complete (per load): one-tap GPS + time so dispatch sees the freight is picked up. No signature.
         // Only offered once dispatch has set the signature up (a "ready" stop) — not while the load is still
         // "waiting on dispatch". If it was already picked up, keep showing that status either way.
-        var loadId = g.docs[0] && g.docs[0].loadId;
-        var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         if(loadId && (ready.length || puAt)){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
-          var timesOn = drvFieldOn("stopTimes");
+          sec("Pickup");
           // In/out times (account setting): the pickup check-in sits just above the Pickup complete button.
-          if(timesOn){
-            var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
-            var ptb=document.createElement("div"); ptb.style.cssText="padding:2px 0 4px;"; box.appendChild(ptb);
-            renderStopTimes(ptb, loadId, "pickup", 0, "pickup", puT);
-          }
-          var pr=document.createElement("div"); pr.style.cssText="padding:2px 0 8px;";
-          box.appendChild(pr);
+          if(timesOn) renderStopTimes(slot("2px 0 4px"), loadId, "pickup", 0, "pickup", puT);
+          var pr=slot("2px 0 8px");
           if(puAt) renderPickedUp(pr, loadId, puAt, puGps, 0);
           else showPickupButton(pr, loadId);
           // Once the freight is picked up, each stop still to deliver gets its own Check in / Check out.
-          if(timesOn && puAt){
+          if(timesOn && puAt && ready.length){
             var multi = total>1 || ready.length>1;
+            sec(multi?"Delivery stops":"Delivery");
             ready.forEach(function(d){
-              var sn=d.stopNumber||1, sb=document.createElement("div"); sb.style.cssText="padding:2px 0 6px;"; box.appendChild(sb);
-              renderStopTimes(sb, loadId, "delivery", sn, multi?("Stop "+sn):"delivery", d.stopTimes);
+              var sn=d.stopNumber||1;
+              renderStopTimes(slot(), loadId, "delivery", sn, multi?("Stop "+sn):"delivery", d.stopTimes);
             });
           }
+        }
+        if(ready.length){
+          sec("Paperwork");
+          if(signed>0 && total>0){ var pl=slot("0 0 4px"); pl.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing</div>'; }
+          if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
+          var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open &amp; sign</button>';
+          os.querySelector("button").addEventListener("click", async function(){
+            var d = ready.length>1 ? await chooseStop(ready) : ready[0];
+            if(d) openPreparedDoc(d);
+          });
         }
       });
     }catch(e){ card.classList.add("hide"); }
@@ -1629,7 +1684,7 @@ window.__startApp=function(){
   }
   // ---- In/out times (account setting "stopTimes"): Check in on arrival at a stop, Check out on leaving. The
   //      server also checks the driver out automatically at Pickup complete and when a stop's documents are sent. ----
-  function durStr(ms){ var m=Math.max(0,Math.round(ms/60000)); return m<60 ? (m+" min") : (Math.floor(m/60)+" h "+(m%60)+" min"); }
+  function durStr(ms){ var m=Math.max(0,Math.round(ms/60000)); if(m<1) return "under 1 min"; return m<60 ? (m+" min") : (Math.floor(m/60)+" h "+(m%60)+" min"); }
   function renderStopTimes(container, loadId, kind, stop, label, t){
     t=t||{};
     if(!t.inAt && !t.outAt){
