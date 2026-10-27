@@ -1710,12 +1710,12 @@ window.__startApp=function(){
         (t.inAt?('In '+timeStr(new Date(t.inAt))):'')+
         (t.outAt?((t.inAt?' · ':'')+'Out '+timeStr(new Date(t.outAt))+(t.inAt?' ('+durStr(t.outAt-t.inAt)+')':'')):'')+
         (open?' <a href="#" class="stUndo" style="color:#b42318;margin-left:6px;text-decoration:underline;">Undo</a>':'')+'</div>'+
-        // Pickup has no separate Check out — "Pickup complete" checks the driver out of pickup.
-        ((open && kind!=="pickup")?'<button class="btn sm stOut" type="button" style="margin-top:4px;">Check out of '+esc(label)+'</button>':'');
+        // No separate Check out buttons: "Pickup complete" checks the driver out of pickup, and sending the signed
+        // documents checks them out of the delivery stop (the server stamps both).
+        ((open && kind==="delivery")?'<div style="color:var(--muted);font-size:12px;margin-top:2px;">Sign the paperwork below to check out.</div>':'');
     }
-    var bi=container.querySelector(".stIn"), bo=container.querySelector(".stOut"), un=container.querySelector(".stUndo");
+    var bi=container.querySelector(".stIn"), un=container.querySelector(".stUndo");
     if(bi) bi.addEventListener("click", function(){ markStopTime(loadId, kind, stop, "in", false, bi); });
-    if(bo) bo.addEventListener("click", function(){ markStopTime(loadId, kind, stop, "out", false, bo); });
     if(un) un.addEventListener("click", function(e){ e.preventDefault(); markStopTime(loadId, kind, stop, "in", true, un); });
   }
   async function markStopTime(loadId, kind, stop, action, undo, el){
