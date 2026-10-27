@@ -2716,13 +2716,16 @@
     const _roles = (user && user.orgRoles) || [];
     const isCB = user && (user.orgKind === 'carrier' || user.orgKind === 'broker' || _roles.indexOf('carrier') > -1 || _roles.indexOf('broker') > -1);
     const owns = curLoad && (curLoad.orgId || null) === ((user && user.orgId) || null);
+    // The account dropdown is a type-to-search box, so show/hide its search wrapper along with it.
+    const showAcctSel = (on) => { if (!sel) return; sel.classList.toggle('hide', !on); if (sel.parentNode && sel.parentNode.classList.contains('ss-wrap')) sel.parentNode.classList.toggle('hide', !on); };
     if (isSuper) {
       try {
         const r = await api('/api/orgs'); const orgs = (r.orgs || []);
         sel.innerHTML = '';
         orgs.forEach(o => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.name; sel.appendChild(op); });
         if (curLoad && curLoad.orgId) sel.value = curLoad.orgId;
-        sel.classList.remove('hide'); if (pickWrap) pickWrap.classList.add('hide');
+        ssApply(sel, 'Type to search accounts…');
+        showAcctSel(true); if (pickWrap) pickWrap.classList.add('hide');
         if (hint) hint.textContent = 'which account owns this PO';
         row.classList.remove('hide');
       } catch (e) { row.classList.add('hide'); }
@@ -2731,7 +2734,7 @@
     if (isCB && owns) {
       // Simple mode: if Customer is turned off for this org, hide the whole row (data is kept, just not shown).
       if (!fieldOn('customer')) { row.classList.add('hide'); return; }
-      if (sel) sel.classList.add('hide');
+      showAcctSel(false);
       if (pickWrap) pickWrap.classList.remove('hide');
       if (hint) hint.textContent = 'pick from your list, or add / find a customer';
       row.classList.remove('hide');
@@ -3135,7 +3138,7 @@
   function applyCustomerDefaultRep(custId) {
     const def = customerDefaultRepId(custId); if (!def) return;
     const box = $('ldDocs'); if (!box) return;
-    box.querySelectorAll('.ldRepEdit').forEach(sel => { if (!sel.value) { sel.value = def; sel.dataset.prev = def; } });
+    box.querySelectorAll('.ldRepEdit').forEach(sel => { if (!sel.value) { sel.value = def; sel.dataset.prev = def; ssSync(sel); } });
   }
   // Append the "Set aside" section (parked docs kept when a page was sent back to re-shoot) under the docs table.
   // Parked docs are not active and are never sent to a driver; the dispatcher restores one to put it back in play.
@@ -3306,13 +3309,15 @@
             if (id) {
               const rc = (_recvList || []).find(r => r.id === id);
               injectInlineRecvOption(id, rc ? rc.name : 'New receiver');
-              sel.value = id; sel.dataset.prev = id;
+              sel.value = id; sel.dataset.prev = id; ssSync(sel);
             }
           });
         } });
       };
     });
     wireInlineRepSelects(box);
+    box.querySelectorAll('.ldRecvEdit').forEach(sel => ssApply(sel, 'Search receivers…'));
+    box.querySelectorAll('.ldRepEdit').forEach(sel => ssApply(sel, 'Search sales reps…'));
     appendParkedSection(box, parkedPods, editing);
     annotatePageCounts(pods);
   }
@@ -3368,7 +3373,7 @@
             if (id) {
               const u = (_repList || []).find(x => x.id === id);
               injectInlineRepOptions(id, u ? (u.name || u.email) : 'New sales rep');
-              sel.value = id; sel.dataset.prev = id;
+              sel.value = id; sel.dataset.prev = id; ssSync(sel);
             }
           });
         } });
@@ -4189,7 +4194,7 @@
       }
       else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
-      if (s.key === 'customer') { makeSearchable(sel, 'Type to search customers…'); if (sel._ssSync) sel._ssSync(); }
+      ssApply(sel, { customer: 'Type to search customers…', driver: 'Type to search drivers…', delivered: 'Type to search receivers…', salesrep: 'Type to search sales reps…' }[s.key] || 'Type to search…');
       // Let the dispatcher add a customer right here when the list is empty (or the right one isn't in it yet).
       if (s.key === 'customer' && typeof openCustModal === 'function') {
         const addBtn = document.createElement('button');
@@ -4756,6 +4761,7 @@
       if (!r.carriers || !r.carriers.length) sel.innerHTML = '<option value="">— no saved carriers yet —</option>';
       else sel.innerHTML = '<option value="">— choose a saved carrier —</option>' + r.carriers.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
     } catch (e) { sel.innerHTML = '<option value="">' + e.message + '</option>'; }
+    ssApply(sel, 'Type to search saved carriers…');
   }
   if ($('ldRosterBtn')) $('ldRosterBtn').onclick = async () => {
     const carrierId = $('ldRosterSel') ? $('ldRosterSel').value : '';
@@ -4771,6 +4777,7 @@
       if (!r.carriers.length) $('ldApprovedSel').innerHTML = '<option value="">— approve a carrier first —</option>';
       else $('ldApprovedSel').innerHTML = r.carriers.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
     } catch (e) { $('ldApprovedSel').innerHTML = '<option value="">' + e.message + '</option>'; }
+    ssApply($('ldApprovedSel'), 'Type to search approved carriers…');
   }
   $('ldApprovedBtn').onclick = async () => {
     const carrierId = $('ldApprovedSel').value;
@@ -4955,13 +4962,15 @@
         sel.appendChild(o);
       });
     } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
+    ssApply(sel, 'Type to search drivers…');
     _ldLastSavedDriverId = _ldSelectedDriverId;   // baseline: the driver already on the load, so auto-save won't re-assign it
   }
   let _ldDrvMsgTimer = null;
   if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () {
     _ldSelectedDriverId = this.value || '';
     // Immediate feedback while the auto-save runs; it flips to "Saved ✓" when the assign completes.
-    if ($('ldDrvMsg')) { clearTimeout(_ldDrvMsgTimer); $('ldDrvMsg').textContent = _ldSelectedDriverId ? 'Saving…' : ''; $('ldDrvMsg').className = ''; }
+    // Only when the driver actually changed — re-picking the same one (e.g. the guide's Next) saves nothing.
+    if ($('ldDrvMsg')) { clearTimeout(_ldDrvMsgTimer); $('ldDrvMsg').textContent = (_ldSelectedDriverId && _ldSelectedDriverId !== _ldLastSavedDriverId) ? 'Saving…' : ''; $('ldDrvMsg').className = ''; }
   };
   $('ldDrvBtn').onclick = async () => {
     clearTimeout(_ldDrvMsgTimer);
@@ -5946,13 +5955,16 @@
     input.placeholder = placeholder || 'Type to search…'; wrap.appendChild(input);
     var panel = document.createElement('div'); panel.className = 'ss-panel'; panel.style.display = 'none'; wrap.appendChild(panel);
     var hi = -1, cur = [];
-    function label(){ var o = sel.options[sel.selectedIndex]; var t = o ? o.text : ''; return (t === '— none —' || t === '— none (top-level) —' || t === '— No customer —') ? '' : t; }
-    function sync(){ input.value = label(); }
+    // An empty-value option ("— none —", "— choose a driver —", …) shows as the placeholder, not as text.
+    function label(){ var o = sel.options[sel.selectedIndex]; return (o && o.value !== '') ? o.text : ''; }
+    function sync(){ input.value = label(); input.disabled = sel.disabled; }
     sel._ssSync = sync;
+    sel.addEventListener('change', function(){ if(panel.style.display === 'none') sync(); });
     function render(f){
       f = (f||'').toLowerCase().trim(); hi = -1;
+      // "＋ Add new…" stays in the list whatever you type, so you can always add one that isn't there.
       cur = Array.prototype.map.call(sel.options, function(o){ return {v:o.value, t:o.text}; })
-        .filter(function(o){ return !f || o.t.toLowerCase().indexOf(f) >= 0; });
+        .filter(function(o){ return !f || o.v === '__add__' || o.t.toLowerCase().indexOf(f) >= 0; });
       panel.innerHTML = '';
       if(!cur.length){ var e = document.createElement('div'); e.className = 'ss-empty'; e.textContent = 'No matches'; panel.appendChild(e); return; }
       cur.slice(0, 300).forEach(function(o){
@@ -5962,8 +5974,27 @@
       });
     }
     function choose(v){ sel.value = v; try { sel.dispatchEvent(new Event('change', {bubbles:true})); } catch(e){} close(); }
-    function open(){ input.value = ''; render(''); panel.style.display = 'block'; }
-    function close(){ panel.style.display = 'none'; sync(); }
+    // Inside a scrolling box (e.g. the stops table) the list would be cut off at the box's edge — float it over
+    // the page instead, and close it if the page scrolls out from under it.
+    function onScroll(ev){ if(ev.target !== panel){ input.blur(); close(); } }
+    function place(){
+      panel.style.position = ''; panel.style.left = panel.style.top = panel.style.width = panel.style.right = '';
+      var pr = panel.getBoundingClientRect();
+      for(var el = wrap.parentElement; el && el !== document.body; el = el.parentElement){
+        var cs = getComputedStyle(el);
+        if(cs.transform !== 'none') return;   // position:fixed misbehaves under a transform — leave it in place
+        if(cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        var br = el.getBoundingClientRect();
+        if(pr.bottom <= br.bottom && pr.right <= br.right) continue;
+        var r = input.getBoundingClientRect();
+        panel.style.position = 'fixed'; panel.style.left = r.left + 'px'; panel.style.top = r.bottom + 'px';
+        panel.style.width = Math.max(r.width, 240) + 'px'; panel.style.right = 'auto';
+        window.addEventListener('scroll', onScroll, true);
+        return;
+      }
+    }
+    function open(){ input.value = ''; render(''); panel.style.display = 'block'; place(); }
+    function close(){ panel.style.display = 'none'; window.removeEventListener('scroll', onScroll, true); sync(); }
     input.addEventListener('focus', open);
     input.addEventListener('input', function(){ panel.style.display = 'block'; render(input.value); });
     input.addEventListener('keydown', function(ev){
@@ -5978,6 +6009,10 @@
     input.addEventListener('blur', function(){ setTimeout(close, 130); });
     sync();
   }
+  // Make a <select> type-to-search (once) and refresh what its box shows. Call again after changing its
+  // options or setting .value in code — setting .value doesn't fire an event, so the box can't see it.
+  function ssApply(sel, placeholder){ if(!sel) return; makeSearchable(sel, placeholder); if(sel._ssSync) sel._ssSync(); }
+  function ssSync(sel){ if(sel && sel._ssSync) sel._ssSync(); }
   function fillReceiverPickers(list){
     const active = list.filter(r => r.active !== false);
     const opts = '<option value="">— none —</option>' + active.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
@@ -6413,7 +6448,7 @@
   // "+ Add / create driver" on the load → create a driver, then select them for this load.
   if ($('ldDriverAdd')) $('ldDriverAdd').onclick = () => openDriverModal({ onDone: async (id, name) => {
     await populateLdDrivers();
-    if (id && $('ldDrvSelect')) { $('ldDrvSelect').value = id; _ldSelectedDriverId = id; }
+    if (id && $('ldDrvSelect')) { $('ldDrvSelect').value = id; _ldSelectedDriverId = id; ssSync($('ldDrvSelect')); }
   } });
   // "Not set — tap to add" opens the driver section and jumps straight to creating a driver.
   if ($('ldDrvSummary')) $('ldDrvSummary').onclick = (e) => {
