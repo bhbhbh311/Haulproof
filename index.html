@@ -2695,6 +2695,10 @@
     _myCustomers.forEach(c => { const op = document.createElement('option'); op.value = c.id; op.textContent = c.name; pick.appendChild(op); });
     if (selectedId && _myCustomers.some(c => c.id === selectedId)) pick.value = selectedId;
     else pick.value = '';
+    // Type-to-search box instead of Chrome's native dropdown (which was drawing a blank list for some users).
+    makeSearchable(pick, 'Type to search customers…');
+    if (pick.parentNode && pick.parentNode.classList.contains('ss-wrap')) { pick.parentNode.style.flex = '1'; pick.parentNode.style.minWidth = '180px'; }
+    if (pick._ssSync) pick._ssSync();
     // Mark the picker "ready": the customer list has loaded and the current value reflects the real selection. Until
     // this is set, auto-save must NOT send customerId — an empty value mid-load would wrongly clear the load's customer.
     pick.dataset.ready = '1';
@@ -4185,6 +4189,7 @@
       }
       else { sel.innerHTML = '<option value="">' + (s.emptyText || '— none available —') + '</option>'; }
       body.appendChild(sel);
+      if (s.key === 'customer') { makeSearchable(sel, 'Type to search customers…'); if (sel._ssSync) sel._ssSync(); }
       // Let the dispatcher add a customer right here when the list is empty (or the right one isn't in it yet).
       if (s.key === 'customer' && typeof openCustModal === 'function') {
         const addBtn = document.createElement('button');
@@ -5941,7 +5946,7 @@
     input.placeholder = placeholder || 'Type to search…'; wrap.appendChild(input);
     var panel = document.createElement('div'); panel.className = 'ss-panel'; panel.style.display = 'none'; wrap.appendChild(panel);
     var hi = -1, cur = [];
-    function label(){ var o = sel.options[sel.selectedIndex]; var t = o ? o.text : ''; return (t === '— none —' || t === '— none (top-level) —') ? '' : t; }
+    function label(){ var o = sel.options[sel.selectedIndex]; var t = o ? o.text : ''; return (t === '— none —' || t === '— none (top-level) —' || t === '— No customer —') ? '' : t; }
     function sync(){ input.value = label(); }
     sel._ssSync = sync;
     function render(f){
