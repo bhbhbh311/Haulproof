@@ -417,7 +417,7 @@ router.get('/my-documents', (req, res) => {
   if (!r || !r.driver) return res.json({ docs: [] });
   const q = (req.query.q || '').trim();
   const args = [r.driver.id, r.driver.name || '', r.driver.orgId || null];
-  let where = '', lim = 30;
+  let where = '', lim = 60;
   if (q) {
     where = ` AND (poNumber LIKE ? OR loadNumber LIKE ? OR consignee LIKE ? OR receiverName LIKE ? OR filename LIKE ?)`;
     const like = '%' + q + '%'; args.push(like, like, like, like, like); lim = 200;

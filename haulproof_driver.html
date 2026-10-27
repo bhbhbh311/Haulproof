@@ -1534,7 +1534,8 @@ window.__startApp=function(){
           sec("Paperwork");
           if(signed>0 && total>0){ var pl=slot("0 0 4px"); pl.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing</div>'; }
           if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
-          var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open &amp; sign</button>';
+          // Signing and sending the paperwork is what completes the delivery (and checks the driver out of the stop).
+          var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
           os.querySelector("button").addEventListener("click", async function(){
             var d = ready.length>1 ? await chooseStop(ready) : ready[0];
             if(d) openPreparedDoc(d);
@@ -3833,6 +3834,12 @@ window.__startApp=function(){
       // Group by load (PO#): a multi-stop load shows as ONE entry you expand to see each stop's doc.
       var groups=[], gmap={};
       docs.forEach(function(d){ var k=d.loadId||("po:"+(d.poNumber||"")); var g=gmap[k]; if(!g){ g=gmap[k]={key:k,poNumber:d.poNumber,loadNumber:d.loadNumber,consignee:d.consignee,docs:[]}; groups.push(g);} g.docs.push(d); });
+      // Without a search, list only the 10 most recent loads — older ones are found with the search box.
+      var RECENT_MAX=10;
+      if(!q && groups.length>RECENT_MAX){
+        groups=groups.slice(0,RECENT_MAX);
+        if($("recentDocsNote")) $("recentDocsNote").textContent="Your 10 most recent loads — search by PO #, consignee or receiver to find older ones.";
+      }
       function docLine(d, isChild){
         var row=document.createElement("div");
         row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0 9px "+(isChild?"14px":"0")+";border-top:1px solid var(--line);"+(isChild?"background:#fafcff;":"");
