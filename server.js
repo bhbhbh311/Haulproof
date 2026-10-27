@@ -40,8 +40,12 @@ const _jsonSmall = express.json({ limit: '2mb' });
 const _jsonPhotos = express.json({ limit: '28mb' });
 app.use((req, res, next) => {
   if (/(?:\/pickup|\/delivery-photos)(?:$|[/?])/.test(req.path)) return _jsonPhotos(req, res, next);
+  if (req.path === '/mcp') return _jsonPhotos(req, res, next);   // AI connector: attach_document carries a base64 PDF
   return _jsonSmall(req, res, next);
 });
+
+// AI connector (MCP + its OAuth sign-in, and the portal's "AI connections" list). See mcp.js.
+app.use(require('./mcp'));
 
 const SESSION_SECURE = (process.env.PORTAL_URL || '').startsWith('https://');
 

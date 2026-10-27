@@ -1294,6 +1294,17 @@
       <div id="settingsHost"></div>
     </div>
 
+    <!-- Settings tab: AI apps (Claude etc.) this login has connected through the HaulProof connector (mcp.js). -->
+    <div class="card hide" id="aiConnCard">
+      <h1>AI connections</h1>
+      <p class="sub">Connect an AI app like Claude so it can look up and create loads, assign drivers, add customers and attach documents for you. It works as <b>your</b> login, with the same permissions. In Claude: <b>Settings → Connectors → Add custom connector</b>, paste this address, then sign in and click Allow.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 14px;">
+        <input id="aiConnUrl" readonly style="flex:1;min-width:220px;font-family:ui-monospace,Consolas,monospace;font-size:13px;">
+        <button class="ghost" id="aiConnCopy" type="button">Copy</button>
+      </div>
+      <div id="aiConnList"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -1652,6 +1663,8 @@
       var _canManageAcct = u.role !== 'superadmin' && (u.role === 'admin' || hasCap('manage_users'))
         && ['customer','carrier','broker'].some(function(r){ return roles.indexOf(r) > -1; });
       show('settingsCard', !!_canManageAcct);
+      // Anyone with a company login can connect an AI app (it acts as them), so this card isn't admin-only.
+      show('aiConnCard', u.role !== 'superadmin' && !!u.orgId);
     } catch(e){}
     buildTabs();
     refreshAwaitingBadge();
@@ -1770,7 +1783,7 @@
     { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
-    { key:'settings',  label:'Settings',   cards:['settingsCard'] },
+    { key:'settings',  label:'Settings',   cards:['settingsCard','aiConnCard'] },
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
@@ -1860,11 +1873,36 @@
     if(key==='settings' && $('settingsCard') && !$('settingsCard').classList.contains('hide')){
       try { refreshOrgFields().then(function(){ renderFieldToggles(); }); } catch(e){ try { renderFieldToggles(); } catch(_){} }
     }
+    if(key==='settings' && $('aiConnCard') && !$('aiConnCard').classList.contains('hide')){ try { loadAiConnections(); } catch(e){} }
     var active={};
     TAB_DEFS.forEach(function(t){ if(t.key===key){ t.cards.forEach(function(c){ active[c]=1; }); } });
     TAB_DEFS.forEach(function(t){ t.cards.forEach(function(c){ var el=$(c); if(el) el.classList.toggle('tabhidden', !active[c]); }); });
     var bar=$('tabBar'); if(bar){ Array.prototype.forEach.call(bar.children, function(btn){ btn.classList.toggle('active', btn.getAttribute('data-tab')===key); }); }
   }
+  // --- AI connections (Settings tab): the connector address to paste into an AI app, and the apps this login has
+  //     connected, each with a Disconnect that revokes its access right away. ---
+  async function loadAiConnections(){
+    var box=$('aiConnList'); if(!box) return;
+    if($('aiConnUrl')) $('aiConnUrl').value = location.origin + '/mcp';
+    try {
+      var r = await api('/api/ai-connections'); var list = r.connections || [];
+      if(!list.length){ box.innerHTML='<div class="empty">No AI apps connected yet.</div>'; return; }
+      var fmt=function(ms){ try { return ms ? new Date(ms).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '—'; } catch(e){ return '—'; } };
+      box.innerHTML = '<table><thead><tr><th>App</th><th>Connected</th><th>Last used</th><th></th></tr></thead><tbody>' + list.map(function(c){
+        return '<tr><td><b>'+esc(c.name)+'</b></td><td>'+esc(fmt(c.connectedAt))+'</td><td>'+esc(fmt(c.lastUsedAt))+'</td>'
+          + '<td style="text-align:right;"><button class="ghost aiDisc" data-id="'+esc(c.clientId)+'" data-name="'+esc(c.name)+'" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Disconnect</button></td></tr>';
+      }).join('') + '</tbody></table>';
+      Array.prototype.forEach.call(box.querySelectorAll('.aiDisc'), function(b){ b.onclick = async function(){
+        if(!confirm('Disconnect '+b.getAttribute('data-name')+'? It will lose access to HaulProof right away. You can connect it again later.')) return;
+        try { await api('/api/ai-connections/'+encodeURIComponent(b.getAttribute('data-id')), { method:'DELETE' }); loadAiConnections(); } catch(e){ alert(e.message); }
+      }; });
+    } catch(e){ box.innerHTML='<div class="empty">Couldn’t load AI connections.</div>'; }
+  }
+  if($('aiConnCopy')) $('aiConnCopy').onclick = function(){
+    var v = $('aiConnUrl') ? $('aiConnUrl').value : '';
+    try { navigator.clipboard.writeText(v).then(function(){ $('aiConnCopy').textContent='Copied ✓'; setTimeout(function(){ $('aiConnCopy').textContent='Copy'; }, 1500); }); }
+    catch(e){ $('aiConnUrl').select(); }
+  };
   // --- Invite link (all users) + access-request inbox (super-admin) ---
   function loadInviteLink(){ var el=$('inviteLink'); if(el) el.value = location.origin + '/request'; }
   // Super-admin storage gauge: shows document storage used vs the app disk budget, and warns as it fills.
