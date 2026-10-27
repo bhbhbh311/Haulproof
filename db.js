@@ -163,6 +163,11 @@ addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature templ
 addColumn('orgs',  'aiEnabled', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('orgs',  'aiMonthlyCapUsd', 'REAL');
 addColumn('orgs',  'aiPricePerDocUsd', 'REAL');
+// AI plan: NULL/'trial' = free trial credit (default for everyone), 'paid' = on with the monthly cap and price,
+// 'unlimited' = internal / test account (never capped or charged), 'off'. aiFreeCreditUsd NULL means the default $10.
+addColumn('orgs',  'aiPlan', 'TEXT');
+addColumn('orgs',  'aiFreeCreditUsd', 'REAL');
+addColumn('orgs',  'aiRequestedAt', 'INTEGER');        // when the company admin last asked for more AI
 addColumn('pods',  'emailStatus', 'TEXT');
 addColumn('pods',  'emailError', 'TEXT');
 addColumn('pods',  'emailFailedTo', 'TEXT');          // JSON array of addresses that still need the copy

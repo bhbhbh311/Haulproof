@@ -158,14 +158,32 @@ function monthSpend(orgId) {
   const r = db.prepare(`SELECT COALESCE(SUM(costUsd),0) s FROM ai_usage WHERE orgId IS ? AND createdAt >= ?`).get(orgId || null, monthStart());
   return r ? r.s : 0;
 }
-// May this company use AI right now? { ok, reason: 'not_configured' | 'off' | 'cap', message }
+const DEFAULT_FREE_CREDIT = Number(process.env.AI_FREE_CREDIT_USD || 10);
+function lifetimeSpend(orgId) {
+  const r = db.prepare(`SELECT COALESCE(SUM(costUsd),0) s FROM ai_usage WHERE orgId IS ?`).get(orgId || null);
+  return r ? r.s : 0;
+}
+function planOf(org) { return org.aiPlan || (org.aiEnabled ? 'paid' : 'trial'); }
+function creditOf(org) { return org.aiFreeCreditUsd != null ? Number(org.aiFreeCreditUsd) : DEFAULT_FREE_CREDIT; }
+// Show Me Trucking is HaulProof's own test account: unlimited and never charged (set once; change it on the Dashboard).
+try { db.prepare(`UPDATE orgs SET aiPlan = 'unlimited' WHERE aiPlan IS NULL AND UPPER(name) LIKE 'SHOW ME TRUCKING%'`).run(); } catch (e) {}
+
+// May this company use AI right now? { ok, plan, reason: 'not_configured' | 'off' | 'trial_used' | 'cap', message, … }
 function aiAccess(orgId) {
+  const org = orgId ? db.prepare(`SELECT name, aiEnabled, aiPlan, aiMonthlyCapUsd, aiFreeCreditUsd FROM orgs WHERE id = ?`).get(orgId) : null;
   if (!client()) return { ok: false, reason: 'not_configured', message: 'AI isn’t set up on this server.' };
-  const org = orgId ? db.prepare(`SELECT name, aiEnabled, aiMonthlyCapUsd FROM orgs WHERE id = ?`).get(orgId) : null;
-  if (!org || !org.aiEnabled) return { ok: false, reason: 'off', message: 'AI features aren’t turned on for this company — ask HaulProof to enable them.' };
+  if (!org) return { ok: false, reason: 'off', message: 'AI features aren’t available for this login.' };
+  const plan = planOf(org);
+  if (plan === 'unlimited') return { ok: true, plan };
+  if (plan === 'off') return { ok: false, plan, reason: 'off', message: 'AI features are turned off for this company — ask HaulProof to turn them on.' };
+  if (plan === 'trial') {
+    const credit = creditOf(org), used = lifetimeSpend(orgId);
+    if (used >= credit) return { ok: false, plan, reason: 'trial_used', message: 'Your free AI credit ($' + credit.toFixed(2) + ') is used up — request more from Settings. Saved layouts keep working for free.', credit, used, left: 0 };
+    return { ok: true, plan, credit, used, left: credit - used };
+  }
   const cap = Number(org.aiMonthlyCapUsd) || 0, spent = monthSpend(orgId);
-  if (cap > 0 && spent >= cap) return { ok: false, reason: 'cap', message: 'This company has reached its AI limit for the month ($' + cap.toFixed(2) + ').', spent, cap };
-  return { ok: true, spent, cap };
+  if (cap > 0 && spent >= cap) return { ok: false, plan, reason: 'cap', message: 'This company has reached its AI limit for the month ($' + cap.toFixed(2) + ').', spent, cap };
+  return { ok: true, plan, spent, cap };
 }
 
 function loadDoc(req, res) {
@@ -189,7 +207,7 @@ router.get('/ai-status', requireAuth, (req, res) => {
   let orgId = req.user.orgId || null;
   if (req.query.pod) { const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(String(req.query.pod)); if (row && podsRouter.canAccess(req, row)) orgId = row.orgId || orgId; }
   const acc = aiAccess(orgId);
-  res.json({ enabled: acc.ok, reason: acc.reason || null, message: acc.message || null, model: acc.ok ? MODEL : null });
+  res.json({ enabled: acc.ok, plan: acc.plan || null, reason: acc.reason || null, message: acc.message || null, creditLeftUsd: acc.left != null ? Math.round(acc.left * 100) / 100 : null, model: acc.ok ? MODEL : null });
 });
 
 router.post('/:id/ai-place', requireAuth, express.json({ limit: '25mb' }), async (req, res) => {
@@ -242,15 +260,18 @@ usageRouter.get('/', requireAuth, requireSuper, (req, res) => {
       SUM(CASE WHEN kind IN ('place','place-server') THEN 1 ELSE 0 END) places, SUM(CASE WHEN kind='command' THEN 1 ELSE 0 END) commands, SUM(CASE WHEN kind='review' THEN 1 ELSE 0 END) reviews
     FROM ai_usage WHERE createdAt >= ? AND createdAt < ? GROUP BY orgId`).all(from, to);
   const byOrg = {}; rows.forEach(r => { byOrg[r.orgId || ''] = r; });
-  const orgs = db.prepare(`SELECT id, name, kind, active, aiEnabled, aiMonthlyCapUsd, aiPricePerDocUsd FROM orgs ORDER BY name COLLATE NOCASE`).all();
+  const orgs = db.prepare(`SELECT id, name, kind, active, aiEnabled, aiPlan, aiMonthlyCapUsd, aiPricePerDocUsd, aiFreeCreditUsd, aiRequestedAt FROM orgs ORDER BY name COLLATE NOCASE`).all();
+  const life = {}; db.prepare(`SELECT orgId, SUM(costUsd) s FROM ai_usage GROUP BY orgId`).all().forEach(r => { life[r.orgId || ''] = r.s || 0; });
   // Receivers only view delivered documents and never run AI — leave them out unless they somehow have usage.
-  const list = orgs.filter(o => (o.active && o.kind !== 'receiver') || byOrg[o.id] || o.aiEnabled).map(o => {
-    const u = byOrg[o.id] || {}, price = Number(o.aiPricePerDocUsd) || 0, cost = u.cost || 0, docs = u.docs || 0;
-    return { orgId: o.id, name: o.name, kind: o.kind, aiEnabled: !!o.aiEnabled, capUsd: o.aiMonthlyCapUsd, pricePerDocUsd: o.aiPricePerDocUsd,
-      docs, runs: u.runs || 0, places: u.places || 0, commands: u.commands || 0, reviews: u.reviews || 0, costUsd: cost, chargeUsd: docs * price, marginUsd: docs * price - cost };
+  const list = orgs.filter(o => (o.active && o.kind !== 'receiver') || byOrg[o.id] || o.aiEnabled || o.aiPlan === 'paid' || o.aiPlan === 'unlimited').map(o => {
+    const u = byOrg[o.id] || {}, price = Number(o.aiPricePerDocUsd) || 0, cost = u.cost || 0, docs = u.docs || 0, plan = planOf(o);
+    const charge = plan === 'paid' ? docs * price : 0;   // trial and test accounts are never charged
+    return { orgId: o.id, name: o.name, kind: o.kind, plan, aiEnabled: plan !== 'off', capUsd: o.aiMonthlyCapUsd, pricePerDocUsd: o.aiPricePerDocUsd,
+      creditUsd: creditOf(o), lifetimeUsd: life[o.id] || 0, requestedAt: o.aiRequestedAt || null,
+      docs, runs: u.runs || 0, places: u.places || 0, commands: u.commands || 0, reviews: u.reviews || 0, costUsd: cost, chargeUsd: charge, marginUsd: charge - cost };
   });
   // Companies with AI on or AI use this month first (most cost first), then the rest alphabetically.
-  list.sort((x, y) => ((y.aiEnabled || y.runs ? 1 : 0) - (x.aiEnabled || x.runs ? 1 : 0)) || (y.costUsd - x.costUsd) || String(x.name).localeCompare(String(y.name)));
+  list.sort((x, y) => ((y.runs || y.requestedAt || y.plan === 'paid' || y.plan === 'unlimited' ? 1 : 0) - (x.runs || x.requestedAt || x.plan === 'paid' || x.plan === 'unlimited' ? 1 : 0)) || (y.costUsd - x.costUsd) || String(x.name).localeCompare(String(y.name)));
   if (byOrg['']) list.push({ orgId: null, name: '(no company — master admin)', aiEnabled: null, docs: byOrg[''].docs, runs: byOrg[''].runs, costUsd: byOrg[''].cost || 0, chargeUsd: 0, marginUsd: -(byOrg[''].cost || 0) });
   res.json({ month: new Date(from).toISOString().slice(0, 7), configured: !!client(), model: MODEL, orgs: list });
 });
@@ -259,8 +280,34 @@ usageRouter.put('/org/:id', requireAuth, requireSuper, express.json(), (req, res
   if (!o) return res.status(404).json({ error: 'Company not found' });
   const b = req.body || {}, num = v => (v === '' || v == null) ? null : (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined);
   if (b.aiEnabled !== undefined) db.prepare(`UPDATE orgs SET aiEnabled = ? WHERE id = ?`).run(b.aiEnabled ? 1 : 0, o.id);
+  if (b.plan !== undefined) {
+    if (['trial', 'paid', 'unlimited', 'off'].indexOf(b.plan) < 0) return res.status(400).json({ error: 'Unknown plan' });
+    db.prepare(`UPDATE orgs SET aiPlan = ?, aiEnabled = ? WHERE id = ?`).run(b.plan, b.plan === 'off' ? 0 : 1, o.id);
+    if (b.plan === 'paid' || b.plan === 'unlimited') db.prepare(`UPDATE orgs SET aiRequestedAt = NULL WHERE id = ?`).run(o.id);   // request handled
+  }
+  if (b.creditUsd !== undefined) { const v = num(b.creditUsd); if (v === undefined) return res.status(400).json({ error: 'Credit must be a dollar amount' }); db.prepare(`UPDATE orgs SET aiFreeCreditUsd = ? WHERE id = ?`).run(v, o.id); }
   if (b.capUsd !== undefined) { const v = num(b.capUsd); if (v === undefined) return res.status(400).json({ error: 'Cap must be a dollar amount' }); db.prepare(`UPDATE orgs SET aiMonthlyCapUsd = ? WHERE id = ?`).run(v, o.id); }
   if (b.pricePerDocUsd !== undefined) { const v = num(b.pricePerDocUsd); if (v === undefined) return res.status(400).json({ error: 'Price must be a dollar amount' }); db.prepare(`UPDATE orgs SET aiPricePerDocUsd = ? WHERE id = ?`).run(v, o.id); }
+  res.json({ ok: true });
+});
+// Company side: how much free AI credit is left, and "request more".
+usageRouter.get('/mine', requireAuth, (req, res) => {
+  const orgId = req.user.orgId || null;
+  if (!orgId) return res.json({ plan: null });
+  const o = db.prepare(`SELECT aiEnabled, aiPlan, aiFreeCreditUsd, aiRequestedAt FROM orgs WHERE id = ?`).get(orgId) || {};
+  const acc = aiAccess(orgId), plan = planOf(o), used = lifetimeSpend(orgId), m = monthSpend(orgId);
+  res.json({ plan, available: acc.ok, reason: acc.reason || null, message: acc.message || null, creditUsd: creditOf(o), usedUsd: used, leftUsd: Math.max(0, creditOf(o) - used), monthUsd: m, requestedAt: o.aiRequestedAt || null });
+});
+usageRouter.post('/request', requireAuth, async (req, res) => {
+  const orgId = req.user.orgId || null;
+  if (!orgId) return res.status(400).json({ error: 'This login isn’t tied to a company.' });
+  const o = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId) || {};
+  db.prepare(`UPDATE orgs SET aiRequestedAt = ? WHERE id = ?`).run(Date.now(), orgId);
+  try {
+    const { sendMail, helpEmail } = require('./mailer');
+    await sendMail({ to: helpEmail(), subject: 'AI request — ' + (o.name || 'a company'),
+      text: (req.user.name || req.user.email || 'A user') + ' (' + (req.user.email || '') + ') at ' + (o.name || orgId) + ' asked for more HaulProof AI.\n\nUsed so far: $' + lifetimeSpend(orgId).toFixed(2) + '.\nTurn it on from the master-admin Dashboard → AI usage & cost.' });
+  } catch (e) {}
   res.json({ ok: true });
 });
 module.exports.usageRouter = usageRouter;

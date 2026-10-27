@@ -997,6 +997,7 @@
   var _aiEnabled=false;
   fetch('/api/pods/ai-status?pod='+encodeURIComponent(DOC_ID||''),{credentials:'include'}).then(function(r){ return r.json(); }).then(function(j){
     _aiEnabled=!!(j&&j.enabled);
+    showAiCredit(j);
     if(!_aiEnabled && j && j.reason==='cap'){ var bb=$('#aiBtn'); if(bb) bb.title=j.message+' Using the free built-in Auto-place.'; }
     if(_aiEnabled){
       var b=$('#aiBtn'); if(b){ var sp=b.querySelector('span'); if(sp) sp.textContent='AI place'; b.title='Claude reads the document and places each signature, date and time box'; }
@@ -1006,6 +1007,15 @@
     }
   }).catch(function(){});
 
+  // Free-trial credit line under the AI place button area (side panel), e.g. "✨ $7.40 free AI credit left".
+  function showAiCredit(j){
+    var el=$('#aiCredit');
+    if(!el){ var sec=$('#cmdRow'); if(!sec) return; el=document.createElement('div'); el.id='aiCredit'; el.className='lhint'; el.style.marginTop='6px'; sec.appendChild(el); }
+    if(j && j.plan==='trial' && j.creditLeftUsd!=null) el.innerHTML='✨ <b>$'+Number(j.creditLeftUsd).toFixed(2)+'</b> free AI credit left. Saved layouts are free.';
+    else if(j && !j.enabled && j.reason==='trial_used') el.innerHTML='Free AI credit used up — using the free built-in tools. Request more under Settings in HaulProof.';
+    else el.textContent='';
+  }
+  function refreshAiCredit(){ fetch('/api/pods/ai-status?pod='+encodeURIComponent(DOC_ID||''),{credentials:'include'}).then(function(r){return r.json();}).then(showAiCredit).catch(function(){}); }
   // Rule-based placement from the scan (the free fallback): a box in the blank beside Receiver / Carrier / Date.
   function placeRuleSlots(scans){
     var placed=[];
@@ -1045,7 +1055,8 @@
         }
         j.fields.forEach(function(nf){ var sc=scans[nf.page]; if(sc) placeNormField(sc, nf); });
         done(); selectField(null); if(j.fields.length) markDirty();
-        toast('✨ '+(j.note||('AI placed '+j.fields.length+' box'+(j.fields.length===1?'':'es')+'.'))+' Review, then Save setup.');
+        toast('✨ '+(j.note||('AI placed '+j.fields.length+' box'+(j.fields.length===1?'':'es')+'.'))+' Review, then Save setup — choose “Remember it” and the next one from this customer is free.');
+        refreshAiCredit();
       });
     }).catch(function(e){
       done(); console.error(e);
@@ -1069,7 +1080,7 @@
         fields.slice().forEach(removeField);
         j.fields.forEach(function(nf){ var sc=scans[nf.page]; if(!sc) return; var old=nf.id&&keep[nf.id]; placeNormField(sc, nf, old&&old.value?{value:old.value}:null); });
         selectField(null); markDirty();
-        toast('✨ '+(j.note||'Done.'));
+        toast('✨ '+(j.note||'Done.')); refreshAiCredit();
         return true;
       });
     }).catch(function(e){ done(); console.error(e); return false; });
@@ -1237,7 +1248,7 @@
         ? 'This load has no customer yet, so there’s nothing to remember these boxes under. Pick the customer this paperwork is for — we’ll set it on the load and use these boxes automatically on their next <b>'+esc(dt)+'</b>.'
         : updating
           ? 'These boxes are different from <b>'+esc(name)+'</b>’s saved <b>'+esc(dt)+'</b> layout. Update it? Every future '+esc(name)+' '+esc(dt)+' will use these boxes instead.'
-          : 'Save these boxes as <b>'+esc(name)+' · '+esc(dt)+'</b>’s layout? The next '+esc(name)+' '+esc(dt)+' gets them automatically — no AI guessing.';
+          : 'Save these boxes as <b>'+esc(name)+' · '+esc(dt)+'</b>’s layout? The next '+esc(name)+' '+esc(dt)+' gets them <b>instantly and free</b> — AI won’t need to run again for it.';
       $('#rmCustWrap').style.display=hasCust?'none':'block';
       $('#rmNoAskRow').style.display=hasCust?'flex':'none'; $('#rmNoAsk').checked=false;
       $('#rmYes').textContent=!hasCust?'Set customer & remember':(updating?'Update layout':'Remember it');
