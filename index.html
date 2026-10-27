@@ -197,6 +197,26 @@
   #loadList .ldOpen.btn-sm{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
   #loadList .ldOpen.btn-sm:hover{background:#68309f;}
   #loadList .ldArch{color:var(--muted);}
+  /* Split into stops / Review the document: each page is a card with its stop number and tile buttons. */
+  .spgrid{width:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;}
+  .spcard{background:#fff;border:1px solid #d6dee8;border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(20,30,50,.08);display:flex;flex-direction:column;align-items:stretch;gap:8px;}
+  .spcard.removed{background:#fdf3f2;border:1.5px dashed #e2a3a0;box-shadow:none;}
+  .spcard.removed .spthumb{opacity:.3;}
+  .splbl{font-size:12px;font-weight:700;color:#33414f;text-align:center;}
+  .spcard.removed .splbl{color:#b42318;}
+  .spthumb{display:block;margin:0 auto;border:1px solid var(--line);border-radius:6px;cursor:zoom-in;max-width:100%;}
+  .spstop{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;font-size:12px;font-weight:700;color:#33414f;text-transform:none;letter-spacing:0;}
+  .spstop input{width:64px;text-align:center;padding:7px 6px;font-size:15px;font-weight:700;}
+  .spbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  button.spbtn{font-size:11.5px;font-weight:600;padding:7px 6px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,30,50,.06);white-space:nowrap;}
+  button.spbtn:hover{background:#f4f7fc;border-color:#b9c5d3;box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  button.spbtn.sp-crop{background:#f4f8ff;border-color:#bcd0f5;color:var(--primary);}
+  button.spbtn.sp-crop:hover{background:#e4ecfc;border-color:var(--primary);}
+  button.spbtn.sp-reshoot{background:#fdf1df;border-color:#f1d3a6;color:#9a5b0c;}
+  button.spbtn.sp-reshoot:hover{background:#fbe6c6;border-color:#d99a3a;}
+  button.spbtn.sp-remove{background:#fff;border-color:#efc4c1;color:#b42318;}
+  button.spbtn.sp-remove:hover{background:#fdecea;border-color:#b42318;}
+  .spcard.removed button.spbtn.sp-remove{grid-column:1 / -1;background:#fff;border-color:#bcd0f5;color:var(--primary);}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -3558,6 +3578,7 @@
   //  edited inline right in the Stops & documents table.)
   // ---- Split a multi-page document into separate per-stop documents ----
   let _splitPod = null, _splitBuf = null, _splitInputs = [], _splitPdf = null;
+  let _splitRemoved = new Set();   // page indexes the dispatcher marked “Remove page” in the split window
   let _splitDirty = false;   // true once a page has been cropped in this review — so the single-stop save writes the cropped file back
   // Enlarge one page of the document being split so the dispatcher can read it and pick the right stop.
   async function showSplitZoom(pi) {
@@ -3595,25 +3616,40 @@
     // Single-page docs still RENDER the page here (don't dead-end with a text message) — the dispatcher opened
     // "View the document" to actually see it, crop it if needed, and set its stop, then Save & continue.
     if ($('splitSave')) $('splitSave').disabled = false;
-    const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;';
+    const grid = document.createElement('div'); grid.className = 'spgrid';
     let chain = Promise.resolve();
     for (let pi = 0; pi < pdf.numPages; pi++) { (function (pi) {
       chain = chain.then(() => pdf.getPage(pi + 1)).then(page => {
         const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 120 / vp0.width });
         const canvas = document.createElement('canvas'); canvas.width = vp.width; canvas.height = vp.height;
-        canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;';
+        canvas.className = 'spthumb';
         canvas.addEventListener('click', () => showSplitZoom(pi));
-        const wrap = document.createElement('div'); wrap.style.cssText = 'width:132px;text-align:center;';
-        const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:4px;'; lbl.textContent = 'Page ' + (pi + 1);
-        const zhint = document.createElement('div'); zhint.style.cssText = 'font-size:11px;color:var(--primary);margin-top:8px;padding:5px 2px;cursor:zoom-in;font-weight:600;'; zhint.textContent = '🔍 Enlarge'; zhint.addEventListener('click', () => showSplitZoom(pi));
-        const chint = document.createElement('div'); chint.style.cssText = 'font-size:11px;color:var(--primary);margin-top:6px;padding:5px 2px;cursor:pointer;font-weight:600;border-top:1px solid var(--line);'; chint.textContent = '✂ Crop this page'; chint.addEventListener('click', () => cropSplitPage(pi));
-        const rhint = document.createElement('div'); rhint.style.cssText = 'font-size:11px;color:#b42318;margin-top:6px;padding:5px 2px;cursor:pointer;font-weight:600;border-top:1px solid var(--line);'; rhint.textContent = '⚠ Can\'t use — re-shoot'; rhint.title = 'Send this page back to the driver to photograph again'; rhint.addEventListener('click', () => rejectSplitPagePrompt(pi));
-        const row = document.createElement('div'); row.style.cssText = 'margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);';
+        const wrap = document.createElement('div'); wrap.className = 'spcard';
+        const lbl = document.createElement('div'); lbl.className = 'splbl'; lbl.textContent = 'Page ' + (pi + 1);
+        const spbtn = (cls, text, title, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'spbtn ' + cls; b.textContent = text; if (title) b.title = title; b.addEventListener('click', fn); return b; };
+        const zhint = spbtn('sp-view', '🔍 Enlarge', 'See this page full size', () => showSplitZoom(pi));
+        const chint = spbtn('sp-crop', '✂ Crop page', 'Trim the background off a photo of this page', () => cropSplitPage(pi));
+        const rhint = spbtn('sp-reshoot', '⚠ Re-shoot', 'Can’t use this page — send it back to the driver to photograph again', () => rejectSplitPagePrompt(pi));
+        // Remove a page that isn't needed (cover sheet, terms page, duplicate). Toggles — nothing is deleted until
+        // "Create stops" / "Save & continue", and "↩ Keep page" brings it back.
+        const dhint = spbtn('sp-remove', '', 'Leave this page out of the document', () => {});
+        if (pdf.numPages === 1) dhint.hidden = true;
+        const paintRemoved = () => { const off = _splitRemoved.has(pi); dhint.textContent = off ? '↩ Keep page' : '🗑 Remove page'; dhint.classList.toggle('sp-keep', off);
+          wrap.classList.toggle('removed', off); lbl.textContent = 'Page ' + (pi + 1) + (off ? ' · will be removed' : '');
+          row.style.display = off ? 'none' : ''; chint.style.display = off ? 'none' : ''; rhint.style.display = off ? 'none' : ''; zhint.style.display = off ? 'none' : ''; };
+        dhint.addEventListener('click', () => {
+          if (_splitRemoved.has(pi)) _splitRemoved.delete(pi);
+          else { if (_splitRemoved.size >= pdf.numPages - 1) { $('splitMsg').className = 'umsg-err'; $('splitMsg').textContent = 'Keep at least one page — to drop the whole document, use Remove on the load instead.'; return; } _splitRemoved.add(pi); }
+          $('splitMsg').textContent = ''; paintRemoved();
+        });
+        const row = document.createElement('label'); row.className = 'spstop';
         const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1';
         inp.value = (prevStops && prevStops[pi] != null) ? prevStops[pi] : String(defaultStop || 1);
-        inp.style.cssText = 'width:58px;text-align:center;margin-left:5px;'; inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
+        inp.setAttribute('aria-label', 'Stop number for page ' + (pi + 1));
         row.appendChild(document.createTextNode('Stop')); row.appendChild(inp);
-        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(zhint); wrap.appendChild(chint); wrap.appendChild(rhint); wrap.appendChild(row); grid.appendChild(wrap);
+        const btns = document.createElement('div'); btns.className = 'spbtns'; [zhint, chint, rhint, dhint].forEach(x => btns.appendChild(x));
+        wrap.appendChild(lbl); wrap.appendChild(canvas); wrap.appendChild(row); wrap.appendChild(btns); grid.appendChild(wrap);
+        paintRemoved();
         _splitInputs.push({ pageIdx: pi, inp });
         return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
       });
@@ -3804,7 +3840,7 @@
   async function openSplit(p) {
     if (!p) return;
     if (!window.pdfjsLib || !window.PDFLib) { alert('PDF tools are still loading — refresh and try again.'); return; }
-    _splitPod = p; _splitBuf = null; _splitInputs = []; _splitDirty = false;
+    _splitPod = p; _splitBuf = null; _splitInputs = []; _splitDirty = false; _splitRemoved = new Set();
     const box = $('splitPages'); box.innerHTML = 'Loading pages…';
     if ($('splitCount')) $('splitCount').textContent = '';
     $('splitMsg').textContent = ''; $('splitMsg').className = '';
@@ -3819,13 +3855,13 @@
       _splitPdf = pdf;
       if ($('splitSub')) $('splitSub').textContent = pdf.numPages === 1
         ? 'Look the document over. Tap “✂ Crop this page” to trim a bad photo, and set its stop number below if it isn’t Stop 1. Then tap “Save & continue.”'
-        : 'This document has ' + pdf.numPages + ' pages. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Tap “✂ Crop this page” to trim a bad photo before splitting.';
+        : 'This document has ' + pdf.numPages + ' pages. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Use “✂ Crop page” to trim a bad photo, or “🗑 Remove page” to leave out a page you don’t need.';
       if ($('splitSave')) $('splitSave').textContent = pdf.numPages === 1 ? 'Save & continue' : 'Create stops';
       if ($('splitHeading')) $('splitHeading').textContent = pdf.numPages === 1 ? 'Review the document' : 'Split into stops';
       await buildSplitGrid(p.stopNumber, null);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
-  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _splitDirty = false; _scRect = null; _scDrag = null; }
+  function closeSplit() { $('splitModal').classList.add('hide'); if ($('splitZoom')) $('splitZoom').style.display = 'none'; if ($('splitCrop')) $('splitCrop').style.display = 'none'; _splitPod = null; _splitBuf = null; _splitInputs = []; _splitPdf = null; _splitDirty = false; _splitRemoved = new Set(); _scRect = null; _scDrag = null; }
   if ($('splitClose')) $('splitClose').onclick = () => { _wizardResumeKey = null; closeSplit(); };
   if ($('splitCancel')) $('splitCancel').onclick = () => { _wizardResumeKey = null; closeSplit(); };
   if ($('splitModal')) $('splitModal').addEventListener('click', e => { if (e.target === $('splitModal')) { _wizardResumeKey = null; closeSplit(); } });
@@ -3834,6 +3870,7 @@
     // Group pages by the stop number the dispatcher entered, keeping each stop's pages in page order.
     const groups = {};
     for (const it of _splitInputs) {
+      if (_splitRemoved.has(it.pageIdx)) continue;   // removed pages go nowhere
       let s = parseInt((it.inp.value || '').trim(), 10); if (!Number.isFinite(s) || s < 1) s = 1;
       (groups[s] = groups[s] || []).push(it.pageIdx);
     }
@@ -3844,9 +3881,15 @@
       // BUT if the page was cropped in this review, we must write the cropped bytes back first — otherwise
       // the crop is thrown away when the modal closes (the single-stop path used to only retag the stop).
       try {
-        if (_splitDirty && _splitBuf) {
-          $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = 'Saving cropped page…';
-          const rc = await fetch('/api/pods/' + _splitPod.id + '/replace-file', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/pdf' }, body: _splitBuf });
+        if ((_splitDirty || _splitRemoved.size) && _splitBuf) {
+          $('splitSave').disabled = true; $('splitMsg').className = ''; $('splitMsg').textContent = _splitRemoved.size ? 'Removing pages…' : 'Saving cropped page…';
+          let body = _splitBuf;
+          if (_splitRemoved.size) {   // write the document back without the removed pages
+            const src1 = await PDFLib.PDFDocument.load(_splitBuf, { ignoreEncryption: true }), out1 = await PDFLib.PDFDocument.create();
+            const cps1 = await out1.copyPages(src1, groups[stops[0]]); cps1.forEach(pg => out1.addPage(pg));
+            body = await out1.save();
+          }
+          const rc = await fetch('/api/pods/' + _splitPod.id + '/replace-file', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/pdf' }, body });
           if (!rc.ok) { const e = await rc.json().catch(() => ({})); throw new Error(e.error || 'Could not save the cropped page'); }
         }
         await api('/api/pods/' + _splitPod.id, { method: 'PUT', body: JSON.stringify({ stopNumber: String(stops[0]) }) });
