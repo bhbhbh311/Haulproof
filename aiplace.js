@@ -243,11 +243,14 @@ usageRouter.get('/', requireAuth, requireSuper, (req, res) => {
     FROM ai_usage WHERE createdAt >= ? AND createdAt < ? GROUP BY orgId`).all(from, to);
   const byOrg = {}; rows.forEach(r => { byOrg[r.orgId || ''] = r; });
   const orgs = db.prepare(`SELECT id, name, kind, active, aiEnabled, aiMonthlyCapUsd, aiPricePerDocUsd FROM orgs ORDER BY name COLLATE NOCASE`).all();
-  const list = orgs.filter(o => o.active || byOrg[o.id] || o.aiEnabled).map(o => {
+  // Receivers only view delivered documents and never run AI — leave them out unless they somehow have usage.
+  const list = orgs.filter(o => (o.active && o.kind !== 'receiver') || byOrg[o.id] || o.aiEnabled).map(o => {
     const u = byOrg[o.id] || {}, price = Number(o.aiPricePerDocUsd) || 0, cost = u.cost || 0, docs = u.docs || 0;
     return { orgId: o.id, name: o.name, kind: o.kind, aiEnabled: !!o.aiEnabled, capUsd: o.aiMonthlyCapUsd, pricePerDocUsd: o.aiPricePerDocUsd,
       docs, runs: u.runs || 0, places: u.places || 0, commands: u.commands || 0, reviews: u.reviews || 0, costUsd: cost, chargeUsd: docs * price, marginUsd: docs * price - cost };
   });
+  // Companies with AI on or AI use this month first (most cost first), then the rest alphabetically.
+  list.sort((x, y) => ((y.aiEnabled || y.runs ? 1 : 0) - (x.aiEnabled || x.runs ? 1 : 0)) || (y.costUsd - x.costUsd) || String(x.name).localeCompare(String(y.name)));
   if (byOrg['']) list.push({ orgId: null, name: '(no company — master admin)', aiEnabled: null, docs: byOrg[''].docs, runs: byOrg[''].runs, costUsd: byOrg[''].cost || 0, chargeUsd: 0, marginUsd: -(byOrg[''].cost || 0) });
   res.json({ month: new Date(from).toISOString().slice(0, 7), configured: !!client(), model: MODEL, orgs: list });
 });

@@ -556,7 +556,7 @@
     <div class="card hide" id="aiUsageCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">AI usage &amp; cost</h1><p class="sub" style="margin-bottom:0;">What the AI features cost you per company, what you charge, and your margin. AI only runs for companies switched on here; a monthly cap stops it (they fall back to the free built-in tools) until next month.</p></div>
-        <div style="display:flex;gap:8px;align-items:center;"><input type="month" id="aiuMonth" style="width:auto;font-size:14px;padding:8px 10px;"><button class="ghost" id="aiuRefresh" type="button">Refresh</button></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="search" id="aiuSearch" placeholder="Search companies…" style="width:220px;font-size:14px;padding:8px 10px;"><input type="month" id="aiuMonth" style="width:auto;font-size:14px;padding:8px 10px;"><button class="ghost" id="aiuRefresh" type="button">Refresh</button></div>
       </div>
       <div id="aiuNote" class="sub" style="margin:12px 0 0;"></div>
       <div id="aiuTable" style="margin-top:12px;"><div class="empty">Loading…</div></div>
@@ -2027,6 +2027,7 @@
             + '<td style="font-weight:700;color:' + (margin >= 0 ? 'var(--ok)' : 'var(--danger)') + ';">' + money(margin) + '</td>'
             + '</tr>';
         }).join('') + '</tbody></table>';
+      filterAiUsage();
       const save = async (tr, body) => { try { await api('/api/ai-usage/org/' + tr.dataset.org, { method: 'PUT', body: JSON.stringify(body) }); loadAiUsage(); } catch (e) { alert(e.message || 'Could not save'); } };
       box.querySelectorAll('tr[data-org]').forEach(tr => {
         if (!tr.dataset.org) return;
@@ -2037,6 +2038,16 @@
       });
     } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message || 'Could not load AI usage') + '</div>'; }
   }
+  // Search box: hide rows whose company name doesn't match (kept across refreshes).
+  function filterAiUsage(){
+    const q = ($('aiuSearch') ? $('aiuSearch').value : '').trim().toLowerCase();
+    const rows = Array.from(document.querySelectorAll('#aiuTable tbody tr')); let shown = 0;
+    rows.forEach(tr => { const hit = !q || tr.textContent.toLowerCase().indexOf(q) > -1; tr.style.display = hit ? '' : 'none'; if (hit) shown++; });
+    const tb = document.querySelector('#aiuTable tbody'); let none = $('aiuNone');
+    if (tb && !shown && rows.length) { if (!none) { none = document.createElement('tr'); none.id = 'aiuNone'; none.innerHTML = '<td colspan="9" class="empty">No company matches “' + esc(q) + '”.</td>'; tb.appendChild(none); } }
+    else if (none) none.remove();
+  }
+  if ($('aiuSearch')) $('aiuSearch').addEventListener('input', filterAiUsage);
   if ($('aiuRefresh')) $('aiuRefresh').onclick = loadAiUsage;
   if ($('aiuMonth')) $('aiuMonth').onchange = loadAiUsage;
   async function loadStats(){
