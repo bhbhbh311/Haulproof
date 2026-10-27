@@ -287,6 +287,21 @@
   var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box',pickupdate:'Pickup date (auto)',puin:'Pickup in (auto)',puout:'Pickup out (auto)',dlin:'Delivery in (auto)',dlout:'Delivery out (auto)'};
   // Auto in/out time kinds — filled on the driver's phone from their check-in/out times, never signed or typed.
   var AUTO_TIME_KINDS={puin:'Pickup in',puout:'Pickup out',dlin:'Delivery in',dlout:'Delivery out'};
+  // Auto-filled date/time boxes must be wide enough for what gets stamped in them ("10/27/2026", "12:45 PM") —
+  // a box sized to a short blank on the form clipped the date on the driver's phone. Minimum size in PDF points.
+  function autoFieldMin(kind){
+    if(kind==='date'||kind==='pickupdate') return {w:64,h:16};
+    if(AUTO_TIME_KINDS[kind]) return {w:56,h:16};
+    return null;
+  }
+  // Grow a too-small auto date/time box to the minimum: wider to the right (pulled back left at the page edge),
+  // taller around its middle. Works on the stored {xPdf,yPdf,wPdf,hPdf} shape.
+  function growAutoField(fd, baseW){
+    var m=autoFieldMin(fd.kind); if(!m) return fd;
+    if(fd.wPdf<m.w){ fd.wPdf=m.w; if(baseW && fd.xPdf+fd.wPdf>baseW) fd.xPdf=Math.max(0,baseW-fd.wPdf); }
+    if(fd.hPdf<m.h){ fd.yPdf=Math.max(0,fd.yPdf-(m.h-fd.hPdf)/2); fd.hPdf=m.h; }
+    return fd;
+  }
   // Always show, in plain words, exactly what tapping the document will place right now (which signer + field).
   function updateArmed(){
     var el=$('#armed'); if(!el) return;
@@ -460,7 +475,10 @@
     h.addEventListener('pointerdown',function(e){ e.preventDefault(); e.stopPropagation();
       var el=f.el,sx=e.clientX,sy=e.clientY,ow=el.offsetWidth,oh=el.offsetHeight;
       try{h.setPointerCapture(e.pointerId);}catch(_){}
-      function mv(ev){ el.style.width=Math.max(46,ow+(ev.clientX-sx))+'px'; el.style.height=Math.max(22,oh+(ev.clientY-sy))+'px'; }
+      // Date/time boxes can't be shrunk below what their stamped value needs (see autoFieldMin).
+      var am=autoFieldMin(f.kind), sc=(f.rec&&f.rec.vp&&f.rec.vp.scale)||1;
+      var minW=Math.max(46,am?am.w*sc:0), minH=Math.max(22,am?am.h*sc:0);
+      function mv(ev){ el.style.width=Math.max(minW,ow+(ev.clientX-sx))+'px'; el.style.height=Math.max(minH,oh+(ev.clientY-sy))+'px'; }
       function up(){ h.removeEventListener('pointermove',mv); h.removeEventListener('pointerup',up); recompute(f); markDirty(); }
       h.addEventListener('pointermove',mv); h.addEventListener('pointerup',up);
     });
@@ -475,6 +493,7 @@
 
   function placeFromData(fd){
     var rec=pageRecs[fd.pageIdx]; if(!rec) return;
+    fd=growAutoField(Object.assign({},fd), rec.baseW);   // AI-placed or older saved date boxes that are too small
     var tl=rec.vp.convertToViewportPoint(fd.xPdf, fd.yPdf+fd.hPdf);
     var br=rec.vp.convertToViewportPoint(fd.xPdf+fd.wPdf, fd.yPdf);
     var left=Math.min(tl[0],br[0]), top=Math.min(tl[1],br[1]), w=Math.abs(br[0]-tl[0]), hh=Math.abs(br[1]-tl[1]);

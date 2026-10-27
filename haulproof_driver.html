@@ -1571,7 +1571,15 @@ window.__startApp=function(){
     (tpl||[]).forEach(function(f){
       var rec=pageRecs[f.pageIdx]; if(!rec || rec.isAudit) return;   // skip fields saved on an audit-trail page
       var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text","pickupdate","puin","puout","dlin","dlout"].indexOf(k)<0) k="sig";
-      addField(rec, k, f.role||"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf, f.label||"");
+      var x=f.xPdf, y=f.yPdf, w=f.wPdf, h=f.hPdf;
+      // Auto date/time boxes set up too small for the stamped value (e.g. "10/27/2026" in a short blank): widen
+      // to the right (pulled back at the page edge) and heighten around the middle, so the value isn't clipped.
+      var mn=(k==="date"||k==="pickupdate")?{w:64,h:16}:(AUTO_TIME[k]?{w:56,h:16}:null);
+      if(mn){
+        if(w<mn.w){ w=mn.w; if(x+w>rec.baseW) x=Math.max(0,rec.baseW-w); }
+        if(h<mn.h){ y=Math.max(0,y-(mn.h-h)/2); h=mn.h; }
+      }
+      addField(rec, k, f.role||"Consignee", x, y, w, h, f.label||"");
     });
     // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
     // so the driver can sign it now that they've reopened it. (Never on an audit-trail page.)
@@ -2990,9 +2998,21 @@ window.__startApp=function(){
     // Tint by signer role (Consignee=default blue, Driver has its own class; others get an inline color).
     if(r!=="Consignee" && r!=="Driver"){ var c=roleColor(r); el.style.borderColor=c; if(isSig){ el.style.background=c; el.style.color="#fff"; } else { el.style.color=c; } }
     rec.div.appendChild(el);
+    if(!isSig && !isValue) fitFieldText(el);
     fields.push(o);
     wireDrag(o, isSig?function(){onSign(o);}:(isValue?function(){onValue(o);}:null));
     wireResize(o); return o;
+  }
+  // Fit an auto date/time box's text to the box instead of clipping it: shrink the text (down to 7px), then drop
+  // the leading icon, and if it still doesn't fit (a small box on a phone-width page) let the label spill out to
+  // the right on the box's own background so the whole date stays readable.
+  function fitFieldText(el){
+    try{ var c=el.querySelector(".content"); if(!c) return; var fs=10.5; el.style.fontSize="";
+      function over(){ return c.scrollWidth>c.clientWidth+1; }
+      while(fs>7 && over()){ fs-=0.5; el.style.fontSize=fs+"px"; }
+      if(over()) c.textContent=c.textContent.replace(/^\S+\s+/,"");
+      if(over()){ c.style.right="auto"; c.style.minWidth="100%"; c.style.overflow="visible"; c.style.background="inherit"; c.style.borderRadius="6px"; }
+    }catch(e){}
   }
   // Fill a non-signature value field (initials / arrive-leave time / free text). Filled anytime, any order.
   function onValue(o){
@@ -3316,11 +3336,13 @@ window.__startApp=function(){
           pg.drawImage(png,{x:t.xPdf+(t.wPdf-w2)/2,y:t.yPdf+(t.hPdf-h2)/2,width:w2,height:h2});
           var cap=(t.name?t.name+"  ·  ":"")+timeStr(t.when)+(t.gps?"  "+t.gps.lat.toFixed(3)+","+t.gps.lng.toFixed(3):""); pg.drawText(cap,{x:t.xPdf,y:Math.max(4,t.yPdf-8),size:6.5,font:fontB,color:PDFLib.rgb(.2,.26,.34)});
         } }
-      dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=Math.min(12,Math.max(9,df.hPdf*0.4)),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      // Size an auto-stamped value to its box: up to 12pt, shrunk until it fits the box width (min 6pt).
+      function fitSize(txt,f){ var size=Math.min(12,Math.max(9,f.hPdf*0.4)); while(size>6 && font.widthOfTextAtSize(txt,size)>(f.wPdf-4)) size-=0.5; return size; }
+      dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=fitSize(df.date,df),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Auto "Pickup date" fields — stamped with the date the load was marked picked up in the app (blank if not yet).
-      fields.filter(function(f){ return f.kind==="pickupdate"; }).forEach(function(pf){ var pp=pages[pf.pageIdx]; if(!pp) return; var ds=pickupDateStr(); if(!ds) return; var size=Math.min(12,Math.max(9,pf.hPdf*0.4)),tw=font.widthOfTextAtSize(ds,size); pp.drawText(ds,{x:pf.xPdf+Math.max(2,(pf.wPdf-tw)/2),y:pf.yPdf+(pf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      fields.filter(function(f){ return f.kind==="pickupdate"; }).forEach(function(pf){ var pp=pages[pf.pageIdx]; if(!pp) return; var ds=pickupDateStr(); if(!ds) return; var size=fitSize(ds,pf),tw=font.widthOfTextAtSize(ds,size); pp.drawText(ds,{x:pf.xPdf+Math.max(2,(pf.wPdf-tw)/2),y:pf.yPdf+(pf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Auto in/out time fields — the driver's check-in/out times for this load (blank if never recorded).
-      fields.filter(function(f){ return !!AUTO_TIME[f.kind]; }).forEach(function(tf){ var tp=pages[tf.pageIdx]; if(!tp) return; var ts=autoTimeStr(tf.kind,true); if(!ts) return; var size=Math.min(12,Math.max(9,tf.hPdf*0.4)),tw=font.widthOfTextAtSize(ts,size); tp.drawText(ts,{x:tf.xPdf+Math.max(2,(tf.wPdf-tw)/2),y:tf.yPdf+(tf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      fields.filter(function(f){ return !!AUTO_TIME[f.kind]; }).forEach(function(tf){ var tp=pages[tf.pageIdx]; if(!tp) return; var ts=autoTimeStr(tf.kind,true); if(!ts) return; var size=fitSize(ts,tf),tw=font.widthOfTextAtSize(ts,size); tp.drawText(ts,{x:tf.xPdf+Math.max(2,(tf.wPdf-tw)/2),y:tf.yPdf+(tf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Value fields the driver typed (initials / arrive-leave time / free text) — draw the entered text, shrunk to fit.
       fields.filter(function(f){ return (f.kind==="initials"||f.kind==="time"||f.kind==="text") && f.value; }).forEach(function(vf){
         var vp2=pages[vf.pageIdx]; if(!vp2) return;
