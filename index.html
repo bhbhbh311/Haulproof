@@ -2509,6 +2509,7 @@
     if (dashWelcomeDismissed() || (user && user.role === 'superadmin')) { w.classList.add('hide'); return; }
     w.classList.remove('hide');
   }
+  let _loadsShown = 10;
   async function loadLoads() {
     _inTrashView = false;
     _lastLoadsRefreshAt = Date.now();   // mark the attempt so the "stale after idle" guard knows when we last pulled
@@ -2531,7 +2532,8 @@
         const bk = $('lArchBack'); if (bk) bk.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
         return;
       }
-      const all = active, showing = (q || _showArchived) ? all : all.slice(0, 15);
+      // Without a search, list the 10 most recent loads; "Show more" adds 10 at a time (kept across auto-refreshes).
+      const all = active, showing = (q || _showArchived) ? all : all.slice(0, _loadsShown);
       const needAction = all.filter(l => !l.complete).length;
       // A small right-aligned toggle to jump between the active list and this user's archived (hidden) loads,
       // plus (for admins) a link into the recovery bin of deleted loads/documents.
@@ -2545,7 +2547,7 @@
         ? `${all.length} archived load${all.length === 1 ? '' : 's'} · hidden from your list only`
         : (q
           ? `${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"`
-          : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' needing action' : ' · all signed ✓'}${all.length > showing.length ? ' — search above to find older ones' : ''}`);
+          : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' needing action' : ' · all signed ✓'}${all.length > showing.length ? ' · most recent shown — search above to find older ones' : ''}`);
       const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${rightLinks ? '<span style="display:flex;gap:10px;align-items:center;">' + rightLinks + '</span>' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -2559,7 +2561,9 @@
             <button class="ghost ldArch" data-id="${l.id}" data-on="${l.archived ? '0' : '1'}" title="${l.archived ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)'}" style="padding:6px 9px;font-size:12px;margin-right:6px;">${l.archived ? '↩ Unarchive' : '🗄 Archive'}</button>
             <button class="${l.needsSetup ? 'ldOpen btn-sm' : 'ghost ldOpen'}" data-id="${l.id}" data-needsetup="${l.needsSetup ? '1' : ''}" style="padding:6px 10px;font-size:12px;">${l.needsSetup ? '⚙ Set up ›' : 'Open ›'}</button>
           </td>
-        </tr>`).join('') + '</tbody></table>';
+        </tr>`).join('') + '</tbody></table>' +
+        (all.length > showing.length ? `<div style="margin-top:10px;text-align:center;"><button class="ghost" id="lShowMore" type="button" style="padding:7px 14px;font-size:13px;">Show ${Math.min(10, all.length - showing.length)} more</button></div>` : '');
+      const moreBtn = $('lShowMore'); if (moreBtn) moreBtn.onclick = () => { _loadsShown += 10; loadLoads(); };
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
       // Guide the dispatcher to the single next action: pulse the FIRST load that's waiting to be set up.
       const firstSetup = box.querySelector('.ldOpen[data-needsetup="1"]'); if (firstSetup) firstSetup.classList.add('lead-cta');
@@ -2640,8 +2644,8 @@
   }
   // (The separate "New load" button was removed — creating a load now goes through the single "＋ New load"
   //  entry on the upload card below, which creates the load and optionally files the BOL in one step.)
-  $('lSearchBtn').onclick = loadLoads;
-  $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadLoads(); });
+  $('lSearchBtn').onclick = () => { _loadsShown = 10; loadLoads(); };
+  $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { _loadsShown = 10; loadLoads(); } });
   // Record the last keystroke in the search box so auto-refresh can stay live on a FILTERED view (the common
   // case: watching one PO) without re-querying out from under someone who's still typing.
   $('lSearch') && $('lSearch').addEventListener('input', function () { _lSearchTypedAt = Date.now(); });
@@ -5206,6 +5210,9 @@
       // Group by load (PO#): a multi-document PO shows as one clickable section that expands to its stops.
       const groups = [], gmap = {};
       r.results.forEach(x => { const key = x.loadId || ('po:' + (x.poNumber||'')); let g = gmap[key]; if (!g) { g = gmap[key] = { key, loadId: x.loadId, poNumber: x.poNumber, loadNumber: x.loadNumber, docs: [] }; groups.push(g); } g.docs.push(x); });
+      // Without a search, list only the 10 most recent loads — older ones are found by PO # search.
+      const moreDocs = !po && groups.length > 10;
+      if (moreDocs) groups.length = 10;
       let html = '';
       groups.forEach((g, gi) => {
         if (g.docs.length === 1) { html += cmDocRowHtml(g.docs[0], null); return; }
@@ -5232,7 +5239,8 @@
         </tr>`;
         g.docs.forEach(d => html += cmDocRowHtml(d, cls));
       });
-      box.innerHTML = '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' + html + '</tbody></table>';
+      box.innerHTML = (moreDocs ? '<div class="sub" style="margin:0 0 8px;">The 10 most recent loads — search by PO # above to find older documents.</div>' : '') +
+        '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' + html + '</tbody></table>';
       box.querySelectorAll('.cmGrpHead').forEach(h => h.onclick = (e) => {
         if (e.target.closest('.cmLasgWrap')) return;   // clicks on the driver picker shouldn't collapse the section
         const cls = h.dataset.cls, rows = box.querySelectorAll('tr.' + cls), caret = h.querySelector('.cmGrpCaret');
