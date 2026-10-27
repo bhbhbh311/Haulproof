@@ -88,14 +88,23 @@
   .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:#fff;}
   .page canvas{display:block;}
   .plabel{position:absolute;top:6px;right:8px;font-size:11px;color:#8a97a6;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;}
-  .fld{position:absolute;border:2px dashed var(--primary);background:rgba(22,85,209,.08);border-radius:6px;cursor:move;touch-action:none;display:flex;align-items:center;justify-content:center;overflow:visible;}
-  .fld .lab{overflow:hidden;text-overflow:ellipsis;max-width:100%;}
-  .fld .lab{font-size:11px;font-weight:700;pointer-events:none;text-align:center;line-height:1.15;padding:2px;}
-  .fld .rsz{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;background:var(--primary);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
-  .fld .del{position:absolute;right:-15px;top:-15px;width:32px;height:32px;border-radius:50%;background:#c0392b;color:#fff;border:3px solid #fff;font-size:20px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5);z-index:10;}
-  .fld .del:hover{background:#e0432f;transform:scale(1.12);}
-  .fld.sel .del{box-shadow:0 0 0 3px rgba(192,57,43,.30),0 2px 8px rgba(0,0,0,.5);}
-  .fld.sel{border-style:solid;box-shadow:0 0 0 3px rgba(22,85,209,.28);}
+  /* Placed boxes: a clean outline + soft fill in the signer's colour (dashed = fills in automatically), a small
+     name tag above the box so the label is never clipped, and a faint icon for what goes in it. The remove ×
+     and resize dot appear on hover/selection with a mouse, and always on touch screens. */
+  .fld{--c:var(--primary);--cf:rgba(22,85,209,.10);--cs:rgba(22,85,209,.28);position:absolute;border:1.5px solid var(--c);background:var(--cf);border-radius:4px;cursor:move;touch-action:none;display:flex;align-items:center;justify-content:center;overflow:visible;transition:box-shadow .12s;}
+  .fld.auto{border-style:dashed;}
+  .fld:hover{box-shadow:0 0 0 3px var(--cs);z-index:5;}
+  .fld.sel{border-width:2px;box-shadow:0 0 0 4px var(--cs),0 2px 10px rgba(20,30,50,.18);z-index:6;}
+  .fld .lab{position:absolute;left:-1.5px;bottom:calc(100% + 2px);background:var(--c);color:#fff;font-size:10.5px;font-weight:700;line-height:1.5;padding:0 6px;border-radius:4px;white-space:nowrap;pointer-events:none;opacity:.88;max-width:none;overflow:visible;}
+  .fld:hover .lab,.fld.sel .lab{opacity:1;}
+  .fld .ico{color:var(--c);opacity:.55;line-height:0;pointer-events:none;}
+  .fld .ico svg{width:18px;height:18px;}
+  .fld.tiny .ico svg{width:11px;height:11px;}
+  .fld .rsz{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .fld .del{position:absolute;right:-11px;top:-11px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:10;}
+  .fld .del:hover{background:#e0432f;transform:scale(1.1);}
+  @media (pointer:fine){ .fld .rsz,.fld .del{opacity:0;transition:opacity .12s;} .fld:hover .rsz,.fld:hover .del,.fld.sel .rsz,.fld.sel .del{opacity:1;} }
+  @media (pointer:coarse){ .fld .del{width:30px;height:30px;right:-15px;top:-15px;font-size:19px;} .fld .rsz{width:20px;height:20px;right:-10px;bottom:-10px;} }
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#16202b;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:80;}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
   .load{max-width:1200px;margin:40px auto;text-align:center;color:var(--muted);}
@@ -155,12 +164,6 @@
   .armtop{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.75;}
   .armwhat{display:flex;align-items:center;gap:7px;margin:3px 0 2px;font-size:13.5px;}
   .armhow{font-size:12px;opacity:.85;}
-  .fld.tiny .lab{font-size:9.5px;white-space:nowrap;line-height:1;}
-  .fld.tiny .lab br{display:none;}
-  @media (min-width:901px) and (pointer:fine){   /* mouse: smaller handles so they don't cover the form */
-    .fld .del{width:24px;height:24px;right:-12px;top:-12px;font-size:16px;border-width:2px;}
-    .fld .rsz{width:14px;height:14px;right:-7px;bottom:-7px;}
-  }
   body.viewonly .layout{grid-template-columns:1fr;} body.viewonly .side, body.viewonly .zoombar{display:none;}
   /* Narrow screens (phones, small tablets): tools stack above the document, as before. */
   @media (max-width:900px){
@@ -401,17 +404,30 @@
     return pal[h%pal.length];
   }
   function rgba(hex,a){ var n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+  // One-line name shown on the box's tag (and as its tooltip).
   function labelText(role,kind,label){
-    if(kind==='sigdate') return role+'\nSign + date';
-    if(kind==='sig') return role+'\nSignature';
-    if(kind==='initials') return (label||'Initials')+'\n('+role+')';
-    if(kind==='date') return label||'Date\n(auto)';
+    if(kind==='sigdate') return role+' · Sign + date';
+    if(kind==='sig') return role+' · Signature';
+    if(kind==='initials') return (label||'Initials')+' · '+role;
+    if(kind==='date') return label||(role&&role!=='Pickup'?role+' · Date':'Date');
     if(kind==='time') return label||'Time';
     if(kind==='text') return label||'Text';
-    if(kind==='pickupdate') return 'Pickup date\n(auto)';
-    if(AUTO_TIME_KINDS[kind]) return AUTO_TIME_KINDS[kind]+'\n(auto time)';
+    if(kind==='pickupdate') return 'Pickup date';
+    if(AUTO_TIME_KINDS[kind]) return AUTO_TIME_KINDS[kind];
     return role;
   }
+  // What goes in the box, as a faint line icon inside it (drawn in the signer's colour).
+  var ICON_SVG={
+    pen:'<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
+    cal:'<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    clock:'<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+    text:'<path d="M5 18L9.5 6 14 18M6.7 14h5.6M15.5 18v-5.5a2.5 2.5 0 0 1 5 0V18M15.5 15h5"/>'
+  };
+  function kindIcon(kind){
+    var k=(kind==='sigdate'||kind==='sig'||kind==='initials')?'pen':((kind==='date'||kind==='pickupdate')?'cal':((kind==='time'||AUTO_TIME_KINDS[kind])?'clock':(kind==='text'?'text':'')));
+    return k?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+ICON_SVG[k]+'</svg>':'';
+  }
+  function isAutoKind(kind){ return kind==='date'||kind==='pickupdate'||!!AUTO_TIME_KINDS[kind]; }
   var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38},pickupdate:{w:140,h:34},puin:{w:120,h:34},puout:{w:120,h:34},dlin:{w:120,h:34},dlout:{w:120,h:34}};
 
   var activeTool={role:'Consignee',kind:'sigdate'};
@@ -419,7 +435,7 @@
   // Track unsaved changes so we can warn before leaving, and clear it after a Save (or when loading a saved layout).
   var dirty=false; function markDirty(){ dirty=true; }
 
-  function styleFieldEl(el,role){ var c=roleColor(role); el.style.borderColor=c; el.style.background=rgba(c,0.09); var lab=el.querySelector('.lab'); if(lab) lab.style.color=c; var rsz=el.querySelector('.rsz'); if(rsz) rsz.style.background=c; }
+  function styleFieldEl(el,role){ var c=roleColor(role); el.style.setProperty('--c',c); el.style.setProperty('--cf',rgba(c,0.10)); el.style.setProperty('--cs',rgba(c,0.28)); }
   function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); $('#fieldLabel').value=(f&&f.label)||''; }
   function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f){ selected=null; $('#fieldLabel').value=''; } markDirty(); }
   document.addEventListener('keydown',function(e){
@@ -457,7 +473,7 @@
   $('#fieldLabel').addEventListener('input',function(){
     if(!selected) return;
     selected.label=this.value;
-    var lab=selected.el.querySelector('.lab'); if(lab) lab.innerHTML=labelText(selected.role,selected.kind,selected.label).replace('\n','<br>'); markDirty();
+    var lab=selected.el.querySelector('.lab'); if(lab) lab.textContent=labelText(selected.role,selected.kind,selected.label); markDirty();
   });
 
   var backTo='/app';
@@ -567,10 +583,11 @@
   function buildFieldEl(f,left,top,w,h){
     var el=document.createElement('div'); el.className='fld';
     el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=w+'px'; el.style.height=h+'px';
-    el.innerHTML='<div class="lab">'+labelText(f.role,f.kind,f.label).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
+    el.innerHTML='<div class="lab">'+esc(labelText(f.role,f.kind,f.label))+'</div><div class="ico">'+kindIcon(f.kind)+'</div><div class="rsz"></div><div class="del" title="Remove">×</div>';
+    if(isAutoKind(f.kind)) el.classList.add('auto');   // dashed = fills in automatically; solid = someone signs/types
     f.rec.div.appendChild(el); f.el=el; styleFieldEl(el,f.role);
-    if(h<30) el.classList.add('tiny');
-    el.title=labelText(f.role,f.kind,f.label).replace('\n',' ');   // short boxes (dates/times): one small line instead of a clipped two-line label
+    if(h<30) el.classList.add('tiny');   // short boxes (dates/times): a smaller icon
+    el.title=labelText(f.role,f.kind,f.label)+(isAutoKind(f.kind)?' (fills in automatically)':'');
     recompute(f);
     if(!VIEW){   // editing interactions are skipped in read-only preview mode
       wireDrag(f); wireResize(f);
