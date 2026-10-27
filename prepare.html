@@ -75,6 +75,10 @@
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
   .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid #c6d0db;}
   .btn.ok{background:var(--ok);}
+  .btn:disabled{opacity:.6;cursor:default;}
+  .rmItem{padding:9px 12px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .rmItem:last-child{border-bottom:none;} .rmItem:hover{background:var(--primary-soft);}
+  .rmItem.on{font-weight:700;color:var(--primary);} .rmItem.add{color:var(--primary);font-weight:600;}
   .lymenu{position:absolute;top:calc(100% + 6px);left:0;min-width:236px;background:var(--surface);border:1px solid #c6d0db;border-radius:10px;box-shadow:0 8px 24px rgba(20,30,50,.20);padding:6px;z-index:60;}
   .lyitem{display:block;width:100%;text-align:left;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:none;border:none;border-radius:7px;padding:9px 11px;cursor:pointer;}
   .lyitem:hover{background:#eef4ff;}
@@ -233,6 +237,27 @@
     <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Saved signature layouts for this customer, one per document type. <b>To edit a layout:</b> tap <b>Open / edit</b> to drop it onto this document, move or add boxes, then use <b>Layouts ▾ → Save current as layout</b> — it replaces the saved one. Delete any you no longer want.</p>
     <div id="layoutsList" style="font-size:13.5px;">Loading…</div>
     <div style="margin-top:16px;text-align:right;"><button class="btn" id="layoutsBack" type="button">← Back to signature setup</button></div>
+  </div>
+</div>
+
+<!-- "Remember this layout?" — asked on Save setup when the boxes aren't already this customer's saved layout. -->
+<div id="rememberModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:300;align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto;">
+  <div style="background:#fff;border-radius:14px;max-width:470px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
+    <h1 style="font-size:18px;margin:0;" id="rmTitle">Remember this layout?</h1>
+    <p style="color:#5c6b7a;font-size:13.5px;line-height:1.45;margin:8px 0 14px;" id="rmMsg"></p>
+    <div id="rmCustWrap" style="display:none;margin-bottom:14px;">
+      <div style="position:relative;">
+        <input id="rmCustInput" type="text" autocomplete="off" placeholder="Type to search customers…" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #cdd7e3;border-radius:8px;outline:none;">
+        <div id="rmCustList" style="display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #dde4ec;border-radius:10px;box-shadow:0 14px 34px -12px rgba(16,44,110,.35);max-height:220px;overflow-y:auto;z-index:5;"></div>
+      </div>
+      <div id="rmCustNote" style="font-size:12.5px;color:#5c6b7a;margin-top:6px;"></div>
+    </div>
+    <label id="rmNoAskRow" style="display:flex;gap:8px;align-items:center;font-size:13px;color:#5c6b7a;margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="rmNoAsk" style="margin:0;"> Don’t ask again for this customer</label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn ghost" id="rmBack" type="button" style="margin-right:auto;">← Keep editing</button>
+      <button class="btn ghost" id="rmSkip" type="button">Just this load</button>
+      <button class="btn ok" id="rmYes" type="button">Remember it</button>
+    </div>
   </div>
 </div>
 
@@ -462,13 +487,19 @@
   }
   $('#saveBtn').addEventListener('click',function(){
     var out=serialize();
-    fetch('/api/pods/'+DOC_ID+'/fields',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
-      .then(function(r){return r.json();}).then(function(j){
-        if(j.error){ toast(j.error); return; }
-        dirty=false;   // saved — no unsaved changes to warn about
-        toast('Saved '+j.count+' field'+(j.count===1?'':'s')+' — ready for the driver. Returning to the load…');
-        setTimeout(leaveToLoad, 800);   // auto-return to the load after a save
-      }).catch(function(){ toast('Save failed'); });
+    // First offer to remember these boxes as the customer's layout (see askRemember), then save this document.
+    askRemember(out).then(function(res){
+      if(res.action==='cancel') return;   // back to editing — nothing saved
+      fetch('/api/pods/'+DOC_ID+'/fields',{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
+        .then(function(r){return r.json();}).then(function(j){
+          if(j.error){ toast(j.error); return; }
+          dirty=false;   // saved — no unsaved changes to warn about
+          var saved='Saved '+j.count+' field'+(j.count===1?'':'s');
+          if(res.action==='remembered') toast(saved+' and remembered the layout for '+(res.customerName||'this customer')+' · '+(res.docType||'BOL')+'. Returning to the load…');
+          else toast(saved+' — ready for the driver. Returning to the load…');
+          setTimeout(leaveToLoad, res.action==='remembered'?1800:800);   // auto-return to the load after a save
+        }).catch(function(){ toast('Save failed'); });
+    });
   });
 
   // ---- Reusable layouts: apply a saved layout, or save the current one for this customer + doc type ----
@@ -773,16 +804,127 @@
     if(!_tpl||!_tpl.exists||!(_tpl.fields||[]).length){ toast('No saved layout for this customer / document type yet'); return; }
     applyLayoutFields(_tpl.fields, _tpl.docType||_tpl.customerName||'saved');
   });
+  // Save the current boxes as THE layout for this load's customer + document type.
+  function saveTemplate(out){
+    return fetch('/api/pods/'+DOC_ID+'/save-template',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
+      .then(function(r){return r.json();}).then(function(j){
+        if(j.error) throw new Error(j.error);
+        _tpl={exists:true,hasCustomer:true,docType:j.docType,customerName:j.customerName,customerId:_tpl&&_tpl.customerId,fields:out}; updateTplButtons();
+        return j;
+      });
+  }
   $('#saveTplBtn').addEventListener('click',function(){
     var out=serialize();
     if(!out.length){ toast('Place at least one signature field before saving a layout'); return; }
-    fetch('/api/pods/'+DOC_ID+'/save-template',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
-      .then(function(r){return r.json();}).then(function(j){
-        if(j.error){ toast(j.error); return; }
-        _tpl={exists:true,hasCustomer:true,docType:j.docType,customerName:j.customerName,fields:out}; updateTplButtons();
-        toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — it will auto-apply to new '+j.docType+' documents for this customer.');
-      }).catch(function(){ toast('Could not save the layout'); });
+    saveTemplate(out).then(function(j){
+      toast('Saved layout for '+(j.customerName||'this customer')+' · '+j.docType+' — it will auto-apply to new '+j.docType+' documents for this customer.');
+    }).catch(function(e){ toast((e&&e.message)||'Could not save the layout'); });
   });
+
+  // ===== "Remember this layout?" — asked on Save setup =====
+  // Save setup only saves THIS document. Unless the boxes are also saved as the customer's layout, the next
+  // document for that customer + type gets the AI's guess again. So on Save we offer to remember them — but only
+  // when they differ from the saved layout, and not for a customer someone opted out of (remembered per browser).
+  // With no customer on the load there's nothing to remember them under, so we offer to pick (or add) one.
+  function samePattern(a,b){
+    var pa=layoutPerPage(a).pattern, pb=layoutPerPage(b).pattern;
+    if(pa.length!==pb.length) return false;
+    var used={};
+    return pa.every(function(f){
+      for(var i=0;i<pb.length;i++){ var g=pb[i]; if(used[i]) continue;
+        if(g.kind===f.kind && g.role===f.role && Math.abs(g.xPdf-f.xPdf)<=4 && Math.abs(g.yPdf-f.yPdf)<=4 && Math.abs(g.wPdf-f.wPdf)<=4 && Math.abs(g.hPdf-f.hPdf)<=4){ used[i]=true; return true; } }
+      return false;
+    });
+  }
+  function noAskKey(cid){ return 'hp_noLayoutAsk_'+cid; }
+  function noAsk(cid){ try{ return localStorage.getItem(noAskKey(cid))==='1'; }catch(e){ return false; } }
+  function setNoAsk(cid){ try{ localStorage.setItem(noAskKey(cid),'1'); }catch(e){} }
+  // Put a customer (an existing one {id,name}, or a new one {name,isNew}) on this document's load.
+  function setLoadCustomer(choice){
+    var getCust = choice.isNew
+      ? fetch('/api/customers',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:choice.name})})
+          .then(function(r){return r.json();}).then(function(j){ if(j.error) throw new Error(j.error); return j.customer; })
+      : Promise.resolve(choice);
+    return getCust.then(function(c){
+      return fetch('/api/loads/'+encodeURIComponent(meta.loadId),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:c.id})})
+        .then(function(r){return r.json();}).then(function(j){
+          if(j.error) throw new Error(j.error);
+          // The server quietly ignores a customer change it doesn't allow (e.g. a load another account owns).
+          if(!j.load || j.load.customerId!==c.id) throw new Error('This load’s customer can’t be changed from your login.');
+          _tpl={exists:false,hasCustomer:true,customerId:c.id,customerName:c.name,docType:(_tpl&&_tpl.docType)||'BOL',fields:[]};
+          updateTplButtons();
+          return c;
+        });
+    });
+  }
+  var _rmCusts=null, _rmChoice=null;
+  function rmRenderList(){
+    var box=$('#rmCustList'), q=$('#rmCustInput').value.trim(), ql=q.toLowerCase();
+    var list=(_rmCusts||[]).filter(function(c){ return !ql || String(c.name).toLowerCase().indexOf(ql)>=0; }).slice(0,200);
+    var html=list.map(function(c){ return '<div class="rmItem'+(_rmChoice&&_rmChoice.id===c.id?' on':'')+'" data-id="'+esc(c.id)+'">'+esc(c.name)+'</div>'; }).join('');
+    var exact=(_rmCusts||[]).some(function(c){ return String(c.name).trim().toLowerCase()===ql; });
+    if(q && _rmCusts && !exact) html+='<div class="rmItem add" data-new="1">＋ Add “'+esc(q)+'” as a new customer</div>';
+    if(!html) html='<div style="padding:10px 12px;color:#5c6b7a;font-size:13px;">'+(_rmCusts?'No customers yet — type the company name to add one.':'Loading customers…')+'</div>';
+    box.innerHTML=html; box.style.display='block';
+    Array.prototype.forEach.call(box.querySelectorAll('.rmItem'),function(it){
+      it.addEventListener('mousedown',function(ev){
+        ev.preventDefault();
+        if(it.dataset.new){ _rmChoice={name:q,isNew:true}; $('#rmCustNote').textContent='“'+q+'” will be added to your customers and set on this load.'; }
+        else { var c=(_rmCusts||[]).find(function(x){ return x.id===it.dataset.id; }); if(!c) return; _rmChoice={id:c.id,name:c.name}; $('#rmCustNote').textContent='Will be set as this load’s customer.'; }
+        $('#rmCustInput').value=_rmChoice.name; box.style.display='none'; $('#rmCustNote').style.color='#5c6b7a';
+      });
+    });
+  }
+  $('#rmCustInput').addEventListener('focus',function(){
+    rmRenderList();
+    if(!_rmCusts) fetch('/api/customers',{credentials:'include'}).then(function(r){return r.json();})
+      .then(function(j){ _rmCusts=(j&&j.customers)||[]; if(document.activeElement===$('#rmCustInput')) rmRenderList(); })
+      .catch(function(){ _rmCusts=[]; });
+  });
+  $('#rmCustInput').addEventListener('input',function(){ _rmChoice=null; $('#rmCustNote').textContent=''; rmRenderList(); });
+  $('#rmCustInput').addEventListener('blur',function(){ setTimeout(function(){ $('#rmCustList').style.display='none'; },150); });
+  // Resolves to {action:'remembered'|'skip'|'cancel', customerName, docType}. 'remembered' = the layout is saved.
+  function askRemember(out){
+    return new Promise(function(resolve){
+      if(!out.length || !_tpl || !meta || !meta.loadId) return resolve({action:'skip'});
+      var hasCust=!!(_tpl.hasCustomer && _tpl.customerId), dt=_tpl.docType||'BOL', name=_tpl.customerName||'this customer';
+      if(hasCust && noAsk(_tpl.customerId)) return resolve({action:'skip'});
+      if(hasCust && _tpl.exists && samePattern(out,_tpl.fields||[])) return resolve({action:'skip'});   // already the saved layout
+      var updating=hasCust && _tpl.exists;
+      $('#rmTitle').textContent=updating?'Update the saved layout?':'Remember this layout?';
+      $('#rmMsg').innerHTML = !hasCust
+        ? 'This load has no customer yet, so there’s nothing to remember these boxes under. Pick the customer this paperwork is for — we’ll set it on the load and use these boxes automatically on their next <b>'+esc(dt)+'</b>.'
+        : updating
+          ? 'These boxes are different from <b>'+esc(name)+'</b>’s saved <b>'+esc(dt)+'</b> layout. Update it? Every future '+esc(name)+' '+esc(dt)+' will use these boxes instead.'
+          : 'Save these boxes as <b>'+esc(name)+' · '+esc(dt)+'</b>’s layout? The next '+esc(name)+' '+esc(dt)+' gets them automatically — no AI guessing.';
+      $('#rmCustWrap').style.display=hasCust?'none':'block';
+      $('#rmNoAskRow').style.display=hasCust?'flex':'none'; $('#rmNoAsk').checked=false;
+      $('#rmYes').textContent=!hasCust?'Set customer & remember':(updating?'Update layout':'Remember it');
+      _rmChoice=null; $('#rmCustInput').value=''; $('#rmCustNote').textContent=''; $('#rmCustNote').style.color='#5c6b7a';
+      var modal=$('#rememberModal'), btns=[$('#rmYes'),$('#rmSkip'),$('#rmBack')];
+      function busy(on){ btns.forEach(function(b){ b.disabled=on; }); }
+      function finish(res){ modal.style.display='none'; document.removeEventListener('keydown',onKey); modal.onclick=null; busy(false); resolve(res); }
+      function onKey(e){ if(e.key==='Escape') finish({action:'cancel'}); }
+      function fail(e){ busy(false); $('#rmYes').textContent=!hasCust?'Set customer & remember':(updating?'Update layout':'Remember it');
+        $('#rmCustNote').style.color='#c0392b'; $('#rmCustNote').textContent=((e&&e.message)||'Couldn’t remember the layout')+' — you can still save with “Just this load”.';
+        if(hasCust){ toast((e&&e.message)||'Couldn’t remember the layout'); } }
+      $('#rmBack').onclick=function(){ finish({action:'cancel'}); };
+      $('#rmSkip').onclick=function(){ if(hasCust && $('#rmNoAsk').checked) setNoAsk(_tpl.customerId); finish({action:'skip'}); };
+      $('#rmYes').onclick=function(){
+        if(!hasCust && !_rmChoice){ $('#rmCustNote').style.color='#c0392b'; $('#rmCustNote').textContent='Pick a customer from the list (or type a new name and choose “Add”).'; $('#rmCustInput').focus(); return; }
+        if(hasCust && $('#rmNoAsk').checked) setNoAsk(_tpl.customerId);
+        busy(true); $('#rmYes').textContent='Saving…';
+        (hasCust ? Promise.resolve() : setLoadCustomer(_rmChoice))
+          .then(function(){ return saveTemplate(out); })
+          .then(function(j){ finish({action:'remembered', customerName:j.customerName, docType:j.docType}); })
+          .catch(fail);
+      };
+      modal.onclick=function(e){ if(e.target===modal) finish({action:'cancel'}); };
+      document.addEventListener('keydown',onKey);
+      modal.style.display='flex';
+      if(!hasCust) setTimeout(function(){ $('#rmCustInput').focus(); },50);
+    });
+  }
 
   // ===== Crop the document's pages (trim background off a bad "use whole photo" scan) =====
   var _cropBuf=null,_cropPdf=null,_cropEdits={},_cropKind={},_cropPageIdx=0,_cropRect=null,_cropDrag=null;
