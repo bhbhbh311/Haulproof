@@ -158,6 +158,11 @@ addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column
 // Signed-copy email delivery: 'sent' | 'partial' (some recipients failed) | 'failed'. Failed addresses are retried
 // on a backoff (emailretry.js) and can be resent from the portal.
+// Paid AI features, per company (master admin sets these): on/off, a monthly spending cap, and the price you charge
+// per AI-handled document (for the usage report's charge / margin columns).
+addColumn('orgs',  'aiEnabled', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('orgs',  'aiMonthlyCapUsd', 'REAL');
+addColumn('orgs',  'aiPricePerDocUsd', 'REAL');
 addColumn('pods',  'emailStatus', 'TEXT');
 addColumn('pods',  'emailError', 'TEXT');
 addColumn('pods',  'emailFailedTo', 'TEXT');          // JSON array of addresses that still need the copy

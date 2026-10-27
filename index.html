@@ -553,6 +553,14 @@
     </div>
 
     <!-- DASHBOARD SUMMARY (super-admin only): at-a-glance counts across the whole system. -->
+    <div class="card hide" id="aiUsageCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">AI usage &amp; cost</h1><p class="sub" style="margin-bottom:0;">What the AI features cost you per company, what you charge, and your margin. AI only runs for companies switched on here; a monthly cap stops it (they fall back to the free built-in tools) until next month.</p></div>
+        <div style="display:flex;gap:8px;align-items:center;"><input type="month" id="aiuMonth" style="width:auto;font-size:14px;padding:8px 10px;"><button class="ghost" id="aiuRefresh" type="button">Refresh</button></div>
+      </div>
+      <div id="aiuNote" class="sub" style="margin:12px 0 0;"></div>
+      <div id="aiuTable" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+    </div>
     <div class="card hide" id="statsCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Dashboard</h1><p class="sub" style="margin-bottom:0;">Everything on HaulProof at a glance.</p></div>
@@ -1643,7 +1651,7 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['statsCard','optoutsCard','customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
+    const SUPER_CARDS = ['statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
     show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     const roles = (u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : []);
     const pureReceiver = u.role !== 'superadmin' && roles.indexOf('receiver') > -1 && !['customer','carrier','broker'].some(r => roles.indexOf(r) > -1);
@@ -1654,6 +1662,7 @@
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
       show('statsCard', true); loadStats();
+      show('aiUsageCard', true); loadAiUsage();
       show('optoutsCard', true); loadOptouts();
       show('requestsCard', true); loadRequests();
       show('customersCard', true); loadCustomers();
@@ -1856,7 +1865,7 @@
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
-    { key:'dashboard', label:'Dashboard',   cards:['statsCard','optoutsCard'] },
+    { key:'dashboard', label:'Dashboard',   cards:['statsCard','aiUsageCard','optoutsCard'] },
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
@@ -1989,6 +1998,47 @@
     } catch (e) {}
   }
   // Super-admin dashboard: at-a-glance counts across the whole system.
+  // ---- AI usage & cost (master admin): per-company AI switch, monthly cap, price per AI document, and the month's numbers ----
+  const money = (v, dp) => (v == null || v === '') ? '—' : ('$' + Number(v).toFixed(dp == null ? 2 : dp));
+  async function loadAiUsage(){
+    const box = $('aiuTable'); if (!box) return;
+    if ($('aiuMonth') && !$('aiuMonth').value) $('aiuMonth').value = new Date().toISOString().slice(0, 7);
+    try {
+      const r = await api('/api/ai-usage?month=' + encodeURIComponent($('aiuMonth') ? $('aiuMonth').value : ''));
+      const rows = r.orgs || [];
+      const t = rows.reduce((a, o) => ({ docs: a.docs + (o.docs || 0), runs: a.runs + (o.runs || 0), cost: a.cost + (o.costUsd || 0), charge: a.charge + (o.chargeUsd || 0) }), { docs: 0, runs: 0, cost: 0, charge: 0 });
+      $('aiuNote').innerHTML = (r.configured ? 'Model: <b>' + esc(r.model || '') + '</b>.' : '<b style="color:var(--danger)">AI isn’t set up on the server (no API key)</b> — nothing will run.')
+        + ' This month so far: <b>' + t.docs + '</b> AI documents, cost <b>' + money(t.cost) + '</b>, charge <b>' + money(t.charge) + '</b>, margin <b style="color:' + (t.charge - t.cost >= 0 ? 'var(--ok)' : 'var(--danger)') + '">' + money(t.charge - t.cost) + '</b>.';
+      if (!rows.length) { box.innerHTML = '<div class="empty">No companies yet.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Company</th><th>AI</th><th>Monthly cap</th><th>Price / AI doc</th><th>AI docs</th><th>AI runs</th><th>Your cost</th><th>Charge</th><th>Margin</th></tr></thead><tbody>'
+        + rows.map(o => {
+          const per = o.docs ? o.costUsd / o.docs : null;
+          const margin = o.marginUsd || 0;
+          const editable = !!o.orgId;
+          return '<tr data-org="' + (o.orgId || '') + '">'
+            + '<td><b>' + esc(o.name || '') + '</b>' + (o.kind ? ' <span style="color:var(--muted);font-size:12px;">' + esc(o.kind) + '</span>' : '') + '</td>'
+            + '<td>' + (editable ? '<label style="display:inline-flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);"><input type="checkbox" class="aiuOn"' + (o.aiEnabled ? ' checked' : '') + '> ' + (o.aiEnabled ? 'On' : 'Off') + '</label>' : '—') + '</td>'
+            + '<td>' + (editable ? '<input class="aiuCap" type="number" min="0" step="1" placeholder="no cap" value="' + (o.capUsd != null ? o.capUsd : '') + '" style="width:90px;font-size:13px;padding:6px 8px;">' : '—') + '</td>'
+            + '<td>' + (editable ? '<input class="aiuPrice" type="number" min="0" step="0.05" placeholder="0.00" value="' + (o.pricePerDocUsd != null ? o.pricePerDocUsd : '') + '" style="width:90px;font-size:13px;padding:6px 8px;">' : '—') + '</td>'
+            + '<td>' + (o.docs || 0) + '</td>'
+            + '<td title="Placements ' + (o.places || 0) + ' · Tell AI ' + (o.commands || 0) + ' · Page reviews ' + (o.reviews || 0) + '">' + (o.runs || 0) + '</td>'
+            + '<td>' + money(o.costUsd) + (per != null ? '<div style="color:var(--muted);font-size:11.5px;">' + money(per, 3) + ' / doc</div>' : '') + '</td>'
+            + '<td>' + money(o.chargeUsd) + '</td>'
+            + '<td style="font-weight:700;color:' + (margin >= 0 ? 'var(--ok)' : 'var(--danger)') + ';">' + money(margin) + '</td>'
+            + '</tr>';
+        }).join('') + '</tbody></table>';
+      const save = async (tr, body) => { try { await api('/api/ai-usage/org/' + tr.dataset.org, { method: 'PUT', body: JSON.stringify(body) }); loadAiUsage(); } catch (e) { alert(e.message || 'Could not save'); } };
+      box.querySelectorAll('tr[data-org]').forEach(tr => {
+        if (!tr.dataset.org) return;
+        const on = tr.querySelector('.aiuOn'), cap = tr.querySelector('.aiuCap'), price = tr.querySelector('.aiuPrice');
+        if (on) on.onchange = () => save(tr, { aiEnabled: on.checked });
+        if (cap) cap.onchange = () => save(tr, { capUsd: cap.value });
+        if (price) price.onchange = () => save(tr, { pricePerDocUsd: price.value });
+      });
+    } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message || 'Could not load AI usage') + '</div>'; }
+  }
+  if ($('aiuRefresh')) $('aiuRefresh').onclick = loadAiUsage;
+  if ($('aiuMonth')) $('aiuMonth').onchange = loadAiUsage;
   async function loadStats(){
     const grid = $('statsGrid'); if (!grid) return;
     const tile = (n, label, accent) => '<div style="background:var(--card2,#f7f9fc);border:1px solid var(--line);border-radius:12px;padding:14px 16px;">'

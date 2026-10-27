@@ -995,8 +995,9 @@
   }
   // Is the real AI set up on the server? (Decides the button names and which placement runs.)
   var _aiEnabled=false;
-  fetch('/api/pods/ai-status',{credentials:'include'}).then(function(r){ return r.json(); }).then(function(j){
+  fetch('/api/pods/ai-status?pod='+encodeURIComponent(DOC_ID||''),{credentials:'include'}).then(function(r){ return r.json(); }).then(function(j){
     _aiEnabled=!!(j&&j.enabled);
+    if(!_aiEnabled && j && j.reason==='cap'){ var bb=$('#aiBtn'); if(bb) bb.title=j.message+' Using the free built-in Auto-place.'; }
     if(_aiEnabled){
       var b=$('#aiBtn'); if(b){ var sp=b.querySelector('span'); if(sp) sp.textContent='AI place'; b.title='Claude reads the document and places each signature, date and time box'; }
       var ch=document.querySelector('#cmdRow .sech'); if(ch) ch.textContent='Tell AI';

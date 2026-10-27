@@ -485,7 +485,8 @@ const TOOLS = [
     run: async (user, a, base) => {
       const { pod, buf } = await docForEdit(user, a);
       const info = await aidocs.pageInfo(buf);
-      if (!aiplace.enabled()) return { document_id: pod.id, pages: info.numPages, ai: 'not set up', note: 'AI isn’t set up on this HaulProof server, so pages can’t be labeled. Look at the document (signature_setup_link) and call trim_document with the pages to keep.', signature_setup_link: base + '/prepare?id=' + pod.id };
+      const acc = aiplace.aiAccess(pod.orgId);
+      if (!acc.ok) return { document_id: pod.id, pages: info.numPages, ai: 'unavailable', note: acc.message + ' Look at the document (signature_setup_link) and call trim_document with the pages to keep.', signature_setup_link: base + '/prepare?id=' + pod.id };
       const r = await aidocs.reviewPages({ user }, pod.id, buf, info);
       if (r.error) throw new ToolError('The AI couldn’t read this document (' + r.error + '). Look at it in HaulProof and call trim_document with the pages to keep.');
       return { document_id: pod.id, po_number: pod.poNumber, stop: pod.stopNumber, total_pages: info.numPages, pages: r.pages, suggested_keep_pages: r.keep_pages, note: r.note,
@@ -546,7 +547,8 @@ const TOOLS = [
       } else if (method === 'saved_layout') {
         throw new ToolError('There’s no saved layout for this customer and document type yet. Use method "ai", or set it up once in HaulProof (signature_setup_link: ' + base + '/prepare?id=' + pod.id + ').');
       } else {
-        if (!aiplace.enabled()) throw new ToolError('No saved layout for this customer, and AI isn’t set up on the server — place the boxes in HaulProof: ' + base + '/prepare?id=' + pod.id);
+        const acc = aiplace.aiAccess(pod.orgId);
+        if (!acc.ok) throw new ToolError('No saved layout for this customer, and ' + acc.message.charAt(0).toLowerCase() + acc.message.slice(1) + ' Place the boxes in HaulProof: ' + base + '/prepare?id=' + pod.id);
         const r = await aidocs.aiFields({ user }, pod.id, buf, info);
         if (r.error || !(r.fields || []).length) throw new ToolError('The AI couldn’t place boxes on this document' + (r.error ? ' (' + r.error + ')' : '') + '. Place them in HaulProof: ' + base + '/prepare?id=' + pod.id);
         fields = r.fields; source = 'AI (' + (r.model || 'Claude') + ')'; note = r.note || ''; cost = r.costUsd;

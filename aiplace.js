@@ -8,7 +8,7 @@
 // Without ANTHROPIC_API_KEY these answer 503 and the page falls back to its built-in rule-based placement.
 const express = require('express');
 const crypto = require('crypto');
-const { requireAuth } = require('./auth');
+const { requireAuth, requireSuper } = require('./auth');
 const { db } = require('./db');
 const podsRouter = require('./pods');
 
@@ -102,7 +102,9 @@ function logUsage(req, podId, kind, resp) {
       inTok += i; outTok += o; cacheTok += c;
       cost += (i * pr[0] + o * pr[1] + c * pr[2]) / 1e6;
     });
-    const orgId = (req.user && req.user.orgId) || null, userId = (req.user && req.user.id) || null;
+    // Bill the company that owns the document (a master admin working on a customer's document isn't the payer).
+    let orgId = (req.user && req.user.orgId) || null; const userId = (req.user && req.user.id) || null;
+    try { const pr = podId && db.prepare(`SELECT orgId FROM pods WHERE id = ?`).get(podId); if (pr && pr.orgId) orgId = pr.orgId; } catch (e) {}
     db.prepare(`INSERT INTO ai_usage (id, orgId, userId, podId, kind, model, inputTokens, outputTokens, cacheReadTokens, costUsd, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .run(crypto.randomUUID(), orgId, userId, podId, kind, resp.model || MODEL, inTok, outTok, cacheTok, cost, Date.now());
     console.log(`[ai-place] ${kind} pod=${podId} model=${resp.model || MODEL} in=${inTok} out=${outTok} cacheRead=${cacheTok} cost=$${cost.toFixed(4)}`);
@@ -150,10 +152,27 @@ function parseFields(resp, pageCount) {
   return { fields, note: String(j.note || '').slice(0, 300) };
 }
 
+// ---- Paid AI: per-company on/off and monthly cap ----
+function monthStart(d) { const t = d ? new Date(d) : new Date(); return new Date(t.getFullYear(), t.getMonth(), 1).getTime(); }
+function monthSpend(orgId) {
+  const r = db.prepare(`SELECT COALESCE(SUM(costUsd),0) s FROM ai_usage WHERE orgId IS ? AND createdAt >= ?`).get(orgId || null, monthStart());
+  return r ? r.s : 0;
+}
+// May this company use AI right now? { ok, reason: 'not_configured' | 'off' | 'cap', message }
+function aiAccess(orgId) {
+  if (!client()) return { ok: false, reason: 'not_configured', message: 'AI isn’t set up on this server.' };
+  const org = orgId ? db.prepare(`SELECT name, aiEnabled, aiMonthlyCapUsd FROM orgs WHERE id = ?`).get(orgId) : null;
+  if (!org || !org.aiEnabled) return { ok: false, reason: 'off', message: 'AI features aren’t turned on for this company — ask HaulProof to enable them.' };
+  const cap = Number(org.aiMonthlyCapUsd) || 0, spent = monthSpend(orgId);
+  if (cap > 0 && spent >= cap) return { ok: false, reason: 'cap', message: 'This company has reached its AI limit for the month ($' + cap.toFixed(2) + ').', spent, cap };
+  return { ok: true, spent, cap };
+}
+
 function loadDoc(req, res) {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!podsRouter.canAccess(req, row)) { res.status(404).json({ error: 'Not found' }); return null; }
-  if (!client()) { res.status(503).json({ error: 'AI placement is not set up', fallback: true }); return null; }
+  const acc = aiAccess(row.orgId);
+  if (!acc.ok) { res.status(503).json({ error: acc.message, reason: acc.reason, fallback: true }); return null; }
   const pages = Array.isArray(req.body && req.body.pages) ? req.body.pages : [];
   if (!pages.length) { res.status(400).json({ error: 'No pages sent' }); return null; }
   return { row, pages };
@@ -165,7 +184,13 @@ function sendError(res, e) {
 }
 
 // Is the real AI configured? (Lets the page label its buttons honestly.)
-router.get('/ai-status', requireAuth, (req, res) => res.json({ enabled: !!client(), model: client() ? MODEL : null }));
+// Can AI be used here? Pass ?pod=<document id> to answer for the company that owns that document.
+router.get('/ai-status', requireAuth, (req, res) => {
+  let orgId = req.user.orgId || null;
+  if (req.query.pod) { const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(String(req.query.pod)); if (row && podsRouter.canAccess(req, row)) orgId = row.orgId || orgId; }
+  const acc = aiAccess(orgId);
+  res.json({ enabled: acc.ok, reason: acc.reason || null, message: acc.message || null, model: acc.ok ? MODEL : null });
+});
 
 router.post('/:id/ai-place', requireAuth, express.json({ limit: '25mb' }), async (req, res) => {
   const d = loadDoc(req, res); if (!d) return;
@@ -206,3 +231,33 @@ module.exports.parseFields = parseFields;
 module.exports.logUsage = logUsage;
 module.exports.wordsText = wordsText;
 module.exports.enabled = () => !!client();
+module.exports.aiAccess = aiAccess;
+
+// ---- Master admin: AI usage & cost report, and each company's AI settings ----
+const usageRouter = express.Router();
+usageRouter.get('/', requireAuth, requireSuper, (req, res) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(req.query.month || ''));
+  const from = m ? new Date(+m[1], +m[2] - 1, 1).getTime() : monthStart(), to = new Date(new Date(from).getFullYear(), new Date(from).getMonth() + 1, 1).getTime();
+  const rows = db.prepare(`SELECT orgId, COUNT(*) runs, COUNT(DISTINCT podId) docs, SUM(costUsd) cost,
+      SUM(CASE WHEN kind IN ('place','place-server') THEN 1 ELSE 0 END) places, SUM(CASE WHEN kind='command' THEN 1 ELSE 0 END) commands, SUM(CASE WHEN kind='review' THEN 1 ELSE 0 END) reviews
+    FROM ai_usage WHERE createdAt >= ? AND createdAt < ? GROUP BY orgId`).all(from, to);
+  const byOrg = {}; rows.forEach(r => { byOrg[r.orgId || ''] = r; });
+  const orgs = db.prepare(`SELECT id, name, kind, active, aiEnabled, aiMonthlyCapUsd, aiPricePerDocUsd FROM orgs ORDER BY name COLLATE NOCASE`).all();
+  const list = orgs.filter(o => o.active || byOrg[o.id] || o.aiEnabled).map(o => {
+    const u = byOrg[o.id] || {}, price = Number(o.aiPricePerDocUsd) || 0, cost = u.cost || 0, docs = u.docs || 0;
+    return { orgId: o.id, name: o.name, kind: o.kind, aiEnabled: !!o.aiEnabled, capUsd: o.aiMonthlyCapUsd, pricePerDocUsd: o.aiPricePerDocUsd,
+      docs, runs: u.runs || 0, places: u.places || 0, commands: u.commands || 0, reviews: u.reviews || 0, costUsd: cost, chargeUsd: docs * price, marginUsd: docs * price - cost };
+  });
+  if (byOrg['']) list.push({ orgId: null, name: '(no company — master admin)', aiEnabled: null, docs: byOrg[''].docs, runs: byOrg[''].runs, costUsd: byOrg[''].cost || 0, chargeUsd: 0, marginUsd: -(byOrg[''].cost || 0) });
+  res.json({ month: new Date(from).toISOString().slice(0, 7), configured: !!client(), model: MODEL, orgs: list });
+});
+usageRouter.put('/org/:id', requireAuth, requireSuper, express.json(), (req, res) => {
+  const o = db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Company not found' });
+  const b = req.body || {}, num = v => (v === '' || v == null) ? null : (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : undefined);
+  if (b.aiEnabled !== undefined) db.prepare(`UPDATE orgs SET aiEnabled = ? WHERE id = ?`).run(b.aiEnabled ? 1 : 0, o.id);
+  if (b.capUsd !== undefined) { const v = num(b.capUsd); if (v === undefined) return res.status(400).json({ error: 'Cap must be a dollar amount' }); db.prepare(`UPDATE orgs SET aiMonthlyCapUsd = ? WHERE id = ?`).run(v, o.id); }
+  if (b.pricePerDocUsd !== undefined) { const v = num(b.pricePerDocUsd); if (v === undefined) return res.status(400).json({ error: 'Price must be a dollar amount' }); db.prepare(`UPDATE orgs SET aiPricePerDocUsd = ? WHERE id = ?`).run(v, o.id); }
+  res.json({ ok: true });
+});
+module.exports.usageRouter = usageRouter;
