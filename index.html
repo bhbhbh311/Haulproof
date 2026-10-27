@@ -163,6 +163,40 @@
   .hp-switch input:checked + .hp-track::before{transform:translateX(20px);}
   .hp-switch input:focus-visible + .hp-track{box-shadow:0 0 0 3px rgba(23,87,214,.35);}
   .hp-switch-state{font-weight:800;font-size:12px;letter-spacing:.03em;margin-left:6px;}
+  /* ===== Look shared with the signature setup page: tile-style buttons and tabs, colour-coded load rows,
+     stronger status pills and clearer section lines. ===== */
+  button{border-radius:9px;}
+  button:hover{transform:none;}
+  button.ghost{border:1px solid var(--line);background:#fff;box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  button.ghost:hover{background:#f7f9fc;border-color:#b9c5d3;box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  input,select{border-radius:9px;}
+  .tabbar{border-radius:12px;padding:5px;gap:4px;}
+  .tab{border-radius:9px;border:1px solid transparent;}
+  .tab:hover{background:#f4f7fc;border-color:var(--line);}
+  .tab.active{background:var(--primary-soft);color:var(--primary);border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary);}
+  .tab.active .tabcount{background:var(--primary);color:#fff;}
+  .card > h1:first-child,.card h1{padding-bottom:2px;}
+  .card{border-color:#d6dee8;}
+  /* status pills: a coloured dot + firmer colours */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 10px 3px 8px;border:1px solid transparent;}
+  .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none;}
+  .chip.received{color:#9a5b0c;background:#fdf1df;border-color:#f1d3a6;}
+  .chip.prepared{color:var(--primary);background:#e4ecfc;border-color:#bcd0f5;}
+  .chip.signed,.chip.emailed{color:#0f6a41;background:#e0f2e8;border-color:#b5dcc7;}
+  .chip.setup{color:#5b2a9a;background:#f1e8fb;border-color:#d7c2f0;}
+  /* load rows: colour stripe on the left by status */
+  #loadList tbody tr.ldrow td:first-child{box-shadow:inset 4px 0 0 var(--tone,transparent);}
+  #loadList tr.tone-setup{--tone:#7a3cc0;} #loadList tr.tone-open{--tone:#d99a3a;}
+  #loadList tr.tone-active{--tone:var(--primary);} #loadList tr.tone-done{--tone:#1f9d62;}
+  #loadList tbody tr:nth-child(even){background:#fbfcfe;}
+  #loadList tbody tr:hover{background:#f1f5fd;}
+  #loadList tbody td{border-bottom-color:#e1e7ef;}
+  #loadList thead th{background:#eef2f8;border-bottom:2px solid #cfd8e3;color:#33414f;}
+  #loadList .ldOpen.ghost{border-color:#bcd0f5;color:var(--primary);background:#f4f8ff;}
+  #loadList .ldOpen.ghost:hover{background:#e4ecfc;border-color:var(--primary);}
+  #loadList .ldOpen.btn-sm{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
+  #loadList .ldOpen.btn-sm:hover{background:#68309f;}
+  #loadList .ldArch{color:var(--muted);}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -2460,12 +2494,23 @@
     return '';
   }
   // Clean CURRENT status for the loads list (derived from the latest event). Full history is one click away.
+  // Colour stripe on the left of each load row: violet = needs setup, amber = open / waiting, blue = with the
+  // driver / signing in progress, green = completed. Mirrors the status pill.
+  function loadRowTone(l) {
+    if (l.needsSetup) return 'tone-setup';
+    if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'tone-done';
+    if ((l.stopsDone > 0 && l.stopsTotal > 0) || l.readyToSign) return 'tone-active';
+    const t = l.lastEvent && l.lastEvent.type;
+    if (t === 'signed' || t === 'emailed' || (!t && l.status === 'signed')) return 'tone-done';
+    if (['document_uploaded','prepared','broker_assigned','carrier_assigned','driver_assigned'].indexOf(t) >= 0 || l.status === 'assigned') return 'tone-active';
+    return 'tone-open';
+  }
   function loadStatusChip(l) {
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
     // a driver's upload waiting on dispatch reads "Needs setup" (not a vague "Updated").
-    if (l.needsSetup) return '<span class="chip received">Needs setup</span>';
+    if (l.needsSetup) return '<span class="chip setup">Needs setup</span>';
     // Every stop signed → the load is done; green "Completed" and it stays in the list to open/view.
-    if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return '<span class="chip signed">✓ Completed — ready to view</span>';
+    if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return '<span class="chip signed">Completed — ready to view</span>';
     // Part-way through a multi-stop load → show progress instead of a flat "Ready to sign".
     if (l.stopsDone > 0 && l.stopsTotal > 0) return '<span class="chip prepared">' + l.stopsDone + ' of ' + l.stopsTotal + ' stops signed</span>';
     if (l.readyToSign) return '<span class="chip prepared">Ready to sign</span>';
@@ -2551,7 +2596,7 @@
       const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${rightLinks ? '<span style="display:flex;gap:10px;align-items:center;">' + rightLinks + '</span>' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
-        showing.map(l => `<tr>
+        showing.map(l => `<tr class="ldrow ${loadRowTone(l)}">
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
