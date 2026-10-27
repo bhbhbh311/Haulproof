@@ -136,7 +136,24 @@
   .sech .opt{font-weight:600;text-transform:none;letter-spacing:0;}
   .fgrp{font-size:11.5px;font-weight:600;color:var(--muted);margin:10px 0 5px;}
   .chips{display:flex;flex-wrap:wrap;gap:6px;}
-  .side .signer,.side .ftype{font-size:12.5px;padding:6px 10px;}
+  /* Side-panel buttons: signers and field types as even tiles in a 2-column grid. A signer tile lights up in its
+     own colour when picked; the picked field tile takes the current signer's colour. */
+  .side .chips{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .side .signer,.side .ftype{width:100%;min-height:36px;justify-content:flex-start;gap:8px;font-size:12.5px;font-weight:600;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(20,30,50,.06);text-align:left;line-height:1.2;transition:background .12s,border-color .12s,box-shadow .12s;}
+  .side .signer:hover,.side .ftype:hover{border-color:#b9c5d3;background:#f7f9fc;}
+  .side .signer::before,.side .ftype::before{content:none !important;}
+  .side .signer .dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(20,30,50,.12);}
+  .side .signer.on{border-color:var(--c);background:var(--cf);color:var(--ink);font-weight:700;box-shadow:inset 0 0 0 1px var(--c);}
+  .side .signer.add{justify-content:center;border-style:dashed;color:var(--muted);box-shadow:none;background:transparent;}
+  .side .signer.add:hover{color:var(--primary);border-color:var(--primary);}
+  .side .ftype .ficon{display:inline-flex;color:var(--muted);flex:none;}
+  .side .ftype .ficon svg{width:16px;height:16px;}
+  .side #fieldRow .ftype.on{border-color:var(--ac,var(--primary));background:var(--acf,var(--primary-soft));color:var(--ink);font-weight:700;box-shadow:inset 0 0 0 1px var(--ac,var(--primary));}
+  .side #fieldRow .ftype.on .ficon{color:var(--ac,var(--primary));}
+  .side .fgrp{margin:12px 0 6px;}
+  .side .sec{padding-bottom:16px;border-bottom:1px solid var(--line);}
+  .side .sec:last-of-type,.side #labelRow,.side #cmdRow{border-bottom:none;}
+  .side .cmdbtns .btn{min-height:36px;}
   .side .armed{margin:0 0 18px;font-size:12.5px;line-height:1.35;}
   .side #fieldLabel,.side #cmdInput{width:100%;min-width:0;max-width:none;font-family:inherit;}
   .side .lhint{display:block;margin-top:5px;line-height:1.4;}
@@ -172,6 +189,7 @@
     .side #placedSec,.side .hint{display:none;}
     .docpane{padding:10px 8px 40px;}
     .brandsub{display:none;}
+    .zoombar{display:none;}   /* phones: pinch to zoom instead */
   }
 </style>
 </head>
@@ -202,7 +220,7 @@
     <div class="chips">
       <button class="signer on" data-role="Consignee" type="button"><span class="dot"></span>Consignee</button>
       <button class="signer" data-role="Driver" type="button"><span class="dot"></span>Driver</button>
-      <button class="signer" data-role="Shipper" type="button"><span class="dot"></span>Shipper / Pickup</button>
+      <button class="signer" data-role="Shipper" type="button" title="Shipper / pickup signer"><span class="dot"></span>Shipper</button>
       <button class="signer add" id="addSigner" type="button">＋ Add signer</button>
     </div>
   </div>
@@ -447,12 +465,16 @@
 
   // Signer buttons (built-in + custom). Clicking sets the active role and tints future fields.
   function wireSigner(b){
-    var dot=b.querySelector('.dot'); if(dot) dot.style.background=roleColor(b.dataset.role);
+    var c=roleColor(b.dataset.role);
+    var dot=b.querySelector('.dot'); if(dot) dot.style.background=c;
+    b.style.setProperty('--c',c); b.style.setProperty('--cf',rgba(c,0.13));
     b.addEventListener('click',function(){
       document.querySelectorAll('.signer').forEach(function(x){x.classList.remove('on');});
-      b.classList.add('on'); activeTool.role=b.dataset.role; updateArmed();
+      b.classList.add('on'); activeTool.role=b.dataset.role; updateArmed(); tintFieldTiles();
     });
   }
+  // The selected field tile takes the current signer's colour, so "who + what" reads as one choice.
+  function tintFieldTiles(){ var fr=$('#fieldRow'); if(!fr) return; var c=roleColor(activeTool.role); fr.style.setProperty('--ac',c); fr.style.setProperty('--acf',rgba(c,0.13)); }
   Array.prototype.forEach.call(document.querySelectorAll('.signer[data-role]'),wireSigner);
   $('#addSigner').addEventListener('click',function(){
     var name=(prompt('Name this signer (e.g. Warehouse Mgr, Lumper):')||'').trim();
@@ -464,12 +486,13 @@
     wireSigner(b); b.click();
   });
   Array.prototype.forEach.call(document.querySelectorAll('.ftype'),function(b){
+    b.innerHTML='<span class="ficon">'+kindIcon(b.dataset.kind)+'</span><span>'+b.innerHTML+'</span>';
     b.addEventListener('click',function(){
       document.querySelectorAll('.ftype').forEach(function(x){x.classList.remove('on');});
       b.classList.add('on'); activeTool.kind=b.dataset.kind; updateArmed();
     });
   });
-  updateArmed();   // show the starting selection (Consignee · Sign + date) right away
+  updateArmed(); tintFieldTiles();   // show the starting selection (Consignee · Sign + date) right away
   $('#fieldLabel').addEventListener('input',function(){
     if(!selected) return;
     selected.label=this.value;
