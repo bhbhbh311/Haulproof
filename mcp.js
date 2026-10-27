@@ -420,7 +420,9 @@ const TOOLS = [
     run: async (user, a, base) => {
       needCompany(user);
       const d = await resolveLoad(user, a.load), drv = await resolveDriver(user, a.driver);
-      await api(user, 'POST', '/api/loads/' + d.load.id + '/assign-driver', { json: { driverId: drv.id, truck: a.truck || '', trailer: a.trailer || '' } });
+      // The assign endpoint overwrites truck/trailer, so keep the load's current ones unless new ones were given.
+      const truck = a.truck != null ? a.truck : (d.load.truck || ''), trailer = a.trailer != null ? a.trailer : (d.load.trailer || '');
+      await api(user, 'POST', '/api/loads/' + d.load.id + '/assign-driver', { json: { driverId: drv.id, truck, trailer } });
       return Object.assign({ assigned: driverLabel(drv) }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
     } },
 
