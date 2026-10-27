@@ -957,6 +957,32 @@
     stage.addEventListener('touchstart',down,{passive:false}); stage.addEventListener('touchmove',mv,{passive:false}); stage.addEventListener('touchend',up);
   })();
   if($('#cropBtn')) $('#cropBtn').addEventListener('click',cropOpen);
+
+  // Pick up a new build without a manual refresh (mirrors the portal). Reloads ONLY when it's safe — never
+  // while you have unsaved signature changes, the AI is reading, or a dialog is open — so you never lose work.
+  (function(){
+    var _verBase=null;
+    function _safeReload(){
+      try{
+        if(dirty) return false;
+        if(typeof _ocrRunning!=='undefined' && _ocrRunning) return false;
+        var cm=document.getElementById('cropModal'), lm=document.getElementById('layoutsModal');
+        if(cm && cm.style.display==='flex') return false;
+        if(lm && lm.style.display==='flex') return false;
+        return true;
+      }catch(e){ return false; }
+    }
+    function _verTick(){
+      fetch('/api/app-version',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+        var v=j&&j.version; if(v==null) return;
+        if(_verBase==null){ _verBase=v; return; }             // first read = baseline
+        if(v!==_verBase && _safeReload()) location.reload();   // new build live + safe → reload; else keep retrying
+      }).catch(function(){});
+    }
+    setInterval(_verTick, 15000); _verTick();
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) _verTick(); });
+    window.addEventListener('focus', _verTick);
+  })();
 })();
 </script>
 </body>

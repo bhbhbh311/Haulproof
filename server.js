@@ -519,8 +519,17 @@ app.get('/app', (_req, res) => { res.set('Cache-Control', 'no-store, no-cache, m
 // of index.html has been deployed and reload itself (only when it's safe to do
 // so — see the auto-refresh script in index.html). Returns the file's mtime.
 app.get('/api/app-version', (_req, res) => {
-  let v = 0;
-  try { v = Math.floor(fs.statSync(path.join(__dirname, 'index.html')).mtimeMs); } catch (_) {}
+  // A value that changes on EVERY deploy — not just when index.html changes — so the portal AND the
+  // signature-setup page auto-pick-up new builds. Prefer Render's per-deploy commit id; otherwise fall back
+  // to the newest timestamp across the main pages (which all re-check out fresh on each deploy).
+  let v = (process.env.RENDER_GIT_COMMIT || '').slice(0, 12);
+  if (!v) {
+    let m = 0;
+    for (const f of ['index.html', 'prepare.html', 'haulproof_driver.html']) {
+      try { m = Math.max(m, Math.floor(fs.statSync(path.join(__dirname, f)).mtimeMs)); } catch (_) {}
+    }
+    v = String(m);
+  }
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.json({ version: v });
 });
