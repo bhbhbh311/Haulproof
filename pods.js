@@ -7,6 +7,7 @@ const path = require('path');
 const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue, requireCap } = require('./auth');
 const { emailPodCopy } = require('./mailer');
+const emailRetry = require('./emailretry');
 const { logEvent } = require('./events');
 const stoptimes = require('./stoptimes');
 const { stashDoc } = require('./trash');
@@ -502,6 +503,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       try { const pr = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(id); combined = await combinedPodBytes(pr); } catch (e) {}
       mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath, contentBytes: combined });
       if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
+      emailRetry.recordEmailResult(id, allRecipients, mail);
     }
     // Persist the FULL recipient list on the record (not just the consignee email typed at signing) and
     // record an 'emailed' event on the load history — an audit trail of exactly who was notified.
@@ -1059,5 +1061,6 @@ router.post('/:id/reshoot-page', requireAuth, raw, (req, res) => {
   } catch (e) { console.error('reshoot-page', e.message); res.status(500).json({ error: 'Could not send the page back' }); }
 });
 
-router.canAccess = canAccess;   // shared with the AI placement routes (aiplace.js)
+router.canAccess = canAccess;
+router.combinedPodBytes = combinedPodBytes;   // used by emailretry.js to resend   // shared with the AI placement routes (aiplace.js)
 module.exports = router;

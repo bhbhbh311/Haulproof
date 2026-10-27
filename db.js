@@ -156,6 +156,13 @@ addColumn('users', 'betaAccess', 'INTEGER NOT NULL DEFAULT 0');   // master-admi
 addColumn('loads', 'orgId', 'TEXT');
 addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column
+// Signed-copy email delivery: 'sent' | 'partial' (some recipients failed) | 'failed'. Failed addresses are retried
+// on a backoff (emailretry.js) and can be resent from the portal.
+addColumn('pods',  'emailStatus', 'TEXT');
+addColumn('pods',  'emailError', 'TEXT');
+addColumn('pods',  'emailFailedTo', 'TEXT');          // JSON array of addresses that still need the copy
+addColumn('pods',  'emailAttempts', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('pods',  'emailNextRetryAt', 'INTEGER');
 // Carrier + assignment columns (added to existing installs).
 addColumn('orgs',  'kind', "TEXT NOT NULL DEFAULT 'customer'");
 addColumn('orgs',  'mcNumber', 'TEXT');

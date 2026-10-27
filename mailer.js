@@ -73,7 +73,7 @@ async function emailPodCopy({ to, pod, filePath, contentBytes }) {
     return { sent: false, simulated: true, sentTo: allowed, blocked };
   }
 
-  const results = [];
+  const results = [], failed = [];
   for (const rcpt of allowed) {
     try {
       const info = await getTransport().sendMail({
@@ -91,9 +91,11 @@ async function emailPodCopy({ to, pod, filePath, contentBytes }) {
       results.push({ to: rcpt, messageId: info.messageId });
     } catch (e) {
       console.error('emailPodCopy to', rcpt, e.message);
+      failed.push({ to: rcpt, error: e.message });
     }
   }
-  return { sent: results.length > 0, sentTo: results.map(r => r.to), blocked, results };
+  return { sent: results.length > 0, sentTo: results.map(r => r.to), blocked, results, failed,
+    error: failed.length ? failed[0].error : undefined };
 }
 
 // Generic transactional email (access requests, approvals, questions). Fails soft if SMTP isn't set.

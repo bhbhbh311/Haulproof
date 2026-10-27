@@ -219,6 +219,10 @@
   button.sprchip{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid #bcd0f5;background:#fff;color:var(--primary);box-shadow:none;}
   button.sprchip:hover{background:#e4ecfc;border-color:var(--primary);box-shadow:none;}
   button.sprchip.all{border-color:var(--line);color:var(--ink);}
+  .mailfail{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;font-weight:700;color:#b42318;}
+  .mailfail-sub{font-weight:500;color:#8a3b33;}
+  .mailfail button.ldResend{padding:3px 9px;font-size:11.5px;color:#b42318;border-color:#efc4c1;}
+  .mailfail button.ldResend:hover{background:#fdecea;border-color:#b42318;}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -2527,6 +2531,16 @@
     if (['document_uploaded','prepared','broker_assigned','carrier_assigned','driver_assigned'].indexOf(t) >= 0 || l.status === 'assigned') return 'tone-active';
     return 'tone-open';
   }
+  // Red "Email failed" note under a signed document whose copy didn't go out, with the reason and a Resend button.
+  function emailFailBadge(p) {
+    if (!p || (p.emailStatus !== 'failed' && p.emailStatus !== 'partial')) return '';
+    let failed = []; try { failed = JSON.parse(p.emailFailedTo || '[]') || []; } catch (e) {}
+    const when = p.emailNextRetryAt ? ' · retrying ' + new Date(p.emailNextRetryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ' · no more automatic retries';
+    const title = (p.emailError || '') + (failed.length ? '\nNot sent to: ' + failed.join(', ') : '');
+    return `<div class="mailfail" title="${esc(title)}"><span>✉ ${p.emailStatus === 'partial' ? 'Some emails failed' : 'Email failed — not sent'}</span>`
+      + `<span class="mailfail-sub">${failed.length} recipient${failed.length === 1 ? '' : 's'}${when}</span>`
+      + `<button class="ghost btn-sm ldResend" data-id="${p.id}" type="button">↻ Resend</button></div>`;
+  }
   function loadStatusChip(l) {
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
     // a driver's upload waiting on dispatch reads "Needs setup" (not a vague "Updated").
@@ -3427,7 +3441,7 @@
         ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
-        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${emailFailBadge(p)}</td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${p.status === 'needs_reupload'
@@ -3454,6 +3468,15 @@
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
     box.querySelectorAll('.ldOpenDoc').forEach(b => b.onclick = () => openDocViewer(byId[b.dataset.id]));
+    box.querySelectorAll('.ldResend').forEach(b => b.onclick = async () => {
+      b.disabled = true; const t = b.textContent; b.textContent = 'Sending…';
+      try {
+        const r = await api('/api/pods/' + b.dataset.id + '/resend-email', { method: 'POST' });
+        if (r.simulated) alert('Email isn’t set up on the server yet — nothing was sent.');
+        else if (r.failed && r.failed.length) alert('Still not sent to ' + r.failed.join(', ') + (r.error ? '\n\n' + r.error : ''));
+        openLoad(curLoad.id);
+      } catch (e) { alert(e.message || 'Could not resend'); b.disabled = false; b.textContent = t; }
+    });
     // One "Review" button opens the review popup (view the doc, crop a page, split into stops, or send a page
     // back to re-shoot). Replaces the old separate Split and Crop buttons.
     box.querySelectorAll('.ldReview').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));

@@ -196,7 +196,8 @@ app.post('/api/auth/help', (req, res) => {
 
 // --- resources ---
 app.use('/api/loads', loadsRouter);
-app.use('/api/pods', require('./aiplace'));   // AI signature-box placement (before the /:id routes)
+app.use('/api/pods', require('./aiplace'));
+app.use('/api/pods', require('./emailretry').router);   // POST /:id/resend-email   // AI signature-box placement (before the /:id routes)
 app.use('/api/pods', podsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/orgs', orgsRouter);
@@ -592,6 +593,7 @@ try { backfillSupportAdmins(); } catch (e) { console.error('backfillSupportAdmin
 
 const PORT = process.env.PORT || 4000;
 try { digest.startDailyDigest(); } catch (e) { console.error('digest arm', e && e.message); }
+try { require('./emailretry').startRetryLoop(); } catch (e) { console.error('email retry loop', e.message); }   // retry failed signed-copy emails
 app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);
   if (ssoConfigured()) {
