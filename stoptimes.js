@@ -121,6 +121,11 @@ function dispatchSet({ load, kind, stopNumber, inAt, outAt, actor }) {
   const valid = (v) => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 946684800000 && v < Date.now() + 2 * 86400000);
   if ((inAt !== undefined && !valid(inAt)) || (outAt !== undefined && !valid(outAt))) throw new Error('That time doesn’t look right');
   const cur = ensureRow(load.id, k);
+  // The portal's editor works to the minute, so a time equal to the stored one at minute precision is unchanged —
+  // otherwise re-saving an untouched driver time would relabel it "set by dispatch" (and drop its GPS/source).
+  const sameMinute = (a, b) => a != null && b != null && Math.floor(a / 60000) === Math.floor(b / 60000);
+  if (sameMinute(inAt, cur.inAt)) inAt = undefined;
+  if (sameMinute(outAt, cur.outAt)) outAt = undefined;
   const nIn = inAt === undefined ? cur.inAt : inAt, nOut = outAt === undefined ? cur.outAt : outAt;
   if (nIn && nOut && nOut < nIn) throw new Error('The out time is before the in time');
   const now = Date.now(), changed = [];
