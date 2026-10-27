@@ -186,7 +186,7 @@
         <div class="lyhint" id="lyEmptyHint" style="display:none;">No saved layouts for this customer yet. Place your boxes, then choose <b>Save current as layout</b>.</div>
       </div>
     </div>
-    <button class="btn ghost" id="aiBtn" type="button" title="Let AI read the document and suggest where each signature and date goes">✨ AI place</button>
+    <button class="btn ghost" id="aiBtn" type="button" title="Read the document's labels (Receiver, Carrier, Date, Pickup Date) and drop boxes on the blanks next to them">✨ Auto-place</button>
     <button class="btn ghost" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures">✂ Crop / clean up</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
     <button class="btn ok" id="saveBtn" type="button">Save setup</button>
@@ -237,7 +237,7 @@
     <div class="lhint">Click a placed box, then type its label. Handy for Time and Text boxes.</div>
   </div>
   <div class="sec" id="cmdRow">
-    <div class="sech">Tell AI</div>
+    <div class="sech">Quick commands</div>
     <input id="cmdInput" type="text" placeholder="e.g. “add carrier sign and date”" autocomplete="off">
     <div class="cmdbtns"><button class="btn ghost" id="cmdMic" type="button" title="Speak a command">🎤 Speak</button><button class="btn" id="cmdGo" type="button">Apply</button></div>
     <div class="lhint" id="cmdHint">Try “remove shipper”, “add carrier sign and date”, “add pickup date”, “clear all”.</div>
@@ -773,7 +773,7 @@
   // box. Runs once both the pages and the template have loaded; never clobbers a document that already has fields.
   // Combined first-open assist. Runs once, only after BOTH the pages and the template lookup have resolved and
   // only when the document has no fields yet. If this customer+doc-type has a saved layout, drop it on (existing
-  // behaviour). Otherwise — a brand-new customer/form — let AI read the document and suggest the signature spots.
+  // behaviour). Otherwise — a brand-new customer/form — read the document's labels and suggest the signature spots.
   var _tplChecked=false, _autoAssisted=false;
   function maybeAutoAssist(){
     if(_autoAssisted || VIEW) return;
@@ -783,7 +783,7 @@
     if(_tpl && _tpl.exists && ((_tpl.fields||[]).length)){
       applyLayoutFields(_tpl.fields, (_tpl.customerName?(_tpl.customerName+' · '):'')+(_tpl.docType||'BOL'));
     } else {
-      autoOCRPlace(false);                                      // no saved layout → AI suggestion
+      autoOCRPlace(false);                                      // no saved layout → auto-place suggestion
     }
   }
 
@@ -893,16 +893,16 @@
         if(by.Consignee) parts.push('Consignee sign'+(by.Consignee.date?' + date':''));
         if(by.Driver) parts.push('Carrier sign'+(by.Driver.date?' + date':''));
         if(by.Pickup) parts.push('Pickup date');
-        toast('✨ AI placed: '+parts.join(', ')+'. Review, add anything missing (e.g. say “add consignee sign and date”), then Save setup.');
-      } else if(manual){ toast('AI didn’t find clear signature labels — place them by hand, or try Crop / clean up first.'); }
+        toast('✨ Auto-placed: '+parts.join(', ')+'. Review, add anything missing (e.g. say “add consignee sign and date”), then Save setup.');
+      } else if(manual){ toast('Auto-place didn’t find clear signature labels — place them by hand, or try Crop / clean up first.'); }
     }).catch(function(e){
       if(_worker){ try{ _worker.terminate(); }catch(_e){} }
       _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false);
-      if(manual) toast('Couldn’t load the AI reader (needs internet). Place signatures by hand.');
+      if(manual) toast('Couldn’t load the document reader (needs internet). Place signatures by hand.');
     });
   }
   if($('#aiBtn')) $('#aiBtn').addEventListener('click',function(){
-    if(fields.length && !confirm('Add AI-suggested signature spots on top of the '+fields.length+' field'+(fields.length===1?'':'s')+' already on this document?')) return;
+    if(fields.length && !confirm('Add auto-placed signature spots on top of the '+fields.length+' field'+(fields.length===1?'':'s')+' already on this document?')) return;
     autoOCRPlace(true);
   });
 
