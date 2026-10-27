@@ -196,6 +196,7 @@ app.post('/api/auth/help', (req, res) => {
 
 // --- resources ---
 app.use('/api/loads', loadsRouter);
+app.use('/api/pods', require('./aiplace'));   // AI signature-box placement (before the /:id routes)
 app.use('/api/pods', podsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/orgs', orgsRouter);

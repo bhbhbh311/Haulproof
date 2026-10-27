@@ -1059,4 +1059,5 @@ router.post('/:id/reshoot-page', requireAuth, raw, (req, res) => {
   } catch (e) { console.error('reshoot-page', e.message); res.status(500).json({ error: 'Could not send the page back' }); }
 });
 
+router.canAccess = canAccess;   // shared with the AI placement routes (aiplace.js)
 module.exports = router;

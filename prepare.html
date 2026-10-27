@@ -934,17 +934,18 @@
     return slots;
   }
   var _ocrRunning=false;
-  function autoOCRPlace(manual){
-    if(_ocrRunning) return;
+  // Read every page once: text recognition gives the words and their positions, plus a JPEG of the page for the
+  // AI. Cached, so Quick commands reuse it. Each scan keeps the viewport used, to turn page coordinates (0-1000)
+  // back into PDF points.
+  var _scanCache=null;
+  function scanDocument(){
+    if(_scanCache) return Promise.resolve(_scanCache);
     var signPages=pageRecs.filter(function(r){ return !r.isAudit; });
-    if(!signPages.length){ if(manual) toast('No document pages to read yet.'); return; }
-    _ocrRunning=true; if($('#aiBtn')) $('#aiBtn').disabled=true;
-    aiBanner(true,'✨ Reading your document to suggest signature spots…');
-    var _worker=null;
-    loadTesseract().then(function(T){
+    var _worker=null, scans=[];
+    return loadTesseract().then(function(T){
       return T.createWorker('eng', 1, { langPath:'https://tessdata.projectnaptha.com/4.0.0' });
     }).then(function(worker){
-      _worker=worker; var placed=[], chain=Promise.resolve();
+      _worker=worker; var chain=Promise.resolve();
       signPages.forEach(function(rec){
         chain=chain.then(function(){
           var s=Math.min(2.5, 1600/rec.baseW);
@@ -953,38 +954,127 @@
           return rec.page.render({canvasContext:cv.getContext('2d'),viewport:hvp}).promise.then(function(){
             return worker.recognize(cv, {}, { blocks:true });
           }).then(function(res){
-            ocrSlotsFromData(res.data, cv.width, cv.height).forEach(function(sl){
-              var p1=hvp.convertToPdfPoint(sl.x0, sl.y1), p2=hvp.convertToPdfPoint(sl.x1, sl.y0);
-              placeFromData({pageIdx:rec.idx, kind:sl.kind, role:sl.role, label:'',
-                xPdf:Math.min(p1[0],p2[0]), yPdf:Math.min(p1[1],p2[1]),
-                wPdf:Math.abs(p2[0]-p1[0]), hPdf:Math.abs(p1[1]-p2[1]),
-                baseW:rec.baseW, baseH:rec.baseH});
-              placed.push(sl);
-            });
+            var W=cv.width, H=cv.height, words=[];
+            (res.data.blocks||[]).forEach(function(b){ (b.paragraphs||[]).forEach(function(p){ (p.lines||[]).forEach(function(l){ (l.words||[]).forEach(function(w){
+              if(w && w.bbox && w.text && String(w.text).trim() && (w.confidence==null||w.confidence>=30))
+                words.push([String(w.text).trim(), w.bbox.x0*1000/W, w.bbox.y0*1000/H, w.bbox.x1*1000/W, w.bbox.y1*1000/H]);
+            }); }); }); });
+            // A smaller JPEG for the AI (long edge ~1400px keeps it sharp without wasting tokens).
+            var k=Math.min(1, 1400/Math.max(W,H)), jc=document.createElement('canvas'); jc.width=Math.round(W*k); jc.height=Math.round(H*k);
+            var jg=jc.getContext('2d'); jg.fillStyle='#fff'; jg.fillRect(0,0,jc.width,jc.height); jg.drawImage(cv,0,0,jc.width,jc.height);
+            var image=jc.toDataURL('image/jpeg',0.8).split(',')[1];
+            scans.push({rec:rec, hvp:hvp, W:W, H:H, words:words, image:image, rules:ocrSlotsFromData(res.data, W, H)});
           });
         });
       });
-      return chain.then(function(){ return placed; });
-    }).then(function(placed){
+      return chain;
+    }).then(function(){
       if(_worker){ try{ _worker.terminate(); }catch(e){} }
-      _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false);
-      if(placed.length){ selectField(null); markDirty();
-        // Name what it placed so a missed signer is obvious at a glance (then "add consignee sign and date" fixes it).
-        var by={}; placed.forEach(function(s){ (by[s.role]=by[s.role]||{})[s.kind]=1; });
-        var parts=[];
-        if(by.Consignee) parts.push('Consignee sign'+(by.Consignee.date?' + date':''));
-        if(by.Driver) parts.push('Carrier sign'+(by.Driver.date?' + date':''));
-        if(by.Pickup) parts.push('Pickup date');
-        toast('✨ Auto-placed: '+parts.join(', ')+'. Review, add anything missing (e.g. say “add consignee sign and date”), then Save setup.');
-      } else if(manual){ toast('Auto-place didn’t find clear signature labels — place them by hand, or try Crop / clean up first.'); }
+      _scanCache=scans; return scans;
+    }, function(e){ if(_worker){ try{ _worker.terminate(); }catch(_e){} } throw e; });
+  }
+  // 0-1000 page box from the AI → a placed field. And the reverse, for sending the current boxes.
+  function placeNormField(sc, nf, extra){
+    var p1=sc.hvp.convertToPdfPoint(nf.x0*sc.W/1000, nf.y1*sc.H/1000), p2=sc.hvp.convertToPdfPoint(nf.x1*sc.W/1000, nf.y0*sc.H/1000);
+    var role=nf.role||'Consignee';
+    if(nf.kind==='pickupdate'||nf.kind==='puin'||nf.kind==='puout') role='Pickup';
+    placeFromData(Object.assign({pageIdx:sc.rec.idx, kind:nf.kind, role:role, label:nf.label||'',
+      xPdf:Math.min(p1[0],p2[0]), yPdf:Math.min(p1[1],p2[1]), wPdf:Math.abs(p2[0]-p1[0]), hPdf:Math.abs(p1[1]-p2[1]),
+      baseW:sc.rec.baseW, baseH:sc.rec.baseH}, extra||{}));
+  }
+  function normOfField(sc, f, id){
+    var a=sc.hvp.convertToViewportPoint(f.xPdf, f.yPdf+f.hPdf), b=sc.hvp.convertToViewportPoint(f.xPdf+f.wPdf, f.yPdf);
+    var r=function(n){ return Math.round(n*10)/10; };
+    return {id:id, page:_scanCache.indexOf(sc), kind:f.kind, role:f.role, label:f.label||'',
+      x0:r(Math.min(a[0],b[0])*1000/sc.W), y0:r(Math.min(a[1],b[1])*1000/sc.H), x1:r(Math.max(a[0],b[0])*1000/sc.W), y1:r(Math.max(a[1],b[1])*1000/sc.H)};
+  }
+  function aiPages(scans){ return scans.map(function(sc){ return {words:sc.words, image:sc.image}; }); }
+  function postJSON(url, body){
+    return fetch(url,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ j._status=r.status; return j; }); });
+  }
+  // Is the real AI set up on the server? (Decides the button names and which placement runs.)
+  var _aiEnabled=false;
+  fetch('/api/pods/ai-status',{credentials:'include'}).then(function(r){ return r.json(); }).then(function(j){
+    _aiEnabled=!!(j&&j.enabled);
+    if(_aiEnabled){
+      var b=$('#aiBtn'); if(b){ var sp=b.querySelector('span'); if(sp) sp.textContent='AI place'; b.title='Claude reads the document and places each signature, date and time box'; }
+      var ch=document.querySelector('#cmdRow .sech'); if(ch) ch.textContent='Tell AI';
+      var hint=$('#cmdHint'); if(hint) hint.textContent='Describe any change — e.g. “add carrier sign and date on every page”, “move the receiver box onto the signature line”, “remove shipper”.';
+      var ci=$('#cmdInput'); if(ci) ci.placeholder='e.g. “add a seal # text box under the trailer #”';
+    }
+  }).catch(function(){});
+
+  // Rule-based placement from the scan (the free fallback): a box in the blank beside Receiver / Carrier / Date.
+  function placeRuleSlots(scans){
+    var placed=[];
+    scans.forEach(function(sc){ sc.rules.forEach(function(sl){
+      var p1=sc.hvp.convertToPdfPoint(sl.x0, sl.y1), p2=sc.hvp.convertToPdfPoint(sl.x1, sl.y0);
+      placeFromData({pageIdx:sc.rec.idx, kind:sl.kind, role:sl.role, label:'',
+        xPdf:Math.min(p1[0],p2[0]), yPdf:Math.min(p1[1],p2[1]), wPdf:Math.abs(p2[0]-p1[0]), hPdf:Math.abs(p1[1]-p2[1]),
+        baseW:sc.rec.baseW, baseH:sc.rec.baseH});
+      placed.push(sl);
+    }); });
+    return placed;
+  }
+  function rulePlacedToast(placed, manual){
+    if(placed.length){
+      var by={}; placed.forEach(function(s){ (by[s.role]=by[s.role]||{})[s.kind]=1; });
+      var parts=[];
+      if(by.Consignee) parts.push('Consignee sign'+(by.Consignee.date?' + date':''));
+      if(by.Driver) parts.push('Carrier sign'+(by.Driver.date?' + date':''));
+      if(by.Pickup) parts.push('Pickup date');
+      toast('✨ Auto-placed: '+parts.join(', ')+'. Review, add anything missing (e.g. say “add consignee sign and date”), then Save setup.');
+    } else if(manual){ toast('Auto-place didn’t find clear signature labels — place them by hand, or try Crop / clean up first.'); }
+  }
+  function autoOCRPlace(manual){
+    if(_ocrRunning) return;
+    if(!pageRecs.filter(function(r){ return !r.isAudit; }).length){ if(manual) toast('No document pages to read yet.'); return; }
+    _ocrRunning=true; if($('#aiBtn')) $('#aiBtn').disabled=true;
+    aiBanner(true,'✨ Reading your document to suggest signature spots…');
+    function done(){ _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false); }
+    scanDocument().then(function(scans){
+      if(!_aiEnabled){ var pl=placeRuleSlots(scans); done(); if(pl.length){ selectField(null); markDirty(); } rulePlacedToast(pl, manual); return; }
+      aiBanner(true,'✨ Claude is reading the document and placing the boxes…');
+      return postJSON('/api/pods/'+DOC_ID+'/ai-place',{pages:aiPages(scans)}).then(function(j){
+        if(j._status!==200 || !j.fields){
+          var pl=placeRuleSlots(scans); done(); if(pl.length){ selectField(null); markDirty(); }
+          if(manual||!pl.length) toast((j.error||'The AI couldn’t place boxes')+' — used the built-in Auto-place instead.'); else rulePlacedToast(pl, manual);
+          return;
+        }
+        j.fields.forEach(function(nf){ var sc=scans[nf.page]; if(sc) placeNormField(sc, nf); });
+        done(); selectField(null); if(j.fields.length) markDirty();
+        toast('✨ '+(j.note||('AI placed '+j.fields.length+' box'+(j.fields.length===1?'':'es')+'.'))+' Review, then Save setup.');
+      });
     }).catch(function(e){
-      if(_worker){ try{ _worker.terminate(); }catch(_e){} }
-      _ocrRunning=false; if($('#aiBtn')) $('#aiBtn').disabled=false; aiBanner(false);
+      done(); console.error(e);
       if(manual) toast('Couldn’t load the document reader (needs internet). Place signatures by hand.');
     });
   }
+  // "Tell AI": send the change plus the current boxes; the AI returns the full updated set. Typed text in a
+  // Text box is carried over by box id.
+  function runAICommand(raw){
+    if(_ocrRunning){ toast('Still reading the document — one moment.'); return Promise.resolve(true); }
+    _ocrRunning=true; var go=$('#cmdGo'); if(go) go.disabled=true;
+    aiBanner(true,'✨ Claude is making that change…');
+    function done(){ _ocrRunning=false; if(go) go.disabled=false; aiBanner(false); }
+    return scanDocument().then(function(scans){
+      var byId={}, cur=[];
+      fields.forEach(function(f,i){ var sc=scans.filter(function(x){ return x.rec.idx===f.pageIdx; })[0]; if(!sc) return; var id='b'+i; byId[id]=f; cur.push(normOfField(sc,f,id)); });
+      return postJSON('/api/pods/'+DOC_ID+'/ai-command',{command:raw, fields:cur, pages:aiPages(scans)}).then(function(j){
+        done();
+        if(j._status!==200 || !j.fields) return false;   // let the built-in commands handle it
+        var keep={}; j.fields.forEach(function(nf){ if(nf.id && byId[nf.id]) keep[nf.id]=byId[nf.id]; });
+        fields.slice().forEach(removeField);
+        j.fields.forEach(function(nf){ var sc=scans[nf.page]; if(!sc) return; var old=nf.id&&keep[nf.id]; placeNormField(sc, nf, old&&old.value?{value:old.value}:null); });
+        selectField(null); markDirty();
+        toast('✨ '+(j.note||'Done.'));
+        return true;
+      });
+    }).catch(function(e){ done(); console.error(e); return false; });
+  }
   if($('#aiBtn')) $('#aiBtn').addEventListener('click',function(){
-    if(fields.length && !confirm('Add auto-placed signature spots on top of the '+fields.length+' field'+(fields.length===1?'':'s')+' already on this document?')) return;
+    if(fields.length && !confirm('Add suggested signature spots on top of the '+fields.length+' field'+(fields.length===1?'':'s')+' already on this document?')) return;
     autoOCRPlace(true);
   });
 
@@ -1006,6 +1096,11 @@
   function runCommand(raw){
     var t=String(raw||'').toLowerCase().replace(/[“”]/g,'"').trim();
     if(!t){ toast('Type or speak a command first.'); return; }
+    if(_aiEnabled){ runAICommand(String(raw).trim()).then(function(ok){ if(!ok) runRuleCommand(t); }); return; }
+    runRuleCommand(t);
+  }
+  // Built-in keyword commands (used when the AI isn't set up, or if it fails).
+  function runRuleCommand(t){
     var remove=/\b(remove|delete|clear|drop|get rid|take off|erase)\b/.test(t);
     if(remove && /\b(all|everything|every field|start over)\b/.test(t)){
       var n=fields.length; fields.slice().forEach(removeField); selectField(null);
