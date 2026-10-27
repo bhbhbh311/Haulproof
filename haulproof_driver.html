@@ -168,6 +168,12 @@
   .ldbody{border-top:1px solid var(--line);padding:10px 12px 6px;}
   .ldbody .btn.sm{width:100%;}
   .ldsec{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:8px 0 4px;}
+  /* Multi-stop loads: one box per stop, spaced apart. */
+  .ldstopbox{border:1px solid var(--line-strong);border-left:4px solid var(--primary);border-radius:10px;padding:10px 10px 10px 12px;margin:4px 0 14px;background:var(--surface-2);}
+  .ldstophead{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;}
+  .ldstopnum{font-weight:800;font-size:15px;}
+  .ldstopwho{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ldstopbox .btn.sm{width:100%;}
   .pill.ico{font-size:13px;}
   .pullrow{display:flex;gap:8px;align-items:center;}
   .pullrow .ti{flex:1;min-width:0;}
@@ -1461,6 +1467,7 @@ window.__startApp=function(){
       groups.forEach(function(g){
         var reup = g.docs.filter(function(d){ return d.reupload; });
         var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload; });
+        ready.sort(function(a,b){ return (a.stopNumber||1)-(b.stopNumber||1); });   // Stop 1 first
         var waiting = g.docs.filter(function(d){ return d.awaiting && !d.reupload; });
         // Signing progress: total stops on the load and how many are already signed (from the server).
         var total = g.docs.reduce(function(m,d){ return Math.max(m, d.loadTotal||0); }, 0) || (ready.length+waiting.length);
@@ -1520,26 +1527,34 @@ window.__startApp=function(){
           var pr=slot("2px 0 8px");
           if(puAt) renderPickedUp(pr, loadId, puAt, puGps, 0);
           else showPickupButton(pr, loadId);
-          // Once the freight is picked up, each stop still to deliver gets its own Check in / Check out.
-          if(timesOn && puAt && ready.length){
-            var multi = total>1 || ready.length>1;
-            sec(multi?"Delivery stops":"Delivery");
-            ready.forEach(function(d){
-              var sn=d.stopNumber||1;
-              renderStopTimes(slot(), loadId, "delivery", sn, multi?("Stop "+sn):"delivery", d.stopTimes);
-            });
+          // Single-stop load: its delivery check-in sits here (once picked up), the sign button under Paperwork.
+          if(timesOn && puAt && ready.length===1 && !(total>1)){
+            sec("Delivery");
+            renderStopTimes(slot(), loadId, "delivery", ready[0].stopNumber||1, "delivery", ready[0].stopTimes);
           }
         }
-        if(ready.length){
+        var multiStop = ready.length>1 || total>1;
+        if(ready.length && multiStop){
+          // Multi-stop load: each stop is its own box — Stop 1 first — with that stop's check-in and its own
+          // sign button, spaced apart so the driver can't tap the wrong stop.
+          sec("Delivery stops");
+          if(signed>0 && total>0){ var pl2=slot("0 0 6px"); pl2.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stops signed</div>'; }
+          ready.forEach(function(d){
+            var sn=d.stopNumber||1, who=d.receiverName||"";
+            var box=document.createElement("div"); box.className="ldstopbox"; body.appendChild(box);
+            box.innerHTML='<div class="ldstophead"><span class="ldstopnum">Stop '+sn+'</span>'+(who?'<span class="ldstopwho">'+esc(who)+'</span>':'')+'</div>';
+            if(timesOn && puAt){ var tb=document.createElement("div"); tb.style.cssText="padding:2px 0 8px;"; box.appendChild(tb); renderStopTimes(tb, loadId, "delivery", sn, "Stop "+sn, d.stopTimes); }
+            var sb=document.createElement("div"); box.appendChild(sb);
+            sb.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete Stop '+sn+'</button>';
+            sb.querySelector("button").addEventListener("click", function(){ openPreparedDoc(d); });
+          });
+          if(waiting.length){ var wl2=slot("4px 0 4px"); wl2.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
+        } else if(ready.length){
           sec("Paperwork");
-          if(signed>0 && total>0){ var pl=slot("0 0 4px"); pl.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stop'+(total===1?'':'s')+' signed · '+ready.length+' still need'+(ready.length===1?'s':'')+' signing</div>'; }
           if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
           // Signing and sending the paperwork is what completes the delivery (and checks the driver out of the stop).
           var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
-          os.querySelector("button").addEventListener("click", async function(){
-            var d = ready.length>1 ? await chooseStop(ready) : ready[0];
-            if(d) openPreparedDoc(d);
-          });
+          os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); });
         }
       });
     }catch(e){ card.classList.add("hide"); }
