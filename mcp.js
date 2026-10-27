@@ -20,8 +20,20 @@ const ACCESS_TTL = 60 * 60 * 1000;               // 1 hour
 const REFRESH_TTL = 60 * 24 * 60 * 60 * 1000;    // 60 days (rotated on every use)
 const CODE_TTL = 10 * 60 * 1000;                 // 10 minutes
 const MAX_DOC_BYTES = 20 * 1024 * 1024;   // base64 of 20 MB still fits the 28 MB /mcp body limit
+const UPLOAD_LINK_MS = 30 * 60 * 1000;   // get_upload_link links last 30 minutes and work once
 
 db.exec(`
+-- One-time upload links from the get_upload_link tool: POST a PDF to /u/<token> to attach it to a load's stop.
+CREATE TABLE IF NOT EXISTS upload_links (
+  tokenHash    TEXT PRIMARY KEY,
+  userId       TEXT NOT NULL,
+  loadId       TEXT NOT NULL,
+  stopNumber   INTEGER NOT NULL DEFAULT 1,
+  docType      TEXT,
+  filename     TEXT,
+  expiresAt    INTEGER NOT NULL,
+  usedAt       INTEGER
+);
 CREATE TABLE IF NOT EXISTS oauth_clients (
   id           TEXT PRIMARY KEY,
   secretHash   TEXT,                 -- NULL for public (PKCE-only) clients
@@ -444,22 +456,43 @@ const TOOLS = [
       let buf;
       if (a.file_base64) { buf = Buffer.from(String(a.file_base64).replace(/^data:[^,]*,/, ''), 'base64'); if (buf.length > MAX_DOC_BYTES) throw new ToolError('That file is too large (max 20 MB).'); }
       else if (a.file_url) buf = await fetchPdfFromUrl(a.file_url);
-      else throw new ToolError('Pass the PDF as file_base64 or file_url.');
-      if (buf.slice(0, 5).toString('latin1') !== '%PDF-') throw new ToolError('That file isn’t a PDF.');
-      const enc = (v) => encodeURIComponent(String(v));
-      const stop = Math.max(1, parseInt(a.stop_number, 10) || 1);
-      const r = await api(user, 'POST', '/api/pods/upload', { body: buf, headers: {
-        'Content-Type': 'application/pdf', 'X-POD-Enc': 'uri', 'X-PO': enc(d.load.poNumber || ''), 'X-Load': enc(d.load.loadNumber || ''),
-        'X-Stop': String(stop), 'X-DocType': enc(a.doc_type || 'BOL'), 'X-Filename': enc(a.filename || 'document.pdf'), 'X-Build': 'dispatch' } });
-      return { attached: true, document_id: r.id, stop: r.stopNumber, po_number: r.poNumber, status: 'needs signature setup', signature_setup_link: base + '/prepare?id=' + r.id, load: loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base) };
+      else throw new ToolError('Pass the PDF as file_base64 or file_url — or use get_upload_link to upload the file directly.');
+      return attachPdf(user, d.load, buf, { stop: a.stop_number, docType: a.doc_type, filename: a.filename }, base);
+    } },
+  { name: 'get_upload_link', title: 'Get a document upload link',
+    description: 'Makes a one-time link (good for 30 minutes) for attaching a BOL/POD PDF to a stop on a load — use it when the PDF is a file you have but can\'t pass as file_url. Send the PDF bytes to upload_url with an HTTP POST (Content-Type: application/pdf), or give the link to the user to open and pick the file. The document lands as "needs signature setup".',
+    inputSchema: { type: 'object', properties: {
+      load: str('PO #, load #, or load id'), filename: str('File name, e.g. "BOL-4821.pdf"'),
+      stop_number: { type: 'integer', minimum: 1, description: 'Stop number (default 1)' },
+      doc_type: { type: 'string', enum: ['BOL', 'POD', 'LUMPER', 'OTHER'], description: 'Document type (default BOL)' } }, required: ['load'] },
+    run: async (user, a, base) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load); needOwner(user, d.load);
+      const token = crypto.randomBytes(24).toString('base64url'), exp = Date.now() + UPLOAD_LINK_MS;
+      db.prepare(`INSERT INTO upload_links (tokenHash, userId, loadId, stopNumber, docType, filename, expiresAt) VALUES (?,?,?,?,?,?,?)`)
+        .run(sha(token), user.id, d.load.id, Math.max(1, parseInt(a.stop_number, 10) || 1), a.doc_type || 'BOL', String(a.filename || 'document.pdf').slice(0, 120), exp);
+      return { upload_url: base + '/u/' + token, expires_at: new Date(exp).toISOString(), po_number: d.load.poNumber,
+        how_to_use: 'POST the PDF to upload_url with Content-Type: application/pdf (one file, max 20 MB, one use). Or open upload_url in a browser to choose the file.' };
     } },
 ];
+
+// Attach a PDF to a load's stop as the connected login (shared by attach_document and upload links).
+async function attachPdf(user, load, buf, o, base) {
+  if (!buf || buf.slice(0, 5).toString('latin1') !== '%PDF-') throw new ToolError('That file isn’t a PDF.');
+  if (buf.length > MAX_DOC_BYTES) throw new ToolError('That file is too large (max 20 MB).');
+  const enc = (v) => encodeURIComponent(String(v));
+  const stop = Math.max(1, parseInt(o.stop, 10) || 1);
+  const r = await api(user, 'POST', '/api/pods/upload', { body: buf, headers: {
+    'Content-Type': 'application/pdf', 'X-POD-Enc': 'uri', 'X-PO': enc(load.poNumber || ''), 'X-Load': enc(load.loadNumber || ''),
+    'X-Stop': String(stop), 'X-DocType': enc(o.docType || 'BOL'), 'X-Filename': enc(o.filename || 'document.pdf'), 'X-Build': 'dispatch' } });
+  return { attached: true, document_id: r.id, stop: r.stopNumber, po_number: r.poNumber, status: 'needs signature setup', signature_setup_link: base + '/prepare?id=' + r.id, load: loadDetail(await api(user, 'GET', '/api/loads/' + load.id), base) };
+}
 const TOOL_BY_NAME = {}; TOOLS.forEach(t => { TOOL_BY_NAME[t.name] = t; });
 
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for trucking. Loads are identified by the customer PO #. ' +
   'Before creating a load, check list_customers and list_drivers so names match; add_customer only when the company truly is not on the list. ' +
-  'Documents attached with attach_document still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
+  'To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure.';
 
 async function handleRpc(msg, user, base) {
@@ -504,6 +537,39 @@ router.post('/mcp', async (req, res) => {
 // Stateless server: no server-initiated stream and no sessions to end.
 router.get('/mcp', (_req, res) => res.status(405).set('Allow', 'POST').end());
 router.delete('/mcp', (_req, res) => res.status(405).set('Allow', 'POST').end());
+
+// ---- Upload links (get_upload_link): the link itself is the credential — one use, 30 minutes. ----
+function uploadLink(token) {
+  const row = db.prepare(`SELECT * FROM upload_links WHERE tokenHash = ?`).get(sha(String(token || '')));
+  if (!row || row.usedAt || row.expiresAt < Date.now()) return null;
+  return row;
+}
+router.get('/u/:token', (req, res) => {
+  const row = uploadLink(req.params.token);
+  if (!row) return res.status(404).send(page('Link expired', '<p class="sub">This upload link has expired or was already used. Ask for a new one.</p>'));
+  const load = db.prepare(`SELECT poNumber FROM loads WHERE id = ?`).get(row.loadId) || {};
+  res.send(page('Upload a document', '<p class="sub">Attach a PDF to <b>PO ' + esc(load.poNumber || '') + '</b> · Stop ' + row.stopNumber + ' (' + esc(row.docType || 'BOL') + ').</p>' +
+    '<input type="file" id="f" accept="application/pdf" style="margin-top:10px"><div class="err" id="m"></div><div class="row"><button class="btn" id="go">Upload</button></div>' +
+    '<script>document.getElementById("go").onclick=async function(){var f=document.getElementById("f").files[0],m=document.getElementById("m");if(!f){m.textContent="Choose a PDF first.";return;}this.disabled=true;m.style.color="#5c6b7a";m.textContent="Uploading…";' +
+    'try{var r=await fetch(location.pathname,{method:"POST",headers:{"Content-Type":"application/pdf"},body:f});var j=await r.json().catch(function(){return{};});if(!r.ok)throw new Error(j.error||"Upload failed");m.style.color="#12784a";m.textContent="✓ Uploaded. Dispatch can place the signature boxes now. You can close this page.";}catch(e){m.style.color="#c0392b";m.textContent=e.message;this.disabled=false;}};</script>'));
+});
+router.post('/u/:token', express.raw({ type: () => true, limit: '21mb' }), async (req, res) => {
+  const row = uploadLink(req.params.token);
+  if (!row) return res.status(404).json({ error: 'This upload link has expired or was already used.' });
+  const user = userRow(row.userId), load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(row.loadId);
+  if (!user || !load) return res.status(404).json({ error: 'That load is no longer available.' });
+  const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  // Claim the link before uploading so it can't be used twice.
+  const claim = db.prepare(`UPDATE upload_links SET usedAt = ? WHERE tokenHash = ? AND usedAt IS NULL`).run(Date.now(), row.tokenHash);
+  if (!claim.changes) return res.status(404).json({ error: 'This upload link was already used.' });
+  try {
+    const out = await attachPdf(user, load, buf, { stop: row.stopNumber, docType: row.docType, filename: row.filename }, baseUrl(req));
+    res.json({ ok: true, document_id: out.document_id, stop: out.stop, po_number: out.po_number, status: out.status, signature_setup_link: out.signature_setup_link });
+  } catch (e) {
+    db.prepare(`UPDATE upload_links SET usedAt = NULL WHERE tokenHash = ?`).run(row.tokenHash);   // a bad file doesn't burn the link
+    res.status(e instanceof ToolError ? 400 : 500).json({ error: e instanceof ToolError ? e.message : 'Upload failed' });
+  }
+});
 
 // A plain, self-contained page for the sign-in / approve screens.
 function page(title, body) {
