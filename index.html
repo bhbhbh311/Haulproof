@@ -197,13 +197,10 @@
   #loadList .ldOpen.btn-sm{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
   #loadList .ldOpen.btn-sm:hover{background:#68309f;}
   #loadList .ldArch{color:var(--muted);}
-  /* Split into stops / Review the document: each page is a card with its stop number and tile buttons. */
-  .spgrid{width:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;}
+  /* Prepare documents (split into stops / review): each page is a card with its stop number and tile buttons. */
+  .spgrid{width:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:14px;}
   .spcard{background:#fff;border:1px solid #d6dee8;border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(20,30,50,.08);display:flex;flex-direction:column;align-items:stretch;gap:8px;}
-  .spcard.removed{background:#fdf3f2;border:1.5px dashed #e2a3a0;box-shadow:none;}
-  .spcard.removed .spthumb{opacity:.3;}
   .splbl{font-size:12px;font-weight:700;color:#33414f;text-align:center;}
-  .spcard.removed .splbl{color:#b42318;}
   .spthumb{display:block;margin:0 auto;border:1px solid var(--line);border-radius:6px;cursor:zoom-in;max-width:100%;}
   .spstop{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;font-size:12px;font-weight:700;color:#33414f;text-transform:none;letter-spacing:0;}
   .spstop input{width:64px;text-align:center;padding:7px 6px;font-size:15px;font-weight:700;}
@@ -216,7 +213,12 @@
   button.spbtn.sp-reshoot:hover{background:#fbe6c6;border-color:#d99a3a;}
   button.spbtn.sp-remove{background:#fff;border-color:#efc4c1;color:#b42318;}
   button.spbtn.sp-remove:hover{background:#fdecea;border-color:#b42318;}
-  .spcard.removed button.spbtn.sp-remove{grid-column:1 / -1;background:#fff;border-color:#bcd0f5;color:var(--primary);}
+  .sprbar{width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#fdf3f2;border:1px solid #efc4c1;border-radius:10px;padding:8px 10px;margin-bottom:12px;}
+  .sprbar[hidden]{display:none;}
+  .sprbar-t{font-size:12px;font-weight:700;color:#b42318;margin-right:4px;}
+  button.sprchip{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid #bcd0f5;background:#fff;color:var(--primary);box-shadow:none;}
+  button.sprchip:hover{background:#e4ecfc;border-color:var(--primary);box-shadow:none;}
+  button.sprchip.all{border-color:var(--line);color:var(--ink);}
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -426,7 +428,7 @@
     <!-- Split a multi-page document into separate per-stop documents -->
     <div id="splitModal" class="histOverlay hide">
       <div class="histBox" style="max-width:660px;">
-        <div class="histHead"><h1 style="margin:0;font-size:18px;"><span id="splitHeading">Split into stops</span> <span id="splitCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
+        <div class="histHead"><h1 style="margin:0;font-size:18px;"><span id="splitHeading">Prepare documents</span> <span id="splitCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1><button id="splitClose" class="ghost" type="button">✕ Close</button></div>
         <p class="sub" id="splitSub" style="margin:8px 0 12px;">Set the stop number under each page. Pages with the same stop number are combined into one document for that stop.</p>
         <div id="splitPages" style="display:flex;flex-wrap:wrap;gap:12px;max-height:54vh;overflow:auto;padding:4px;"></div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -3617,6 +3619,19 @@
     // "View the document" to actually see it, crop it if needed, and set its stop, then Save & continue.
     if ($('splitSave')) $('splitSave').disabled = false;
     const grid = document.createElement('div'); grid.className = 'spgrid';
+    // Removed pages disappear from the grid and are listed here, each with a one-click restore.
+    const rbar = document.createElement('div'); rbar.className = 'sprbar'; rbar.hidden = true;
+    const painters = {};
+    const paintBar = () => {
+      const list = Array.from(_splitRemoved).sort((a, b) => a - b);
+      rbar.hidden = !list.length; rbar.innerHTML = '';
+      if (!list.length) return;
+      const t = document.createElement('span'); t.className = 'sprbar-t'; t.textContent = '🗑 Removed ' + list.length + ' page' + (list.length === 1 ? '' : 's') + ' — tap to bring one back:'; rbar.appendChild(t);
+      list.forEach(i => { const b = document.createElement('button'); b.type = 'button'; b.className = 'sprchip'; b.textContent = '↩ Page ' + (i + 1); b.title = 'Restore page ' + (i + 1);
+        b.addEventListener('click', () => { _splitRemoved.delete(i); if (painters[i]) painters[i](); paintBar(); }); rbar.appendChild(b); });
+      if (list.length > 1) { const all = document.createElement('button'); all.type = 'button'; all.className = 'sprchip all'; all.textContent = 'Restore all';
+        all.addEventListener('click', () => { list.forEach(i => { _splitRemoved.delete(i); if (painters[i]) painters[i](); }); paintBar(); }); rbar.appendChild(all); }
+    };
     let chain = Promise.resolve();
     for (let pi = 0; pi < pdf.numPages; pi++) { (function (pi) {
       chain = chain.then(() => pdf.getPage(pi + 1)).then(page => {
@@ -3634,13 +3649,12 @@
         // "Create stops" / "Save & continue", and "↩ Keep page" brings it back.
         const dhint = spbtn('sp-remove', '', 'Leave this page out of the document', () => {});
         if (pdf.numPages === 1) dhint.hidden = true;
-        const paintRemoved = () => { const off = _splitRemoved.has(pi); dhint.textContent = off ? '↩ Keep page' : '🗑 Remove page'; dhint.classList.toggle('sp-keep', off);
-          wrap.classList.toggle('removed', off); lbl.textContent = 'Page ' + (pi + 1) + (off ? ' · will be removed' : '');
-          row.style.display = off ? 'none' : ''; chint.style.display = off ? 'none' : ''; rhint.style.display = off ? 'none' : ''; zhint.style.display = off ? 'none' : ''; };
+        dhint.textContent = '🗑 Remove page';
+        const paintRemoved = () => { wrap.style.display = _splitRemoved.has(pi) ? 'none' : ''; };
+        painters[pi] = paintRemoved;
         dhint.addEventListener('click', () => {
-          if (_splitRemoved.has(pi)) _splitRemoved.delete(pi);
-          else { if (_splitRemoved.size >= pdf.numPages - 1) { $('splitMsg').className = 'umsg-err'; $('splitMsg').textContent = 'Keep at least one page — to drop the whole document, use Remove on the load instead.'; return; } _splitRemoved.add(pi); }
-          $('splitMsg').textContent = ''; paintRemoved();
+          if (_splitRemoved.size >= pdf.numPages - 1) { $('splitMsg').className = 'umsg-err'; $('splitMsg').textContent = 'Keep at least one page — to drop the whole document, use Remove on the load instead.'; return; }
+          _splitRemoved.add(pi); $('splitMsg').textContent = ''; paintRemoved(); paintBar();
         });
         const row = document.createElement('label'); row.className = 'spstop';
         const inp = document.createElement('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1';
@@ -3654,7 +3668,7 @@
         return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
       });
     })(pi); }
-    return chain.then(() => { box.appendChild(grid); });
+    return chain.then(() => { box.appendChild(rbar); box.appendChild(grid); paintBar(); });
   }
   // Reject a page WHILE splitting and bounce it back to the driver to re-shoot. The split screen is often the first
   // place a dispatcher sees a page large enough to judge — so if it's unusable (even after a crop attempt), send it
@@ -3855,9 +3869,9 @@
       _splitPdf = pdf;
       if ($('splitSub')) $('splitSub').textContent = pdf.numPages === 1
         ? 'Look the document over. Tap “✂ Crop this page” to trim a bad photo, and set its stop number below if it isn’t Stop 1. Then tap “Save & continue.”'
-        : 'This document has ' + pdf.numPages + ' pages. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Use “✂ Crop page” to trim a bad photo, or “🗑 Remove page” to leave out a page you don’t need.';
+        : 'This document has ' + pdf.numPages + ' pages. Set the stop number under each page — pages with the same stop number are combined into one document for that stop. Use “✂ Crop page” to trim a bad photo, or “🗑 Remove page” to leave out a page you don’t need (you can bring it back until you save).';
       if ($('splitSave')) $('splitSave').textContent = pdf.numPages === 1 ? 'Save & continue' : 'Create stops';
-      if ($('splitHeading')) $('splitHeading').textContent = pdf.numPages === 1 ? 'Review the document' : 'Split into stops';
+      if ($('splitHeading')) $('splitHeading').textContent = pdf.numPages === 1 ? 'Prepare the document' : 'Prepare documents';
       await buildSplitGrid(p.stopNumber, null);
     } catch (e) { box.innerHTML = ''; $('splitMsg').textContent = e.message; $('splitMsg').className = 'umsg-err'; }
   }
