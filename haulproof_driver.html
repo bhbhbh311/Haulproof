@@ -145,6 +145,12 @@
   .docmeta label.f span .poedit{float:right;font-family:inherit;font-size:11px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--primary);background:var(--primary-soft);border:1px solid var(--primary);border-radius:7px;padding:2px 11px;cursor:pointer;margin-top:-3px;}
   .docmeta label.f input.locked{background:var(--surface);border-style:dashed;border-color:var(--line-strong);color:var(--ink);font-weight:700;cursor:default;}
   .docmeta label.f input.locked:focus{border-color:var(--line-strong);box-shadow:none;}
+  /* Prepared by dispatch: the details are dispatch's to change, so they read as plain text — no box, no
+     dropdown arrow, no "optional"/"required" tags, and empty ones are left out. */
+  .docmeta.ro label.f span em{display:none;}
+  .docmeta.ro label.f input.locked,.docmeta.ro select.locked{background:transparent;border:none;border-radius:0;padding:0;font-size:16px;font-weight:700;color:var(--ink);-webkit-text-fill-color:var(--ink);opacity:1;pointer-events:none;-webkit-appearance:none;appearance:none;box-shadow:none;}
+  .docmeta.ro label.f.ro-empty{display:none;}
+  .docmeta .roNote{font-size:12px;color:var(--muted);margin:-2px 0 6px;}
   .pullcard{background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;box-shadow:var(--shadow);padding:12px 13px;margin-bottom:16px;}
   .pulltitle{font-weight:700;font-size:14px;margin-bottom:9px;}
   /* Your loads: each load is its own card. The card shows the PO + a one-line status; tapping it opens the
@@ -524,6 +530,7 @@
         <span style="font-weight:800;font-size:14px;">Load details <em class="opt detailsFrom hide" style="margin-left:4px;">from dispatch</em></span>
         <button type="button" id="detailsEdit" class="poedit hide">✎ Edit</button>
       </div>
+      <div class="roNote hide" id="detailsRoNote">Set by dispatch — contact dispatch if anything needs to change.</div>
       <label class="f req"><span>Customer PO # <em class="poReq">required</em></span><input type="text" id="poNum" placeholder="Enter the customer's BOL / PO #" autocomplete="off" inputmode="text"></label>
       <label class="f"><span>Load # <em class="opt">optional</em></span><input type="text" id="ldNum" placeholder="Your load # (optional)" autocomplete="off"></label>
       <label class="f"><span>Customer <em class="opt">optional</em></span>
@@ -1893,6 +1900,7 @@ window.__startApp=function(){
     } else {
       sel.value=inList?selectedId:"";
     }
+    markEmptyDetails();
   }
   async function drvLoadCustomers(selectedId, selectedName){
     if(!currentKey() || !serverOrigin() || !online()){ drvRenderCustSel(selectedId, selectedName); return; }
@@ -1900,16 +1908,26 @@ window.__startApp=function(){
     catch(e){ _drvCustomers=[]; }
     drvRenderCustSel(selectedId, selectedName);
   }
-  // editing: fields writable. prepared: from dispatch (locked by default, Edit/Save shown).
+  // editing: fields writable (the driver's own upload). prepared: from dispatch — always locked, read as plain text.
   function setDetailsMode(editing, prepared){
+    // A load prepared by dispatch is locked for good on the phone — the driver contacts dispatch to change it.
+    if(prepared) editing=false;
     var ro=!editing;
-    ["poNum","ldNum","consName"].forEach(function(id){ var e=$(id); if(e){ e.readOnly=ro; e.classList.toggle("locked",ro); } });
+    ["poNum","ldNum","consName"].forEach(function(id){ var e=$(id); if(e){ e.readOnly=ro; e.classList.toggle("locked",ro); e.tabIndex=ro?-1:0; } });
     var sel=$("drvCustSel"); if(sel){ sel.disabled=ro; sel.classList.toggle("locked",ro); }
     var add=$("drvCustAddBtn"); if(add) add.classList.toggle("hide", ro);
-    var edit=$("detailsEdit"); if(edit) edit.classList.toggle("hide", !(prepared && !editing));
-    var foot=$("detailsFooter"); if(foot) foot.classList.toggle("hide", !(prepared && editing));
+    var edit=$("detailsEdit"); if(edit) edit.classList.add("hide");
+    var foot=$("detailsFooter"); if(foot) foot.classList.add("hide");
+    var dm=$("docMeta"); if(dm) dm.classList.toggle("ro", !!prepared);
+    var note=$("detailsRoNote"); if(note) note.classList.toggle("hide", !prepared);
+    markEmptyDetails();
     var from=document.querySelector(".detailsFrom"); if(from) from.classList.toggle("hide", !prepared);
     updatePoReq();   // refresh the PO # pulse for the new lock state (editable → pulse when empty; locked → none)
+  }
+  // On a locked (dispatch-prepared) load, leave out the detail rows dispatch left blank.
+  function markEmptyDetails(){
+    var ro=$("docMeta")&&$("docMeta").classList.contains("ro");
+    ["poNum","ldNum","consName","drvCustSel"].forEach(function(id){ var e=$(id); if(!e) return; var lab=e.closest("label.f"); if(lab) lab.classList.toggle("ro-empty", ro && !String(e.value||"").trim()); });
   }
   // Hide the red "required" tag once a PO # is entered; show it again if the field is emptied.
   function updatePoReq(){ var r=document.querySelector("#docMeta .poReq"), p=$("poNum"); if(r&&p) r.classList.toggle("hide", !!p.value.trim());
@@ -1922,7 +1940,7 @@ window.__startApp=function(){
     if($("ldNum")) $("ldNum").value=d.loadNumber||"";
     if($("consName")) $("consName").value=d.consignee||d.receiverName||(d.ship&&d.ship.name)||"";
     drvRenderCustSel(d.customerId||"", d.customerName||"");   // pass the name too, so a dispatch-set customer shows even before the list loads
-    updatePoReq();
+    updatePoReq(); markEmptyDetails();
   }
   if($("poNum")) $("poNum").addEventListener("input", updatePoReq);
   if($("detailsEdit")) $("detailsEdit").addEventListener("click", function(){ setDetailsMode(true,true); var p=$("poNum"); if(p){ p.focus(); } });

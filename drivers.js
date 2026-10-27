@@ -493,6 +493,8 @@ router.post('/pods/:id/details', (req, res) => {
   const ownOrg = (loadOrg === (r.org.id || null)) || ((pod.orgId || null) === (r.org.id || null));
   const mine = r.driver && (pod.assignedDriverId === r.driver.id || pod.signedByDriverId === r.driver.id);
   if (!ownOrg && !mine) return res.status(403).json({ error: 'Not allowed' });
+  // Once dispatch has prepared the document (or it's signed), its details belong to dispatch — the driver contacts them.
+  if (['prepared', 'signed', 'emailed'].includes(pod.status)) return res.status(403).json({ error: 'Set by dispatch — contact dispatch to change these details' });
   const b = req.body || {};
   const po = (b.poNumber !== undefined) ? ((b.poNumber || '').trim() || null) : (load ? load.poNumber : pod.poNumber);
   if (!po) return res.status(400).json({ error: 'PO # is required' });
