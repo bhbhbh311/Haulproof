@@ -127,7 +127,6 @@
   .barhead{gap:8px;}
   .brandsub{color:var(--ink);font-weight:700;}
   .ctx{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;}
-  #saveBtn{padding:9px 18px;font-weight:700;}
   .layout{display:grid;grid-template-columns:304px minmax(0,1fr);align-items:start;}
   .side{position:sticky;top:var(--barH,58px);height:calc(100vh - var(--barH,58px));overflow:auto;background:var(--surface);border-right:1px solid var(--line);padding:16px 16px 28px;}
   .sec{margin-bottom:18px;}
@@ -151,9 +150,34 @@
   .side #fieldRow .ftype.on{border-color:var(--ac,var(--primary));background:var(--acf,var(--primary-soft));color:var(--ink);font-weight:700;box-shadow:inset 0 0 0 1px var(--ac,var(--primary));}
   .side #fieldRow .ftype.on .ficon{color:var(--ac,var(--primary));}
   .side .fgrp{margin:12px 0 6px;}
-  .side .sec{padding-bottom:16px;border-bottom:1px solid var(--line);}
-  .side .sec:last-of-type,.side #labelRow,.side #cmdRow{border-bottom:none;}
+  /* Clear section breaks: a solid 2px rule between the panel's sections, and section headings in ink. */
+  .side .sec{padding-bottom:18px;margin-bottom:18px;border-bottom:2px solid #b4c0ce;}
+  .side .sec:last-of-type,.side .howto.sec{border-bottom:none;}
+  .side .armed{margin:0 0 18px;}
+  .side .sech{color:#33414f;font-size:11.5px;}
   .side .cmdbtns .btn{min-height:36px;}
+  /* Colour at rest: each signer tile carries a light tint of its own colour; the field tiles carry a light tint
+     of the current signer's colour (icons in that colour too). Picked tiles get the stronger fill + outline. */
+  .side .signer[data-role]{background:var(--cl,var(--surface));border-color:var(--cb,var(--line));}
+  .side .signer[data-role]:hover{background:var(--cf);border-color:var(--c);}
+  .side .signer.on{background:var(--cf);border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c),0 2px 6px rgba(20,30,50,.10);}
+  .side #fieldRow .ftype{background:var(--acl,var(--surface));border-color:var(--acb,var(--line));}
+  .side #fieldRow .ftype .ficon{color:var(--ac,var(--muted));}
+  .side #fieldRow .ftype:hover{background:var(--acf,#f7f9fc);border-color:var(--ac,#b9c5d3);}
+  .side #fieldRow .ftype.on{box-shadow:inset 0 0 0 1px var(--ac,var(--primary)),0 2px 6px rgba(20,30,50,.10);}
+  /* Top bar buttons: same tile look as the side panel — icon + label, rounded, soft shadow. */
+  .bar .btn.tb{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(20,30,50,.06);transition:background .12s,border-color .12s;}
+  .bar .btn.tb:hover{background:#f7f9fc;border-color:#b9c5d3;}
+  .bar .btn.tb .tbi{width:16px;height:16px;flex:none;color:var(--primary);}
+  .bar .tbcaret{font-size:10px;color:var(--muted);margin-left:-2px;}
+  .bar .btn.tb-auto{background:rgba(122,60,192,.08);border-color:rgba(122,60,192,.40);color:#4b2185;}
+  .bar .btn.tb-auto .tbi{color:#7a3cc0;}
+  .bar .btn.tb-auto:hover{background:rgba(122,60,192,.16);border-color:#7a3cc0;}
+  .bar .btn.tb-back .tbi{color:var(--muted);}
+  .bar .btn.tb-save{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700;padding:7px 16px;box-shadow:0 2px 6px rgba(18,120,74,.30);}
+  .bar .btn.tb-save .tbi{color:#fff;}
+  .bar .btn.tb-save:hover{background:#0f6a41;border-color:#0f6a41;}
+  .bar .btn.tb:disabled{opacity:.55;}
   .side .armed{margin:0 0 18px;font-size:12.5px;line-height:1.35;}
   .side #fieldLabel,.side #cmdInput{width:100%;min-width:0;max-width:none;font-family:inherit;}
   .side .lhint{display:block;margin-top:5px;line-height:1.4;}
@@ -199,7 +223,7 @@
     <span class="brand">Haul<b>Proof</b> <span class="brandsub">· Set up signatures</span></span>
     <span class="ctx" id="ctx"></span>
     <div id="lyDrop" style="position:relative;display:inline-block;">
-      <button class="btn ghost" id="lyMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Save, apply, or manage this customer's saved signature layouts">🗂 Layouts ▾</button>
+      <button class="btn tb" id="lyMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Save, apply, or manage this customer's saved signature layouts"><svg class="tbi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span>Layouts</span><span class="tbcaret">▾</span></button>
       <div class="lymenu" id="lyMenu" role="menu" style="display:none;">
         <button class="lyitem" id="applyTplBtn" type="button" role="menuitem" style="display:none;" title="Drop this customer's saved layout onto the document">↴ Apply saved layout</button>
         <button class="lyitem" id="saveTplBtn" type="button" role="menuitem" title="Save the boxes currently on this document as the reusable layout for this customer">☆ Save current as layout</button>
@@ -207,10 +231,10 @@
         <div class="lyhint" id="lyEmptyHint" style="display:none;">No saved layouts for this customer yet. Place your boxes, then choose <b>Save current as layout</b>.</div>
       </div>
     </div>
-    <button class="btn ghost" id="aiBtn" type="button" title="Read the document's labels (Receiver, Carrier, Date, Pickup Date) and drop boxes on the blanks next to them">✨ Auto-place</button>
-    <button class="btn ghost" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures">✂ Crop / clean up</button>
-    <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
-    <button class="btn ok" id="saveBtn" type="button">Save setup</button>
+    <button class="btn tb tb-auto" id="aiBtn" type="button" title="Read the document's labels (Receiver, Carrier, Date, Pickup Date) and drop boxes on the blanks next to them"><svg class="tbi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Auto-place</span></button>
+    <button class="btn tb" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures"><svg class="tbi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg><span>Crop / clean up</span></button>
+    <button class="btn tb tb-back" id="backBtn" type="button"><svg class="tbi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg><span class="tbl">Back to portal</span></button>
+    <button class="btn tb tb-save" id="saveBtn" type="button"><svg class="tbi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Save setup</span></button>
   </div>
 </div>
 <div class="layout">
@@ -467,14 +491,14 @@
   function wireSigner(b){
     var c=roleColor(b.dataset.role);
     var dot=b.querySelector('.dot'); if(dot) dot.style.background=c;
-    b.style.setProperty('--c',c); b.style.setProperty('--cf',rgba(c,0.13));
+    b.style.setProperty('--c',c); b.style.setProperty('--cf',rgba(c,0.20)); b.style.setProperty('--cl',rgba(c,0.07)); b.style.setProperty('--cb',rgba(c,0.40));
     b.addEventListener('click',function(){
       document.querySelectorAll('.signer').forEach(function(x){x.classList.remove('on');});
       b.classList.add('on'); activeTool.role=b.dataset.role; updateArmed(); tintFieldTiles();
     });
   }
   // The selected field tile takes the current signer's colour, so "who + what" reads as one choice.
-  function tintFieldTiles(){ var fr=$('#fieldRow'); if(!fr) return; var c=roleColor(activeTool.role); fr.style.setProperty('--ac',c); fr.style.setProperty('--acf',rgba(c,0.13)); }
+  function tintFieldTiles(){ var fr=$('#fieldRow'); if(!fr) return; var c=roleColor(activeTool.role); fr.style.setProperty('--ac',c); fr.style.setProperty('--acf',rgba(c,0.20)); fr.style.setProperty('--acl',rgba(c,0.06)); fr.style.setProperty('--acb',rgba(c,0.35)); }
   Array.prototype.forEach.call(document.querySelectorAll('.signer[data-role]'),wireSigner);
   $('#addSigner').addEventListener('click',function(){
     var name=(prompt('Name this signer (e.g. Warehouse Mgr, Lumper):')||'').trim();
@@ -517,7 +541,7 @@
   fetch('/api/pods/'+DOC_ID,{credentials:'include'}).then(function(r){return r.json();}).then(function(m){
     if(m.error){ $('#loadMsg').textContent=m.error; return; }
     meta=m; $('#ctx').textContent='PO '+(m.poNumber||'—')+(m.loadNumber?(' · Load '+m.loadNumber):'')+(m.consignee?(' · '+m.consignee):'');
-    if(m.loadId){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn').textContent='← Back to load'; }
+    if(m.loadId){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn .tbl').textContent='Back to load'; }
     checkTemplate();   // see if this customer + document type has a saved signature layout to offer
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
