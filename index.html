@@ -231,6 +231,27 @@
   .aiwarn{margin-top:10px;background:#fdf1df;border:1px solid #f1d3a6;color:#8a5a13;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;}
   .aitips{margin-top:14px;display:grid;gap:8px;font-size:13px;color:#33414f;}
   .aitips > div{padding-left:12px;border-left:3px solid #bcd0f5;}
+  .aipromo{position:relative;background:linear-gradient(135deg,#f3eefe 0%,#eef4ff 100%);border:1px solid #d7c2f0;padding:18px 20px;}
+  .aipromo.connected{padding:12px 18px;}
+  .aipromo-x{position:absolute;top:8px;right:10px;background:transparent;color:var(--muted);border:none;box-shadow:none;font-size:20px;line-height:1;padding:4px 8px;}
+  .aipromo-x:hover{background:rgba(0,0,0,.05);color:var(--ink);box-shadow:none;}
+  .aipromo-head{display:flex;gap:12px;align-items:flex-start;padding-right:28px;}
+  .aipromo-icon{flex:none;width:36px;height:36px;border-radius:10px;background:#7a3cc0;color:#fff;display:grid;place-items:center;font-size:18px;box-shadow:0 2px 6px rgba(122,60,192,.3);}
+  .aipromo.connected .aipromo-icon{width:28px;height:28px;font-size:14px;border-radius:8px;}
+  .aipromo-title{font-family:var(--display);font-weight:800;font-size:17px;color:#3d1d70;}
+  .aipromo.connected .aipromo-title{font-size:15px;}
+  .aipromo-sub{font-size:13.5px;color:#4b3a66;margin-top:2px;line-height:1.45;max-width:900px;}
+  .aipromo-try{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:12px 0 0 48px;}
+  .aipromo.connected .aipromo-try{margin-left:40px;margin-top:8px;}
+  .aipromo-say{font-size:12px;font-weight:700;color:#5b2a9a;text-transform:uppercase;letter-spacing:.04em;}
+  .aipromo-chip{font-size:12.5px;background:#fff;border:1px solid #d7c2f0;border-radius:999px;padding:4px 10px;color:#3d1d70;}
+  .aipromo-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 0 48px;}
+  .aipromo-actions input{flex:0 1 330px;min-width:200px;font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:9px 11px;background:#fff;}
+  .aipromo-actions button{padding:9px 14px;font-size:13px;}
+  #aiPromoCopy{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
+  #aiPromoCopy:hover{background:#68309f;}
+  .aipromo-steps{margin:12px 0 0 48px;padding:12px 16px 12px 32px;background:#fff;border:1px solid #e3d6f5;border-radius:10px;font-size:13.5px;line-height:1.6;color:#33414f;}
+  @media (max-width:700px){ .aipromo-try,.aipromo-actions,.aipromo-steps{margin-left:0;} }
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -822,6 +843,33 @@
     </div>
 
     <!-- LOADS (customer roles) -->
+    <div class="card hide aipromo" id="aiPromoCard">
+      <button class="aipromo-x" id="aiPromoX" type="button" title="Hide this" aria-label="Hide">×</button>
+      <div class="aipromo-head">
+        <div class="aipromo-icon">✨</div>
+        <div>
+          <div class="aipromo-title" id="aiPromoTitle">Let AI do the paperwork</div>
+          <div class="aipromo-sub" id="aiPromoSub">Connect HaulProof to your AI assistant — Claude, or any app that supports MCP connectors — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.</div>
+        </div>
+      </div>
+      <div class="aipromo-try" id="aiPromoTry">
+        <span class="aipromo-say">Try saying:</span>
+        <span class="aipromo-chip">“Here are 3 Brown Strauss BOLs for PO 4821 — one stop each, send to Brian.”</span>
+        <span class="aipromo-chip">“What loads are still waiting on signatures?”</span>
+        <span class="aipromo-chip">“Assign Dan Lacer to load 4821, truck 12.”</span>
+      </div>
+      <div class="aipromo-actions" id="aiPromoActions">
+        <input id="aiPromoUrl" readonly>
+        <button id="aiPromoCopy" type="button">Copy connector address</button>
+        <button class="ghost" id="aiPromoHow" type="button">How to connect ▾</button>
+      </div>
+      <ol class="aipromo-steps hide" id="aiPromoSteps">
+        <li><b>Claude</b> (claude.ai or the Claude app): <b>Settings → Connectors → Add custom connector</b>. Other AI apps that support MCP connectors (for example ChatGPT’s connectors) have a similar “add connector” screen.</li>
+        <li>Name it <b>HaulProof</b> and paste the connector address above.</li>
+        <li>Click <b>Connect</b>, sign in with your <b>HaulProof login</b>, and click <b>Allow</b>.</li>
+        <li>Start a <b>new chat</b> and attach your BOLs or ask about your loads. It works as your login, with your permissions. Manage it under <b>Settings → AI connections</b>.</li>
+      </ol>
+    </div>
     <div class="card" id="loadsCard">
       <!-- First-time welcome: teaches the mental model (what this is + the 3 steps). Dismissed once, stays dismissed. -->
       <div id="dashWelcome" class="hide" style="margin:-4px 0 16px;border:1px solid var(--primary);background:var(--primary-soft,#eef3fe);border-radius:12px;padding:16px 18px;">
@@ -1760,6 +1808,7 @@
       // Anyone with a company login can connect an AI app (it acts as them), so this card isn't admin-only.
       show('aiConnCard', u.role !== 'superadmin' && !!u.orgId);
       show('aiCreditCard', u.role !== 'superadmin' && !!u.orgId);
+      if (u.role !== 'superadmin' && !!u.orgId) loadAiPromo(); else show('aiPromoCard', false);
     } catch(e){}
     buildTabs();
     refreshAwaitingBadge();
@@ -1873,7 +1922,7 @@
   // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
   var TAB_DEFS = [
     // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
-    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
+    { key:'documents', label:'Documents / Loads', cards:['aiPromoCard','loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
@@ -1978,6 +2027,30 @@
   }
   // --- AI connections (Settings tab): the connector address to paste into an AI app, and the apps this login has
   //     connected, each with a Disconnect that revokes its access right away. ---
+  // "Let Claude do the paperwork" banner on Documents / Loads: the connector address, how to connect, and example
+  // requests. Once the company has an AI app connected it shrinks to the example requests. Hideable per login.
+  function aiPromoKey(){ return 'hp_aipromo_hide_' + ((user && (user.id || user.email)) || ''); }
+  async function loadAiPromo(){
+    const card = $('aiPromoCard'); if (!card) return;
+    let hidden = false; try { hidden = localStorage.getItem(aiPromoKey()) === '1'; } catch (e) {}
+    if (hidden) { card.classList.add('hide'); return; }
+    if ($('aiPromoUrl')) $('aiPromoUrl').value = location.origin + '/mcp';
+    let connected = false;
+    try { const r = await api('/api/ai-connections'); connected = !!((r.connections || []).length); } catch (e) {}
+    card.classList.toggle('connected', connected);
+    $('aiPromoTitle').textContent = connected ? 'Your AI assistant is connected to HaulProof' : 'Let AI do the paperwork';
+    $('aiPromoSub').textContent = connected ? 'Open a new chat in your AI app and attach your BOLs, or ask about your loads.' : 'Connect HaulProof to your AI assistant — Claude, or any app that supports MCP connectors — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.';
+    $('aiPromoActions').classList.toggle('hide', connected); if (connected) $('aiPromoSteps').classList.add('hide');
+    card.classList.remove('hide');
+  }
+  if ($('aiPromoX')) $('aiPromoX').onclick = () => { try { localStorage.setItem(aiPromoKey(), '1'); } catch (e) {} $('aiPromoCard').classList.add('hide'); };
+  if ($('aiPromoHow')) $('aiPromoHow').onclick = () => { const st = $('aiPromoSteps'); const open = st.classList.toggle('hide') === false; $('aiPromoHow').textContent = 'How to connect ' + (open ? '▴' : '▾'); };
+  if ($('aiPromoCopy')) $('aiPromoCopy').onclick = async () => {
+    const v = $('aiPromoUrl').value;
+    try { await navigator.clipboard.writeText(v); } catch (e) { $('aiPromoUrl').select(); try { document.execCommand('copy'); } catch (_) {} }
+    $('aiPromoCopy').textContent = '✓ Copied'; setTimeout(() => { $('aiPromoCopy').textContent = 'Copy connector address'; }, 1800);
+    $('aiPromoSteps').classList.remove('hide'); $('aiPromoHow').textContent = 'How to connect ▴';
+  };
   // Company side of the AI credit: a meter for the free trial, the plan otherwise, and "Request more AI".
   async function loadAiCredit(){
     const box = $('aiCreditBox'); if (!box) return;
