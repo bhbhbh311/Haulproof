@@ -100,6 +100,10 @@
   .fld .ico{color:var(--c);opacity:.8;line-height:0;pointer-events:none;}
   .fld .ico svg{width:18px;height:18px;}
   .fld.tiny .ico svg{width:11px;height:11px;}
+  .fld.hasval .ico{opacity:1;line-height:1.2;width:100%;padding:0 6px;overflow:hidden;}
+  .fld .fval{display:block;color:var(--ink);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+  .side #fieldValue{width:100%;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;}
+  .hide{display:none !important;}
   .fld .rsz{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
   .fld .del{position:absolute;right:-11px;top:-11px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:10;}
   .fld .del:hover{background:#e0432f;transform:scale(1.1);}
@@ -265,10 +269,9 @@
       <button class="ftype" data-kind="dlin" type="button" title="Fills itself with the time the driver checked in at this delivery stop (needs “Drivers record in/out times” on in Settings)">Delivery in</button>
       <button class="ftype" data-kind="dlout" type="button" title="Fills itself with the time the driver left this stop — the moment they signed and sent the paperwork">Delivery out</button>
     </div>
-    <div class="fgrp">Driver types it in</div>
+    <div class="fgrp">Typed text</div>
     <div class="chips">
-      <button class="ftype" data-kind="time" type="button">Time</button>
-      <button class="ftype" data-kind="text" type="button">Text box</button>
+      <button class="ftype" data-kind="text" type="button" title="Type the text here now, or leave it blank for the driver to fill in">Text box</button>
     </div>
   </div>
   <div class="armed" id="armed"></div>
@@ -278,8 +281,13 @@
   </div>
   <div class="sec" id="labelRow">
     <div class="sech">Label <span class="opt">optional</span></div>
-    <input id="fieldLabel" type="text" placeholder="e.g. Arrive time, Seal #">
-    <div class="lhint">Click a placed box, then type its label. Handy for Time and Text boxes.</div>
+    <input id="fieldLabel" type="text" placeholder="e.g. Seal #, Trailer #">
+    <div class="lhint">Click a placed box, then type its label.</div>
+    <div id="valueWrap" class="hide" style="margin-top:12px;">
+      <div class="sech">Text in the box</div>
+      <input id="fieldValue" type="text" placeholder="Type it now — or leave blank for the driver">
+      <div class="lhint">Printed on the document. Leave it blank and the driver types it on their phone.</div>
+    </div>
   </div>
   <div class="sec" id="cmdRow">
     <div class="sech">Quick commands</div>
@@ -478,7 +486,12 @@
   var dirty=false; function markDirty(){ dirty=true; }
 
   function styleFieldEl(el,role){ var c=roleColor(role); el.style.setProperty('--c',c); el.style.setProperty('--cf',rgba(c,0.24)); el.style.setProperty('--cs',rgba(c,0.30)); }
-  function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); $('#fieldLabel').value=(f&&f.label)||''; }
+  function selectField(f){ fields.forEach(function(x){ if(x.el) x.el.classList.remove('sel'); }); selected=f||null; if(f&&f.el) f.el.classList.add('sel'); $('#fieldLabel').value=(f&&f.label)||'';
+    var vw=$('#valueWrap'); if(vw){ var isText=!!(f&&f.kind==='text'); vw.classList.toggle('hide',!isText); $('#fieldValue').value=isText?(f.value||''):''; if(isText) setTimeout(function(){ try{ $('#fieldValue').focus(); }catch(e){} },0); } }
+  // A text box with text typed in shows that text inside it (instead of the faint icon).
+  function showFieldValue(f){ if(!f||!f.el) return; var ic=f.el.querySelector('.ico'); if(!ic) return;
+    if(f.kind==='text' && f.value){ ic.innerHTML='<span class="fval">'+esc(f.value)+'</span>'; f.el.classList.add('hasval'); }
+    else { ic.innerHTML=kindIcon(f.kind); f.el.classList.remove('hasval'); } }
   function removeField(f){ if(!f) return; if(f.el&&f.el.parentNode) f.el.parentNode.removeChild(f.el); fields=fields.filter(function(x){return x!==f;}); if(selected===f){ selected=null; $('#fieldLabel').value=''; } markDirty(); }
   document.addEventListener('keydown',function(e){
     if((e.key==='Delete'||e.key==='Backspace') && selected){
@@ -517,6 +530,10 @@
     });
   });
   updateArmed(); tintFieldTiles();   // show the starting selection (Consignee · Sign + date) right away
+  if($('#fieldValue')) $('#fieldValue').addEventListener('input',function(){
+    if(!selected || selected.kind!=='text') return;
+    selected.value=this.value; showFieldValue(selected); markDirty();
+  });
   $('#fieldLabel').addEventListener('input',function(){
     if(!selected) return;
     selected.label=this.value;
@@ -634,6 +651,7 @@
     if(isAutoKind(f.kind)) el.classList.add('auto');   // dashed = fills in automatically; solid = someone signs/types
     f.rec.div.appendChild(el); f.el=el; styleFieldEl(el,f.role);
     if(h<30) el.classList.add('tiny');   // short boxes (dates/times): a smaller icon
+    if(f.kind==='text' && f.value) setTimeout(function(){ showFieldValue(f); },0);
     el.title=labelText(f.role,f.kind,f.label)+(isAutoKind(f.kind)?' (fills in automatically)':'');
     recompute(f);
     if(!VIEW){   // editing interactions are skipped in read-only preview mode
@@ -696,7 +714,7 @@
     var tl=rec.vp.convertToViewportPoint(fd.xPdf, fd.yPdf+fd.hPdf);
     var br=rec.vp.convertToViewportPoint(fd.xPdf+fd.wPdf, fd.yPdf);
     var left=Math.min(tl[0],br[0]), top=Math.min(tl[1],br[1]), w=Math.abs(br[0]-tl[0]), hh=Math.abs(br[1]-tl[1]);
-    var f={pageIdx:fd.pageIdx,kind:fd.kind||'sigdate',role:fd.role||'Consignee',label:fd.label||'',rec:rec};
+    var f={pageIdx:fd.pageIdx,kind:fd.kind||'sigdate',role:fd.role||'Consignee',label:fd.label||'',value:fd.value||'',rec:rec};
     // Any custom signer saved earlier should appear as a chip so it can be reused on this doc.
     // (Pickup-date fields carry a 'Pickup' role for colour only — they're not a signer, so no chip.)
     if(f.role && f.kind!=='pickupdate' && !AUTO_TIME_KINDS[f.kind] && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
@@ -709,7 +727,7 @@
 
   // Serialize the placed fields into the storable shape (shared by Save setup + Save-as-layout).
   function serialize(){
-    return fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,label:f.label||'',xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
+    return fields.map(function(f){ return {pageIdx:f.pageIdx,kind:f.kind,role:f.role,label:f.label||'',value:(f.kind==='text'&&f.value)?f.value:undefined,xPdf:f.xPdf,yPdf:f.yPdf,wPdf:f.wPdf,hPdf:f.hPdf,baseW:f.baseW,baseH:f.baseH}; });
   }
   $('#saveBtn').addEventListener('click',function(){
     var out=serialize();
@@ -1032,6 +1050,7 @@
   });
   // Save the current boxes as THE layout for this load's customer + document type.
   function saveTemplate(out){
+    out=out.map(function(f){ var c=Object.assign({},f); delete c.value; return c; });   // typed text is per load — a layout keeps just the box
     return fetch('/api/pods/'+DOC_ID+'/save-template',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:out})})
       .then(function(r){return r.json();}).then(function(j){
         if(j.error) throw new Error(j.error);

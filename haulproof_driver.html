@@ -1595,7 +1595,9 @@ window.__startApp=function(){
         if(w<mn.w){ w=mn.w; if(x+w>rec.baseW) x=Math.max(0,rec.baseW-w); }
         if(h<mn.h){ y=Math.max(0,y-(mn.h-h)/2); h=mn.h; }
       }
-      addField(rec, k, f.role||"Consignee", x, y, w, h, f.label||"");
+      var ao=addField(rec, k, f.role||"Consignee", x, y, w, h, f.label||"");
+      // Text dispatch typed in at setup arrives filled in (the driver can still change it by tapping the box).
+      if(ao && k==="text" && f.value){ ao.value=String(f.value); ao.el.querySelector(".content").innerHTML=valueContent(ao); ao.el.classList.add("filled"); }
     });
     // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
     // so the driver can sign it now that they've reopened it. (Never on an audit-trail page.)
