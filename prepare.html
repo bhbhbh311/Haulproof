@@ -113,12 +113,69 @@
   body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
   .viewbar{max-width:1200px;margin:12px auto 0;padding:0 16px;}
   .viewbar .vb{background:#eef4ff;border:1px solid #c3d5f5;color:#12386e;border-radius:10px;padding:11px 14px;font-size:13.5px;line-height:1.4;}
+  /* ===== Layout: slim top bar, tools in a left side panel, the document on the right ===== */
+  .bar{padding:10px 18px;}
+  .barhead{gap:8px;}
+  .brandsub{color:var(--ink);font-weight:700;}
+  .ctx{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;}
+  #saveBtn{padding:9px 18px;font-weight:700;}
+  .layout{display:grid;grid-template-columns:304px minmax(0,1fr);align-items:start;}
+  .side{position:sticky;top:var(--barH,58px);height:calc(100vh - var(--barH,58px));overflow:auto;background:var(--surface);border-right:1px solid var(--line);padding:16px 16px 28px;}
+  .sec{margin-bottom:18px;}
+  .sech{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+  .sech .cnt{background:var(--primary-soft);color:var(--primary);border-radius:999px;padding:0 7px;font-size:11px;letter-spacing:0;}
+  .sech .opt{font-weight:600;text-transform:none;letter-spacing:0;}
+  .fgrp{font-size:11.5px;font-weight:600;color:var(--muted);margin:10px 0 5px;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .side .signer,.side .ftype{font-size:12.5px;padding:6px 10px;}
+  .side .armed{margin:0 0 18px;font-size:12.5px;line-height:1.35;}
+  .side #fieldLabel,.side #cmdInput{width:100%;min-width:0;max-width:none;font-family:inherit;}
+  .side .lhint{display:block;margin-top:5px;line-height:1.4;}
+  .cmdbtns{display:flex;gap:6px;margin-top:6px;} .cmdbtns .btn{flex:1;}
+  .side .howto{max-width:none;margin:0 0 12px;padding:0;}
+  .side .howto-toggle{width:100%;text-align:left;}
+  .side .demo-stage{width:100%;}
+  .side .hint{max-width:none;margin:0;padding:0;font-size:12px;}
+  .placed{display:flex;flex-direction:column;gap:4px;}
+  .pempty{font-size:12.5px;color:var(--muted);line-height:1.4;}
+  .pitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-family:inherit;font-size:12.5px;background:var(--bg);border:1px solid transparent;border-radius:7px;padding:6px 8px;cursor:pointer;color:var(--ink);}
+  .pitem:hover{border-color:#c6d0db;} .pitem.on{border-color:var(--primary);background:var(--primary-soft);}
+  .pdot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .pwho{font-weight:700;} .pwhat{color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .ppg{font-size:11px;color:var(--muted);}
+  .docpane{min-width:0;padding:12px 20px 60px;}
+  .zoombar{position:fixed;right:20px;bottom:20px;z-index:40;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px;box-shadow:0 4px 14px rgba(20,30,50,.15);}
+  .zoombar .zb{padding:6px 11px;min-width:34px;border:none;}
+  .zoombar .zb:hover{background:var(--primary-soft);}
+  .zpct{font-size:12px;color:var(--muted);padding:0 6px;min-width:42px;text-align:center;}
+  #pages{max-width:none;margin:0;padding:0;}
+  .page{margin:0 auto 18px;}
+  .docpane .aibanner,.docpane .viewbar{max-width:900px;margin:0 auto 12px;}
+  .docpane .viewbar{padding:0;}
+  .armed{display:block;}
+  .armtop{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.75;}
+  .armwhat{display:flex;align-items:center;gap:7px;margin:3px 0 2px;font-size:13.5px;}
+  .armhow{font-size:12px;opacity:.85;}
+  .fld.tiny .lab{font-size:9.5px;white-space:nowrap;line-height:1;}
+  .fld.tiny .lab br{display:none;}
+  @media (min-width:901px) and (pointer:fine){   /* mouse: smaller handles so they don't cover the form */
+    .fld .del{width:24px;height:24px;right:-12px;top:-12px;font-size:16px;border-width:2px;}
+    .fld .rsz{width:14px;height:14px;right:-7px;bottom:-7px;}
+  }
+  body.viewonly .layout{grid-template-columns:1fr;} body.viewonly .side, body.viewonly .zoombar{display:none;}
+  /* Narrow screens (phones, small tablets): tools stack above the document, as before. */
+  @media (max-width:900px){
+    .layout{display:block;}
+    .side{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);padding:12px 14px;}
+    .side #placedSec,.side .hint{display:none;}
+    .docpane{padding:10px 8px 40px;}
+    .brandsub{display:none;}
+  }
 </style>
 </head>
 <body>
 <div class="bar">
   <div class="barhead">
-    <span class="brand">Haul<b>Proof</b> · Set up signatures</span>
+    <span class="brand">Haul<b>Proof</b> <span class="brandsub">· Set up signatures</span></span>
     <span class="ctx" id="ctx"></span>
     <div id="lyDrop" style="position:relative;display:inline-block;">
       <button class="btn ghost" id="lyMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Save, apply, or manage this customer's saved signature layouts">🗂 Layouts ▾</button>
@@ -131,46 +188,62 @@
     </div>
     <button class="btn ghost" id="aiBtn" type="button" title="Let AI read the document and suggest where each signature and date goes">✨ AI place</button>
     <button class="btn ghost" id="cropBtn" type="button" title="Crop off background and/or sharpen a soft photo before placing signatures">✂ Crop / clean up</button>
-    <button class="btn ok" id="saveBtn" type="button">Save setup</button>
     <button class="btn ghost" id="backBtn" type="button">Back to portal</button>
+    <button class="btn ok" id="saveBtn" type="button">Save setup</button>
   </div>
-  <div class="prow" id="signerRow">
-    <span class="plabel2">Signer</span>
-    <button class="signer on" data-role="Consignee" type="button"><span class="dot"></span>Consignee</button>
-    <button class="signer" data-role="Driver" type="button"><span class="dot"></span>Driver</button>
-    <button class="signer" data-role="Shipper" type="button"><span class="dot"></span>Shipper / Pickup</button>
-    <button class="signer add" id="addSigner" type="button">＋ Add signer</button>
+</div>
+<div class="layout">
+<aside class="side" id="side">
+  <div class="sec" id="signerRow">
+    <div class="sech">1 · Who signs</div>
+    <div class="chips">
+      <button class="signer on" data-role="Consignee" type="button"><span class="dot"></span>Consignee</button>
+      <button class="signer" data-role="Driver" type="button"><span class="dot"></span>Driver</button>
+      <button class="signer" data-role="Shipper" type="button"><span class="dot"></span>Shipper / Pickup</button>
+      <button class="signer add" id="addSigner" type="button">＋ Add signer</button>
+    </div>
   </div>
-  <div class="prow" id="fieldRow">
-    <span class="plabel2">Field</span>
-    <button class="ftype on" data-kind="sigdate" type="button">Sign + date</button>
-    <button class="ftype" data-kind="sig" type="button">Signature</button>
-    <button class="ftype" data-kind="initials" type="button">Initials</button>
-    <button class="ftype" data-kind="date" type="button">Date</button>
-    <button class="ftype" data-kind="pickupdate" type="button" title="Fills itself with the pickup date when the driver marks the load picked up — nobody signs or types it">Pickup date (auto)</button>
-    <button class="ftype" data-kind="puin" type="button" title="Fills itself with the time the driver checked in at the pickup (needs “Drivers record in/out times” on in Settings)">Pickup in (auto)</button>
-    <button class="ftype" data-kind="puout" type="button" title="Fills itself with the time the driver left the pickup — their check-out, or when they tapped Pickup complete">Pickup out (auto)</button>
-    <button class="ftype" data-kind="dlin" type="button" title="Fills itself with the time the driver checked in at this delivery stop (needs “Drivers record in/out times” on in Settings)">Delivery in (auto)</button>
-    <button class="ftype" data-kind="dlout" type="button" title="Fills itself with the time the driver left this stop — their check-out, or the moment they signed">Delivery out (auto)</button>
-    <button class="ftype" data-kind="time" type="button">Time</button>
-    <button class="ftype" data-kind="text" type="button">Text box</button>
-  </div>
-  <div class="prow" id="labelRow">
-    <span class="plabel2">Label</span>
-    <input id="fieldLabel" type="text" placeholder="Optional — e.g. Arrive time, Leave time, Seal #">
-    <span class="lhint">Select a field, then type its label. Handy for Time and Text fields.</span>
-  </div>
-  <div class="prow" id="cmdRow">
-    <span class="plabel2">Tell&nbsp;AI</span>
-    <input id="cmdInput" type="text" placeholder="e.g. “remove shipper”, “add carrier sign and date”, “clear all”" autocomplete="off">
-    <button class="btn ghost" id="cmdMic" type="button" title="Speak a command">🎤 Speak</button>
-    <button class="btn" id="cmdGo" type="button">Apply</button>
-    <span class="lhint" id="cmdHint">Type or speak a change and tap Apply. Try “remove shipper”, “add carrier sign and date”, “add pickup date”, “clear all”.</span>
+  <div class="sec" id="fieldRow">
+    <div class="sech">2 · What goes on the page</div>
+    <div class="fgrp">Signatures</div>
+    <div class="chips">
+      <button class="ftype on" data-kind="sigdate" type="button">Sign + date</button>
+      <button class="ftype" data-kind="sig" type="button">Signature</button>
+      <button class="ftype" data-kind="initials" type="button">Initials</button>
+    </div>
+    <div class="fgrp">Fills in automatically</div>
+    <div class="chips">
+      <button class="ftype" data-kind="date" type="button" title="Fills itself with the date the document is signed">Date</button>
+      <button class="ftype" data-kind="pickupdate" type="button" title="Fills itself with the pickup date when the driver marks the load picked up — nobody signs or types it">Pickup date</button>
+      <button class="ftype" data-kind="puin" type="button" title="Fills itself with the time the driver checked in at the pickup (needs “Drivers record in/out times” on in Settings)">Pickup in</button>
+      <button class="ftype" data-kind="puout" type="button" title="Fills itself with the time the driver left the pickup — when they tapped Pickup complete">Pickup out</button>
+      <button class="ftype" data-kind="dlin" type="button" title="Fills itself with the time the driver checked in at this delivery stop (needs “Drivers record in/out times” on in Settings)">Delivery in</button>
+      <button class="ftype" data-kind="dlout" type="button" title="Fills itself with the time the driver left this stop — the moment they signed and sent the paperwork">Delivery out</button>
+    </div>
+    <div class="fgrp">Driver types it in</div>
+    <div class="chips">
+      <button class="ftype" data-kind="time" type="button">Time</button>
+      <button class="ftype" data-kind="text" type="button">Text box</button>
+    </div>
   </div>
   <div class="armed" id="armed"></div>
-</div>
-<div class="howto" id="howto">
-  <button class="howto-toggle" id="howtoToggle" type="button">❓ NEED HELP? — How to set up signatures ▸</button>
+  <div class="sec" id="placedSec">
+    <div class="sech">On this document <span id="placedCount" class="cnt"></span></div>
+    <div id="placedList" class="placed"><div class="pempty">Nothing placed yet — click the document to add a box.</div></div>
+  </div>
+  <div class="sec" id="labelRow">
+    <div class="sech">Label <span class="opt">optional</span></div>
+    <input id="fieldLabel" type="text" placeholder="e.g. Arrive time, Seal #">
+    <div class="lhint">Click a placed box, then type its label. Handy for Time and Text boxes.</div>
+  </div>
+  <div class="sec" id="cmdRow">
+    <div class="sech">Tell AI</div>
+    <input id="cmdInput" type="text" placeholder="e.g. “add carrier sign and date”" autocomplete="off">
+    <div class="cmdbtns"><button class="btn ghost" id="cmdMic" type="button" title="Speak a command">🎤 Speak</button><button class="btn" id="cmdGo" type="button">Apply</button></div>
+    <div class="lhint" id="cmdHint">Try “remove shipper”, “add carrier sign and date”, “add pickup date”, “clear all”.</div>
+  </div>
+<div class="howto sec" id="howto">
+  <button class="howto-toggle" id="howtoToggle" type="button">❓ How to set up signatures ▸</button>
   <div id="howtoBody" class="collapsed">
   <div class="demo" aria-hidden="true">
     <div class="demo-cap">Pick a signer → pick a field → tap the document</div>
@@ -196,8 +269,13 @@
   </ol>
   </div>
 </div>
-<div class="hint" id="hint">Tip: click a placed field to select it (blue ring), then type its <b>label</b> above, or press <b>Delete</b> to remove it.</div>
-<div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
+  <div class="hint" id="hint">Tip: drag a box to move it, pull its corner dot to resize, or select it and press <b>Delete</b>.</div>
+</aside>
+<main class="docpane" id="docpane">
+  <div class="zoombar" id="zoombar"><button class="btn ghost zb" id="zoomOut" type="button" title="Zoom out">−</button><button class="btn ghost zb" id="zoomFit" type="button" title="Fit the page to the screen">Fit</button><button class="btn ghost zb" id="zoomIn" type="button" title="Zoom in">＋</button><span id="zoomPct" class="zpct"></span></div>
+  <div id="pages"><div class="load" id="loadMsg">Loading document…</div></div>
+</main>
+</div>
 <div class="toast" id="toast"></div>
 
 <!-- Crop the document's pages (trim background off a "use whole photo" scan) before placing signatures. -->
@@ -306,12 +384,12 @@
   function updateArmed(){
     var el=$('#armed'); if(!el) return;
     var c=roleColor(activeTool.role); var kn=KIND_NAME[activeTool.kind]||activeTool.kind;
-    el.innerHTML='<span class="armdot" style="background:'+c+'"></span> Now placing: <b>'+esc(activeTool.role)+'</b> · <b>'+esc(kn)+'</b> — tap the document where it should go.';
+    el.innerHTML='<div class="armtop">Now placing</div><div class="armwhat"><span class="armdot" style="background:'+c+'"></span><b>'+esc(activeTool.role)+'</b> · <b>'+esc(kn)+'</b></div><div class="armhow">Click the document where it should go.</div>';
   }
   // Collapsible how-to steps.
   (function(){ var t=$('#howtoToggle'); if(t) t.addEventListener('click',function(){
     var s=$('#howtoBody'); if(!s) return; var open=!s.classList.toggle('collapsed');
-    t.textContent='❓ NEED HELP? — How to set up signatures '+(open?'▾':'▸');
+    t.textContent='❓ How to set up signatures '+(open?'▾':'▸');
   }); })();
 
   // Color per signer role — fixed for the built-ins, stable-hashed for custom names. Mirrors the driver app.
@@ -408,13 +486,35 @@
     return pdfjsLib.getDocument({data:buf}).promise;
   }).then(function(pdf){
     if(!pdf) return;
+    _pdf=pdf; return pdf.getPage(1).then(function(pg1){ var v=pg1.getViewport({scale:1}); _pdfAspect=v.height/v.width; return renderPages(true); });
+  }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
+
+  // Draw the pages at the current zoom. "Fit" sizes a page to the document area (capped so a page stays readable
+  // without being huge); zoom steps scale from there. On a re-draw the placed boxes are carried over by their
+  // PDF positions, so zooming never moves or loses anything.
+  var _pdf=null, _zoom=1, _renderGen=0;
+  // Fit = the whole first page visible in the document area (width AND height), never narrower than 600px on a
+  // desktop so the text stays readable; phones just use the screen width.
+  function fitWidth(){
+    var pane=$('#docpane'); var w=(pane?pane.clientWidth:document.body.clientWidth)-40; w=Math.max(280, Math.min(900, w));
+    if(window.innerWidth>900 && _pdfAspect){ var bh=(document.querySelector('.bar')||{}).offsetHeight||58; var hw=(window.innerHeight-bh-36)/_pdfAspect; w=Math.min(w, Math.max(600, hw)); }
+    return w;
+  }
+  var _pdfAspect=0;
+  function renderPages(first){
+    var pdf=_pdf; if(!pdf) return Promise.resolve();
+    var gen=++_renderGen;
+    var carry = first ? null : serialize();
+    fields=[]; pageRecs=[]; selected=null; $('#fieldLabel').value='';
     var wrap=$('#pages'); wrap.innerHTML='';
-    var maxW=Math.min(1160,(document.body.clientWidth-40));
+    _lastFit=fitWidth(); var maxW=_lastFit*_zoom;
+    if($('#zoomPct')) $('#zoomPct').textContent=Math.round(_zoom*100)+'%';
     var chain=Promise.resolve();
     for(var n=1;n<=pdf.numPages;n++){ (function(n){
       chain=chain.then(function(){ return pdf.getPage(n); }).then(function(page){
+        if(gen!==_renderGen) return;
         var base=page.getViewport({scale:1});
-        var scale=Math.min(2,Math.max(0.6,maxW/base.width));
+        var scale=Math.min(3,Math.max(0.4,maxW/base.width));
         var vp=page.getViewport({scale:scale});
         var pd=document.createElement('div'); pd.className='page'; pd.style.width=vp.width+'px'; pd.style.height=vp.height+'px';
         var cv=document.createElement('canvas'); cv.width=Math.floor(vp.width); cv.height=Math.floor(vp.height); pd.appendChild(cv);
@@ -428,14 +528,49 @@
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
     })(n); }
-    chain.then(function(){ loadExisting(); _pagesReady=true; maybeAutoAssist(); });
-  }).catch(function(e){ console.error(e); $('#loadMsg').textContent='Could not load the document.'; });
+    return chain.then(function(){
+      if(gen!==_renderGen) return;
+      if(first){ loadExisting(); _pagesReady=true; maybeAutoAssist(); }
+      else { var d=dirty; (carry||[]).forEach(placeFromData); dirty=d; }
+    });
+  }
+  // Side-panel list of the boxes on the document (by signer, page order), so a missing signer is obvious.
+  // Clicking an entry selects that box and scrolls it into view. Kept in sync by watching the pages.
+  function refreshPlaced(){
+    var box=$('#placedList'), cnt=$('#placedCount'); if(!box) return;
+    if(cnt) cnt.textContent=fields.length?String(fields.length):'';
+    if(!fields.length){ box.innerHTML='<div class="pempty">Nothing placed yet — click the document to add a box.</div>'; return; }
+    var list=fields.slice().sort(function(a,b){ return (a.pageIdx-b.pageIdx)||((b.yPdf||0)-(a.yPdf||0)); });
+    box.innerHTML='';
+    list.forEach(function(f){
+      var it=document.createElement('button'); it.type='button'; it.className='pitem'+(f===selected?' on':'');
+      var who=(f.kind==='pickupdate'||AUTO_TIME_KINDS[f.kind])?'Auto':f.role;
+      it.innerHTML='<span class="pdot" style="background:'+roleColor(f.role||'Consignee')+'"></span><span class="pwho">'+esc(who)+'</span><span class="pwhat">'+esc((f.label&&f.kind!=='sigdate'&&f.kind!=='sig')?f.label:(KIND_NAME[f.kind]||f.kind).replace(' (auto)',''))+'</span>'+(pageRecs.length>1?'<span class="ppg">p'+(f.pageIdx+1)+'</span>':'');
+      it.addEventListener('click',function(){ selectField(f); if(f.el) f.el.scrollIntoView({behavior:'smooth',block:'center'}); refreshPlaced(); });
+      box.appendChild(it);
+    });
+  }
+  (function(){ var t=null, pg=$('#pages'); if(!pg||!window.MutationObserver) return;
+    new MutationObserver(function(){ clearTimeout(t); t=setTimeout(refreshPlaced,60); }).observe(pg,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+  })();
+  // Keep the side panel just under the (sticky) top bar, whatever height the bar wraps to.
+  function syncBarH(){ var b=document.querySelector('.bar'); if(b) document.documentElement.style.setProperty('--barH', b.offsetHeight+'px'); }
+  syncBarH(); window.addEventListener('resize',syncBarH);
+  function setZoom(z){ z=Math.max(0.5,Math.min(2.5,z)); if(Math.abs(z-_zoom)<0.001 && z!==1) return; _zoom=z; renderPages(false); }
+  if($('#zoomIn')) $('#zoomIn').addEventListener('click',function(){ setZoom(_zoom*1.25); });
+  if($('#zoomOut')) $('#zoomOut').addEventListener('click',function(){ setZoom(_zoom/1.25); });
+  if($('#zoomFit')) $('#zoomFit').addEventListener('click',function(){ _zoom=1; renderPages(false); });
+  // Re-fit when the window is resized enough to change the document area.
+  var _lastFit=0, _rsT=null;
+  window.addEventListener('resize',function(){ clearTimeout(_rsT); _rsT=setTimeout(function(){ var w=fitWidth(); if(_pdf && _pagesReady && Math.abs(w-_lastFit)>60){ _lastFit=w; renderPages(false); } },250); });
 
   function buildFieldEl(f,left,top,w,h){
     var el=document.createElement('div'); el.className='fld';
     el.style.left=left+'px'; el.style.top=top+'px'; el.style.width=w+'px'; el.style.height=h+'px';
     el.innerHTML='<div class="lab">'+labelText(f.role,f.kind,f.label).replace('\n','<br>')+'</div><div class="rsz"></div><div class="del">×</div>';
     f.rec.div.appendChild(el); f.el=el; styleFieldEl(el,f.role);
+    if(h<30) el.classList.add('tiny');
+    el.title=labelText(f.role,f.kind,f.label).replace('\n',' ');   // short boxes (dates/times): one small line instead of a clipped two-line label
     recompute(f);
     if(!VIEW){   // editing interactions are skipped in read-only preview mode
       wireDrag(f); wireResize(f);
@@ -478,7 +613,7 @@
       // Date/time boxes can't be shrunk below what their stamped value needs (see autoFieldMin).
       var am=autoFieldMin(f.kind), sc=(f.rec&&f.rec.vp&&f.rec.vp.scale)||1;
       var minW=Math.max(46,am?am.w*sc:0), minH=Math.max(22,am?am.h*sc:0);
-      function mv(ev){ el.style.width=Math.max(minW,ow+(ev.clientX-sx))+'px'; el.style.height=Math.max(minH,oh+(ev.clientY-sy))+'px'; }
+      function mv(ev){ el.style.width=Math.max(minW,ow+(ev.clientX-sx))+'px'; el.style.height=Math.max(minH,oh+(ev.clientY-sy))+'px'; el.classList.toggle('tiny', el.offsetHeight<30); }
       function up(){ h.removeEventListener('pointermove',mv); h.removeEventListener('pointerup',up); recompute(f); markDirty(); }
       h.addEventListener('pointermove',mv); h.addEventListener('pointerup',up);
     });
