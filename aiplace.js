@@ -112,14 +112,15 @@ function logUsage(req, podId, kind, resp) {
 
 // One structured-output request. Opts into server-side refusal fallbacks; if this account rejects that beta,
 // retry once without it.
-async function ask(content) {
+async function askJSON({ system, schema, content, effort }) {
   const c = client();
+  if (!c) { const e = new Error('AI is not set up (ANTHROPIC_API_KEY missing)'); e.notConfigured = true; throw e; }
   const base = {
     model: MODEL,
     max_tokens: 16000,
-    system: SYSTEM,
+    system,
     messages: [{ role: 'user', content }],
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: FIELDS_SCHEMA } },
+    output_config: { effort: effort || 'medium', format: { type: 'json_schema', schema } },
   };
   try {
     return await c.beta.messages.create({ ...base, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' });
@@ -129,12 +130,18 @@ async function ask(content) {
     throw e;
   }
 }
-
-function parseFields(resp, pageCount) {
+const ask = (content) => askJSON({ system: SYSTEM, schema: FIELDS_SCHEMA, content });
+// The JSON body of a structured-output response, or { error } for a refusal / cut-off / unreadable answer.
+function readJSON(resp) {
   if (resp.stop_reason === 'refusal') return { error: 'refused' };
   if (resp.stop_reason === 'max_tokens') return { error: 'truncated' };
   const txt = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-  let j; try { j = JSON.parse(txt); } catch (e) { return { error: 'unreadable' }; }
+  try { return { json: JSON.parse(txt) }; } catch (e) { return { error: 'unreadable' }; }
+}
+
+function parseFields(resp, pageCount) {
+  const r = readJSON(resp); if (r.error) return r;
+  const j = r.json;
   const clamp = n => Math.max(0, Math.min(1000, Number(n) || 0));
   const fields = (j.fields || []).filter(f => KINDS.includes(f.kind) && f.page >= 0 && f.page < pageCount).map(f => {
     const x0 = clamp(Math.min(f.x0, f.x1)), x1 = clamp(Math.max(f.x0, f.x1)), y0 = clamp(Math.min(f.y0, f.y1)), y1 = clamp(Math.max(f.y0, f.y1));
@@ -191,3 +198,11 @@ router.post('/:id/ai-command', requireAuth, express.json({ limit: '25mb' }), asy
 });
 
 module.exports = router;
+// Shared with aidocs.js (the connector's server-side document prep).
+module.exports.askJSON = askJSON;
+module.exports.askFields = ask;
+module.exports.readJSON = readJSON;
+module.exports.parseFields = parseFields;
+module.exports.logUsage = logUsage;
+module.exports.wordsText = wordsText;
+module.exports.enabled = () => !!client();

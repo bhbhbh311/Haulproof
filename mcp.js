@@ -19,6 +19,8 @@ const SCOPE = 'haulproof';
 const ACCESS_TTL = 60 * 60 * 1000;               // 1 hour
 const REFRESH_TTL = 60 * 24 * 60 * 60 * 1000;    // 60 days (rotated on every use)
 const CODE_TTL = 10 * 60 * 1000;                 // 10 minutes
+const aidocs = require('./aidocs');
+const aiplace = require('./aiplace');
 const MAX_DOC_BYTES = 20 * 1024 * 1024;   // base64 of 20 MB still fits the 28 MB /mcp body limit
 const UPLOAD_LINK_MS = 30 * 60 * 1000;   // get_upload_link links last 30 minutes and work once
 
@@ -474,7 +476,112 @@ const TOOLS = [
       return { upload_url: base + '/u/' + token, expires_at: new Date(exp).toISOString(), po_number: d.load.poNumber,
         how_to_use: 'POST the PDF to upload_url with Content-Type: application/pdf (one file, max 20 MB, one use). Or open upload_url in a browser to choose the file.' };
     } },
+  { name: 'review_pages', title: 'Review a document’s pages',
+    description: 'Reads every page of a document on a load and labels it (bill of lading, terms, mill/material certificate, invoice…), and suggests which pages to keep for the driver to sign. Changes nothing — show the user the plan, then call trim_document with the pages they approve. Uses AI (about 1–3¢ per document).',
+    annotations: { readOnlyHint: true },
+    inputSchema: { type: 'object', properties: {
+      document: str('Document id (from get_load / attach_document)'), load: str('Or: PO #, load #, or load id …'),
+      stop_number: { type: 'integer', minimum: 1, description: '… with the stop number (default 1)' } } },
+    run: async (user, a, base) => {
+      const { pod, buf } = await docForEdit(user, a);
+      const info = await aidocs.pageInfo(buf);
+      if (!aiplace.enabled()) return { document_id: pod.id, pages: info.numPages, ai: 'not set up', note: 'AI isn’t set up on this HaulProof server, so pages can’t be labeled. Look at the document (signature_setup_link) and call trim_document with the pages to keep.', signature_setup_link: base + '/prepare?id=' + pod.id };
+      const r = await aidocs.reviewPages({ user }, pod.id, buf, info);
+      if (r.error) throw new ToolError('The AI couldn’t read this document (' + r.error + '). Look at it in HaulProof and call trim_document with the pages to keep.');
+      return { document_id: pod.id, po_number: pod.poNumber, stop: pod.stopNumber, total_pages: info.numPages, pages: r.pages, suggested_keep_pages: r.keep_pages, note: r.note,
+        next_step: 'Confirm with the user, then call trim_document with keep_pages (or stops to split it).', ai_cost_usd: r.costUsd != null ? Math.round(r.costUsd * 10000) / 10000 : null };
+    } },
+  { name: 'trim_document', title: 'Trim or split a document',
+    description: 'Keeps only the chosen pages of a document that hasn’t been signed yet — and can split it into several stops at once. Give keep_pages (1-based, in order) for one document, or stops: [{stop_number, pages}] to split. The original is kept in HaulProof’s recovery bin. Confirm the pages with the user first (review_pages suggests them). Signature boxes must be placed again afterwards (place_signatures).',
+    inputSchema: { type: 'object', properties: {
+      document: str('Document id'), load: str('Or: PO #, load #, or load id …'),
+      stop_number: { type: 'integer', minimum: 1, description: '… with the stop number (default 1)' },
+      keep_pages: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Pages to keep, 1-based, in the order wanted' },
+      stops: { type: 'array', items: { type: 'object', properties: { stop_number: { type: 'integer', minimum: 1 }, pages: { type: 'array', items: { type: 'integer', minimum: 1 } } }, required: ['stop_number', 'pages'] }, description: 'Split into stops instead: each stop gets these pages' } } },
+    run: async (user, a, base) => {
+      const { pod, buf } = await docForEdit(user, a);
+      const n = (await aidocs.pageInfo(buf)).numPages;
+      let groups;
+      if (Array.isArray(a.stops) && a.stops.length) groups = a.stops.map(g => ({ stop: parseInt(g.stop_number, 10), pages: (g.pages || []).map(Number) }));
+      else if (Array.isArray(a.keep_pages) && a.keep_pages.length) groups = [{ stop: pod.stopNumber || 1, pages: a.keep_pages.map(Number) }];
+      else throw new ToolError('Say which pages to keep (keep_pages) or how to split it (stops). review_pages can suggest them.');
+      groups.forEach(g => {
+        if (!(g.stop >= 1)) throw new ToolError('Every stop needs a stop_number of 1 or more.');
+        if (!g.pages.length) throw new ToolError('Stop ' + g.stop + ' has no pages.');
+        g.pages.forEach(p => { if (!(Number.isInteger(p) && p >= 1 && p <= n)) throw new ToolError('Page ' + p + ' doesn’t exist — the document has ' + n + ' page' + (n === 1 ? '' : 's') + '.'); });
+      });
+      if (new Set(groups.map(g => g.stop)).size !== groups.length) throw new ToolError('Each stop_number can appear only once.');
+      const enc = (v) => encodeURIComponent(String(v));
+      const baseName = String(pod.filename || 'document.pdf').replace(/\.pdf$/i, '');
+      const made = [];
+      for (const g of groups) {
+        const bytes = await aidocs.subsetPdf(buf, g.pages);
+        const name = groups.length > 1 ? baseName + ' - Stop ' + g.stop + '.pdf' : baseName + '.pdf';
+        const r = await api(user, 'POST', '/api/pods/upload', { body: bytes, headers: {
+          'Content-Type': 'application/pdf', 'X-POD-Enc': 'uri', 'X-PO': enc(pod.poNumber || ''), 'X-Load': enc(pod.loadNumber || ''),
+          'X-Stop': String(g.stop), 'X-DocType': enc(pod.docType || 'BOL'), 'X-Filename': enc(name), 'X-Build': 'dispatch',
+          'X-SalesRep': enc(pod.salesRepUserId || '') } });
+        if (pod.assignedDriverId) { try { await api(user, 'POST', '/api/pods/' + r.id + '/assign-driver', { json: { driverId: pod.assignedDriverId } }); } catch (e) {} }
+        made.push({ document_id: r.id, stop: g.stop, pages_kept: g.pages, page_count: g.pages.length, status: 'needs signature setup', signature_setup_link: base + '/prepare?id=' + r.id });
+      }
+      await api(user, 'DELETE', '/api/pods/' + pod.id + '?superseded=1');
+      return { trimmed_from: { document_id: pod.id, pages: n, kept_in_recovery_bin: true }, documents: made,
+        next_step: 'Call place_signatures for each new document so it goes to the driver.' };
+    } },
+  { name: 'place_signatures', title: 'Place signature boxes',
+    description: 'Puts the signature, date and time boxes on a document that hasn’t been signed, then marks it ready to sign so it goes to the driver’s phone. Uses this customer’s saved layout when there is one (free); otherwise the AI places them (about 5¢ per page) — best on PDFs with real text; for phone photos, suggest the user checks the boxes in HaulProof (signature_setup_link). Set save_as_layout to remember an AI layout for this customer.',
+    inputSchema: { type: 'object', properties: {
+      document: str('Document id'), load: str('Or: PO #, load #, or load id …'),
+      stop_number: { type: 'integer', minimum: 1, description: '… with the stop number (default 1)' },
+      method: { type: 'string', enum: ['auto', 'saved_layout', 'ai'], description: 'auto (default): saved layout if one exists, else AI' },
+      save_as_layout: { type: 'boolean', description: 'After an AI placement, save it as this customer’s layout for this document type' } } },
+    run: async (user, a, base) => {
+      const { pod, buf } = await docForEdit(user, a);
+      const info = await aidocs.pageInfo(buf);
+      const method = a.method || 'auto';
+      let fields = [], source, note = '', cost = null;
+      let tpl = null; try { tpl = await api(user, 'GET', '/api/pods/' + pod.id + '/template'); } catch (e) {}
+      if (method !== 'ai' && tpl && tpl.exists && (tpl.fields || []).length) {
+        fields = aidocs.layoutToFields(tpl.fields, info.numPages); source = 'saved layout' + (tpl.customerName ? ' for ' + tpl.customerName : '') + ' · ' + (tpl.docType || 'BOL');
+      } else if (method === 'saved_layout') {
+        throw new ToolError('There’s no saved layout for this customer and document type yet. Use method "ai", or set it up once in HaulProof (signature_setup_link: ' + base + '/prepare?id=' + pod.id + ').');
+      } else {
+        if (!aiplace.enabled()) throw new ToolError('No saved layout for this customer, and AI isn’t set up on the server — place the boxes in HaulProof: ' + base + '/prepare?id=' + pod.id);
+        const r = await aidocs.aiFields({ user }, pod.id, buf, info);
+        if (r.error || !(r.fields || []).length) throw new ToolError('The AI couldn’t place boxes on this document' + (r.error ? ' (' + r.error + ')' : '') + '. Place them in HaulProof: ' + base + '/prepare?id=' + pod.id);
+        fields = r.fields; source = 'AI (' + (r.model || 'Claude') + ')'; note = r.note || ''; cost = r.costUsd;
+      }
+      const saved = await api(user, 'PUT', '/api/pods/' + pod.id + '/fields', { json: { fields } });
+      let layoutSaved = false;
+      if (a.save_as_layout && source.indexOf('AI') === 0) { try { await api(user, 'POST', '/api/pods/' + pod.id + '/save-template', { json: { fields } }); layoutSaved = true; } catch (e) {} }
+      const summary = {}; fields.forEach(f => { const k = (f.role || '') + ' · ' + f.kind; summary[k] = (summary[k] || 0) + 1; });
+      return { document_id: pod.id, stop: pod.stopNumber, status: saved.status === 'prepared' ? 'ready to sign — sent to the driver' : (saved.status || 'saved'),
+        boxes_placed: fields.length, boxes: summary, placed_by: source, note, layout_saved: layoutSaved,
+        review_link: base + '/prepare?id=' + pod.id, ai_cost_usd: cost != null ? Math.round(cost * 10000) / 10000 : null };
+    } },
 ];
+
+// A document the connected login may edit (not signed yet), by id or by load + stop, with its PDF bytes.
+async function docForEdit(user, a) {
+  needCompany(user);
+  let id = String(a.document || '').trim();
+  if (!id) {
+    if (!a.load) throw new ToolError('Say which document: its id (document) or the load and stop_number.');
+    const d = await resolveLoad(user, a.load); needOwner(user, d.load);
+    const stop = Math.max(1, parseInt(a.stop_number, 10) || 1);
+    const hits = (d.pods || []).filter(p => (p.stopNumber || 1) === stop && p.status !== 'parked');
+    const open = hits.filter(p => p.status !== 'signed' && p.status !== 'emailed');
+    if (!open.length) throw new ToolError(hits.length ? 'Stop ' + stop + ' is already signed.' : 'No document on stop ' + stop + ' of that load.');
+    if (open.length > 1) throw new ToolError('Stop ' + stop + ' has more than one document — pass the document id: ' + open.map(p => p.id + ' (' + (p.filename || p.docType) + ')').join(', '));
+    id = open[0].id;
+  }
+  const pod = await api(user, 'GET', '/api/pods/' + encodeURIComponent(id));
+  if ((pod.orgId || null) !== (user.orgId || null)) throw new ToolError('That document belongs to another company.');
+  if (pod.status === 'signed' || pod.status === 'emailed') throw new ToolError('That document is already signed, so it can’t be changed.');
+  const row = db.prepare(`SELECT filepath FROM pods WHERE id = ?`).get(pod.id);
+  let buf; try { buf = require('fs').readFileSync(row.filepath); } catch (e) { throw new ToolError('The document’s file isn’t available.'); }
+  return { pod, buf };
+}
 
 // Attach a PDF to a load's stop as the connected login (shared by attach_document and upload links).
 async function attachPdf(user, load, buf, o, base) {
@@ -492,7 +599,7 @@ const TOOL_BY_NAME = {}; TOOLS.forEach(t => { TOOL_BY_NAME[t.name] = t; });
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for trucking. Loads are identified by the customer PO #. ' +
   'Before creating a load, check list_customers and list_drivers so names match; add_customer only when the company truly is not on the list. ' +
-  'To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
+  'To get a document ready for the driver: attach it, call review_pages and confirm the pages with the user, trim_document, then place_signatures. To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure.';
 
 async function handleRpc(msg, user, base) {

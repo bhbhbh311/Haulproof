@@ -832,9 +832,12 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
   // this delete is a REPLACEMENT (?replaced=1): the setup "Split into stops" flow creates per-stop docs and then
   // deletes the original combined upload — that's not a cancellation, so no "removed" alarm should reach the driver.
   const replaced = /^(1|true)$/i.test(String((req.query && req.query.replaced) || ''));
+  // ?superseded=1 — the AI connector trimmed / split this document into new ones: no "removed" notice to the
+  // driver (nothing was cancelled), but unlike ?replaced=1 the original goes to the recovery bin so it can be restored.
+  const superseded = /^(1|true)$/i.test(String((req.query && req.query.superseded) || ''));
   try {
     const drvId = row.signedByDriverId || row.assignedDriverId || null;
-    if (!replaced && drvId && (row.status === 'awaiting_build' || row.status === 'prepared')) {
+    if (!replaced && !superseded && drvId && (row.status === 'awaiting_build' || row.status === 'prepared')) {
       db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
         VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(
         crypto.randomUUID(), drvId, row.orgId || null, 'removed', row.poNumber || null, row.loadNumber || null,
@@ -854,7 +857,7 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
     db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);   // file is intentionally kept for restore
   }
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'document_removed',
-    detail: (row.docType || 'Document') + (replaced ? ' split into per-stop documents' : ' removed (recoverable)') + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
+    detail: (row.docType || 'Document') + (replaced ? ' split into per-stop documents' : superseded ? ' trimmed / split by the AI connector — original kept in the recovery bin' : ' removed (recoverable)') + (row.stopNumber ? ' (Stop ' + row.stopNumber + ')' : '') + (row.filename ? ': ' + row.filename : ''), actor: req.user.email }); } catch (e) {}
   res.json({ ok: true });
 });
 
