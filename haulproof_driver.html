@@ -787,13 +787,13 @@ window.__startApp=function(){
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // Per-org "Simple mode" field flags (which optional inputs dispatch left on). Delivered via /my-loads and cached,
   // so the driver app hides the same fields as the dispatch side. Defaults match the server until the first fetch.
-  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, allowPickupPhoto:false, requirePickupPhoto:false, allowDeliveryPhoto:false, requireDeliveryPhoto:false };
+  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, allowPickupPhoto:false, requirePickupPhoto:false, allowDeliveryPhoto:false, requireDeliveryPhoto:false, stopTimes:false };
   var _uiFlags=null;
   function loadUiFlags(){ if(!_uiFlags){ _uiFlags=lsGet("hp_uiflags",null); } return _uiFlags||{}; }
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-26f";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-27a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -832,6 +832,20 @@ window.__startApp=function(){
   // app (carried on the prepared-doc meta). Empty when the load hasn't been marked picked up yet.
   function pickupDateStr(){ try{ var t=(typeof pulledMeta!=="undefined"&&pulledMeta&&pulledMeta.pickedUpAt)||0; return t?dateStrMs(t):""; }catch(e){ return ""; } }
   function timeStr(d){ d=d||new Date(); var h=d.getHours(),m=d.getMinutes(),ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+(m<10?"0":"")+m+" "+ap; }
+  // Auto in/out time fields, filled from the driver's check-ins on this load (carried on the prepared-doc meta).
+  // "Pickup out" falls back to when the load was marked picked up, and "Delivery out" to the signing time — sending
+  // the signed documents IS the check-out for that stop.
+  var AUTO_TIME={ puin:"Pickup in", puout:"Pickup out", dlin:"Delivery in", dlout:"Delivery out" };
+  function autoTimeMs(kind, atSigning){
+    try{ var m=(typeof pulledMeta!=="undefined"&&pulledMeta)||{}, pu=m.pickupTimes||{}, st=m.stopTimes||{};
+      if(kind==="puin") return pu.inAt||0;
+      if(kind==="puout") return pu.outAt||m.pickedUpAt||0;
+      if(kind==="dlin") return st.inAt||0;
+      if(kind==="dlout") return st.outAt||(atSigning?Date.now():0);
+    }catch(e){}
+    return 0;
+  }
+  function autoTimeStr(kind, atSigning){ var t=autoTimeMs(kind, atSigning); return t?timeStr(new Date(t)):""; }
   // Color per signer role — matches the dispatcher's setup screen so field colors line up.
   function roleColor(role){
     var m={Consignee:"#1655d1",Driver:"#b5731a",Shipper:"#12784a"};
@@ -1436,10 +1450,25 @@ window.__startApp=function(){
         var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         if(loadId && (ready.length || puAt)){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
+          var timesOn = drvFieldOn("stopTimes");
+          // In/out times (account setting): the pickup check-in sits just above the Pickup complete button.
+          if(timesOn){
+            var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
+            var ptb=document.createElement("div"); ptb.style.cssText="padding:2px 0 4px;"; box.appendChild(ptb);
+            renderStopTimes(ptb, loadId, "pickup", 0, "pickup", puT);
+          }
           var pr=document.createElement("div"); pr.style.cssText="padding:2px 0 8px;";
           box.appendChild(pr);
           if(puAt) renderPickedUp(pr, loadId, puAt, puGps, 0);
           else showPickupButton(pr, loadId);
+          // Once the freight is picked up, each stop still to deliver gets its own Check in / Check out.
+          if(timesOn && puAt){
+            var multi = total>1 || ready.length>1;
+            ready.forEach(function(d){
+              var sn=d.stopNumber||1, sb=document.createElement("div"); sb.style.cssText="padding:2px 0 6px;"; box.appendChild(sb);
+              renderStopTimes(sb, loadId, "delivery", sn, multi?("Stop "+sn):"delivery", d.stopTimes);
+            });
+          }
         }
       });
     }catch(e){ card.classList.add("hide"); }
@@ -1486,7 +1515,7 @@ window.__startApp=function(){
     }
     (tpl||[]).forEach(function(f){
       var rec=pageRecs[f.pageIdx]; if(!rec || rec.isAudit) return;   // skip fields saved on an audit-trail page
-      var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text","pickupdate"].indexOf(k)<0) k="sig";
+      var k=f.kind||"sig"; if(["sigdate","sig","date","initials","time","text","pickupdate","puin","puout","dlin","dlout"].indexOf(k)<0) k="sig";
       addField(rec, k, f.role||"Consignee", f.xPdf, f.yPdf, f.wPdf, f.hPdf, f.label||"");
     });
     // A saved (self-scanned) doc has no template — drop a Consignee + Driver signature spot on each page
@@ -1565,6 +1594,7 @@ window.__startApp=function(){
       var pc=j.photoCount||0;
       renderPickedUp(container, loadId, j.pickedUpAt||Date.now(), j.pickedUpGps, pc);
       toast(pc?("Pickup recorded · "+pc+" photo"+(pc===1?"":"s")):(gps?"Pickup recorded with location":"Pickup recorded (no location this time)"));
+      if(drvFieldOn("stopTimes")) loadMyLoads();   // show the automatic pickup check-out + the delivery check-ins
     }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save pickup — try again"); }
   }
   // Render the green "Pickup complete" button (wired to mark pickup), into a container.
@@ -1594,7 +1624,41 @@ window.__startApp=function(){
       if(!r.ok||j.error){ toast(j.error||"Couldn't undo the pickup"); if(link){link.textContent='Undo';link.style.pointerEvents='';} return; }
       showPickupButton(container, loadId);
       toast("Pickup undone");
+      if(drvFieldOn("stopTimes")) loadMyLoads();   // the automatic pickup check-out was undone with it
     }catch(e){ toast("Couldn't undo — try again"); if(link){link.textContent='Undo';link.style.pointerEvents='';} }
+  }
+  // ---- In/out times (account setting "stopTimes"): Check in on arrival at a stop, Check out on leaving. The
+  //      server also checks the driver out automatically at Pickup complete and when a stop's documents are sent. ----
+  function durStr(ms){ var m=Math.max(0,Math.round(ms/60000)); return m<60 ? (m+" min") : (Math.floor(m/60)+" h "+(m%60)+" min"); }
+  function renderStopTimes(container, loadId, kind, stop, label, t){
+    t=t||{};
+    if(!t.inAt && !t.outAt){
+      container.innerHTML='<button class="btn sm stIn" type="button" style="background:#1f3b63;color:#fff;border-color:#1f3b63;">🕘 Check in at '+esc(label)+'</button>';
+    } else {
+      var open = t.inAt && !t.outAt;
+      container.innerHTML='<div style="color:#1f3b63;font-size:12px;font-weight:700;">🕘 '+esc(label.charAt(0).toUpperCase()+label.slice(1))+': '+
+        (t.inAt?('In '+timeStr(new Date(t.inAt))):'')+
+        (t.outAt?((t.inAt?' · ':'')+'Out '+timeStr(new Date(t.outAt))+(t.inAt?' ('+durStr(t.outAt-t.inAt)+')':'')):'')+
+        (open?' <a href="#" class="stUndo" style="color:#b42318;margin-left:6px;text-decoration:underline;">Undo</a>':'')+'</div>'+
+        (open?'<button class="btn sm stOut" type="button" style="margin-top:4px;">Check out of '+esc(label)+'</button>':'');
+    }
+    var bi=container.querySelector(".stIn"), bo=container.querySelector(".stOut"), un=container.querySelector(".stUndo");
+    if(bi) bi.addEventListener("click", function(){ markStopTime(loadId, kind, stop, "in", false, bi); });
+    if(bo) bo.addEventListener("click", function(){ markStopTime(loadId, kind, stop, "out", false, bo); });
+    if(un) un.addEventListener("click", function(e){ e.preventDefault(); markStopTime(loadId, kind, stop, "in", true, un); });
+  }
+  async function markStopTime(loadId, kind, stop, action, undo, el){
+    var key=currentKey(); if(!key||!online()){ toast("You're offline — try again with a connection"); return; }
+    var _t=el.textContent; if(el.tagName==="BUTTON") el.disabled=true; el.textContent=undo?"Undoing…":"📍 Getting location…";
+    var gps=null; if(!undo){ try{ gps=await getPickupGps(); }catch(e){} }
+    try{
+      var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/stop-time"),{method:"POST",headers:hdr,body:JSON.stringify({kind:kind, stopNumber:stop, action:action, gps:gps, undo:!!undo})});
+      var j=await r.json().catch(function(){return {};});
+      if(!r.ok||j.error){ el.disabled=false; el.textContent=_t; toast(j.error||"Couldn't save the time"); return; }
+      toast(undo?"Check-in undone":(action==="in"?"Checked in "+timeStr():"Checked out "+timeStr()));
+      loadMyLoads();
+    }catch(e){ el.disabled=false; el.textContent=_t; toast("Couldn't save the time — try again"); }
   }
   // ---- Pickup photo sheet: collect 1–6 proof photos, then record the pickup with them ----
   var _pkPhotos=[], _pkCtx=null, _pkRequired=true;
@@ -2858,6 +2922,7 @@ window.__startApp=function(){
     if(kind==="sigdate"||kind==="sig") content='<span class="lab">✎</span>';
     else if(kind==="date") content='🗓 '+todayStr();
     else if(kind==="pickupdate"){ var _pd=pickupDateStr(); content='📦 '+(_pd||'Pickup date'); }
+    else if(AUTO_TIME[kind]){ var _at=autoTimeStr(kind,false); content='🕘 '+(_at||AUTO_TIME[kind]); }
     else content=valueContent(o);   // initials / time / text
     el.innerHTML='<span class="content">'+content+'</span><span class="rsz"></span>';
     if(isSig){
@@ -3199,6 +3264,8 @@ window.__startApp=function(){
       dates().forEach(function(df){ var dp=pages[df.pageIdx]; if(!dp) return; var size=Math.min(12,Math.max(9,df.hPdf*0.4)),tw=font.widthOfTextAtSize(df.date,size); dp.drawText(df.date,{x:df.xPdf+Math.max(2,(df.wPdf-tw)/2),y:df.yPdf+(df.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Auto "Pickup date" fields — stamped with the date the load was marked picked up in the app (blank if not yet).
       fields.filter(function(f){ return f.kind==="pickupdate"; }).forEach(function(pf){ var pp=pages[pf.pageIdx]; if(!pp) return; var ds=pickupDateStr(); if(!ds) return; var size=Math.min(12,Math.max(9,pf.hPdf*0.4)),tw=font.widthOfTextAtSize(ds,size); pp.drawText(ds,{x:pf.xPdf+Math.max(2,(pf.wPdf-tw)/2),y:pf.yPdf+(pf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
+      // Auto in/out time fields — the driver's check-in/out times for this load (blank if never recorded).
+      fields.filter(function(f){ return !!AUTO_TIME[f.kind]; }).forEach(function(tf){ var tp=pages[tf.pageIdx]; if(!tp) return; var ts=autoTimeStr(tf.kind,true); if(!ts) return; var size=Math.min(12,Math.max(9,tf.hPdf*0.4)),tw=font.widthOfTextAtSize(ts,size); tp.drawText(ts,{x:tf.xPdf+Math.max(2,(tf.wPdf-tw)/2),y:tf.yPdf+(tf.hPdf-size)/2,size:size,font:font,color:PDFLib.rgb(.07,.22,.43)}); });
       // Value fields the driver typed (initials / arrive-leave time / free text) — draw the entered text, shrunk to fit.
       fields.filter(function(f){ return (f.kind==="initials"||f.kind==="time"||f.kind==="text") && f.value; }).forEach(function(vf){
         var vp2=pages[vf.pageIdx]; if(!vp2) return;

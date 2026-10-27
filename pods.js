@@ -8,6 +8,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireApiKey, hasValidApiKey, resolveKey, driverUnlockValue, requireCap } = require('./auth');
 const { emailPodCopy } = require('./mailer');
 const { logEvent } = require('./events');
+const stoptimes = require('./stoptimes');
 const { stashDoc } = require('./trash');
 const notify = require('./notify');
 const { filterOptedOut } = require('./optout');
@@ -451,6 +452,13 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
       detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+    // Sending a stop's signed documents = out of that delivery stop (when in/out times are on and no check-out yet).
+    // Uses the time the driver actually signed, so a document that waited in the phone's outbox keeps the real time.
+    try {
+      const sp = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
+      stoptimes.autoOut({ load, kind: 'delivery', stopNumber: (sp && sp.stopNumber) || 1, at: Number(meta.signedAt) || Date.now(),
+        gps: meta.gps, by: meta.driver || (req.driver && req.driver.name) || null, source: 'delivery', fallbackOrgId: req.org && req.org.id });
+    } catch (e) {}
     // Also email the completed doc to the receiver's people who asked for the BOL.
     let bolEmails = [];
     try {

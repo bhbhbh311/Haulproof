@@ -9,6 +9,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
 const { sendMail, helpEmail, emailPodCopy } = require('./mailer');
 const { resolveUiFlags } = require('./uiflags');
+const stoptimes = require('./stoptimes');
 let logEvent = function(){}; try { logEvent = require('./events').logEvent || logEvent; } catch (e) {}
 
 const router = express.Router();
@@ -259,9 +260,13 @@ router.get('/my-loads', (req, res) => {
     db.prepare(`SELECT id, pickedUpAt, pickedUpGps FROM loads WHERE id IN (${ph3})`).all(...loadIds)
       .forEach(l => { pickup[l.id] = { at: l.pickedUpAt || null, gps: l.pickedUpGps || null }; });
   }
+  // In/out times per load (pickup + each stop), so each row can show its own stop's check-in state.
+  const times = stoptimes.mapFor(loadIds);
+  const timesFor = (loadId, kind, stop) => (times[loadId] || []).find(t => t.kind === kind && (kind === 'pickup' || t.stopNumber === (stop || 1))) || null;
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
     pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null,
+    pickupTimes: timesFor(p.loadId, 'pickup'), stopTimes: timesFor(p.loadId, 'delivery', p.stopNumber),
     customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
@@ -319,6 +324,8 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
   const photoNote = photoRefs.length ? (' with ' + photoRefs.length + ' photo' + (photoRefs.length === 1 ? '' : 's')) : '';
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'picked_up',
     detail: 'Picked up by ' + (r.driver.name || 'driver') + where + photoNote, actor: (r.driver.name || 'Driver') });
+  // Pickup complete = out of the pickup (when in/out times are on and no check-out was recorded yet).
+  stoptimes.autoOut({ load, kind: 'pickup', at, gps, by: r.driver.name || 'Driver', source: 'pickup', fallbackOrgId: org });
   res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: photoRefs.length });
 });
 
@@ -340,7 +347,28 @@ router.post('/my-loads/:loadId/pickup/undo', (req, res) => {
   try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id); }
   catch (e) { try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL WHERE id = ?`).run(load.id); } catch (e2) {} }
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'pickup_cleared', detail: 'Pickup undone by ' + (r.driver.name || 'driver'), actor: (r.driver.name || 'Driver') });
+  stoptimes.clearAutoOut(load, 'pickup', 0, 'pickup');   // the automatic check-out came from that pickup — undo it too
   res.json({ ok: true });
+});
+
+// Driver Check in / Check out at a stop: { kind: 'pickup' | 'delivery', stopNumber, action: 'in' | 'out', gps, undo }.
+// Only when the load's account has in/out times turned on. Same engagement check as pickup.
+router.post('/my-loads/:loadId/stop-time', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  if (!stoptimes.enabledFor(load, org)) return res.status(400).json({ error: 'In/out times are turned off for this account' });
+  const b = req.body || {};
+  try {
+    const args = { load, kind: b.kind, stopNumber: b.stopNumber, action: b.action, gps: b.gps, driverName: r.driver.name };
+    const t = b.undo ? stoptimes.driverUndo(args) : stoptimes.driverMark(args);
+    res.json({ ok: true, times: t });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Driver attaches delivery proof photos on the "Send documents & complete" screen. Unlike pickup (one per load),

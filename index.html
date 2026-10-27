@@ -1282,6 +1282,14 @@
               <div style="color:var(--muted);margin-top:3px;">When on, the driver must attach at least one delivery photo before they can send &amp; complete the stop. (Requiring a photo always offers the step, whether or not the option above is on.)</div>
             </div>
           </div>
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin:18px 0 10px;">Time on site</div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_stopTimes"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Drivers record in/out times</b><span id="ft_stopTimes_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">When on, the driver taps <b>Check in</b> on arriving at the pickup and at each delivery stop. The check-out records itself when they tap <b>Pickup complete</b> or send that stop’s signed documents (or they can tap Check out). Times show on each load with time on site, and can fill <b>Pickup / Delivery in &amp; out</b> boxes on the paperwork.</div>
+            </div>
+          </div>
         </div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
@@ -1474,7 +1482,7 @@
   const $ = id => document.getElementById(id);
   // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
-  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false };
+  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
   function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); try { applyUploadFieldVisibility(); } catch (e) {} }
@@ -1701,12 +1709,13 @@
       if (document.hidden) return;
       var det = $('loadDetailCard'); if (!det || det.classList.contains('hide')) return;
       if (det.classList.contains('editing')) return;   // don't disturb an active edit
+      if (det.querySelector('#ldView .stSave')) return;   // …nor an in/out time being corrected
       if (!curLoad || !curLoad.id) return;
       var r = await api('/api/loads/' + curLoad.id);
       // Bail if the dispatcher opened a different load or started editing while the request was in flight.
       if (!curLoad || curLoad.id !== r.load.id) return;
-      if (det.classList.contains('editing') || det.classList.contains('hide')) return;
-      curLoad = r.load; _lastPods = r.pods || [];
+      if (det.classList.contains('editing') || det.classList.contains('hide') || det.querySelector('#ldView .stSave')) return;
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || [];
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
       updateLdArchiveBtn();
@@ -2661,7 +2670,7 @@
     }
     try {
       const r = await api('/api/loads/' + id);
-      curLoad = r.load; _lastPods = r.pods || []; _ldBackFn = (opts && opts.back) || null;
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldBackFn = (opts && opts.back) || null;
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
@@ -3087,6 +3096,9 @@
         rows.push(['Delivery photos', '<span style="color:#146c2e;font-weight:700;">📷 ' + dlist.length + ' photo' + (dlist.length === 1 ? '' : 's') + '</span><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + thumbs + '</div>']);
       }
     } catch (e) {}
+    // In / out times (driver check-in/out per stop, when the account records them — or any already recorded).
+    const _timesHtml = stopTimesHtml();
+    if (_timesHtml) rows.push(['In / out times', _timesHtml]);
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
     (function () {
@@ -3107,6 +3119,7 @@
     $('ldView').innerHTML = '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:14px;align-items:baseline;">' +
       rows.map(r => '<div style="color:var(--muted);font-weight:600;white-space:nowrap;">' + r[0] + '</div><div>' + r[1] + '</div>').join('') +
       '</div>';
+    wireStopTimes();
     // Reset pickup (dispatch correction — clears the recorded pickup time/GPS/photos, driver can mark it again).
     const _cp = $('ldClearPickup');
     if (_cp) _cp.onclick = async () => {
@@ -3116,11 +3129,60 @@
       try {
         const r = await api('/api/loads/' + curLoad.id + '/clear-pickup', { method: 'POST' });
         if (r && r.load) curLoad = r.load;
+        // Resetting the pickup also undoes the automatic pickup check-out — re-read the in/out times.
+        try { const d = await api('/api/loads/' + curLoad.id); _ldStopTimes = d.stopTimes || []; } catch (e) {}
         renderLdView();
         try { loadHistory(curLoad.id); } catch (e) {}
         try { autoRefreshLoads(); } catch (e) {}
       } catch (e) { alert(e.message || 'Could not reset pickup'); _cp.disabled = false; _cp.textContent = 'Reset pickup'; }
     };
+  }
+  // ---- In / out times on the load: one line per stop (pickup + each delivery stop) with time on site, and an
+  //      inline Edit so dispatch can correct or fill in a time (logged in the load history). ----
+  var _ldStopTimes = [];   // var (not let): assigned by openLoad / refreshOpenLoadDetail, which sit earlier in the script
+  const _fmtStopTime = (ms) => { try { return new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+  const _toLocalInput = (ms) => { if (!ms) return ''; const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+  function _onSite(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; }
+  // The stops to show: the pickup, plus every delivery stop number on the load, plus any stop that already has times.
+  function stopTimeSlots() {
+    const slots = [{ kind: 'pickup', stopNumber: 0, label: 'Pickup' }];
+    const nums = new Set((_lastPods || []).filter(p => p.status !== 'parked').map(p => p.stopNumber || 1));
+    _ldStopTimes.filter(t => t.kind === 'delivery').forEach(t => nums.add(t.stopNumber || 1));
+    [...nums].sort((a, b) => a - b).forEach(n => slots.push({ kind: 'delivery', stopNumber: n, label: 'Stop ' + n }));
+    return slots.map(s => Object.assign(s, { t: _ldStopTimes.find(t => t.kind === s.kind && (s.kind === 'pickup' || t.stopNumber === s.stopNumber)) || {} }));
+  }
+  function stopTimesHtml() {
+    if (!fieldOn('stopTimes') && !_ldStopTimes.length) return '';
+    const src = { pickup: 'auto at pickup complete', delivery: 'auto when documents were sent', dispatch: 'set by dispatch', driver: 'driver' };
+    return stopTimeSlots().map((s, i) => {
+      const t = s.t, dur = (t.inAt && t.outAt) ? (t.outAt - t.inAt) : 0, long = dur > 2 * 3600000;
+      const parts = [];
+      parts.push(t.inAt ? 'In ' + esc(_fmtStopTime(t.inAt)) : '<span class="ld-missing">No time in</span>');
+      parts.push(t.outAt ? 'Out ' + esc(_fmtStopTime(t.outAt)) + (t.outSource && src[t.outSource] ? ' <span style="color:var(--muted);font-size:12px;">(' + src[t.outSource] + ')</span>' : '') : '<span class="ld-missing">No time out</span>');
+      if (dur) parts.push('<b style="color:' + (long ? '#b5731a' : '#146c2e') + ';">' + _onSite(dur) + ' on site' + (long ? ' ⚠' : '') + '</b>');
+      return '<div class="stRow" data-i="' + i + '" style="margin:2px 0;"><b>' + s.label + ':</b> ' + parts.join(' · ') +
+        ' <button type="button" class="ghost stEdit" data-i="' + i + '" style="padding:2px 8px;font-size:11.5px;margin-left:6px;">Edit</button></div>';
+    }).join('');
+  }
+  function wireStopTimes() {
+    const slots = stopTimeSlots();
+    document.querySelectorAll('#ldView .stEdit').forEach(b => b.onclick = () => {
+      const s = slots[+b.dataset.i], row = b.closest('.stRow'); if (!s || !row) return;
+      row.innerHTML = '<b>' + s.label + ':</b> <label style="display:inline;font-size:12px;">In <input type="datetime-local" class="stInIn" value="' + _toLocalInput(s.t.inAt) + '" style="width:auto;padding:4px 6px;font-size:13px;"></label> ' +
+        '<label style="display:inline;font-size:12px;">Out <input type="datetime-local" class="stOutIn" value="' + _toLocalInput(s.t.outAt) + '" style="width:auto;padding:4px 6px;font-size:13px;"></label> ' +
+        '<button type="button" class="stSave" style="padding:4px 10px;font-size:12px;">Save</button> <button type="button" class="ghost stCancel" style="padding:4px 10px;font-size:12px;">Cancel</button>' +
+        '<div class="stMsg" style="font-size:12px;color:var(--danger);"></div>';
+      row.querySelector('.stCancel').onclick = () => renderLdView();
+      row.querySelector('.stSave').onclick = async () => {
+        const v = (sel) => { const x = row.querySelector(sel).value; return x ? new Date(x).getTime() : null; };
+        try {
+          const r = await api('/api/loads/' + curLoad.id + '/stop-times', { method: 'PUT', body: JSON.stringify({ kind: s.kind, stopNumber: s.stopNumber, inAt: v('.stInIn'), outAt: v('.stOutIn') }) });
+          _ldStopTimes = r.stopTimes || [];
+          renderLdView();
+          try { loadHistory(curLoad.id); } catch (e) {}
+        } catch (e) { row.querySelector('.stMsg').textContent = e.message || 'Could not save'; }
+      };
+    });
   }
   // Toggle the whole load between read-only (view) and editable.
   function setLoadEditMode(on) {
@@ -4389,12 +4451,12 @@
   // ---- "Simplify the app" field toggles (Team logins card) ----
   // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
   function renderFieldToggles() {
-    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto' };
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto', ft_stopTimes: 'stopTimes' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
   }
   // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
-  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto'];
+  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto','ft_stopTimes'];
   // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
   function updSwitchStates() {
     _ftSwitchIds.forEach(function(id){
@@ -4415,6 +4477,7 @@
       requirePickupPhoto: !!($('ft_requirePickupPhoto') && $('ft_requirePickupPhoto').checked),
       allowDeliveryPhoto: !!($('ft_allowDeliveryPhoto') && $('ft_allowDeliveryPhoto').checked),
       requireDeliveryPhoto: !!($('ft_requireDeliveryPhoto') && $('ft_requireDeliveryPhoto').checked),
+      stopTimes: !!($('ft_stopTimes') && $('ft_stopTimes').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
     try {

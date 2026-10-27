@@ -6,6 +6,7 @@ const path = require('path');
 const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireCap } = require('./auth');
 const { logEvent } = require('./events');
+const stoptimes = require('./stoptimes');
 const { brokerApproved } = require('./brokers');
 const { customerIdsForRep } = require('./customers');
 const { stashDoc, stashLoad } = require('./trash');
@@ -187,7 +188,7 @@ router.get('/:id', requireAuth, (req, res) => {
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
-  res.json({ load: { ...loadOut(load, req), archived }, pods });
+  res.json({ load: { ...loadOut(load, req), archived }, pods, stopTimes: stoptimes.listFor(load.id) });
 });
 
 // Serve one of a load's pickup proof-photos (dispatcher/portal view). Auth'd like the load itself.
@@ -234,8 +235,21 @@ router.post('/:id/clear-pickup', requireAuth, (req, res) => {
   try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL, pickedUpPhotos = NULL WHERE id = ?`).run(load.id); }
   catch (e) { try { db.prepare(`UPDATE loads SET pickedUpAt = NULL, pickedUpGps = NULL WHERE id = ?`).run(load.id); } catch (e2) {} }
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'pickup_cleared', detail: 'Pickup reset by dispatch', actor: actorOf(req) });
+  stoptimes.clearAutoOut(load, 'pickup', 0, 'pickup');   // the automatic check-out came from that pickup — undo it too
   const updated = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id);
   res.json({ ok: true, load: loadOut(updated, req) });
+});
+
+// Dispatch correction of a stop's in/out time: { kind: 'pickup' | 'delivery', stopNumber, inAt, outAt } where each
+// time is epoch ms, null to clear, or omitted to leave as is. Anyone who can manage the load may do it; it's logged.
+router.put('/:id/stop-times', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const b = req.body || {};
+  try {
+    stoptimes.dispatchSet({ load, kind: b.kind, stopNumber: b.stopNumber, inAt: b.inAt, outAt: b.outAt, actor: actorOf(req) });
+    res.json({ ok: true, stopTimes: stoptimes.listFor(load.id) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Archive / un-archive a load for the CURRENT user only (a personal view filter — never a delete).

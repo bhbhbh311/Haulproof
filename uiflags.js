@@ -17,7 +17,9 @@ const { db } = require('./db');
 //   allowDeliveryPhoto  : when ON, the driver is OFFERED a delivery-photo capture on the send screen (optional).
 //   requireDeliveryPhoto: when ON, the driver MUST attach at least one delivery photo before "Send & complete".
 // "Require" implies "allow". All OFF by default (pickup stays a one-tap GPS+time stamp; delivery takes no photos).
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false };
+// stopTimes: when ON, drivers get Check in / Check out at the pickup and each delivery stop (time on site); the
+// check-out also records itself at "Pickup complete" and when a stop's documents are sent. OFF by default.
+const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).

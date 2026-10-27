@@ -148,6 +148,10 @@
     <button class="ftype" data-kind="initials" type="button">Initials</button>
     <button class="ftype" data-kind="date" type="button">Date</button>
     <button class="ftype" data-kind="pickupdate" type="button" title="Fills itself with the pickup date when the driver marks the load picked up — nobody signs or types it">Pickup date (auto)</button>
+    <button class="ftype" data-kind="puin" type="button" title="Fills itself with the time the driver checked in at the pickup (needs “Drivers record in/out times” on in Settings)">Pickup in (auto)</button>
+    <button class="ftype" data-kind="puout" type="button" title="Fills itself with the time the driver left the pickup — their check-out, or when they tapped Pickup complete">Pickup out (auto)</button>
+    <button class="ftype" data-kind="dlin" type="button" title="Fills itself with the time the driver checked in at this delivery stop (needs “Drivers record in/out times” on in Settings)">Delivery in (auto)</button>
+    <button class="ftype" data-kind="dlout" type="button" title="Fills itself with the time the driver left this stop — their check-out, or the moment they signed">Delivery out (auto)</button>
     <button class="ftype" data-kind="time" type="button">Time</button>
     <button class="ftype" data-kind="text" type="button">Text box</button>
   </div>
@@ -280,7 +284,9 @@
   }catch(e){} }
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-  var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box',pickupdate:'Pickup date (auto)'};
+  var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box',pickupdate:'Pickup date (auto)',puin:'Pickup in (auto)',puout:'Pickup out (auto)',dlin:'Delivery in (auto)',dlout:'Delivery out (auto)'};
+  // Auto in/out time kinds — filled on the driver's phone from their check-in/out times, never signed or typed.
+  var AUTO_TIME_KINDS={puin:'Pickup in',puout:'Pickup out',dlin:'Delivery in',dlout:'Delivery out'};
   // Always show, in plain words, exactly what tapping the document will place right now (which signer + field).
   function updateArmed(){
     var el=$('#armed'); if(!el) return;
@@ -310,9 +316,10 @@
     if(kind==='time') return label||'Time';
     if(kind==='text') return label||'Text';
     if(kind==='pickupdate') return 'Pickup date\n(auto)';
+    if(AUTO_TIME_KINDS[kind]) return AUTO_TIME_KINDS[kind]+'\n(auto time)';
     return role;
   }
-  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38},pickupdate:{w:140,h:34}};
+  var DEFAULT={sigdate:{w:250,h:44},sig:{w:190,h:46},initials:{w:90,h:40},date:{w:120,h:34},time:{w:130,h:34},text:{w:200,h:38},pickupdate:{w:140,h:34},puin:{w:120,h:34},puout:{w:120,h:34},dlin:{w:120,h:34},dlout:{w:120,h:34}};
 
   var activeTool={role:'Consignee',kind:'sigdate'};
   var pageRecs=[]; var fields=[]; var selected=null; var _pagesReady=false;
@@ -474,7 +481,7 @@
     var f={pageIdx:fd.pageIdx,kind:fd.kind||'sigdate',role:fd.role||'Consignee',label:fd.label||'',rec:rec};
     // Any custom signer saved earlier should appear as a chip so it can be reused on this doc.
     // (Pickup-date fields carry a 'Pickup' role for colour only — they're not a signer, so no chip.)
-    if(f.role && f.kind!=='pickupdate' && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
+    if(f.role && f.kind!=='pickupdate' && !AUTO_TIME_KINDS[f.kind] && !document.querySelector('.signer[data-role="'+String(f.role).replace(/"/g,'')+'"]')){
       var b=document.createElement('button'); b.className='signer'; b.type='button'; b.dataset.role=f.role;
       b.innerHTML='<span class="dot"></span>'+f.role; $('#addSigner').parentNode.insertBefore(b,$('#addSigner')); wireSigner(b);
     }

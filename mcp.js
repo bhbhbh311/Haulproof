@@ -324,6 +324,12 @@ function loadDetail(d, base) {
   return Object.assign(loadSummary(d.load), {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
     documents: (d.pods || []).filter(p => p.status !== 'parked').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: DOC_STATUS[p.status] || p.status, receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
+    // Driver check-in / check-out per stop (when the account records in/out times).
+    in_out_times: (d.stopTimes || []).map(t => {
+      const iso = (ms) => ms ? new Date(ms).toISOString() : null;
+      return { stop: t.kind === 'pickup' ? 'pickup' : 'stop ' + t.stopNumber, time_in: iso(t.inAt), time_out: iso(t.outAt),
+        minutes_on_site: (t.inAt && t.outAt) ? Math.round((t.outAt - t.inAt) / 60000) : null, out_recorded_by: t.outSource };
+    }),
   });
 }
 function needCompany(user) { if (!user.orgId) throw new ToolError('This login isn’t tied to a company, so it can’t change loads. Reconnect with a company login.'); }
