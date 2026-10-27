@@ -3169,6 +3169,7 @@ window.__startApp=function(){
   function setFinishBtn(btn){ var fl=finishLabel(); btn.textContent=(fl==="Finish")?"Finish":("✓ "+fl); return fl; }
   function updateProgress(){
     var bn=$("banner"),btn=$("nextBtn");
+    btn.disabled=false;   // re-enable after an auto-finish "Finishing…" beat
     // A doc with only value fields (times/notes/initials, no signatures) — just let the driver fill and finish.
     if(sigs().length===0){
       $("roleChip").textContent="Ready"; $("roleChip").classList.remove("driver");
@@ -3202,8 +3203,10 @@ window.__startApp=function(){
     // Clean case: everything's signed, PO # is in, nothing left to type → auto-finish so the driver doesn't have
     // to tap the (now redundant) Finish button. A short beat lets the last signature render first. The send screen
     // that finish() opens still has its own "Send documents & complete" confirmation, so nothing uploads silently.
+    // The button reads "Finishing…" (not tappable) during that beat, so a green Finish button doesn't flash first.
     if(autoFinishOK() && !_finishing){
-      toast("All signed — finishing…");
+      var nb=$("nextBtn"); if(nb){ nb.textContent="⏳ Finishing…"; nb.disabled=true; nb.classList.remove("lead-cta"); }
+      $("progSub").textContent="All signatures collected — opening the send screen…";
       setTimeout(function(){ try{ finish(); }catch(e){} }, 400);
       return;
     }
@@ -3456,7 +3459,7 @@ window.__startApp=function(){
       // Note: we DON'T upload yet — the driver may still add the consignee's email on this screen.
       // Upload fires when they leave the completion screen (or from the Outbox / when signal returns).
       renderCloud();
-    }catch(e){ console.error(e); toast("Couldn't build the PDF"); _finishing=false; }
+    }catch(e){ console.error(e); toast("Couldn't build the PDF"); _finishing=false; try{ updateProgress(); }catch(_e){} }
   }
   // Save the scanned document to the load WITHOUT signing it yet. It uploads as a "prepared" doc so it
   // shows up on the load ready to be signed later — by this driver, or organized/fixed by dispatch.
