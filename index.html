@@ -3934,6 +3934,8 @@
   // Append the "Set aside" section (parked docs kept when a page was sent back to re-shoot) under the docs table.
   // Parked docs are not active and are never sent to a driver; the dispatcher restores one to put it back in play.
   // ---- "Send to driver again" (redo a signed stop) ----
+  // The built-in support logins (haulproofhelp+company@…) read as "HaulProof Help" wherever a person is named.
+  const whoLabel = (who) => /^haulproofhelp\+/i.test(String(who || '')) ? 'HaulProof Help' : (who || '');
   const redoWhen = (t) => t ? new Date(Number(t)).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   // A small pop-up with a message, optional extra controls and several buttons (confirmDialog has only one).
   function choiceDialog({ title, message, extraHtml, choices }) {
@@ -4018,7 +4020,7 @@
       wrap.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">🗂 Not used (archived)</div><div class="sub" style="font-size:12px;margin-bottom:8px;">Signed copies replaced by a redo. They’re never emailed, counted or sent to billing.</div>'
         + notUsedPods.map(p => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);">
             <div style="flex:1;min-width:180px;font-size:13px;"><b>Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}</b> — ${p.redoOf ? 'redo' : 'first signing'}, ${redoWhen(p.signedAt)}
-            <div class="sub" style="font-size:12px;">Archived${p.notUsedBy ? ' by ' + esc(p.notUsedBy) : ''}${p.notUsedAt ? ' · ' + redoWhen(p.notUsedAt) : ''}</div></div>
+            <div class="sub" style="font-size:12px;">Archived${p.notUsedBy ? ' by ' + esc(whoLabel(p.notUsedBy)) : ''}${p.notUsedAt ? ' · ' + redoWhen(p.notUsedAt) : ''}</div></div>
             <button class="dl nuView" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;font-weight:600;">View ↗</button>
             <button class="ghost btn-sm nuUse" data-id="${p.id}" type="button">Use this one instead</button></div>`).join('');
       const byId = {}; notUsedPods.forEach(p => byId[p.id] = p);
@@ -5997,7 +5999,7 @@
       if (!r.events.length) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
       box.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
         <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:130px;">${fmtTS(e.createdAt)}</div>
-        <div><div>${esc(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(e.actor || '')}</div></div>
+        <div><div>${esc(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div></div>
       </div>`).join('');
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
@@ -6013,7 +6015,7 @@
       if (!r.events || !r.events.length) { body.innerHTML = '<div class="empty">No history recorded yet.</div>'; return; }
       body.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);">
         <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:120px;">${fmtTS(e.createdAt)}</div>
-        <div><div>${esc(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(e.actor)}</div>` : ''}</div>
+        <div><div>${esc(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div>` : ''}</div>
       </div>`).join('');
     } catch (err) { body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
   }
