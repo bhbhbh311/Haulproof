@@ -410,6 +410,8 @@
   .hli button{padding:5px 11px;font-size:12px;flex:none;}
   .hempty{padding:18px 16px;color:var(--muted);font-size:13px;}
   #upToggle{white-space:nowrap;}
+  .ldbulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:13px;color:var(--muted);}
+  .ldbulk span{margin-right:auto;}
   .ldfilters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0;}
   button.ldf{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;box-shadow:none;}
   button.ldf:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
@@ -3103,6 +3105,35 @@
   if ($('homeNewLoad')) $('homeNewLoad').onclick = startNewLoad;
   if ($('homeLoads')) $('homeLoads').onclick = () => showLoadsFiltered('');
   if ($('homeAttn')) $('homeAttn').onclick = () => { const el = $('homeAttnList'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  // ---- Select several loads and delete them together (each goes to the Recovery bin, as a single delete does) ----
+  let _ldSel = new Set();
+  function wireLoadBulk(box, showing) {
+    const upd = () => { const n = _ldSel.size; const d = $('ldBulkDel'), c = $('ldBulkClear'), t = $('ldBulkTxt');
+      if (d) { d.disabled = !n; d.textContent = n ? '🗑 Delete ' + n + ' selected' : '🗑 Delete selected'; } if (c) c.disabled = !n;
+      if (t) t.textContent = n ? n + ' selected' : 'Tick loads to delete several at once';
+      const all = $('ldAll'); if (all) all.checked = showing.length > 0 && showing.every(l => _ldSel.has(l.id)); };
+    box.querySelectorAll('.ldChk').forEach(c => c.onchange = () => { c.checked ? _ldSel.add(c.dataset.id) : _ldSel.delete(c.dataset.id); upd(); });
+    const all = $('ldAll'); if (all) all.onchange = () => { box.querySelectorAll('.ldChk').forEach(c => { c.checked = all.checked; all.checked ? _ldSel.add(c.dataset.id) : _ldSel.delete(c.dataset.id); }); upd(); };
+    if ($('ldBulkClear')) $('ldBulkClear').onclick = () => { _ldSel = new Set(); box.querySelectorAll('.ldChk').forEach(c => c.checked = false); upd(); };
+    if ($('ldBulkDel')) $('ldBulkDel').onclick = () => {
+      const ids = [..._ldSel]; if (!ids.length) return;
+      const pos = ids.map(id => { const c = box.querySelector('.ldChk[data-id="' + id + '"]'); return (c && c.dataset.po) || 'load'; });
+      confirmDialog({ title: 'Delete ' + ids.length + ' load' + (ids.length === 1 ? '' : 's') + '?',
+        message: pos.join(', ') + ' — and every document on them. They go to the Recovery bin, where an admin can restore them for a year.',
+        okLabel: 'Delete ' + ids.length + ' load' + (ids.length === 1 ? '' : 's'),
+        onOk: async () => {
+          const btn = $('ldBulkDel'); if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+          let ok = 0; const failed = [];
+          for (let i = 0; i < ids.length; i++) {
+            try { await api('/api/loads/' + ids[i], { method: 'DELETE' }); ok++; }
+            catch (e) { failed.push(pos[i] + ': ' + (e.message || 'could not delete')); }
+          }
+          _ldSel = new Set(); await loadLoads();
+          if (failed.length) alert('Deleted ' + ok + '. Not deleted:\n' + failed.join('\n'));
+        } });
+    };
+    upd();
+  }
   let _loadsShown = 10;
   async function loadLoads() {
     _inTrashView = false;
@@ -3130,9 +3161,11 @@
       if (!active.length) {
         const emptyMsg = _showArchived ? 'No archived loads. Use “🗄 Archive” on any load to hide it from your list.'
           : (q ? 'No loads match that search.' : 'No loads yet — loads appear here automatically when a driver uploads a document for you to set up. You can also start one yourself with “＋ New load” below.');
-        const backLink = _showArchived ? '<div style="margin-top:8px;"><a href="#" id="lArchBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to active loads</a></div>' : '';
+        const backLink = _showArchived ? '<div style="margin-top:8px;"><a href="#" id="lArchBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to active loads</a></div>'
+          : (archCount && !q ? '<div style="margin-top:8px;"><a href="#" id="lArchShow" style="color:var(--primary);text-decoration:none;font-weight:600;">🗄 Archived (' + archCount + ')</a></div>' : '');
         box.innerHTML = '<div class="empty">' + emptyMsg + backLink + '</div>';
         const bk = $('lArchBack'); if (bk) bk.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
+        const sh = $('lArchShow'); if (sh) sh.onclick = (e) => { e.preventDefault(); _showArchived = true; loadLoads(); };
         return;
       }
       // Without a search, list the 10 most recent loads; "Show more" adds 10 at a time (kept across auto-refreshes).
@@ -3153,8 +3186,13 @@
           : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' needing action' : ' · all signed ✓'}${all.length > showing.length ? ' · most recent shown — search above to find older ones' : ''}`);
       const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${rightLinks ? '<span style="display:flex;gap:10px;align-items:center;">' + rightLinks + '</span>' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
-      box.innerHTML = heading + '<table><thead><tr><th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
+      // Tick boxes for deleting several loads at once (anyone allowed to delete loads).
+      const canBulk = hasCap('delete_loadsdocs') || isAdmin();
+      _ldSel = new Set([..._ldSel].filter(id => showing.some(l => l.id === id)));
+      const bulkBar = canBulk ? `<div class="ldbulk" id="ldBulk"><span id="ldBulkTxt"></span><button type="button" class="btn-danger btn-sm" id="ldBulkDel" disabled>🗑 Delete selected</button><button type="button" class="ghost btn-sm" id="ldBulkClear" disabled>Clear</button></div>` : '';
+      box.innerHTML = heading + bulkBar + '<table><thead><tr>' + (canBulk ? '<th style="width:34px;"><input type="checkbox" id="ldAll" title="Select all shown"></th>' : '') + '<th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr class="ldrow ${loadRowTone(l)}">
+          ${canBulk ? `<td><input type="checkbox" class="ldChk" data-id="${l.id}" data-po="${esc(l.poNumber || '')}"${_ldSel.has(l.id) ? ' checked' : ''}></td>` : ''}
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
           <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
@@ -3167,6 +3205,7 @@
         </tr>`).join('') + '</tbody></table>' +
         (all.length > showing.length ? `<div style="margin-top:10px;text-align:center;"><button class="ghost" id="lShowMore" type="button" style="padding:7px 14px;font-size:13px;">Show ${Math.min(10, all.length - showing.length)} more</button></div>` : '');
       const moreBtn = $('lShowMore'); if (moreBtn) moreBtn.onclick = () => { _loadsShown += 10; loadLoads(); };
+      if (canBulk) wireLoadBulk(box, showing);
       box.querySelectorAll('.ldOpen').forEach(b => b.onclick = () => openLoad(b.dataset.id));
       // Guide the dispatcher to the single next action: pulse the FIRST load that's waiting to be set up.
       const firstSetup = box.querySelector('.ldOpen[data-needsetup="1"]'); if (firstSetup) firstSetup.classList.add('lead-cta');
