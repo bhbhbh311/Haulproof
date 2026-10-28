@@ -125,6 +125,21 @@ mark.hlt{background:#e6a740;color:#1a1200;border-radius:2px;padding:0 1px}
       <li><b>Add your customers.</b> Open <b>Customers</b>, add the companies you haul for, and for each one set the <b>signed-document recipients</b> (who gets the finished BOL) and the <b>sales reps</b> who own that customer. (See the Customers guide below.)</li>
       <li><b>Check your settings.</b> <b>Settings</b> lets you hide fields you don't use, turn the signature audit-trail page on or off, and choose whether drivers add pickup or delivery photos.</li>
     </ol>
+    <h3>Adding a lot of people at once (import)</h3>
+    <p>Team logins, Drivers and Customers each have an <span class="k">⇪ Import</span> button:</p>
+    <ol class="steps">
+      <li>Click <span class="k">⇪ Import</span>, then <span class="k">⬇ Download template (.csv)</span>. You get a file with the right column headings and two example rows.</li>
+      <li>Open it in Excel or Google Sheets and replace the examples with your people, one per row:
+        <ul>
+          <li><b>Team logins:</b> email, name, role (<b>dispatcher</b>, <b>sales</b> or <b>admin</b>; blank means dispatcher).</li>
+          <li><b>Drivers:</b> name, phone, email (phone and email optional).</li>
+          <li><b>Customers:</b> name, contactName, contactEmail, contactPhone, address.</li>
+        </ul></li>
+      <li>Save it as <b>CSV</b>, choose it in the Import window, check the count says the right number of rows, and click <span class="k">Import</span>.</li>
+      <li>Send each new person the link shown afterwards: drivers get their phone link, logins get a set-up link to choose their password.</li>
+    </ol>
+    <div class="note"><b>Have your own AI assistant?</b> Connect it to HaulProof (see <a href="#ai">AI assistant</a>), share your list or spreadsheet, and ask it to <i>“add these drivers”</i> or <i>“create these logins”</i>. It shows you the list to confirm before anything is created. Existing emails and driver names are skipped, so nothing is duplicated.</div>
+    <p>Added someone by mistake? Tick them in the list and click <span class="k">🗑 Remove selected</span> to remove several at once.</p>
     <div class="tip"><b>Tip:</b> you can send new team members and drivers this Help page. The link is <b>haulproofepod.com/help</b>. To invite another company, use the <b>Invite to HaulProof</b> link at the bottom of the left menu.</div>
   </section>
 
@@ -219,6 +234,7 @@ mark.hlt{background:#e6a740;color:#1a1200;border-radius:2px;padding:0 1px}
       <li>On the Dashboard, find <b>Let AI do the paperwork</b> and click <span class="k">Copy connector address</span>.</li>
       <li>In your AI app, add a custom connector, paste the address, and sign in with your HaulProof login.</li>
       <li>Attach your BOLs and say something like <i>“Here are 3 Brown Strauss BOLs for PO 4821, one stop each, send to Mike.”</i> It creates the load, keeps only the pages to sign, places the signature boxes, and sends it to the driver.</li>
+      <li>Setting up your account? Share your driver or staff list and ask it to <i>“add these drivers”</i> or <i>“create these logins as dispatchers”</i>. It confirms the list with you, then adds them and gives you each person’s link.</li>
     </ol>
     <div class="note"><b>Cost:</b> every account starts with a free AI credit to try it. Your admin can see what’s left, and ask for more, under <b>Settings → AI features</b>. Once a customer’s layout is saved, HaulProof reuses it for free and doesn’t need AI again. Manage or disconnect AI apps under <b>Settings → AI connections</b>.</div>
   </section>
@@ -233,6 +249,7 @@ mark.hlt{background:#e6a740;color:#1a1200;border-radius:2px;padding:0 1px}
     <div class="faq"><h4>The driver can’t change the PO # or customer</h4><p>Once dispatch has prepared a document, its details are locked on the driver’s phone so nothing gets changed by mistake. The driver should call dispatch, and dispatch edits it from the load.</p></div>
     <div class="faq"><h4>A signed copy shows “Email failed”</h4><p>The email service refused it. The reason shows on the document (for example a mistyped address or a full mailbox). Fix the recipient on the customer if needed, then click <b>↻ Resend</b>. HaulProof also retries on its own for several hours.</p></div>
     <div class="faq"><h4>The document has pages the driver doesn’t need</h4><p>Click <b>📄 Review</b> on the document and use <b>Remove page</b>. Removed one by mistake? Click it in the Removed bar to restore it.</p></div>
+    <div class="faq"><h4>My import says “Could not read that”</h4><p>Save the file as <b>CSV</b> (not .xlsx) and keep the first row as the column headings from the template. Easiest fix: download a fresh template from the Import window and paste your rows into it.</p></div>
     <div class="faq"><h4>Can’t log in at all</h4><p>Use <b>Forgot password?</b> on the sign-in page. If you never got a login, your admin can create one or resend your link from <b>Team logins</b>. Admins can also reset anyone’s password there.</p></div>
     <div class="faq"><h4>Scanned documents are blurry</h4><p>Get closer so the page fills the frame, hold the phone steady, and make sure the whole page is inside the outline before you take the photo.</p></div>
     <div class="faq"><h4>A PO # shows a duplicate warning</h4><p>If a document was already waiting on that PO, HaulProof flags a possible duplicate. Dispatch can <b>Keep it</b> (if it really is a second document) or <b>Discard</b> it.</p></div>
