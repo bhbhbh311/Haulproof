@@ -754,7 +754,7 @@
 <div id="pickupSheet" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.62);z-index:1300;display:flex;align-items:flex-end;justify-content:center;">
   <div style="background:var(--surface,var(--surface));width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(10,20,50,.4);">
     <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;color:var(--ink,var(--primary));margin-bottom:4px;">📷 Photo of the load at pickup</div>
-    <div style="font-size:14px;color:var(--muted,var(--muted));line-height:1.45;margin-bottom:14px;">Take a clear photo of the freight — and the BOL or any pre-existing damage. You can add up to 6. <span id="pkCount" style="font-weight:700;color:var(--ink,var(--primary));"></span></div>
+    <div style="font-size:14px;color:var(--muted,var(--muted));line-height:1.45;margin-bottom:14px;">Take a clear photo of the freight as it’s loaded, plus any damage you see before you leave. The BOL is already in the app, so there’s no need to photograph it. You can add up to 6. <span id="pkCount" style="font-weight:700;color:var(--ink,var(--primary));"></span></div>
     <div id="pkThumbs" style="margin-bottom:12px;"></div>
     <button class="btn ghost block" id="pkAdd" type="button" style="font-size:16px;margin-bottom:10px;">📷 Add photo</button>
     <button class="btn primary block" id="pkRecord" type="button" style="font-size:16px;background:#0f6f3f;border-color:var(--ok);" disabled>Record pickup</button>
@@ -829,7 +829,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-28a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-28b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
