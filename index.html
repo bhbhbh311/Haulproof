@@ -12,12 +12,12 @@
 <style>
   /* Dark navy theme with HaulProof blue as the one accent (same family as the Callahan FMS design). */
   :root{color-scheme:dark;
-    --bg:#071026;--bg2:#071026;--surface:#0e1a33;--sunk:#0a1428;--surface2:#0a1428;--surface-2:#13264f;--panel:#0a1428;--card2:#0a1428;
-    --ink:#e8effc;--text:#e8effc;--muted:#97aacb;--line:#22355c;--line-strong:#2e4573;--divider:#34507f;
-    --band:#081633;--side-hover:#13264f;--side-muted:#8396be;
-    --primary:#4d8dff;--primary-d:#3a7af0;--primary-ink:#04112e;--primary-soft:#132a55;--primary-line:#2c4f8f;--primary-glow:rgba(77,141,255,.35);
-    --ok:#4cc282;--ok-soft:#12301f;--ok-line:#1f5a3a;--warn:#e6a740;--warn-soft:#33260d;--warn-line:#5e4517;
-    --danger:#ef7a6c;--bad:#ef7a6c;--bad-soft:#3a1a17;--bad-line:#6a2e27;--violet:#a98bff;--violet-soft:#261d48;--violet-line:#46397f;
+    --bg:#0f2047;--bg2:#0f2047;--surface:#18294f;--sunk:#132245;--surface2:#132245;--surface-2:#1d3566;--panel:#132245;--card2:#132245;
+    --ink:#e8effc;--text:#e8effc;--muted:#97aacb;--line:#2f4676;--line-strong:#3b5488;--divider:#44608f;
+    --band:#112552;--side-hover:#1d3566;--side-muted:#8396be;
+    --primary:#4d8dff;--primary-d:#3a7af0;--primary-ink:#04112e;--primary-soft:#21407d;--primary-line:#3a62a8;--primary-glow:rgba(77,141,255,.35);
+    --ok:#4cc282;--ok-soft:#18442e;--ok-line:#2a6a47;--warn:#e6a740;--warn-soft:#46351a;--warn-line:#6e5222;
+    --danger:#ef7a6c;--bad:#ef7a6c;--bad-soft:#4e2521;--bad-line:#7a3a32;--violet:#a98bff;--violet-soft:#352a63;--violet-line:#55479a;
     --radius:12px;--radius-sm:8px;
     --shadow:none;
     --shadow-lg:0 24px 60px rgba(0,0,0,.5);
@@ -263,7 +263,7 @@
 
   /* ===== Dark navy look (matches the Callahan FMS design; HaulProof blue is the one accent). =====
      One button rule: the single main action is solid blue, everything else is an outlined dark button. */
-  body{background:radial-gradient(1200px 600px at 75% -10%,#10265a 0,transparent 60%),var(--bg);background-attachment:fixed;font-size:14px;}
+  body{background:radial-gradient(1200px 600px at 75% -10%,#1c3a7a 0,transparent 60%),var(--bg);background-attachment:fixed;font-size:14px;}
   h1,h2,h3,.brand{font-family:var(--display);}
   h1{font-weight:800;letter-spacing:0;}
   a{color:var(--primary);}
@@ -280,7 +280,7 @@
   .who a.ghost{display:inline-flex;align-items:center;padding:7px 12px;border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:13px;font-weight:600;}
   .who a.ghost:hover{background:var(--side-hover);}
   /* cards */
-  .card{background:rgba(14,26,51,.92);border:1px solid var(--line);border-radius:12px;box-shadow:none;}
+  .card{background:rgba(24,41,79,.92);border:1px solid var(--line);border-radius:12px;box-shadow:none;}
   .card h1{font-size:21px;}
   .sub{color:var(--muted);}
   label{color:var(--muted);}
@@ -299,7 +299,7 @@
   button:active{box-shadow:none;}
   button:disabled{opacity:.55;cursor:default;}
   button.ghost,a.ghost{background:var(--sunk);color:var(--ink);border:1px solid var(--line);box-shadow:none;}
-  button.ghost:hover{background:#10203f;border-color:#36507f;box-shadow:none;}
+  button.ghost:hover{background:#1a2d56;border-color:#47619a;box-shadow:none;}
   button.btn-ok{background:var(--ok);color:#06210f;box-shadow:none;}
   button.btn-ok:hover{background:#5fd395;box-shadow:none;}
   button.btn-danger{background:#c0392b;color:#fff;box-shadow:none;}
@@ -307,18 +307,18 @@
   button.ghost.btn-danger{background:var(--sunk);color:var(--bad);border-color:var(--bad-line);}
   button.ghost.btn-danger:hover{background:var(--bad-soft);border-color:var(--bad);}
   a.linkbtn{background:var(--primary-soft);border-color:var(--primary-line);color:var(--primary);}
-  a.linkbtn:hover{background:#1a3566;box-shadow:none;}
+  a.linkbtn:hover{background:#28498c;box-shadow:none;}
   @keyframes leadpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(169,139,255,.0);}50%{transform:scale(1.05);box-shadow:0 0 0 5px rgba(169,139,255,.22),0 0 18px rgba(169,139,255,.45);}}
   /* tables */
-  th,td{border-bottom:1px solid rgba(34,53,92,.65);}
+  th,td{border-bottom:1px solid rgba(47,70,118,.65);}
   thead th,#loadList thead th{background:transparent;color:var(--muted);font-size:11px;letter-spacing:.1em;font-weight:600;border-bottom:1px solid var(--line);}
   tbody tr:nth-child(even),#loadList tbody tr:nth-child(even){background:transparent;}
   tbody tr:hover,#loadList tbody tr:hover{background:rgba(255,255,255,.03);}
-  #loadList tbody td{border-bottom-color:rgba(34,53,92,.65);}
+  #loadList tbody td{border-bottom-color:rgba(47,70,118,.65);}
   #loadList tr.tone-setup{--tone:var(--violet);} #loadList tr.tone-open{--tone:var(--warn);}
   #loadList tr.tone-active{--tone:var(--primary);} #loadList tr.tone-done{--tone:var(--ok);}
   #loadList .ldOpen.ghost{background:var(--sunk);border-color:var(--line);color:var(--ink);}
-  #loadList .ldOpen.ghost:hover{background:#10203f;border-color:#36507f;}
+  #loadList .ldOpen.ghost:hover{background:#1a2d56;border-color:#47619a;}
   #loadList .ldOpen.btn-sm{background:var(--violet);color:#17093a;box-shadow:0 0 14px rgba(169,139,255,.3);}
   #loadList .ldOpen.btn-sm:hover{background:#bba3ff;}
   /* status pills */
@@ -331,19 +331,19 @@
   .dup-warn{color:var(--warn);}
   .ssoNote.warn{color:var(--warn);} .ssoNote.info{border-color:var(--primary-line);}
   /* login */
-  .authwrap{background:rgba(14,26,51,.95);border-color:var(--line);}
+  .authwrap{background:rgba(24,41,79,.95);border-color:var(--line);}
   .authhero{background:radial-gradient(130% 130% at 0% 0%,#2f6fe0 0%,#163d8f 50%,#0a1d4a 100%);}
   /* pop-ups */
   .histBox{background:var(--surface);border:1px solid var(--line);}
   .histOverlay{background:rgba(2,6,18,.7);}
   .ss-panel{background:var(--surface);}
-  .hp-switch .hp-track{background:#2b3f66;}
+  .hp-switch .hp-track{background:#3a5180;}
   .spcard{background:var(--surface);border-color:var(--line);box-shadow:none;}
   .spthumb{background:#fff;}
   button.spbtn,button.sprchip{background:var(--sunk);color:var(--ink);box-shadow:none;}
   button.spbtn.sp-crop,button.sprchip{color:var(--primary);}
   button.spbtn.sp-reshoot{color:var(--warn);} button.spbtn.sp-remove{color:var(--bad);}
-  .aimeter-bar{background:#22355c;}
+  .aimeter-bar{background:#2f4676;}
   .aipromo{background:linear-gradient(135deg,rgba(38,29,72,.85) 0%,rgba(19,40,85,.85) 100%);border:1px dashed var(--violet-line);}
   .aipromo-x:hover{background:rgba(255,255,255,.06);}
   .aipromo-icon{background:var(--violet);color:#17093a;box-shadow:0 0 14px rgba(169,139,255,.35);}
@@ -371,7 +371,7 @@
   @media (min-width:901px){
     body:has(#appView:not(.hide)) main{max-width:none;padding-left:calc(250px + clamp(20px,2.2vw,36px));}
     #portalTop{position:fixed;left:0;top:var(--barH,58px);bottom:0;width:250px;z-index:40;margin:0;display:flex;flex-direction:column;gap:14px;
-      background:rgba(7,18,41,.92);border-right:1px solid var(--line);padding:16px 10px 20px;overflow-y:auto;}
+      background:rgba(15,30,64,.92);border-right:1px solid var(--line);padding:16px 10px 20px;overflow-y:auto;}
     .tabbar{flex-direction:column;flex-wrap:nowrap;gap:2px;flex:0 0 auto;}
     .tab{width:100%;}
     .inviteSide{flex:0 0 auto;min-width:0;margin-top:auto;}
@@ -388,21 +388,21 @@
   }
 
   /* ===== Dashboard home ===== */
-  .hhero{border:1px solid var(--line);background:linear-gradient(180deg,rgba(14,26,51,.92),rgba(10,20,40,.92));border-radius:12px;padding:24px 28px;margin-bottom:16px;}
+  .hhero{border:1px solid var(--line);background:linear-gradient(180deg,rgba(24,41,79,.92),rgba(19,34,69,.92));border-radius:12px;padding:24px 28px;margin-bottom:16px;}
   .hhero h1{font-size:30px;margin:0 0 6px;}
   .hhero p{margin:0 0 16px;color:var(--muted);font-size:15px;}
   .hhero .hbtns{display:flex;gap:10px;flex-wrap:wrap;}
   .hhero .hbtns button{padding:9px 15px;font-size:13px;}
   .htiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;}
-  button.htile{display:block;text-align:left;background:rgba(14,26,51,.92);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:9px;padding:14px 18px;color:var(--ink);box-shadow:none;font-family:var(--font);}
-  button.htile:hover{background:#12223f;box-shadow:none;}
+  button.htile{display:block;text-align:left;background:rgba(24,41,79,.92);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:9px;padding:14px 18px;color:var(--ink);box-shadow:none;font-family:var(--font);}
+  button.htile:hover{background:#1b2e57;box-shadow:none;}
   .htile .v{font-family:var(--display);font-weight:800;font-size:30px;line-height:1.1;}
   .htile .l{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-top:4px;}
   .htile.zero .v{color:var(--side-muted);}
   .hpanels{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
-  .hpanel{border:1px solid var(--line);background:rgba(14,26,51,.92);border-radius:12px;overflow:hidden;}
+  .hpanel{border:1px solid var(--line);background:rgba(24,41,79,.92);border-radius:12px;overflow:hidden;}
   .hpanel h2{font-size:19px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);}
-  .hli{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(34,53,92,.6);}
+  .hli{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(47,70,118,.6);}
   .hli:last-child{border-bottom:0;}
   .hli .dot{width:9px;height:9px;border-radius:50%;flex:none;}
   .hli .t{min-width:0;flex:1;}
@@ -6057,7 +6057,7 @@
   function showLoginLink(link, email) {
     const label = 'HaulProof Login';
     const ov = document.createElement('div');
-    ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,40,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px;';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(19,34,69,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px;';
     const card = document.createElement('div');
     card.style.cssText = 'background:var(--surface);border-radius:16px;max-width:470px;width:100%;padding:24px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);';
     card.innerHTML = '<h1 style="font-size:18px;margin:0 0 6px;">Login link ready</h1>'
