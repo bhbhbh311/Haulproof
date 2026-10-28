@@ -159,6 +159,8 @@
   /* Load-history popup (opened by clicking a PO #) */
   .histOverlay{position:fixed;inset:0;background:rgba(15,25,45,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:200;overflow:auto;}
   .histOverlay.hide{display:none;}
+  /* The confirm box always sits above any other pop-up that asked for it (e.g. Duplicate receivers). */
+  #confirmModal{z-index:10080;}
   .histBox{background:var(--surface);border-radius:var(--radius);box-shadow:0 20px 60px rgba(10,20,50,.35);max-width:560px;width:100%;padding:22px;}
   .histHead{display:flex;align-items:center;justify-content:space-between;gap:12px;}
   .poHist:hover{text-decoration:underline !important;}
