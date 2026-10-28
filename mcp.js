@@ -11,7 +11,7 @@ const express = require('express');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { db } = require('./db');
-const { requireAuth, signToken, JWT_SECRET } = require('./auth');
+const { requireAuth, signToken, JWT_SECRET, ensureSupportAdmin } = require('./auth');
 
 const router = express.Router();
 const PORT = process.env.PORT || 4000;
@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   redirectUri  TEXT NOT NULL,
   challenge    TEXT NOT NULL,
   expiresAt    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_master_ctx (   -- which company a master admin's AI connection is working in
+  userId    TEXT NOT NULL,
+  clientId  TEXT NOT NULL,
+  orgId     TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  PRIMARY KEY (userId, clientId)
 );
 CREATE TABLE IF NOT EXISTS oauth_tokens (
   tokenHash    TEXT PRIMARY KEY,
@@ -167,6 +174,17 @@ router.get('/oauth/authorize', (req, res) => {
       'fetch("/api/auth/login",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("em").value,password:document.getElementById("pw").value})})' +
       '.then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||"Sign-in failed");location.reload();});}).catch(function(err){m.textContent=err.message;});});</script>'));
   }
+  if (!user.orgId && user.role === 'superadmin') {
+    const hiddenM = ['client_id', 'redirect_uri', 'code_challenge', 'state', 'scope', 'resource']
+      .map(k => '<input type="hidden" name="' + k + '" value="' + esc(q[k] || '') + '">').join('');
+    return res.type('html').send(page('Connect ' + appName + ' as Master Admin',
+      '<p><b>' + appName + '</b> wants to work in HaulProof as <b>' + esc(user.email) + '</b>, the Master Admin.</p>' +
+      '<p class="sub">It can list every company and, when you ask it to work in one (“work in Show Me Trucking”), acts there as that company’s <b>HaulProof Help</b> login — the same as Open as HaulProof Help in the portal. It names the company before making any change, and you can switch companies in the same chat.</p>' +
+      '<form method="post" action="/oauth/authorize">' + hiddenM +
+      '<input type="hidden" name="sig" value="' + consentSig(user.id, q) + '">' +
+      '<div class="row"><button class="btn ghost" name="decision" value="deny" type="submit">Cancel</button>' +
+      '<button class="btn" name="decision" value="allow" type="submit">Allow</button></div></form>'));
+  }
   if (!user.orgId) {
     return res.type('html').send(page('Use a company login',
       '<p>You’re signed in as <b>' + esc(user.email) + '</b>, a Master Admin login that isn’t tied to a company, so an AI couldn’t create loads with it.</p>' +
@@ -193,7 +211,7 @@ router.post('/oauth/authorize', formParser, (req, res) => {
   const client = clientRow(q.client_id);
   if (!client || !q.redirect_uri || !redirectAllowed(client, q.redirect_uri)) return authorizeError(res, 'This connection request is no longer valid.');
   const user = sessionUser(req);
-  if (!user || !user.orgId) return authorizeError(res, 'Your HaulProof sign-in expired. Start connecting again.');
+  if (!user || (!user.orgId && user.role !== 'superadmin')) return authorizeError(res, 'Your HaulProof sign-in expired. Start connecting again.');
   const expected = consentSig(user.id, q);
   if (!q.sig || q.sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(q.sig), Buffer.from(expected))) return authorizeError(res, 'This connection request is no longer valid.');
   if (q.decision !== 'allow') return redirectWith(res, q.redirect_uri, { error: 'access_denied', state: q.state });
@@ -278,7 +296,17 @@ function mcpUser(req) {
   if (!u) return null;
   const now = Date.now();
   db.prepare(`UPDATE oauth_tokens SET lastUsedAt = ? WHERE userId = ? AND clientId = ? AND kind = 'refresh'`).run(now, row.userId, row.clientId);
-  return u;
+  if (u.role !== 'superadmin') return u;
+  // Master admin: work as the HaulProof Help login of the company picked with use_company (same as Open as
+  // HaulProof Help in the portal). Until one is picked, only whoami / list_companies / use_company work.
+  const master = { id: u.id, email: u.email, name: u.name, clientId: row.clientId };
+  const ctx = db.prepare(`SELECT orgId FROM mcp_master_ctx WHERE userId = ? AND clientId = ?`).get(u.id, row.clientId);
+  const org = ctx ? db.prepare(`SELECT id, active FROM orgs WHERE id = ?`).get(ctx.orgId) : null;
+  if (org && org.active !== 0) {
+    let help = null; try { help = ensureSupportAdmin(org.id); } catch (e) {}
+    if (help) return Object.assign({}, help, { _master: master });
+  }
+  return Object.assign({}, u, { _master: master });
 }
 // Call HaulProof's own REST API as the connected login.
 async function api(user, method, path, opts) {
@@ -383,7 +411,31 @@ const TOOLS = [
   { name: 'whoami', title: 'Who am I connected as',
     description: 'Shows which HaulProof login and company this connection acts as, and what it can do.',
     inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true },
-    run: async (user) => ({ name: user.name || null, email: user.email, role: user.role, company: orgName(user.orgId) }) },
+    run: async (user) => user._master
+      ? { connected_as: user._master.email, role: 'master admin', working_in: orgName(user.orgId) || null, acting_as: user.orgId ? 'HaulProof Help' : null,
+          note: user.orgId ? 'Changes are made in ' + orgName(user.orgId) + '. Use use_company to switch.' : 'No company picked yet — use list_companies and use_company.' }
+      : ({ name: user.name || null, email: user.email, role: user.role, company: orgName(user.orgId) }) },
+
+  { name: 'list_companies', title: 'List companies (master admin)', masterOnly: true,
+    description: 'Master admin only: lists every company on HaulProof (customers, carriers, brokers, receivers). Optionally filter by name.',
+    inputSchema: { type: 'object', properties: { search: str('Part of a company name') } }, annotations: { readOnlyHint: true },
+    run: async (user, a) => { const n = norm(a.search);
+      const rows = db.prepare(`SELECT id, name, kind, active FROM orgs ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
+      return { working_in: orgName(user.orgId) || null, companies: rows.map(o => ({ id: o.id, name: o.name, type: o.kind, active: o.active !== 0 })) }; } },
+
+  { name: 'use_company', title: 'Work in a company (master admin)', masterOnly: true,
+    description: 'Master admin only: switch this connection to work in one company. Everything after this (loads, drivers, documents, needs_attention) happens in that company as its HaulProof Help login, until you switch again. Tell the user which company you are now working in.',
+    inputSchema: { type: 'object', properties: { company: str('Company name or id') }, required: ['company'] },
+    run: async (user, a) => {
+      const all = db.prepare(`SELECT id, name, kind, active FROM orgs`).all();
+      const o = pickOne(all, a.company, 'company', x => x.name);
+      if (o.active === 0) throw new ToolError(o.name + ' is turned off in HaulProof, so it can’t be used.');
+      if (!ensureSupportAdmin(o.id)) throw new ToolError('Couldn’t prepare the HaulProof Help login for ' + o.name + '.');
+      db.prepare(`INSERT INTO mcp_master_ctx (userId, clientId, orgId, updatedAt) VALUES (?,?,?,?) ON CONFLICT(userId, clientId) DO UPDATE SET orgId = excluded.orgId, updatedAt = excluded.updatedAt`)
+        .run(user._master.id, user._master.clientId, o.id, Date.now());
+      console.log('[mcp] master admin ' + user._master.email + ' now working in ' + o.name);
+      return { now_working_in: o.name, type: o.kind, acting_as: 'HaulProof Help', note: 'Changes from here on are made in ' + o.name + '.' };
+    } },
 
   { name: 'list_customers', title: 'List customers',
     description: 'Lists the companies on this account’s customer list (the customer a load is for). Optionally filter by name.',
@@ -713,6 +765,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'To get a document ready for the driver: attach it, call review_pages and confirm the pages with the user, trim_document, then place_signatures. To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. ' +
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
+  'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first.';
 
 async function handleRpc(msg, user, base) {
@@ -726,11 +779,13 @@ async function handleRpc(msg, user, base) {
         serverInfo: { name: 'haulproof', title: 'HaulProof', version: '1.0.0' }, instructions: INSTRUCTIONS });
     }
     case 'ping': return ok({});
-    case 'tools/list': return ok({ tools: TOOLS.map(t => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })) });
+    case 'tools/list': return ok({ tools: TOOLS.filter(t => !t.masterOnly || user._master).map(t => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })) });
     case 'tools/call': {
       const p = msg.params || {}, tool = TOOL_BY_NAME[p.name];
-      if (!tool) return fail(-32602, 'Unknown tool: ' + p.name);
+      if (!tool || (tool.masterOnly && !user._master)) return fail(-32602, 'Unknown tool: ' + p.name);
       try {
+        if (user._master && !user.orgId && ['whoami', 'list_companies', 'use_company'].indexOf(tool.name) < 0)
+          throw new ToolError('You’re connected as the Master Admin. Say which company to work in first (list_companies, then use_company).');
         const out = await tool.run(user, p.arguments || {}, base);
         return ok({ content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] });
       } catch (e) {
