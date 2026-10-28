@@ -423,6 +423,18 @@ const TOOLS = [
       const rows = db.prepare(`SELECT id, name, kind, active FROM orgs ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
       return { working_in: orgName(user.orgId) || null, companies: rows.map(o => ({ id: o.id, name: o.name, type: o.kind, active: o.active !== 0 })) }; } },
 
+  { name: 'list_receivers', title: 'List receivers (master admin)', masterOnly: true,
+    description: 'Master admin only: lists receivers (delivery locations) with address, contacts, parent company, how many documents were delivered to each and which customers use it — for spotting and cleaning up duplicates. Optionally filter by name.',
+    inputSchema: { type: 'object', properties: { search: str('Part of a receiver name') } }, annotations: { readOnlyHint: true },
+    run: async (user, a) => { const n = norm(a.search);
+      const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind = 'receiver') ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
+      const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
+      const contacts = db.prepare(`SELECT name, email, receiveBol FROM receiver_contacts WHERE receiverId = ?`), parent = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
+      return { total: rows.length, receivers: rows.slice(0, 300).map(o => ({ id: o.id, name: o.name, active: o.active !== 0,
+        address: [o.address, o.city, o.state, o.zip].filter(Boolean).join(', ') || null, contact: [o.contactName, o.contactEmail, o.contactPhone].filter(Boolean).join(' · ') || null,
+        parent: o.parentId ? ((parent.get(o.parentId) || {}).name || null) : null, documents_delivered: docs.get(o.id).n,
+        used_by: custs.all(o.id).map(r => r.name), bol_contacts: contacts.all(o.id).map(c => c.email + (c.receiveBol ? ' (gets BOL)' : '')) })) }; } },
+
   { name: 'use_company', title: 'Work in a company (master admin)', masterOnly: true,
     description: 'Master admin only: switch this connection to work in one company. Everything after this (loads, drivers, documents, needs_attention) happens in that company as its HaulProof Help login, until you switch again. Tell the user which company you are now working in.',
     inputSchema: { type: 'object', properties: { company: str('Company name or id') }, required: ['company'] },
