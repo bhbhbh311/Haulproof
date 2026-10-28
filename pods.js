@@ -894,6 +894,7 @@ router.post('/:id/cancel-redo', requireAuth, (req, res) => {
 // ("Use this one instead") emails only when dispatch says so (body.email). ----
 router.post('/:id/keep', requireAuth, express.json(), async (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  console.log('[keep] pod=' + req.params.id + ' by=' + (req.user && req.user.email) + ' found=' + !!row + ' status=' + (row && row.status) + ' redoOf=' + (row && row.redoOf) + ' pick=' + (row && row.pickPending));
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
   const isDone = (p) => p && (p.status === 'signed' || p.status === 'emailed' || p.status === 'not_used');
   if (!isDone(row)) return res.status(409).json({ error: 'Only a signed copy can be kept' });

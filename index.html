@@ -4000,11 +4000,15 @@
           <div class="sub" style="font-size:12px;">The other moves to “Not used (archived)”. You can still view it there and in the load history.</div></div>
           <span class="chip" style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);align-self:flex-start;">Needs your pick</span></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;">${card(first, 'First signing')}${card(redo, 'Redo')}</div>
-        <div style="margin-top:10px;font-size:12.5px;color:var(--warn);">✉ The customer copy is on hold and goes out when you pick (unless the kept copy was already emailed).</div>`;
+        <div style="margin-top:10px;font-size:12.5px;color:var(--warn);">✉ The customer copy is on hold and goes out when you pick (unless the kept copy was already emailed).</div>
+        <div class="rdMsg" style="margin-top:8px;font-size:13px;font-weight:600;color:var(--bad);"></div>`;
       wrap.querySelectorAll('.rdView').forEach(b => b.onclick = () => openDocViewer(b.dataset.id === first.id ? first : redo));
       wrap.querySelectorAll('.rdKeep').forEach(b => b.onclick = async () => {
         wrap.querySelectorAll('.rdKeep').forEach(x => x.disabled = true); b.textContent = 'Saving…';
-        try { await keepCopy(b.dataset.id === first.id ? first : redo); } finally { if (document.body.contains(b)) { wrap.querySelectorAll('.rdKeep').forEach(x => x.disabled = false); b.textContent = '✓ Keep this one'; } }
+        const msg = wrap.querySelector('.rdMsg'); if (msg) msg.textContent = '';
+        try { await api('/api/pods/' + b.dataset.id + '/keep', { method: 'POST', body: '{}' }); openLoad(curLoad.id); try { loadLoads(); } catch (e) {} }
+        catch (e) { if (msg) msg.textContent = 'Couldn’t keep that copy: ' + (e.message || 'try again'); }
+        finally { if (document.body.contains(b)) { wrap.querySelectorAll('.rdKeep').forEach(x => x.disabled = false); b.textContent = '✓ Keep this one'; } }
       });
       box.appendChild(wrap);
     });
