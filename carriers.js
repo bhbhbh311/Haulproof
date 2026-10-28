@@ -19,8 +19,10 @@ function upsertCarrierOrg({ name, mcNumber, dotNumber, verified, allowedToOperat
   if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND dotNumber = ?`).get(dotNumber);
   if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND mcNumber = ?`).get(mcNumber);
   if (existing) {
-    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
-      .run(allowedToOperate || existing.allowedToOperate, name || existing.name, (address || existing.address) || null, existing.id);
+    // A lookup only refreshes the authority flags (and fills a missing address); the name of a shared
+    // carrier is changed only by the carrier itself or HaulProof (PUT /:id).
+    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, address=? WHERE id=?`)
+      .run(allowedToOperate || existing.allowedToOperate, (existing.address || address) || null, existing.id);
     return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id);
   }
   const id = crypto.randomUUID();
@@ -157,6 +159,8 @@ router.get('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Carrier not found' });
+  // Carriers are shared across HaulProof: only the master admin, or the carrier's own admins, may edit one.
+  if (req.user.role !== 'superadmin' && req.user.orgId !== o.id) return res.status(403).json({ error: 'Only this carrier or HaulProof can change its company info' });
   const b = req.body || {};
   const name = (b.name !== undefined ? String(b.name) : o.name).trim();
   if (!name) return res.status(400).json({ error: 'Carrier name is required' });
@@ -174,6 +178,8 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
 router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='carrier'`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Carrier not found' });
+  // Turning a carrier off locks out its logins and drivers, so only the master admin may do it.
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only HaulProof can turn a carrier on or off' });
   db.prepare(`UPDATE orgs SET active = ? WHERE id = ?`).run(req.body && req.body.active ? 1 : 0, o.id);
   res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
@@ -200,7 +206,7 @@ router.post('/', requireAuth, async (req, res) => {
   if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND mcNumber = ?`).get(mcNumber);
   if (existing) {
     // Refresh verification snapshot if this call carries a verified result.
-    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
+    if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
     return res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
   }

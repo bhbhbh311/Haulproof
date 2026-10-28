@@ -449,6 +449,7 @@ CREATE INDEX IF NOT EXISTS idx_delloads_org ON deleted_loads(orgId);
 CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
-addColumn('receiver_contacts', 'ownerOrgId', 'TEXT');   // the customer whose contact this is; NULL = the receiver's own people (master admin)
+addColumn('receiver_contacts', 'ownerOrgId', 'TEXT');
+addColumn('login_links', 'pendingReset', 'INTEGER');   // forgot-password link: the temp password only takes effect when the link is opened   // the customer whose contact this is; NULL = the receiver's own people (master admin)
 
 module.exports = { db, DATA_DIR };

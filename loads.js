@@ -153,7 +153,7 @@ router.get('/', requireAuth, (req, res) => {
      SUM(CASE WHEN status = 'awaiting_build' THEN 1 ELSE 0 END) AS awaiting,
      SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared,
      SUM(CASE WHEN emailStatus IN ('failed','partial') THEN 1 ELSE 0 END) AS mailfail,
-     MAX(signedAt) AS lastSigned
+     MAX(CASE WHEN status IN ('signed','emailed') THEN signedAt END) AS lastSigned
      FROM pods WHERE loadId = ? AND status != 'parked'`);
   const out = rows.map(l => {
     // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak

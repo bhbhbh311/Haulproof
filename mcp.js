@@ -261,8 +261,9 @@ router.post('/oauth/token', formParser, (req, res) => {
   if (b.grant_type === 'refresh_token') {
     const row = b.refresh_token ? db.prepare(`SELECT * FROM oauth_tokens WHERE tokenHash = ? AND kind = 'refresh'`).get(sha(b.refresh_token)) : null;
     if (!row || row.clientId !== client.id || row.expiresAt < Date.now()) return tokenError(res, 400, 'invalid_grant', 'Refresh token is invalid or expired');
-    db.prepare(`DELETE FROM oauth_tokens WHERE tokenHash = ?`).run(row.tokenHash);       // rotate
+    // Check the login first, so a company that's switched off and back on keeps its AI connection.
     if (!userRow(row.userId)) return tokenError(res, 400, 'invalid_grant', 'Login no longer active');
+    db.prepare(`DELETE FROM oauth_tokens WHERE tokenHash = ?`).run(row.tokenHash);       // rotate
     return res.set('Cache-Control', 'no-store').json(issueTokens(client.id, row.userId));
   }
   return tokenError(res, 400, 'unsupported_grant_type', 'Use authorization_code or refresh_token');
@@ -587,9 +588,11 @@ const TOOLS = [
       const drv = a.driver ? await resolveDriver(user, a.driver) : null;
       const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined } });
       if (c.existed) return Object.assign({ already_existed: true, note: 'A load with this PO # already exists; nothing was changed. Use update_load or assign_driver to change it.' }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
-      if (cust) await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
+      let custNote = null;
+      if (cust) { const r = await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
+        if ((r.load && r.load.customerId || '') !== cust.id) custNote = 'The load was created, but this login can’t set a customer on loads, so ' + cust.name + ' was not added.'; }
       if (drv) await api(user, 'POST', '/api/loads/' + c.load.id + '/assign-driver', { json: { driverId: drv.id, truck: a.truck || '', trailer: a.trailer || '' } });
-      return Object.assign({ created: true }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
+      return Object.assign({ created: true }, custNote ? { warning: custNote } : {}, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
     } },
 
   { name: 'update_load', title: 'Update a load',
@@ -722,7 +725,7 @@ const TOOLS = [
         throw new ToolError('There’s no saved layout for this customer and document type yet. Use method "ai", or set it up once in HaulProof (signature_setup_link: ' + base + '/prepare?id=' + pod.id + ').');
       } else {
         const acc = aiplace.aiAccess(pod.orgId);
-        if (!acc.ok) throw new ToolError('No saved layout for this customer, and ' + acc.message.charAt(0).toLowerCase() + acc.message.slice(1) + ' Place the boxes in HaulProof: ' + base + '/prepare?id=' + pod.id);
+        if (!acc.ok) throw new ToolError('No saved layout for this customer, and AI placement isn’t available: ' + acc.message + ' Place the boxes in HaulProof: ' + base + '/prepare?id=' + pod.id);
         const r = await aidocs.aiFields({ user }, pod.id, buf, info);
         if (r.error || !(r.fields || []).length) throw new ToolError('The AI couldn’t place boxes on this document' + (r.error ? ' (' + r.error + ')' : '') + '. Place them in HaulProof: ' + base + '/prepare?id=' + pod.id);
         fields = r.fields; source = 'AI (' + (r.model || 'Claude') + ')'; note = r.note || ''; cost = r.costUsd;

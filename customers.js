@@ -122,7 +122,9 @@ router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
     const clash = db.prepare(`SELECT id FROM customers WHERE ownerOrgId = ? AND id != ?`).all(org, row.id).find(r => norm(r.name) === norm(name));
     if (clash) return res.status(409).json({ error: 'Another customer in your list already uses that name' });
   }
-  const f = fieldsFrom(b);
+  // Fields left out of the request keep their saved value (a partial edit never wipes the rest).
+  let saved = []; try { saved = JSON.parse(row.contacts || '[]'); } catch (e) {}
+  const f = fieldsFrom(Object.assign({}, row, { contacts: saved }, ...Object.keys(b).filter(k => b[k] !== undefined).map(k => ({ [k]: b[k] }))));
   db.prepare(`UPDATE customers SET name = ?, mcNumber = ?, dotNumber = ?, contactName = ?, contactEmail = ?, contactPhone = ?, address = ?, contacts = ?, note = ? WHERE id = ?`)
     .run(name, f.mcNumber, f.dotNumber, f.contactName, f.contactEmail, f.contactPhone, f.address, f.contacts, f.note, row.id);
   if (b.salesRepUserIds !== undefined) setReps(row.id, org, b.salesRepUserIds);

@@ -141,6 +141,13 @@ app.get('/api/auth/login-info', (req, res) => {
   const user = db.prepare('SELECT email, name, orgId FROM users WHERE id = ?').get(row.userId);
   if (!user) return res.status(404).json({ error: 'This login no longer exists.' });
   const org = user.orgId ? db.prepare('SELECT name FROM orgs WHERE id = ?').get(user.orgId) : null;
+  // A forgot-password link only switches the password once its owner actually opens it, so a stranger who
+  // types someone's email can't lock them out. Their other links stay valid until then.
+  if (row.pendingReset) {
+    db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(row.tempPassword, 10), row.userId);
+    db.prepare('DELETE FROM login_links WHERE userId = ? AND token != ?').run(row.userId, token);
+    db.prepare('UPDATE login_links SET pendingReset = 0 WHERE token = ?').run(token);
+  }
   try { db.prepare('UPDATE login_links SET viewedAt = ? WHERE token = ?').run(Date.now(), token); } catch (e) {}
   const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
   res.json({ email: user.email, name: user.name || '', company: org ? org.name : '', tempPassword: row.tempPassword, signInUrl: origin + '/app' });
@@ -158,11 +165,11 @@ app.post('/api/auth/forgot-password', (req, res) => {
     const user = db.prepare('SELECT id, email, name FROM users WHERE email = ?').get(em);
     if (!user) return res.json(generic);   // no such login — say nothing revealing
     const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
-    db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(temp, 10), user.id);
+    // The password is NOT changed here — only when the emailed link is opened (see /api/auth/login-info).
     const token = crypto.randomBytes(24).toString('hex');
     const now = Date.now(), expiresAt = now + 24 * 60 * 60 * 1000;  // reset link good for 24 hours
-    db.prepare('DELETE FROM login_links WHERE userId = ?').run(user.id);
-    db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, user.id, temp, expiresAt, now);
+    db.prepare('DELETE FROM login_links WHERE userId = ? AND pendingReset = 1').run(user.id);   // one pending reset at a time
+    db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt, pendingReset) VALUES (?,?,?,?,?,1)').run(token, user.id, temp, expiresAt, now);
     const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
     const link = origin + '/login-info?t=' + token;
     sendMail({

@@ -829,7 +829,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-27a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-10-28a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1121,6 +1121,7 @@ window.__startApp=function(){
       var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({pin:pin})});
       $("pinBtn").disabled=false;
       if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
+      if(r.status===429){ var lk={}; try{ lk=await r.json(); }catch(_){} $("pinErr").textContent=lk.error||"Too many wrong PINs — wait 10 minutes and try again"; return; }
       if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
       var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); setCompany(d.company,d.companyKind); $("pinErr").textContent="";
       // First use with an admin-set PIN → make the driver choose their own before going in.

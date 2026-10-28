@@ -15,7 +15,7 @@ function masterNotifyEmails(orgIds) {
     const ph = ids.map(() => '?').join(',');
     return db.prepare(
       `SELECT DISTINCT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId
-         WHERE onf.orgId IN (${ph}) AND u.email IS NOT NULL AND TRIM(u.email) != ''`
+         WHERE onf.orgId IN (${ph}) AND u.email IS NOT NULL AND TRIM(u.email) != '' AND u.email NOT LIKE 'haulproofhelp+%'`
     ).all(...ids).map(r => r.email);
   } catch (e) { return []; }
 }

@@ -68,13 +68,22 @@ router.get('/link-info', (req, res) => {
     company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
 });
 // Exchange the correct PIN for an "unlock" value the app stores and replays on every request.
+// Wrong-PIN limit: after 5 misses on one driver link, PIN checks pause for 10 minutes (stops guessing a 4-digit PIN).
+const pinMisses = new Map();
+const PIN_MAX = 5, PIN_LOCK_MS = 10 * 60 * 1000;
+function pinLocked(id) { const m = pinMisses.get(id); return !!(m && m.until > Date.now()); }
+function pinMiss(id) { const m = pinMisses.get(id) || { n: 0, until: 0 }; m.n++; if (m.n >= PIN_MAX) { m.until = Date.now() + PIN_LOCK_MS; m.n = 0; } pinMisses.set(id, m); }
+const PIN_LOCK_MSG = 'Too many wrong PINs — wait 10 minutes and try again, or ask dispatch to reset your PIN.';
+
 router.post('/verify-pin', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const d = r.driver;
   if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });   // no PIN set — nothing to check
+  if (pinLocked(d.id)) return res.status(429).json({ error: PIN_LOCK_MSG });
   const pin = String((req.body && req.body.pin) || '');
-  if (!bcrypt.compareSync(pin, d.pinHash)) return res.status(401).json({ error: 'That PIN is not correct' });
+  if (!bcrypt.compareSync(pin, d.pinHash)) { pinMiss(d.id); return res.status(401).json({ error: 'That PIN is not correct' }); }
+  pinMisses.delete(d.id);
   res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '', mustChangePin: !!d.mustChangePin });
 });
 
@@ -85,7 +94,8 @@ router.post('/change-pin', (req, res) => {
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const d = r.driver;
   const currentPin = String((req.body && req.body.currentPin) || '');
-  if (d.pinHash && !bcrypt.compareSync(currentPin, d.pinHash)) return res.status(401).json({ error: 'Current PIN is not correct' });
+  if (d.pinHash && pinLocked(d.id)) return res.status(429).json({ error: PIN_LOCK_MSG });
+  if (d.pinHash && !bcrypt.compareSync(currentPin, d.pinHash)) { pinMiss(d.id); return res.status(401).json({ error: 'Current PIN is not correct' }); }
   const newPin = String((req.body && req.body.newPin) || '').trim();
   if (!PIN_RE.test(newPin)) return res.status(400).json({ error: 'New PIN must be 4 to 6 digits' });
   const newHash = bcrypt.hashSync(newPin, 10);

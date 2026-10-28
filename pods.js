@@ -325,7 +325,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         const prepPod = db.prepare(`SELECT loadId FROM pods WHERE id = ?`).get(_prepId);
         if (prepPod && prepPod.loadId) {
           const byPrep = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(prepPod.loadId);
-          if (byPrep) { load = byPrep; orgId = byPrep.orgId; }
+          // Only a load this driver's company is on (as owner, carrier or broker) — never another company's stop.
+          const mine = req.org && byPrep && [byPrep.orgId, byPrep.carrierId, byPrep.brokerId].indexOf(req.org.id) >= 0;
+          if (byPrep && mine) { load = byPrep; orgId = byPrep.orgId; }
         }
       } catch (e) {}
     }
@@ -495,7 +497,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // The load's assigned customer's contacts who are flagged to receive signed documents.
     let customerEmails = [];
     try { if (load && load.customerId) customerEmails = customerDocEmails(load.customerId); } catch (e) {}
-    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails]));
+    // The built-in HaulProof Help logins never get copies (they're only HaulProof's way in to support a company).
+    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails])).filter(e => !/^haulproofhelp\+/i.test(e));
     let mail = { sent: false };
     if (allRecipients.length) {
       // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
@@ -817,6 +820,8 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
 router.post('/:id/ready', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  // A signed document is finished — never send it back to the driver to sign again.
+  if (row.status === 'signed' || row.status === 'emailed') return res.status(409).json({ error: 'This document is already signed' });
   db.prepare(`UPDATE pods SET status = 'prepared' WHERE id = ?`).run(row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'prepared',
     detail: 'Marked ready for driver' + (row.assignedDriverName ? ' — ' + row.assignedDriverName : ''), actor: req.user.email }); } catch (e) {}

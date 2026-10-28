@@ -100,6 +100,7 @@ router.post('/:id/reply', requireAuth, requireSuper, express.json(), (req, res) 
 router.post('/:id/deny', requireAuth, requireSuper, express.json(), (req, res) => {
   const r = db.prepare(`SELECT * FROM access_requests WHERE id = ?`).get(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
+  if (r.status === 'granted') return res.status(409).json({ error: 'This request was already granted — remove the login it created instead' });
   const reason = (req.body && req.body.reason || '').trim();
   if (reason) pushThread(r, 'admin', 'Denied: ' + reason);
   db.prepare(`UPDATE access_requests SET status='denied', decidedAt=? WHERE id=?`).run(Date.now(), r.id);

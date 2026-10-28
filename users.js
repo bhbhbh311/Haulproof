@@ -42,7 +42,7 @@ router.get('/notify', requireAuth, requireCap('manage_users'), (req, res) => {
 router.put('/notify', requireAuth, requireCap('manage_users'), (req, res) => {
   const orgId = scopeOrgId(req);
   const ids = Array.isArray(req.body && req.body.userIds) ? req.body.userIds : [];
-  const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ?`).get(uid, orgId));
+  const valid = ids.filter(uid => db.prepare(`SELECT 1 FROM users WHERE id = ? AND orgId IS ? AND email NOT LIKE 'haulproofhelp+%'`).get(uid, orgId));
   db.transaction(() => {
     db.prepare(`DELETE FROM org_notify WHERE orgId IS ?`).run(orgId);
     const ins = db.prepare(`INSERT OR IGNORE INTO org_notify (orgId, userId, createdAt) VALUES (?,?,?)`);
@@ -68,6 +68,8 @@ router.post('/', requireAuth, (req, res) => {
   if (password && String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters (or leave it blank to send a set-up link)' });
   let r = role === 'admin' ? 'admin' : (role === 'sales' ? 'sales' : 'dispatcher'); // never create a superadmin here
   if (isDispatcher && !canManage && r !== 'sales') return res.status(403).json({ error: 'Dispatchers can only add sales reps' });
+  if (r === 'admin' && !isAdmin) return res.status(403).json({ error: 'Only an admin can add another admin' });
+  if (!orgId) return res.status(400).json({ error: 'Pick the company this login belongs to' });
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
   try {
     const temp = (password && String(password).length >= 6) ? String(password) : crypto.randomBytes(4).toString('hex'); // 8-char temp when none given
@@ -92,6 +94,7 @@ router.post('/', requireAuth, (req, res) => {
 //      Not auto-emailed, to avoid a burst of mail on a bulk import. ----
 router.post('/import', requireAuth, requireCap('manage_users'), (req, res) => {
   const orgId = scopeOrgId(req);
+  const callerIsAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';   // a manage_users helper can't make admins
   if (!orgId) return res.status(400).json({ error: 'No organization on this login' });
   const records = Array.isArray(req.body && req.body.records) ? req.body.records : [];
   if (!records.length) return res.status(400).json({ error: 'No records to import' });
@@ -102,7 +105,7 @@ router.post('/import', requireAuth, requireCap('manage_users'), (req, res) => {
       const em = String(r && r.email || '').toLowerCase().trim();
       if (!EMAIL_RE.test(em)) { skipped++; continue; }
       if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) { skipped++; continue; }   // already has a login
-      const role = (r && r.role === 'admin') ? 'admin' : ((r && r.role === 'sales') ? 'sales' : 'dispatcher');
+      const role = (r && r.role === 'admin' && callerIsAdmin) ? 'admin' : ((r && r.role === 'sales') ? 'sales' : 'dispatcher');
       const name = String(r && r.name || '').trim();
       const temp = crypto.randomBytes(4).toString('hex');
       const u = createUser({ email: em, name, role, password: temp, orgId });
@@ -197,10 +200,15 @@ router.post('/beta', requireAuth, (req, res) => {
   res.json({ ok: true, user: { id: u.id, email: u.email, name: u.name, role: u.role, betaAccess: on } });
 });
 
+// The built-in HaulProof Help login is HaulProof's way in to support a company — only the master admin may change it.
+const isHelpLogin = (u) => /^haulproofhelp\+/i.test((u && u.email) || '');
+const HELP_LOCKED = 'The HaulProof Help login lets HaulProof support your company, so it can’t be changed here.';
+
 // Edit a login's email / name / role (fix input mistakes). Same customer only.
 router.put('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  if (isHelpLogin(target) && req.user.role !== 'superadmin') return res.status(403).json({ error: HELP_LOCKED });
   const b = req.body || {};
   const email = (b.email || '').toLowerCase().trim();
   if (email && !EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
@@ -210,12 +218,13 @@ router.put('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   const isSelf = target.id === (req.user.sub || req.user.id);
   // Never allow superadmin here; don't let someone demote their own login and lock themselves out.
   let role = target.role;
-  if (!isSelf && (b.role === 'admin' || b.role === 'sales' || b.role === 'dispatcher')) role = b.role;
+  const callerIsAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  // Only a real admin may make someone an admin or change an admin's role.
+  if (!isSelf && (b.role === 'admin' || b.role === 'sales' || b.role === 'dispatcher') && (callerIsAdmin || (b.role !== 'admin' && target.role !== 'admin'))) role = b.role;
   const name = b.name !== undefined ? String(b.name) : target.name;
   // Capabilities: only a real admin/super may grant or change them (a delegate can manage people but not
   // widen anyone's powers, including their own). Ignored for admins (they already have everything).
   let capsJson = target.capabilities || null;
-  const callerIsAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
   if (b.capabilities !== undefined && callerIsAdmin) {
     const caps = Array.isArray(b.capabilities) ? b.capabilities.filter(c => ALL_CAPS.includes(c)) : [];
     capsJson = JSON.stringify(caps);
@@ -229,8 +238,9 @@ router.put('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
 router.post('/:id/password', requireAuth, requireCap('manage_users'), (req, res) => {
   const { password } = req.body || {};
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  const target = db.prepare('SELECT id, orgId, role FROM users WHERE id = ?').get(req.params.id);
+  const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  if (isHelpLogin(target) && req.user.role !== 'superadmin') return res.status(403).json({ error: HELP_LOCKED });
   db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(String(password), 10), target.id);
   res.json({ ok: true });
 });
@@ -241,6 +251,7 @@ router.post('/:id/password', requireAuth, requireCap('manage_users'), (req, res)
 router.post('/:id/login-link', requireAuth, requireCap('manage_users'), (req, res) => {
   const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  if (isHelpLogin(target) && req.user.role !== 'superadmin') return res.status(403).json({ error: HELP_LOCKED });
   const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
   db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(temp, 10), target.id);
   const token = crypto.randomBytes(24).toString('hex');
@@ -257,7 +268,7 @@ router.delete('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   // The built-in HaulProof Help login is HaulProof's way in to support this company — only the master admin may remove it.
-  if (/^haulproofhelp\+/i.test(target.email || '') && req.user.role !== 'superadmin') return res.status(403).json({ error: 'The HaulProof Help login lets HaulProof support your company, so it can’t be removed here.' });
+  if (isHelpLogin(target) && req.user.role !== 'superadmin') return res.status(403).json({ error: 'The HaulProof Help login lets HaulProof support your company, so it can’t be removed here.' });
   db.prepare('DELETE FROM users WHERE id = ?').run(target.id);
   res.json({ ok: true });
 });

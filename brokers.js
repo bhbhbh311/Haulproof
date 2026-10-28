@@ -47,7 +47,7 @@ router.post('/', requireAuth, (req, res) => {
   if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND dotNumber = ?`).get(dotNumber);
   if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND mcNumber = ?`).get(mcNumber);
   if (existing) {
-    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
+    if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
     return res.json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
   }
@@ -70,6 +70,8 @@ router.post('/', requireAuth, (req, res) => {
 router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='broker'`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Broker not found' });
+  // Brokers are shared across HaulProof: only the master admin, or the broker's own admins, may edit one.
+  if (req.user.role !== 'superadmin' && req.user.orgId !== o.id) return res.status(403).json({ error: 'Only this broker or HaulProof can change its company info' });
   const b = req.body || {};
   const name = (b.name !== undefined ? String(b.name) : o.name).trim();
   if (!name) return res.status(400).json({ error: 'Broker name is required' });
@@ -86,6 +88,8 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
 router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='broker'`).get(req.params.id);
   if (!o) return res.status(404).json({ error: 'Broker not found' });
+  // Turning a broker off locks out its logins and drivers, so only the master admin may do it.
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only HaulProof can turn a broker on or off' });
   db.prepare(`UPDATE orgs SET active = ? WHERE id = ?`).run(req.body && req.body.active ? 1 : 0, o.id);
   res.json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });

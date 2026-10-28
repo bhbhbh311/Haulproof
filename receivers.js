@@ -113,7 +113,8 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
   const ownerOrg = ownerOrgOf(req, b);
   // Link an existing global receiver.
   if ((b.receiverId || '').trim()) {
-    const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(b.receiverId.trim());
+    // Only a live receiver can be linked — never another company's account.
+    const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND (roles LIKE '%"receiver"%' OR kind = 'receiver') AND mergedInto IS NULL`).get(b.receiverId.trim());
     if (!o) return res.status(404).json({ error: 'Receiver not found' });
     linkReceiver(ownerOrg, o.id);
     return res.status(200).json({ receiver: receiverOut(o, ownerOrg), linked: true });
@@ -148,7 +149,7 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
 //      externalId (e.g. "hubspot:12345") so re-running never duplicates. customerId optional:
 //      omit/blank => receivers land UNLINKED in the global registry (each customer claims their own);
 //      set => also link every imported receiver to that customer. ----
-router.post('/import', requireAuth, requireCap('manage_customers'), (req, res) => {
+router.post('/import', requireAuth, requireSuper, (req, res) => {
   const b = req.body || {};
   const records = Array.isArray(b.records) ? b.records : [];
   if (!records.length) return res.status(400).json({ error: 'No records to import' });
