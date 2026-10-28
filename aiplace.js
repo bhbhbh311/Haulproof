@@ -76,6 +76,7 @@ Rules:
 - A blank already holding a handwritten or printed value is not empty — leave it alone.
 - Multi-page documents usually repeat the signature lines on every page; place boxes on every page that has them.
 - Signature boxes: as wide as the blank line (typically 200-400 wide), about 30-45 tall, bottom edge sitting on the line. Date/time boxes: at least 110 wide and about 22-30 tall.
+- Every Consignee and Driver signature line on a page gets its box — never skip one because it sits close to another line or caption. When space is tight, make that box shorter (down to about 18 tall) so it fits on its line without covering the other one.
 - Prefer fewer, correct boxes over guesses. If a page has no signature lines, place nothing there.`;
 
 function wordsText(words) {
