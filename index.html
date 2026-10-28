@@ -7156,11 +7156,19 @@
       const r = await api('/api/receivers/duplicates'); const groups = r.groups || [];
       if (!groups.length) { body.innerHTML = '<div class="empty">No duplicate names found. 🎉</div>'; return; }
       body.innerHTML = '<div class="sub" style="margin:0 0 8px;">' + groups.length + ' group' + (groups.length === 1 ? '' : 's') + ' to review</div>' + groups.map((g, gi) => {
-        const best = g.slice().sort((a, b) => (b.docCount - a.docCount) || (b.usedBy.length - a.usedBy.length) || (a.createdAt - b.createdAt))[0].id;
+        // Default picks: a loose record at the same address as a location → merge into that location; otherwise, when the
+        // company already has a parent → keep the parent and tick only the loose records (Make locations of kept).
+        const loose = g.filter(x => !x.parentId && !x.isParent), placed = g.filter(x => x.parentId || x.isParent);
+        const twin = placed.length && loose.length ? placed.find(x => x.addrKey && loose.some(l => l.addrKey === x.addrKey)) : null;
+        const best = twin ? twin.id : placed.length ? (g.find(x => x.isParent) || placed[0]).id
+          : g.slice().sort((a, b) => (b.docCount - a.docCount) || (b.usedBy.length - a.usedBy.length) || (a.createdAt - b.createdAt))[0].id;
+        const tick = x => x.id !== best && (twin ? (!x.parentId && !x.isParent && x.addrKey === twin.addrKey) : placed.length ? (!x.parentId && !x.isParent) : true);
+        const hint = twin ? '<div class="sub" style="margin:0 0 6px;font-size:12.5px;">The ticked record has the <b>same address</b> as a location already under ' + esc(twin.parentName || twin.name) + ' — <b>Merge</b> it into that location.</div>'
+          : placed.length ? '<div class="sub" style="margin:0 0 6px;font-size:12.5px;">This company already has a parent. To add the ticked record as another location, keep the parent (●) and click <b>Make locations of kept</b>.</div>' : '';
         return '<div class="rdGroup" data-g="' + gi + '" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px;">'
-          + '<table style="margin:0;"><thead><tr><th style="width:56px;">Keep</th><th style="width:56px;">Include</th><th>Name &amp; address</th><th>Documents</th><th>Used by</th><th>Contacts</th></tr></thead><tbody>'
-          + g.map(x => '<tr><td><input type="radio" name="rdk' + gi + '" value="' + x.id + '"' + (x.id === best ? ' checked' : '') + '></td><td><input type="checkbox" class="rdInc" value="' + x.id + '"' + (x.id === best ? '' : ' checked') + '></td>'
-            + '<td><b>' + esc(x.name) + '</b><div style="color:var(--muted);font-size:12px;">' + (x.addressLine ? esc(x.addressLine) : '<i>no address</i>') + (x.parentName ? ' · under ' + esc(x.parentName) : '') + '</div></td>'
+          + hint + '<table style="margin:0;"><thead><tr><th style="width:56px;">Keep</th><th style="width:56px;">Include</th><th>Name &amp; address</th><th>Documents</th><th>Used by</th><th>Contacts</th></tr></thead><tbody>'
+          + g.map(x => '<tr><td><input type="radio" name="rdk' + gi + '" value="' + x.id + '"' + (x.id === best ? ' checked' : '') + '></td><td><input type="checkbox" class="rdInc" value="' + x.id + '"' + (tick(x) ? ' checked' : '') + '></td>'
+            + '<td><b>' + esc(x.name) + '</b>' + (x.isParent ? ' <span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(77,141,255,.18);color:#9cc0ff;margin-left:4px;">PARENT COMPANY</span>' : '') + '<div style="color:var(--muted);font-size:12px;">' + (x.addressLine ? esc(x.addressLine) : '<i>no address</i>') + (x.parentName ? ' · location under ' + esc(x.parentName) : '') + '</div></td>'
             + '<td>' + x.docCount + '</td><td style="font-size:12px;">' + (x.usedBy.length ? esc(x.usedBy.join(', ')) : '<span style="color:var(--muted)">nobody</span>') + '</td><td>' + x.contacts + '</td></tr>').join('')
           + '</tbody></table><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button type="button" class="btn-sm rdMerge">Merge into kept (same place)</button><button type="button" class="ghost btn-sm rdGroupBtn">Make locations of kept (different addresses)</button><span class="rdMsg" style="font-size:12.5px;font-weight:600;align-self:center;"></span></div>'
           + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);"><span style="font-size:12.5px;color:var(--muted);">Or put the ticked ones (and the ● one) under a new parent company:</span>'

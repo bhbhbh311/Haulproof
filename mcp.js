@@ -427,7 +427,7 @@ const TOOLS = [
     description: 'Master admin only: lists receivers (delivery locations) with address, contacts, parent company, how many documents were delivered to each and which customers use it — for spotting and cleaning up duplicates. Optionally filter by name.',
     inputSchema: { type: 'object', properties: { search: str('Part of a receiver name') } }, annotations: { readOnlyHint: true },
     run: async (user, a) => { const n = norm(a.search);
-      const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind = 'receiver') ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
+      const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind = 'receiver') AND mergedInto IS NULL ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
       const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
       const contacts = db.prepare(`SELECT name, email, receiveBol FROM receiver_contacts WHERE receiverId = ?`), parent = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
       return { total: rows.length, receivers: rows.slice(0, 300).map(o => ({ id: o.id, name: o.name, active: o.active !== 0,
@@ -796,7 +796,7 @@ async function handleRpc(msg, user, base) {
       const p = msg.params || {}, tool = TOOL_BY_NAME[p.name];
       if (!tool || (tool.masterOnly && !user._master)) return fail(-32602, 'Unknown tool: ' + p.name);
       try {
-        if (user._master && !user.orgId && ['whoami', 'list_companies', 'use_company'].indexOf(tool.name) < 0)
+        if (user._master && !user.orgId && tool.name !== 'whoami' && !tool.masterOnly)
           throw new ToolError('You’re connected as the Master Admin. Say which company to work in first (list_companies, then use_company).');
         const out = await tool.run(user, p.arguments || {}, base);
         return ok({ content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] });

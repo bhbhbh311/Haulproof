@@ -222,13 +222,20 @@ router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
 router.get('/duplicates', requireAuth, requireSuper, (req, res) => {
   const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND active = 1 AND mergedInto IS NULL`).all();
   const groups = {};
-  // Locations already filed under a parent are intentional look-alikes, not duplicates.
-  rows.filter(o => !o.parentId).forEach(o => { const k = core(o.name); if (k) (groups[k] = groups[k] || []).push(o); });
+  rows.forEach(o => { const k = core(o.name); if (k) (groups[k] = groups[k] || []).push(o); });
+  const isParent = new Set(rows.filter(o => o.parentId).map(o => o.parentId));
+  // Same street + zip (case, punctuation and "St"/"Street" style differences ignored) = probably the same place.
+  const addrKey = o => { const a = String(o.address || '').toLowerCase().replace(/\b(street|st|avenue|ave|road|rd|drive|dr|north|n|south|s|east|e|west|w)\b/g, m => m[0]).replace(/[^a-z0-9]/g, '');
+    return a ? a + '|' + String(o.zip || '').replace(/\D/g, '').slice(0, 5) : ''; };
   const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
   const ccount = db.prepare(`SELECT COUNT(*) n FROM receiver_contacts WHERE receiverId = ?`), pname = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
-  const out = Object.values(groups).filter(g => g.length > 1).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
-      parentName: o.parentId ? ((pname.get(o.parentId) || {}).name || null) : null, docCount: docs.get(o.id).n, usedBy: custs.all(o.id).map(r => r.name), contacts: ccount.get(o.id).n,
-      createdAt: o.createdAt }))).sort((a, b) => a[0].name.localeCompare(b[0].name));
+  // A parent with its locations is already sorted out; a group only needs review while it has a loose record
+  // (not a location and not a parent). Parents and locations stay in the group so the loose one can join them.
+  const out = Object.values(groups).filter(g => g.length > 1 && g.some(o => !o.parentId && !isParent.has(o.id))).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
+      parentId: o.parentId || null, parentName: o.parentId ? ((pname.get(o.parentId) || {}).name || null) : null, isParent: isParent.has(o.id), addrKey: addrKey(o),
+      docCount: docs.get(o.id).n, usedBy: custs.all(o.id).map(r => r.name), contacts: ccount.get(o.id).n, createdAt: o.createdAt })))
+    .map(g => g.sort((a, b) => (b.isParent - a.isParent) || (!!b.parentId - !!a.parentId) || a.name.localeCompare(b.name)))
+    .sort((a, b) => a[0].name.localeCompare(b[0].name));
   res.json({ groups: out });
 });
 // Merge duplicates into one: documents, customer links, contacts (each customer keeps its own), locations and logins
