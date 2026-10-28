@@ -7,8 +7,8 @@ const { db, DATA_DIR } = require('./db');
 const { sendMail, portalUrl } = require('./mailer');
 
 const RECIPIENT    = (process.env.DIGEST_EMAIL || 'brian@haulproofepod.com').trim();
-// CC a copy to the Callahan inbox so it's visible there too (set DIGEST_CC='' to turn the CC off).
-const CC           = (process.env.DIGEST_CC == null ? 'BHarris@callahantrans.com' : process.env.DIGEST_CC).trim();
+// Optional CC (set DIGEST_CC to an address to copy someone in). Off by default: the digest already goes to Brian@haulproofepod.com.
+const CC           = (process.env.DIGEST_CC == null ? '' : process.env.DIGEST_CC).trim();
 const SEND_HOUR_UTC = Number(process.env.DIGEST_HOUR_UTC || 12);   // ~7am US Central (CDT). Override via env.
 const STATE_FILE   = path.join(DATA_DIR, 'digest-state.json');
 

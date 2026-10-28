@@ -10,7 +10,7 @@ function portalUrl() {
 // Where "still need help" requests are routed. Configurable so it can move off Brian's inbox later
 // without a code change; defaults to his address for now.
 function helpEmail() {
-  return (process.env.HELP_EMAIL || 'bharris@callahantrans.com').trim();
+  return (process.env.HELP_EMAIL || 'Brian@haulproofepod.com').trim();
 }
 function unsubUrl(email) { return portalUrl() + '/unsubscribe?t=' + unsubToken(email); }
 function unsubUrlCat(email, cat) { return portalUrl() + '/unsubscribe?t=' + unsubTokenCat(email, cat); }
