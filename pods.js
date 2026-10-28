@@ -506,6 +506,9 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     try { if (load && load.customerId) customerEmails = customerDocEmails(load.customerId); } catch (e) {}
     // The built-in HaulProof Help logins never get copies (they're only HaulProof's way in to support a company).
     const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails])).filter(e => !/^haulproofhelp\+/i.test(e));
+    // The signed document is saved — answer the driver's phone now. Emailing the copies (one message per
+    // recipient, each can take seconds or fail) carries on in the background, so the driver never waits on email.
+    res.json({ ok: true, podId: id, loadId: load.id, emailed: false, emailQueued: !!(allRecipients.length && !redoOf), recipients: allRecipients });
     let mail = { sent: false };
     if (allRecipients.length && !redoOf) {
       // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
@@ -546,8 +549,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       }
     } catch (e) {}
     console.log('[INGEST] DONE pod=' + id + ' load=' + load.id + ' emailed=' + (!!mail.sent));
-    res.json({ ok: true, podId: id, loadId: load.id, emailed: !!mail.sent, recipients: allRecipients });
-  } catch (e) { console.error('[INGEST] FAILED', e); res.status(500).json({ error: 'Ingest failed' }); }
+  } catch (e) { console.error('[INGEST] FAILED', e); if (!res.headersSent) res.status(500).json({ error: 'Ingest failed' }); }
 });
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
