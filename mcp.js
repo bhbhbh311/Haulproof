@@ -367,7 +367,7 @@ const DOC_STATUS = { awaiting_build: 'needs signature setup', received: 'receive
 function loadDetail(d, base) {
   return Object.assign(loadSummary(d.load), {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
-    documents: (d.pods || []).filter(p => p.status !== 'parked').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: DOC_STATUS[p.status] || p.status, receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
+    documents: (d.pods || []).filter(p => p.status !== 'parked' && p.status !== 'not_used').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: DOC_STATUS[p.status] || p.status, receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
     // Driver check-in / check-out per stop (when the account records in/out times).
     in_out_times: (d.stopTimes || []).map(t => {
       const iso = (ms) => ms ? new Date(ms).toISOString() : null;
@@ -379,6 +379,7 @@ function loadDetail(d, base) {
 // Same buckets as the dispatch Dashboard: needs setup → done → on the road → ready for the driver → open.
 function loadCat(l) {
   if (l.needsSetup) return 'setup';
+  if (l.redoOut || l.pickPending) return 'road';
   if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'done';
   if (l.pickedUpAt || l.stopsDone > 0) return 'road';
   if (l.readyToSign) return 'ready';
@@ -386,7 +387,7 @@ function loadCat(l) {
 }
 // A 7-day download link for one signed document, openable without signing in (for billing / sending to someone).
 function downloadLink(base, pod) { return base + '/d/' + jwt.sign({ k: 'dl', p: pod.id }, JWT_SECRET, { expiresIn: '7d' }); }
-const isSigned = (p) => p.status === 'signed' || p.status === 'emailed';
+const isSigned = (p) => (p.status === 'signed' || p.status === 'emailed') && !p.pickPending;   // a copy waiting on dispatch's pick isn't final yet
 function needCompany(user) { if (!user.orgId) throw new ToolError('This login isn’t tied to a company, so it can’t change loads. Reconnect with a company login.'); }
 // Only the owning company files documents (uploads land under the uploader's company).
 function needOwner(user, load) { if ((load.orgId || null) !== (user.orgId || null)) throw new ToolError('Load ' + (load.poNumber || load.id) + ' belongs to another company, so documents can’t be attached from this login.'); }
@@ -501,8 +502,9 @@ const TOOLS = [
       const failed = loads.filter(l => l.emailFailed > 0);
       return {
         counts: { needs_signature_setup: by('setup').length, ready_for_driver: by('ready').length, on_the_road: by('road').length, waiting_on_paperwork: by('open').length,
-          completed: by('done').length, email_failed: failed.length, no_driver: noDriver.length, signed_today: loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0.getTime()).length },
+          completed: by('done').length, email_failed: failed.length, pick_signed_copy: loads.filter(l => l.pickPending > 0).length, no_driver: noDriver.length, signed_today: loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0.getTime()).length },
         needs_attention: [
+          ...loads.filter(l => l.pickPending > 0).map(l => item(l, { issue: 'A stop was signed twice — pick which signed copy to keep in HaulProof (the customer copy is on hold)' })),
           ...failed.map(l => item(l, { issue: 'Signed copy email failed — use send_signed_copy to resend' })),
           ...by('setup').map(l => item(l, { issue: 'Signature boxes not placed — the driver can’t sign yet (place_signatures)' })),
           ...noDriver.map(l => item(l, { issue: 'No driver assigned (assign_driver)' })),
@@ -748,7 +750,7 @@ async function docForEdit(user, a) {
     if (!a.load) throw new ToolError('Say which document: its id (document) or the load and stop_number.');
     const d = await resolveLoad(user, a.load); needOwner(user, d.load);
     const stop = Math.max(1, parseInt(a.stop_number, 10) || 1);
-    const hits = (d.pods || []).filter(p => (p.stopNumber || 1) === stop && p.status !== 'parked');
+    const hits = (d.pods || []).filter(p => (p.stopNumber || 1) === stop && p.status !== 'parked' && p.status !== 'not_used');
     const open = hits.filter(p => p.status !== 'signed' && p.status !== 'emailed');
     if (!open.length) throw new ToolError(hits.length ? 'Stop ' + stop + ' is already signed.' : 'No document on stop ' + stop + ' of that load.');
     if (open.length > 1) throw new ToolError('Stop ' + stop + ' has more than one document — pass the document id: ' + open.map(p => p.id + ' (' + (p.filename || p.docType) + ')').join(', '));

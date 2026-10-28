@@ -258,7 +258,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (load) { or.push(`TRIM(pods.loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
     rows = db.prepare(`SELECT pods.* FROM pods JOIN loads ON loads.id = pods.loadId
-      WHERE ${where.join(' AND ')} AND pods.status != 'parked' ORDER BY (pods.status='prepared') DESC, (pods.stopNumber IS NULL), pods.stopNumber ASC, pods.uploadedAt ASC`).all(...args);
+      WHERE ${where.join(' AND ')} AND pods.status NOT IN ('parked','not_used') ORDER BY (pods.status='prepared') DESC, (pods.stopNumber IS NULL), pods.stopNumber ASC, pods.uploadedAt ASC`).all(...args);
   } else {
     const orgId = reqOrgId(req);
     const where = [`orgId IS ?`], args = [orgId];
@@ -266,7 +266,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
     if (po) { or.push(`TRIM(poNumber) = ? COLLATE NOCASE`); args.push(po); }
     if (load) { or.push(`TRIM(loadNumber) = ? COLLATE NOCASE`); args.push(load); }
     where.push('(' + or.join(' OR ') + ')');
-    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} AND status != 'parked' ORDER BY (status='prepared') DESC, (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(...args);
+    rows = db.prepare(`SELECT * FROM pods WHERE ${where.join(' AND ')} AND status NOT IN ('parked','not_used') ORDER BY (status='prepared') DESC, (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(...args);
   }
   if (!rows.length) return res.status(404).json({ error: 'No document found for that PO # / Load #' });
   // A driver signs the prepared docs. Return every prepared stop so they can sign each one; if none are
@@ -419,6 +419,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // Carry receiver / stop / sales-rep from the prepared doc onto this signed one. When the driver app
     // sends the exact prepared-doc id it signed (X-POD-PrepId), match THAT stop precisely; otherwise fall
     // back to the most recent prepared stop on the load.
+    let redoOf = null;   // set when this signing is a redo of an already-signed stop ("Send to driver again")
     try {
       const prepId = (dec(h['x-pod-prepid']) || '').trim() || null;
       let prep = null;
@@ -433,6 +434,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
         console.log('[INGEST] SIGNED po=' + meta.poNumber + ' load=' + load.id + ' (' + load.poNumber + ') sentPrepId=' + prepId + ' matchedPrep=' + (prep ? (prep.id + ' stop' + prep.stopNumber) : 'NONE') + ' preparedStopsOnLoad=' + preps.length + ' [' + preps.map(x => 'stop' + x.stopNumber + ':' + String(x.id).slice(-5)).join(',') + ']');
       } catch (e) {}
       if (prep) {
+        const pextra = db.prepare(`SELECT redoOf, fields FROM pods WHERE id = ?`).get(prep.id) || {};
+        if (pextra.redoOf && db.prepare(`SELECT id FROM pods WHERE id = ? AND status IN ('signed','emailed')`).get(pextra.redoOf)) redoOf = pextra.redoOf;
         if (prep.receiverId) db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE id = ?`).run(prep.receiverId, prep.receiverName, id);
         if (prep.stopNumber) db.prepare(`UPDATE pods SET stopNumber = ? WHERE id = ?`).run(prep.stopNumber, id);
         if (prep.salesRepUserId) db.prepare(`UPDATE pods SET salesRepUserId = ? WHERE id = ?`).run(prep.salesRepUserId, id);
@@ -448,13 +451,17 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
           // The prepared "ready to sign" copy for THIS stop has now been replaced by the signed copy above —
           // remove it so the stop shows only the signed document (no lingering duplicate to sign). Only ever
           // the ONE exact stop that was just signed; a multi-stop load keeps its other stops to sign.
+          // Keep the clean original (file + signature boxes) with the signed copy, so dispatch can send it to the
+          // driver again later ("Send to driver again") without the old signatures on it.
           db.prepare(`DELETE FROM pods WHERE id = ?`).run(prep.id);
-          if (pf && pf.filepath) { try { fs.unlinkSync(pf.filepath); } catch (_) {} }
+          if (pf && pf.filepath && fs.existsSync(pf.filepath)) db.prepare(`UPDATE pods SET originalFile = ?, originalFields = ? WHERE id = ?`).run(pf.filepath, pextra.fields || '[]', id);
         } catch (e) {}
       }
     } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
-      detail: 'Signed POD received' + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+      detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+    // A redo: both signed copies wait for dispatch to pick one; the customer copy is held until then.
+    if (redoOf) { try { db.prepare(`UPDATE pods SET redoOf = ?, pickPending = 1 WHERE id = ?`).run(redoOf, id); db.prepare(`UPDATE pods SET pickPending = 1 WHERE id = ?`).run(redoOf); } catch (e) {} }
     // Sending a stop's signed documents = out of that delivery stop (when in/out times are on and no check-out yet).
     // Uses the time the driver actually signed, so a document that waited in the phone's outbox keeps the real time.
     try {
@@ -500,7 +507,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     // The built-in HaulProof Help logins never get copies (they're only HaulProof's way in to support a company).
     const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails])).filter(e => !/^haulproofhelp\+/i.test(e));
     let mail = { sent: false };
-    if (allRecipients.length) {
+    if (allRecipients.length && !redoOf) {
       // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
       // carries the condition photos. Falls back to the raw file when there are none.
       let combined = null;
@@ -519,7 +526,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       const blocked = mail.blocked || [];
       const optNote = blocked.length ? ' (skipped ' + blocked.length + ' opted-out: ' + blocked.join(', ') + ')' : '';
       let detail;
-      if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
+      if (redoOf) detail = stopTag + 'Redo signed — customer copy held until dispatch picks which signed copy to keep';
+      else if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
       else if (mail.sent) detail = stopTag + 'Emailed to ' + sentTo.length + ' recipient' + (sentTo.length > 1 ? 's' : '') + ': ' + sentTo.join(', ') + optNote;
       else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + sentTo.join(', ') + optNote;
       else if (blocked.length && !sentTo.length) detail = stopTag + 'Not emailed — all ' + blocked.length + ' recipient(s) opted out: ' + blocked.join(', ');
@@ -528,7 +536,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     } catch (e) {}
     // If this signature completed the WHOLE load (every doc signed/emailed), notify the Always-notify team — once.
     try {
-      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status != 'parked'`).get(load.id);
+      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used')`).get(load.id);
       if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
         const lr = db.prepare(`SELECT completeNotifiedAt FROM loads WHERE id = ?`).get(load.id);
         if (!lr || !lr.completeNotifiedAt) {
@@ -817,6 +825,104 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
 });
 
 // ---- MARK READY FOR DRIVER: release a dispatch-built document so the driver can sign it. ----
+// ---- "Send to driver again": redo a signed stop. The driver gets a fresh, unsigned copy of the same stop (the
+// clean original kept at signing, with its signature boxes); the signed copy stays. When the redo is signed, both
+// copies wait for dispatch to pick one (POST /:id/keep) and the customer copy is held until then. ----
+router.post('/:id/send-again', requireAuth, express.json(), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'signed' && row.status !== 'emailed') return res.status(409).json({ error: 'Only a signed document can be sent to the driver again' });
+  if (row.pickPending) return res.status(409).json({ error: 'Pick which signed copy to keep first' });
+  if (db.prepare(`SELECT id FROM pods WHERE redoOf = ? AND status IN ('prepared','awaiting_build')`).get(row.id)) return res.status(409).json({ error: 'This stop is already out with the driver to sign again' });
+  const load = row.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(row.loadId) : null;
+  // Which driver: the one picked, else whoever signed it, else the stop's / load's driver.
+  let drv = null;
+  const pick = String((req.body && req.body.driverId) || '').trim();
+  const allowedOrgs = new Set([row.orgId, load && load.orgId, load && load.carrierId, load && load.brokerId].filter(Boolean).map(String));
+  for (const cand of [pick, row.signedByDriverId, row.assignedDriverId]) {
+    if (!cand) continue;
+    const d = db.prepare(`SELECT * FROM drivers WHERE id = ? AND active = 1`).get(cand);
+    if (d && allowedOrgs.has(String(d.orgId || ''))) { drv = d; break; }
+    if (cand === pick) return res.status(400).json({ error: 'That driver is not on this load’s account or its carrier/broker' });
+  }
+  // Start from the clean original when we kept one; older documents only have the signed copy.
+  const fromOriginal = !!(row.originalFile && fs.existsSync(row.originalFile));
+  const src = fromOriginal ? row.originalFile : row.filepath;
+  if (!src || !fs.existsSync(src)) return res.status(410).json({ error: 'The document file is missing, so it can’t be sent again' });
+  let fields = '[]';
+  if (fromOriginal) { try { const f = JSON.parse(row.originalFields || '[]'); if (Array.isArray(f) && f.length) fields = JSON.stringify(f); } catch (e) {} }
+  const hasBoxes = fields !== '[]';
+  try {
+    const newId = crypto.randomUUID();
+    const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
+    fs.copyFileSync(src, newPath);
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, status, assignedDriverId, assignedDriverName, redoOf, uploadedAt)
+       VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,@fields,'[]',@status,@assignedDriverId,@assignedDriverName,@redoOf,@uploadedAt)`)
+      .run({ id: newId, orgId: row.orgId || null, loadId: row.loadId || null, loadNumber: row.loadNumber || null, poNumber: row.poNumber || null,
+        consignee: row.consignee || null, receiverId: row.receiverId || null, receiverName: row.receiverName || null, stopNumber: row.stopNumber || null,
+        salesRepUserId: row.salesRepUserId || null, docType: row.docType || 'BOL', filename: row.filename || 'document.pdf', filepath: newPath,
+        sizeBytes: fs.statSync(newPath).size, fields, status: hasBoxes ? 'prepared' : 'awaiting_build',
+        assignedDriverId: drv ? drv.id : null, assignedDriverName: drv ? drv.name : null, redoOf: row.id, uploadedAt: Date.now() });
+    try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+      detail: (row.stopNumber ? 'Stop ' + row.stopNumber + ' — ' : '') + 'Sent to ' + (drv ? drv.name : 'the driver') + ' to sign again; the signed copy stays until dispatch picks which one to keep'
+        + (hasBoxes ? '' : ' (signature boxes need setting up first)'), actor: req.user.email }); } catch (e) {}
+    if (hasBoxes) { try { notify.notifyDriverReady(newId); } catch (e) {} }
+    res.json({ ok: true, podId: newId, driver: drv ? drv.name : null, needsSetup: !hasBoxes, fromOriginal });
+  } catch (e) { console.error('send-again', e.message); res.status(500).json({ error: 'Could not send it again' }); }
+});
+
+// ---- Cancel a redo that hasn't been signed yet: it comes off the driver's phone; the signed copy stays as is. ----
+router.post('/:id/cancel-redo', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (!row.redoOf || (row.status !== 'prepared' && row.status !== 'awaiting_build')) return res.status(409).json({ error: 'This isn’t a redo waiting on the driver' });
+  db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
+  if (row.filepath) { try { fs.unlinkSync(row.filepath); } catch (e) {} }
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: (row.stopNumber ? 'Stop ' + row.stopNumber + ' — ' : '') + 'Redo cancelled; the first signed copy stays', actor: req.user.email }); } catch (e) {}
+  res.json({ ok: true });
+});
+
+// ---- Keep this signed copy. Two signed copies of a stop (the first signing and its redo): the one kept stays the
+// stop's document; the other is archived as not used (a mistake) — still viewable, never emailed or counted.
+// Picking from a pending pair emails the kept copy to the customer if it hasn't gone out yet; swapping later
+// ("Use this one instead") emails only when dispatch says so (body.email). ----
+router.post('/:id/keep', requireAuth, express.json(), async (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  const isDone = (p) => p && (p.status === 'signed' || p.status === 'emailed' || p.status === 'not_used');
+  if (!isDone(row)) return res.status(409).json({ error: 'Only a signed copy can be kept' });
+  let other = row.redoOf ? db.prepare(`SELECT * FROM pods WHERE id = ?`).get(row.redoOf) : null;
+  if (!isDone(other)) other = db.prepare(`SELECT * FROM pods WHERE redoOf = ? AND status IN ('signed','emailed','not_used') ORDER BY signedAt DESC LIMIT 1`).get(row.id);
+  if (!isDone(other)) return res.status(409).json({ error: 'There’s no other signed copy of this stop to choose between' });
+  const wasPending = !!(row.pickPending || other.pickPending);
+  const now = Date.now(), who = req.user.email || null;
+  const keptStatus = row.status === 'not_used' ? (row.notUsedPrevStatus || 'signed') : row.status;
+  db.transaction(() => {
+    db.prepare(`UPDATE pods SET status = ?, pickPending = NULL, notUsedAt = NULL, notUsedBy = NULL, notUsedPrevStatus = NULL WHERE id = ?`).run(keptStatus, row.id);
+    if (other.status !== 'not_used') db.prepare(`UPDATE pods SET notUsedPrevStatus = status, status = 'not_used', pickPending = NULL, notUsedAt = ?, notUsedBy = ?, emailNextRetryAt = NULL WHERE id = ?`).run(now, who, other.id);
+    else db.prepare(`UPDATE pods SET pickPending = NULL WHERE id = ?`).run(other.id);
+  })();
+  const label = (p) => (p.redoOf ? 'the redo' : 'the first signing') + (p.signedAt ? ' (' + new Date(Number(p.signedAt)).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ')' : '');
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: (row.stopNumber ? 'Stop ' + row.stopNumber + ' — ' : '') + 'Kept ' + label(row) + '; ' + label(other) + ' archived as not used', actor: who }); } catch (e) {}
+  const sendNow = req.body && req.body.email === true ? true : (req.body && req.body.email === false ? false : (wasPending && keptStatus === 'signed'));
+  let mail = null;
+  if (sendNow) {
+    const fresh = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(row.id);
+    try { mail = await emailRetry.resendPod(Object.assign({}, fresh, { emailFailedTo: null }), { manual: true, actor: who }); } catch (e) { mail = { error: e.message }; }
+  }
+  // Picking may finish the load — tell the Always-notify team once, the same as a normal last signature.
+  try {
+    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used')`).get(row.loadId);
+    if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
+      const lr = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(row.loadId);
+      if (lr && !lr.completeNotifiedAt) { db.prepare(`UPDATE loads SET completeNotifiedAt = ? WHERE id = ?`).run(Date.now(), lr.id); notify.notifyLoadComplete({ load: lr, poNumber: lr.poNumber }); }
+    }
+  } catch (e) {}
+  res.json({ ok: true, kept: row.id, archived: other.id, emailed: !!(mail && mail.sent), simulated: !!(mail && mail.simulated), emailError: mail && !mail.sent && !mail.simulated ? (mail.error || 'Email not sent') : null });
+});
+
 router.post('/:id/ready', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });

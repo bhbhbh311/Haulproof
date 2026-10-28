@@ -450,6 +450,15 @@ CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
 addColumn('receiver_contacts', 'ownerOrgId', 'TEXT');
-addColumn('login_links', 'pendingReset', 'INTEGER');   // forgot-password link: the temp password only takes effect when the link is opened   // the customer whose contact this is; NULL = the receiver's own people (master admin)
+addColumn('login_links', 'pendingReset', 'INTEGER');
+// "Send to driver again": a signed stop can be redone. The clean unsigned original is kept with the signed copy so a
+// redo starts from it; while both signed copies exist dispatch picks one (pickPending) and the other becomes 'not_used'.
+addColumn('pods', 'originalFile', 'TEXT');        // the unsigned original this signed copy was made from (kept for a redo)
+addColumn('pods', 'originalFields', 'TEXT');      // that original's signature boxes (JSON)
+addColumn('pods', 'redoOf', 'TEXT');              // on a redo: the signed copy it redoes
+addColumn('pods', 'pickPending', 'INTEGER');      // 1 while two signed copies of a stop wait for dispatch to pick one
+addColumn('pods', 'notUsedAt', 'INTEGER');        // when this signed copy was archived as not used (a mistake)
+addColumn('pods', 'notUsedBy', 'TEXT');           // who archived it
+addColumn('pods', 'notUsedPrevStatus', 'TEXT');   // its status before ('signed' / 'emailed'), to restore it   // forgot-password link: the temp password only takes effect when the link is opened   // the customer whose contact this is; NULL = the receiver's own people (master admin)
 
 module.exports = { db, DATA_DIR };

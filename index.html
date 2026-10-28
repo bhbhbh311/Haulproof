@@ -2966,7 +2966,8 @@
   // Colour stripe on the left of each load row: violet = needs setup, amber = open / waiting, blue = with the
   // driver / signing in progress, green = completed. Mirrors the status pill.
   function loadRowTone(l) {
-    if (l.needsSetup) return 'tone-setup';
+    if (l.needsSetup || l.pickPending) return 'tone-setup';
+    if (l.redoOut) return 'tone-active';
     if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'tone-done';
     if ((l.stopsDone > 0 && l.stopsTotal > 0) || l.readyToSign) return 'tone-active';
     const t = l.lastEvent && l.lastEvent.type;
@@ -2988,7 +2989,9 @@
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
     // a driver's upload waiting on dispatch reads "Needs setup" (not a vague "Updated").
     if (l.needsSetup) return '<span class="chip setup">Needs setup</span>';
+    if (l.pickPending) return '<span class="chip setup">Pick the signed copy to keep</span>';
     if (l.emailFailed > 0) return '<span class="chip failed">Signed · Email failed</span>';
+    if (l.redoOut) return '<span class="chip prepared">Sent to driver again</span>';
     // Every stop signed → the load is done; green "Completed" and it stays in the list to open/view.
     if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return '<span class="chip signed">Completed — ready to view</span>';
     // Part-way through a multi-stop load → show progress instead of a flat "Ready to sign".
@@ -3038,6 +3041,7 @@
   //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
   function loadCat(l) {
     if (l.needsSetup) return 'setup';
+    if (l.redoOut || l.pickPending) return 'road';   // a stop is being redone — still in progress until dispatch picks
     if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'done';
     if (l.pickedUpAt || l.stopsDone > 0) return 'road';
     if (l.readyToSign) return 'ready';
@@ -3052,6 +3056,7 @@
     ['open', 'Waiting on paperwork', l => loadCat(l) === 'open'],
     ['done', 'Completed', l => loadCat(l) === 'done'],
     ['mailfail', 'Email failed', l => l.emailFailed > 0],
+    ['pick', 'Pick signed copy', l => l.pickPending > 0],
     ['nodriver', 'No driver', noDriver],
   ];
   let _loadFilter = '';
@@ -3080,10 +3085,10 @@
     const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), week0 = Date.now() - 7 * 86400000;
     const by = (k) => loads.filter(l => loadCat(l) === k);
     const setup = by('setup'), ready = by('ready'), road = by('road'), open = by('open');
-    const failed = loads.filter(l => l.emailFailed > 0), nodrv = loads.filter(noDriver);
+    const failed = loads.filter(l => l.emailFailed > 0), nodrv = loads.filter(noDriver), picks = loads.filter(l => l.pickPending > 0);
     const doneWeek = loads.filter(l => loadCat(l) === 'done' && l.lastSignedAt && l.lastSignedAt >= week0);
     const signedToday = loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0);
-    const attnN = setup.length + failed.length + nodrv.length;
+    const attnN = setup.length + failed.length + nodrv.length + picks.length;
     const first = ((user && (user.name || '')) || '').trim().split(/\s+/)[0] || '';
     const h = now.getHours(), hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
     $('homeHello').textContent = hello + (first ? ', ' + first : '');
@@ -3108,6 +3113,7 @@
     // Needs attention: failed emails first (customers are waiting on them), then setups, then loads with no driver.
     const po = (l) => esc(l.poNumber || l.loadNumber || 'Load');
     const items = [];
+    picks.forEach(l => items.push(['var(--violet)', `<b>Pick the signed copy to keep</b> · ${po(l)}`, 'A stop was signed twice — the customer copy is on hold until you choose', 'Pick', '', l.id]));
     failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — open it to resend', 'Resend', 'ghost btn-danger', l.id]));
     setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
     nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
@@ -3784,12 +3790,17 @@
     (function () {
       // Set-aside (parked) documents are not active stops — exclude them so the detail count
       // matches the loads-list count (which the server already computes without parked docs).
-      const active = (_lastPods || []).filter(p => p.status !== 'parked');
+      // Redos count only once dispatch keeps them; archived (not used) copies never count.
+      const all = _lastPods || [];
+      const active = all.filter(p => p.status !== 'parked' && p.status !== 'not_used' && !(p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build' || p.pickPending)));
+      const picking = all.some(p => p.pickPending), redoing = all.some(p => p.redoOf && p.status === 'prepared');
       const total = active.length;
       const done = active.filter(p => p.status === 'signed' || p.status === 'emailed').length;
       const awaiting = active.filter(p => p.status === 'awaiting_build').length;
       let label;
-      if (total > 0 && done >= total) label = '<span class="chip signed">✓ Completed — ready to view</span>';
+      if (picking) label = '<span class="chip setup">Pick the signed copy to keep</span>';
+      else if (redoing) label = '<span class="chip prepared">Sent to driver again</span>';
+      else if (total > 0 && done >= total) label = '<span class="chip signed">✓ Completed — ready to view</span>';
       else if (done > 0) label = '<span class="chip prepared">' + done + ' of ' + total + ' stops signed</span>';
       else if (awaiting > 0) label = '<span class="chip received">From driver — needs setup</span>';
       else if (total > 0) label = '<span class="chip prepared">Ready to sign</span>';
@@ -3922,6 +3933,93 @@
   }
   // Append the "Set aside" section (parked docs kept when a page was sent back to re-shoot) under the docs table.
   // Parked docs are not active and are never sent to a driver; the dispatcher restores one to put it back in play.
+  // ---- "Send to driver again" (redo a signed stop) ----
+  const redoWhen = (t) => t ? new Date(Number(t)).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  // A small pop-up with a message, optional extra controls and several buttons (confirmDialog has only one).
+  function choiceDialog({ title, message, extraHtml, choices }) {
+    let ov = $('choiceModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'choiceModal'; ov.className = 'histOverlay hide'; ov.style.zIndex = '10080';
+      ov.innerHTML = '<div class="histBox" style="max-width:460px;"><h1 id="chTitle" style="margin:0 0 8px;font-size:18px;"></h1><p id="chMsg" class="sub" style="margin-top:0;"></p><div id="chExtra"></div><div id="chBtns" style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;"></div></div>';
+      document.body.appendChild(ov); ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); }); }
+    $('chTitle').textContent = title || ''; $('chMsg').textContent = message || ''; $('chExtra').innerHTML = extraHtml || '';
+    const btns = $('chBtns'); btns.innerHTML = '';
+    [{ label: 'Cancel', cls: 'ghost' }].concat(choices || []).forEach(c => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = c.cls || ''; b.textContent = c.label;
+      b.onclick = async () => { if (!c.run) { ov.classList.add('hide'); return; } b.disabled = true; try { await c.run(); ov.classList.add('hide'); } catch (e) { alert(e.message || 'Something went wrong'); } b.disabled = false; };
+      btns.appendChild(b);
+    });
+    ov.classList.remove('hide');
+  }
+  async function openSendAgain(p) {
+    if (!p) return;
+    let drivers = [];
+    try {
+      if (isBrokerUser() && curLoad && curLoad.carrierId) { const cr = await api('/api/drivers/for-carrier/' + encodeURIComponent(curLoad.carrierId)); drivers = cr.drivers || []; }
+      else { const scope = ldScopeOrgId(); const r = await api('/api/drivers' + (scope ? ('?orgId=' + encodeURIComponent(scope)) : '')); drivers = r.drivers || []; }
+    } catch (e) {}
+    drivers = drivers.filter(d => d.active !== false);
+    const cur = (curLoad && curLoad.driverName) || '';
+    const opts = drivers.map(d => `<option value="${d.id}"${d.name === cur ? ' selected' : ''}>${esc(d.name)}</option>`).join('');
+    const stop = 'Stop ' + (p.stopNumber || 1);
+    choiceDialog({
+      title: 'Send ' + stop + ' to the driver again?',
+      message: 'The driver gets a fresh, unsigned copy of ' + stop + '. This signed copy stays, and when the new one is signed you pick which one to keep. The customer’s copy waits until you pick.'
+        + (p.hasOriginal ? '' : ' (This document was signed before HaulProof kept clean originals, so the driver will get the signed copy to sign over.)'),
+      extraHtml: drivers.length ? '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Driver<select id="saDriver" style="display:block;width:100%;margin-top:4px;padding:8px;">' + opts + '</select></label>' : '',
+      choices: [{ label: '↻ Send to driver again', run: async () => {
+        const r = await api('/api/pods/' + p.id + '/send-again', { method: 'POST', body: JSON.stringify({ driverId: $('saDriver') ? $('saDriver').value : '' }) });
+        if (r.needsSetup) alert('Sent back for setup: place the signature boxes on the new copy, then it goes to ' + (r.driver || 'the driver') + '.');
+        openLoad(curLoad.id); try { loadLoads(); } catch (e) {}
+      } }]
+    });
+  }
+  function keepCopy(p, { swap } = {}) {
+    const done = async (email) => {
+      const r = await api('/api/pods/' + p.id + '/keep', { method: 'POST', body: JSON.stringify(email === undefined ? {} : { email }) });
+      if (r.simulated) alert('Kept. Email isn’t set up on the server yet, so the customer copy wasn’t sent.');
+      else if (r.emailError) alert('Kept, but the customer copy didn’t go out: ' + r.emailError + '\nUse Resend on the stop.');
+      openLoad(curLoad.id); try { loadLoads(); } catch (e) {}
+    };
+    if (!swap) return done().catch(e => alert(e.message));
+    choiceDialog({ title: 'Use this copy instead?', message: 'This copy becomes the stop’s document and the current one is archived as not used. Also email this copy to the customer?',
+      choices: [{ label: 'Use it, don’t email', cls: 'ghost', run: () => done(false) }, { label: 'Use it and email the customer', run: () => done(true) }] });
+  }
+  function appendRedoSections(box, pickPods, notUsedPods) {
+    // Two signed copies of a stop → pick one. Pairs are a redo and the copy it redoes.
+    const pairs = [];
+    (pickPods || []).filter(p => p.redoOf).forEach(r => { const o = (pickPods || []).find(x => x.id === r.redoOf); if (o) pairs.push([o, r]); });
+    pairs.forEach(([first, redo]) => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:14px;padding:12px;border:1.5px solid var(--warn);border-radius:10px;background:var(--surface2,var(--sunk));';
+      const card = (p, label) => `<div style="flex:1;min-width:220px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;">
+          <div style="font-weight:700;">${label}</div>
+          <div class="sub" style="font-size:12px;margin:2px 0 8px;">${esc(p.driver || p.assignedDriverName || 'Driver')} · ${redoWhen(p.signedAt)}${p.consignee ? '<br>Signed by ' + esc(p.consignee) : ''}</div>
+          <button class="dl rdView" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;font-weight:600;">View ↗</button>
+          <div style="margin-top:8px;"><button type="button" class="btn-sm rdKeep" data-id="${p.id}">✓ Keep this one</button></div></div>`;
+      wrap.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;"><div><b style="color:var(--warn);">Stop ${first.stopNumber || 1}: two signed copies — pick the one to keep</b>
+          <div class="sub" style="font-size:12px;">The other moves to “Not used (archived)”. You can still view it there and in the load history.</div></div>
+          <span class="chip" style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);align-self:flex-start;">Needs your pick</span></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">${card(first, 'First signing')}${card(redo, 'Redo')}</div>
+        <div style="margin-top:10px;font-size:12.5px;color:var(--warn);">✉ The customer copy is on hold and goes out when you pick (unless the kept copy was already emailed).</div>`;
+      wrap.querySelectorAll('.rdView').forEach(b => b.onclick = () => openDocViewer(b.dataset.id === first.id ? first : redo));
+      wrap.querySelectorAll('.rdKeep').forEach(b => b.onclick = () => { b.disabled = true; keepCopy(b.dataset.id === first.id ? first : redo); });
+      box.appendChild(wrap);
+    });
+    if (notUsedPods && notUsedPods.length) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:8px;';
+      wrap.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:2px;">🗂 Not used (archived)</div><div class="sub" style="font-size:12px;margin-bottom:8px;">Signed copies replaced by a redo. They’re never emailed, counted or sent to billing.</div>'
+        + notUsedPods.map(p => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);">
+            <div style="flex:1;min-width:180px;font-size:13px;"><b>Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}</b> — ${p.redoOf ? 'redo' : 'first signing'}, ${redoWhen(p.signedAt)}
+            <div class="sub" style="font-size:12px;">Archived${p.notUsedBy ? ' by ' + esc(p.notUsedBy) : ''}${p.notUsedAt ? ' · ' + redoWhen(p.notUsedAt) : ''}</div></div>
+            <button class="dl nuView" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;font-weight:600;">View ↗</button>
+            <button class="ghost btn-sm nuUse" data-id="${p.id}" type="button">Use this one instead</button></div>`).join('');
+      const byId = {}; notUsedPods.forEach(p => byId[p.id] = p);
+      wrap.querySelectorAll('.nuView').forEach(b => b.onclick = () => openDocViewer(byId[b.dataset.id]));
+      wrap.querySelectorAll('.nuUse').forEach(b => b.onclick = () => keepCopy(byId[b.dataset.id], { swap: true }));
+      box.appendChild(wrap);
+    }
+  }
   function appendParkedSection(box, parkedPods, editing) {
     if (!parkedPods || !parkedPods.length) return;
     const wrap = document.createElement('div');
@@ -3998,12 +4096,18 @@
     const box = $('ldDocs'); if (!box) return;
     const editing = $('loadDetailCard') && $('loadDetailCard').classList.contains('editing');
     const parkedPods = (allPods || []).filter(p => p && p.status === 'parked');
-    const pods = (allPods || []).filter(p => !p || p.status !== 'parked');
+    // Redos ("Send to driver again"): copies archived as not used, and pairs of signed copies waiting for a pick,
+    // get their own sections below the table.
+    const notUsedPods = (allPods || []).filter(p => p && p.status === 'not_used');
+    const pickPods = (allPods || []).filter(p => p && p.pickPending && (p.status === 'signed' || p.status === 'emailed'));
+    const redoOutFor = new Set((allPods || []).filter(p => p && p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build')).map(p => p.redoOf));
+    const pods = (allPods || []).filter(p => p && p.status !== 'parked' && p.status !== 'not_used' && !(p.pickPending && (p.status === 'signed' || p.status === 'emailed')));
     // Simple mode: the Delivered-to and Sales-rep columns only appear when the org has those fields turned on.
     const showRecv = fieldOn('receiver'), showRep = fieldOn('salesRep');
     const recvHead = showRecv ? '<th>Delivered to</th>' : '', repHead = showRep ? '<th>Sales rep</th>' : '';
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
+    if (!pods.length && pickPods.length) { box.innerHTML = ''; appendRedoSections(box, pickPods, notUsedPods); appendParkedSection(box, parkedPods, editing); return; }
     if (!pods.length) {
       box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th>' + recvHead + repHead + '<th>Status</th><th></th></tr></thead><tbody>'
         + '<tr>'
@@ -4020,6 +4124,7 @@
         if ($('ldStop')) { $('ldStop').value = addBtn.dataset.stop || '1'; $('ldStop').focus(); }
       };
       appendParkedSection(box, parkedPods, editing);
+      appendRedoSections(box, pickPods, notUsedPods);
       return;
     }
     box.innerHTML = '<table><thead><tr><th>Stop</th><th>Type</th>' + recvHead + repHead + '<th>Status</th><th></th></tr></thead><tbody>' +
@@ -4029,23 +4134,24 @@
           : `<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;">Stop ${p.stopNumber || 1}</span>`}</td>
         <td>${editing
           ? `<select class="ldTypeEdit" data-id="${p.id}" style="padding:6px;">${['BOL','POD','LUMPER','OTHER'].map(t => `<option${(p.docType||'BOL')===t?' selected':''}>${t}</option>`).join('')}</select>`
-          : (esc(p.docType) || 'BOL')}<div style="color:var(--muted);font-size:12px;">${esc(p.filename || '')}<span class="ldPages" data-id="${p.id}"></span></div></td>
+          : (esc(p.docType) || 'BOL') + (p.redoOf ? ' — <b>redo</b>' : '')}<div style="color:var(--muted);font-size:12px;">${p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build') ? 'clean copy sent to the driver again' : esc(p.filename || '')}<span class="ldPages" data-id="${p.id}"></span></div></td>
         ${showRecv ? `<td>${editing
           ? `<select class="ldRecvEdit" data-id="${p.id}" data-current="${p.receiverId || ''}" style="padding:6px;min-width:150px;"><option value="">— none —</option>${(_recvList||[]).map(rc => `<option value="${rc.id}"${rc.id===p.receiverId?' selected':''}>${esc(rc.name)}</option>`).join('')}<option value="__add__">＋ Add new receiver…</option></select>`
           : (esc(p.receiverName) || esc(p.consignee) || '<span class="empty">—</span>')}</td>` : ''}
         ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
-        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${emailFailBadge(p)}</td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload' || (p.redoOf && p.status === 'prepared')) ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.redoOf && p.status === 'prepared' ? 'Sent to driver again' : p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${p.redoOf && p.status === 'prepared' && p.assignedDriverName ? `<div class="sub" style="font-size:12px;margin-top:3px;">${esc(p.assignedDriverName)}</div>` : ''}${emailFailBadge(p)}</td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;font-size:12px;color:var(--warn);text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${p.status === 'needs_reupload'
             ? `<span style="color:var(--bad);font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
-            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="Send the driver a fresh, unsigned copy of this stop. This signed copy stays until you pick which one to keep.">↻ Send to driver again</button>`}`
             : ''}
           ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
-          ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
+          ${p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build') ? `&nbsp;<button class="ghost ldRedoCancel btn-sm" data-id="${p.id}" type="button" title="Take the redo back off the driver's phone; the first signed copy stays">Cancel redo</button>` : ''}
+          ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed' && !(p.redoOf && p.status === 'prepared')) ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
         </td></tr>`).join('') +
       '</tbody></table>';
@@ -4077,6 +4183,12 @@
     box.querySelectorAll('.ldReview').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
+    box.querySelectorAll('.ldRedo').forEach(b => b.onclick = () => openSendAgain(byId[b.dataset.id]));
+    box.querySelectorAll('.ldRedoCancel').forEach(b => b.onclick = () => confirmDialog({
+      title: 'Cancel the redo?', okLabel: 'Cancel redo',
+      message: 'The clean copy comes off the driver’s phone. The first signed copy stays as the stop’s document.',
+      onOk: async () => { try { await api('/api/pods/' + b.dataset.id + '/cancel-redo', { method: 'POST' }); openLoad(curLoad.id); } catch (e) { alert(e.message); } }
+    }));
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
       message: 'Remove “' + (b.dataset.name || 'this document') + '”? This can’t be undone — you can upload a corrected file to this stop afterward.',
@@ -4108,6 +4220,7 @@
     box.querySelectorAll('.ldRecvEdit').forEach(sel => ssApply(sel, 'Search receivers…'));
     box.querySelectorAll('.ldRepEdit').forEach(sel => ssApply(sel, 'Search sales reps…'));
     appendParkedSection(box, parkedPods, editing);
+    appendRedoSections(box, pickPods, notUsedPods);
     annotatePageCounts(pods);
   }
   // Show each document's page count next to its filename, and only reveal "Split into stops" when a document

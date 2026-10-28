@@ -154,7 +154,11 @@ router.get('/', requireAuth, (req, res) => {
      SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared,
      SUM(CASE WHEN emailStatus IN ('failed','partial') THEN 1 ELSE 0 END) AS mailfail,
      MAX(CASE WHEN status IN ('signed','emailed') THEN signedAt END) AS lastSigned
-     FROM pods WHERE loadId = ? AND status != 'parked'`);
+     FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used') AND NOT (redoOf IS NOT NULL AND (status IN ('prepared','awaiting_build') OR COALESCE(pickPending, 0) = 1))`);
+  // Redos ("Send to driver again"): copies out with the driver, and stops whose two signed copies wait for a pick.
+  const redoStat = db.prepare(`SELECT SUM(CASE WHEN pickPending = 1 AND redoOf IS NOT NULL THEN 1 ELSE 0 END) AS pickpend,
+     SUM(CASE WHEN redoOf IS NOT NULL AND status IN ('prepared','awaiting_build') THEN 1 ELSE 0 END) AS redoout
+     FROM pods WHERE loadId = ?`);
   const out = rows.map(l => {
     // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak
     // the broker's carrier to the customer.
@@ -173,6 +177,10 @@ router.get('/', requireAuth, (req, res) => {
     o.stopsDone = ps ? Number(ps.done || 0) : 0;        // how many are signed/emailed
     o.emailFailed = ps ? Number(ps.mailfail || 0) : 0;  // signed copies whose email didn't go out (dashboard + Resend)
     o.lastSignedAt = ps && ps.lastSigned ? Number(ps.lastSigned) : null;
+    const rs = redoStat.get(l.id) || {};
+    o.pickPending = Number(rs.pickpend || 0);   // stops with two signed copies waiting for dispatch to keep one
+    o.redoOut = Number(rs.redoout || 0);        // stops sent to the driver again, not signed yet
+    if (o.pickPending) o.complete = false;
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     o.archived = archSet.has(l.id);   // this user has hidden this load from their own list
     return o;
@@ -188,7 +196,7 @@ router.get('/:id', requireAuth, (req, res) => {
   // PO (SCR017BOL -> SCR017BOL-4) while it attached to this load by load #, leaving the driver app showing a
   // different PO than dispatch. Bring any out-of-step documents back in line with the load's PO.
   try { if (load.poNumber) db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ? AND poNumber IS NOT ?`).run(load.poNumber, load.id, load.poNumber); } catch (e) {}
-  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt, emailStatus, emailError, emailFailedTo, emailNextRetryAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
+  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt, redoOf, pickPending, notUsedAt, notUsedBy, (originalFile IS NOT NULL) AS hasOriginal, assignedDriverName, driver, emailStatus, emailError, emailFailedTo, emailNextRetryAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
@@ -465,7 +473,7 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
   // If every stop on this load is already signed/emailed, the load is complete — the driver can't be changed.
   // (A partially-complete load can still be reassigned: only its unsigned stops get restamped below.)
   try {
-    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status != 'parked'`).get(load.id);
+    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used') AND NOT (redoOf IS NOT NULL AND (status IN ('prepared','awaiting_build') OR COALESCE(pickPending, 0) = 1))`).get(load.id);
     if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) return res.status(409).json({ error: 'Every stop on this load is already signed and completed — the driver can no longer be changed.' });
   } catch (e) {}
   let driverName = (req.body && req.body.driverName || '').trim();
