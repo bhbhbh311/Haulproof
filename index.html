@@ -416,6 +416,7 @@
   button.seg{background:transparent;color:var(--muted);border:0;box-shadow:none;padding:7px 16px;font-size:13px;border-radius:7px;}
   button.seg:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
   button.seg.on{background:var(--primary);color:var(--primary-ink);}
+  .impai{margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(63,51,116,.55);border:1px dashed var(--violet-line);font-size:13px;line-height:1.5;}
   .ldfilters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0;}
   button.ldf{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;box-shadow:none;}
   button.ldf:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
@@ -582,6 +583,11 @@
       <div class="histBox">
         <div class="histHead"><h1 style="margin:0;font-size:18px;" id="genImpTitle">Import</h1><button id="genImpClose" class="ghost" type="button">✕ Close</button></div>
         <p class="sub" style="margin-top:6px;" id="genImpDesc"></p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+          <button class="ghost" id="genImpTpl" type="button">⬇ Download template (.csv)</button>
+          <span style="font-size:12px;color:var(--muted);">Opens in Excel or Google Sheets — fill one row per person, save as CSV, then choose it below.</span>
+        </div>
+        <div class="impai" id="genImpAi">✨ <b>Have your own AI assistant?</b> Connect it to HaulProof (Dashboard → <b>Let AI do the paperwork</b>), share your list or spreadsheet, and ask it to <span id="genImpAiAsk">add them for you</span>. It shows you the list to confirm before anything is created.</div>
         <div style="margin-top:14px;">
           <label>Data file (.json / .csv)</label>
           <input id="genImpFile" type="file" accept=".json,.csv,application/json,text/csv" style="display:block;margin-top:4px;">
@@ -7038,17 +7044,20 @@
       + '</div>';
   }
   var IMPORT_KINDS = {
-    customer: { title:'Import customers', endpoint:'/api/customers/import',
+    customer: { title:'Import customers', endpoint:'/api/customers/import', tplName:'haulproof-customers-template.csv',
+      tpl:'name,contactName,contactEmail,contactPhone,address\nBrown Strauss,Jane Doe,ap@brownstrauss.com,918-555-1000,"Tulsa, OK"\n', aiAsk:'add these customers',
       desc:'Add customers to your list in bulk. Matched on name — re-importing updates an existing customer instead of duplicating it.',
       placeholder:'[{"name":"Brown Strauss","contactName":"Jane Doe","contactEmail":"ap@brownstrauss.com","contactPhone":"918-555-1000","address":"Tulsa, OK"}]\n\n…or CSV:\nname,contactName,contactEmail,contactPhone,address',
       result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> new · <b>'+j.updated+'</b> updated'+(j.skipped?(' · '+j.skipped+' skipped (no name)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'; },
       refresh:function(){ try{ if(typeof loadCustomers==='function') loadCustomers(); }catch(e){} try{ if(typeof loadMyCustomersTab==='function') loadMyCustomersTab(); }catch(e){} } },
-    team: { title:'Import team logins', endpoint:'/api/users/import',
+    team: { title:'Import team logins', endpoint:'/api/users/import', tplName:'haulproof-team-logins-template.csv',
+      tpl:'email,name,role\njane.doe@yourcompany.com,Jane Doe,dispatcher\njohn.smith@yourcompany.com,John Smith,sales\n', aiAsk:'create these logins (dispatcher, sales or admin)',
       desc:'Create portal logins in bulk. Each new person gets a set-up link (below) to choose their own password. Existing emails are skipped. Role: dispatcher, sales, or admin (default dispatcher).',
       placeholder:'[{"email":"jane@callahantrans.com","name":"Jane Doe","role":"dispatcher"}]\n\n…or CSV:\nemail,name,role',
       result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> created'+(j.skipped?(' · '+j.skipped+' skipped (bad or existing email)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.links,'Set-up links — send each person theirs:'); },
       refresh:function(){ try{ loadUsers(); }catch(e){} } },
-    driver: { title:'Import drivers', endpoint:'/api/drivers/import',
+    driver: { title:'Import drivers', endpoint:'/api/drivers/import', tplName:'haulproof-drivers-template.csv',
+      tpl:'name,phone,email\nMike Rowe,555-555-5555,mike@email.com\nSam Ortiz,555-555-1234,\n', aiAsk:'add these drivers',
       desc:'Add drivers in bulk. Each gets a personal link (below) to open on their phone — they set their own PIN on first use. A driver whose name is already on your roster is skipped.',
       placeholder:'[{"name":"Mike Rowe","phone":"555-555-5555","email":"mike@email.com"}]\n\n…or CSV:\nname,phone,email',
       result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> added'+(j.skipped?(' · '+j.skipped+' skipped (duplicate name or bad email)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.drivers,'Driver links — send each driver theirs:'); },
@@ -7067,8 +7076,16 @@
     $('genImpText').value=''; $('genImpText').placeholder=cfg.placeholder;
     if($('genImpFile')) $('genImpFile').value='';
     $('genImpCount').textContent=''; $('genImpMsg').textContent=''; $('genImpMsg').className=''; $('genImpResult').innerHTML='';
+    if($('genImpTpl')) $('genImpTpl').classList.toggle('hide', !cfg.tpl);
+    if($('genImpAiAsk')) $('genImpAiAsk').textContent = cfg.aiAsk || 'add them for you';
     $('genImportModal').classList.remove('hide');
   }
+  // Download a ready-to-fill CSV for the open import (header row + example rows to overwrite).
+  if($('genImpTpl')) $('genImpTpl').onclick=function(){
+    var cfg=IMPORT_KINDS[_impKind]; if(!cfg || !cfg.tpl) return;
+    var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([cfg.tpl],{type:'text/csv'})); a.download=cfg.tplName||'haulproof-template.csv';
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  };
   if($('custImportBtn')) $('custImportBtn').onclick=function(){ openImport('customer'); };
   if($('mcCustImportBtn')) $('mcCustImportBtn').onclick=function(){ openImport('customer'); };
   if($('teamImportBtn')) $('teamImportBtn').onclick=function(){ openImport('team'); };

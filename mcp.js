@@ -389,6 +389,28 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number') } }, annotations: { readOnlyHint: true },
     run: async (user, a) => { const n = norm(a.search), dg = String(a.search || '').replace(/\D/g, ''); return { drivers: (await drivers(user)).filter(d => !n || norm(d.name).indexOf(n) >= 0 || (dg.length >= 3 && String(d.phone || '').replace(/\D/g, '').indexOf(dg) >= 0)).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null })) }; } },
 
+  { name: 'add_drivers', title: 'Add drivers',
+    description: 'Adds one or more drivers to this account (same as the portal\'s Drivers → Import). A driver whose name is already on the roster is skipped. Each new driver gets a personal link to open on their phone; they set their own PIN on first use. Confirm the list with the user before adding.',
+    inputSchema: { type: 'object', properties: { drivers: { type: 'array', minItems: 1, maxItems: 200, description: 'Drivers to add',
+      items: { type: 'object', properties: { name: str('Driver full name'), phone: str('Phone (optional)'), email: str('Email (optional) — lets dispatch email them their link') }, required: ['name'] } } }, required: ['drivers'] },
+    run: async (user, a) => { needCompany(user);
+      const records = (a.drivers || []).map(d => ({ name: String(d.name || '').trim(), phone: d.phone ? String(d.phone).trim() : '', email: d.email ? String(d.email).trim() : '' })).filter(d => d.name);
+      const r = await api(user, 'POST', '/api/drivers/import', { json: { records } });
+      return { added: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
+        drivers: (r.drivers || []).map(d => ({ name: d.name, email: d.email || null, link: d.link || null })),
+        note: 'Send each driver their own link privately (or use Email next to their name in HaulProof → Drivers).' }; } },
+
+  { name: 'add_team_logins', title: 'Add team logins',
+    description: 'Creates portal logins for people on this account (same as Team logins → Import). Role is dispatcher (default), sales, or admin — admins get a copy of every signed document and can manage the account, so only use admin when the user asks for it. Existing emails are skipped. Each new person gets a set-up link to choose their own password. Confirm the list and roles with the user before creating.',
+    inputSchema: { type: 'object', properties: { logins: { type: 'array', minItems: 1, maxItems: 200, description: 'Logins to create',
+      items: { type: 'object', properties: { email: str('Work email'), name: str('Full name'), role: { type: 'string', enum: ['dispatcher', 'sales', 'admin'], description: 'Default dispatcher' } }, required: ['email'] } } }, required: ['logins'] },
+    run: async (user, a) => { needCompany(user);
+      const records = (a.logins || []).map(l => ({ email: String(l.email || '').trim(), name: l.name ? String(l.name).trim() : '', role: l.role || 'dispatcher' })).filter(l => l.email);
+      const r = await api(user, 'POST', '/api/users/import', { json: { records } });
+      return { created: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
+        logins: (r.links || []).map(l => ({ email: l.email, name: l.name || null, role: l.role, setup_link: l.link })),
+        note: 'Send each person their own set-up link privately; it lets them choose their password. Existing emails were skipped.' }; } },
+
   { name: 'find_loads', title: 'Find loads',
     description: 'Searches loads by PO #, load #, customer, consignee or carrier. With no search, returns the most recent loads.',
     inputSchema: { type: 'object', properties: { search: str('PO #, load #, customer name, etc.'), limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 25)' } } }, annotations: { readOnlyHint: true },
@@ -602,7 +624,8 @@ const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for trucking. Loads are identified by the customer PO #. ' +
   'Before creating a load, check list_customers and list_drivers so names match; add_customer only when the company truly is not on the list. ' +
   'To get a document ready for the driver: attach it, call review_pages and confirm the pages with the user, trim_document, then place_signatures. To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
-  'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure.';
+  'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. ' +
+  'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first.';
 
 async function handleRpc(msg, user, base) {
   const id = msg.id;
