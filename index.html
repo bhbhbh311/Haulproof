@@ -3977,12 +3977,10 @@
   }
   function keepCopy(p, { swap } = {}) {
     const done = async (email) => {
-      const r = await api('/api/pods/' + p.id + '/keep', { method: 'POST', body: JSON.stringify(email === undefined ? {} : { email }) });
-      if (r.simulated) alert('Kept. Email isn’t set up on the server yet, so the customer copy wasn’t sent.');
-      else if (r.emailError) alert('Kept, but the customer copy didn’t go out: ' + r.emailError + '\nUse Resend on the stop.');
+      await api('/api/pods/' + p.id + '/keep', { method: 'POST', body: JSON.stringify(email === undefined ? {} : { email }) });
       openLoad(curLoad.id); try { loadLoads(); } catch (e) {}
     };
-    if (!swap) return done().catch(e => alert(e.message));
+    if (!swap) return done().catch(e => alert('Couldn’t keep that copy: ' + (e.message || 'try again')));
     choiceDialog({ title: 'Use this copy instead?', message: 'This copy becomes the stop’s document and the current one is archived as not used. Also email this copy to the customer?',
       choices: [{ label: 'Use it, don’t email', cls: 'ghost', run: () => done(false) }, { label: 'Use it and email the customer', run: () => done(true) }] });
   }
@@ -4004,7 +4002,10 @@
         <div style="display:flex;gap:12px;flex-wrap:wrap;">${card(first, 'First signing')}${card(redo, 'Redo')}</div>
         <div style="margin-top:10px;font-size:12.5px;color:var(--warn);">✉ The customer copy is on hold and goes out when you pick (unless the kept copy was already emailed).</div>`;
       wrap.querySelectorAll('.rdView').forEach(b => b.onclick = () => openDocViewer(b.dataset.id === first.id ? first : redo));
-      wrap.querySelectorAll('.rdKeep').forEach(b => b.onclick = () => { b.disabled = true; keepCopy(b.dataset.id === first.id ? first : redo); });
+      wrap.querySelectorAll('.rdKeep').forEach(b => b.onclick = async () => {
+        wrap.querySelectorAll('.rdKeep').forEach(x => x.disabled = true); b.textContent = 'Saving…';
+        try { await keepCopy(b.dataset.id === first.id ? first : redo); } finally { if (document.body.contains(b)) { wrap.querySelectorAll('.rdKeep').forEach(x => x.disabled = false); b.textContent = '✓ Keep this one'; } }
+      });
       box.appendChild(wrap);
     });
     if (notUsedPods && notUsedPods.length) {

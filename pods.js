@@ -912,10 +912,11 @@ router.post('/:id/keep', requireAuth, express.json(), async (req, res) => {
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
     detail: (row.stopNumber ? 'Stop ' + row.stopNumber + ' — ' : '') + 'Kept ' + label(row) + '; ' + label(other) + ' archived as not used', actor: who }); } catch (e) {}
   const sendNow = req.body && req.body.email === true ? true : (req.body && req.body.email === false ? false : (wasPending && keptStatus === 'signed'));
-  let mail = null;
+  // Answer right away; the customer copy goes out in the background (its result shows on the stop and in history).
+  res.json({ ok: true, kept: row.id, archived: other.id, emailQueued: sendNow });
   if (sendNow) {
     const fresh = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(row.id);
-    try { mail = await emailRetry.resendPod(Object.assign({}, fresh, { emailFailedTo: null }), { manual: true, actor: who }); } catch (e) { mail = { error: e.message }; }
+    try { await emailRetry.resendPod(Object.assign({}, fresh, { emailFailedTo: null }), { manual: true, actor: who }); } catch (e) { console.error('keep: email', e.message); }
   }
   // Picking may finish the load — tell the Always-notify team once, the same as a normal last signature.
   try {
@@ -925,7 +926,6 @@ router.post('/:id/keep', requireAuth, express.json(), async (req, res) => {
       if (lr && !lr.completeNotifiedAt) { db.prepare(`UPDATE loads SET completeNotifiedAt = ? WHERE id = ?`).run(Date.now(), lr.id); notify.notifyLoadComplete({ load: lr, poNumber: lr.poNumber }); }
     }
   } catch (e) {}
-  res.json({ ok: true, kept: row.id, archived: other.id, emailed: !!(mail && mail.sent), simulated: !!(mail && mail.simulated), emailError: mail && !mail.sent && !mail.simulated ? (mail.error || 'Email not sent') : null });
 });
 
 router.post('/:id/ready', requireAuth, (req, res) => {
