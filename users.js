@@ -254,8 +254,10 @@ router.post('/:id/login-link', requireAuth, requireCap('manage_users'), (req, re
 // Remove a login (same customer only; you cannot remove yourself).
 router.delete('/:id', requireAuth, requireCap('manage_users'), (req, res) => {
   if (req.params.id === (req.user.sub || req.user.id)) return res.status(400).json({ error: 'You cannot remove your own login' });
-  const target = db.prepare('SELECT id, orgId, role FROM users WHERE id = ?').get(req.params.id);
+  const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  // The built-in HaulProof Help login is HaulProof's way in to support this company — only the master admin may remove it.
+  if (/^haulproofhelp\+/i.test(target.email || '') && req.user.role !== 'superadmin') return res.status(403).json({ error: 'The HaulProof Help login lets HaulProof support your company, so it can’t be removed here.' });
   db.prepare('DELETE FROM users WHERE id = ?').run(target.id);
   res.json({ ok: true });
 });

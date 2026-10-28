@@ -2791,10 +2791,47 @@
         <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>
       </td></tr>`).join('');
   }
+  // Tick boxes + "Remove selected" for a table whose rows each have a Remove button (drivers, team logins).
+  // Rows without that button (your own login, the built-in HaulProof Help login, empty states) get no box.
+  function bulkify(tbody, o) {
+    const table = tbody && tbody.closest('table'); if (!table) return;
+    const sel = tbody._bsel = new Set();
+    const hr = table.tHead && table.tHead.rows[0];
+    if (hr && !hr.querySelector('.bkAll')) { const th = document.createElement('th'); th.style.width = '34px'; th.innerHTML = '<input type="checkbox" class="bkAll" title="Select all">'; hr.insertBefore(th, hr.firstChild); }
+    Array.prototype.forEach.call(tbody.rows, tr => {
+      const b = tr.querySelector(o.delSel), td = document.createElement('td');
+      if (tr.cells.length === 1 && tr.cells[0].colSpan > 1) { tr.cells[0].colSpan += 1; return; }
+      const label = (tr.cells[0] && (tr.cells[0].querySelector('b') || tr.cells[0]).textContent || '').trim();
+      if (b && !/^haulproofhelp\+/i.test(label)) td.innerHTML = '<input type="checkbox" class="bkChk" data-id="' + esc(b.dataset.id) + '" data-label="' + esc(label) + '">';
+      tr.insertBefore(td, tr.firstChild);
+    });
+    let bar = table.previousElementSibling;
+    if (!bar || !bar.classList.contains('bkbar')) { bar = document.createElement('div'); bar.className = 'ldbulk bkbar'; table.parentNode.insertBefore(bar, table); }
+    bar.innerHTML = '<span></span><button type="button" class="btn-danger btn-sm bkDel" disabled>🗑 Remove selected</button><button type="button" class="ghost btn-sm bkClr" disabled>Clear</button>';
+    bar.style.marginTop = '14px';
+    const boxes = () => tbody.querySelectorAll('.bkChk'), all = table.querySelector('.bkAll');
+    const upd = () => { const n = sel.size; bar.querySelector('span').textContent = n ? n + ' selected' : (boxes().length ? 'Tick ' + o.noun + 's to remove several at once' : '');
+      const d = bar.querySelector('.bkDel'); d.disabled = !n; d.textContent = n ? '🗑 Remove ' + n + ' selected' : '🗑 Remove selected'; bar.querySelector('.bkClr').disabled = !n;
+      if (all) all.checked = boxes().length > 0 && sel.size === boxes().length; };
+    boxes().forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.id) : sel.delete(c.dataset.id); upd(); });
+    if (all) { all.checked = false; all.onchange = () => { boxes().forEach(c => { c.checked = all.checked; all.checked ? sel.add(c.dataset.id) : sel.delete(c.dataset.id); }); upd(); }; }
+    bar.querySelector('.bkClr').onclick = () => { sel.clear(); boxes().forEach(c => c.checked = false); upd(); };
+    bar.querySelector('.bkDel').onclick = () => {
+      const ids = [...sel]; if (!ids.length) return;
+      const names = ids.map(id => { const c = tbody.querySelector('.bkChk[data-id="' + id + '"]'); return c ? c.dataset.label : id; });
+      confirmDialog({ title: 'Remove ' + ids.length + ' ' + o.noun + (ids.length === 1 ? '' : 's') + '?', message: names.join(', ') + ' — ' + o.warn,
+        okLabel: 'Remove ' + ids.length,
+        onOk: async () => { let ok = 0; const failed = [];
+          for (let i = 0; i < ids.length; i++) { try { await api(o.url(ids[i]), { method: 'DELETE' }); ok++; } catch (e) { failed.push(names[i] + ': ' + (e.message || 'could not remove')); } }
+          await o.reload(); if (failed.length) alert('Removed ' + ok + '. Not removed:\n' + failed.join('\n')); } });
+    };
+    upd();
+  }
   async function loadDrivers(orgId, tbody) {
     try {
       const r = await api('/api/drivers' + (orgId ? ('?orgId=' + encodeURIComponent(orgId)) : ''));
       tbody.innerHTML = driverRowsHtml(r.drivers);
+      bulkify(tbody, { delSel: '.drvDel', noun: 'driver', warn: 'their links stop working right away. This can’t be undone.', url: id => '/api/drivers/' + id, reload: () => loadDrivers(orgId, tbody) });
       // Cache the ACTIVE driver names on the table, so the add form can warn live about a name that already exists
       // (matches what the server blocks). Also refresh any warning currently showing against this roster.
       tbody._drvNames = (r.drivers || []).filter(d => d.active !== false).map(d => (d.name || '').trim().toLowerCase());
@@ -5868,7 +5905,8 @@
       </td></tr>`).join('');
   }
   async function cmLoadUsers() {
-    try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users); }
+    try { const r = await api('/api/users?orgId=' + encodeURIComponent(cmOrgId)); $('cmUserRows').innerHTML = cmUserRowsHtml(r.users);
+      bulkify($('cmUserRows'), { delSel: '.cmuDel', noun: 'login', warn: 'they can no longer sign in and stop getting signed copies. This can’t be undone.', url: id => '/api/users/' + id + '?orgId=' + encodeURIComponent(cmOrgId), reload: cmLoadUsers }); }
     catch (e) { $('cmUserRows').innerHTML = '<tr><td colspan="4" class="empty">' + e.message + '</td></tr>'; }
   }
   let cmBackTo = 'customersCard', cmIsCarrier = false, cmIsBroker = false;
@@ -6236,7 +6274,7 @@
       _teamUsers = r.users || [];
       loadMasterNotify();
       const tb = $('userRows');
-      if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; return; }
+      if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: '', url: id => '/api/users/' + id, reload: loadUsers }); return; }
       tb.innerHTML = r.users.map(u => `<tr>
         <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
@@ -6244,8 +6282,9 @@
           <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" data-caps="${esc(JSON.stringify(u.capabilities||[]))}" style="padding:6px 10px;font-size:12px;">Edit</button>
           <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
           <button class="ghost nuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
-          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}
+          ${(u.id === myId() || /^haulproofhelp\+/i.test(u.email || '')) ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}
         </td></tr>`).join('');
+      bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: 'they can no longer sign in and stop getting signed copies. This can’t be undone.', url: id => '/api/users/' + id, reload: loadUsers });
     } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
   }
   $('nuGen').onclick = () => { $('nuPass').value = randPass(); };
