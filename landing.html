@@ -14,8 +14,8 @@
 <style>
   /* Same navy look as the HaulProof app (dispatch portal, driver app, help). */
   :root{color-scheme:dark;
-    --bg:#172b58; --surface:#1b2d56; --surface2:#284379; --card:#213662;
-    --text:#e8effc; --muted:#a9bbd8; --border:#3b5487;
+    --bg:#172b58; --surface:#122247; --surface2:#284379; --card:#27427a;
+    --text:#e8effc; --muted:#b4c4de; --border:#3b5487; --card-line:rgba(143,182,255,.30);
     --primary:#4d8dff; --primary-dark:#2f6fe0; --primary-soft:#2a4c8f; --primary-ink:#04112e;
     --ok:#4cc282; --ok-soft:#1e5038; --violet:#a98bff; --violet-soft:#3f3374; --warn:#e6a740; --bad:#ef7a6c; --bad-soft:#5c2c27;
     --shadow:0 1px 2px rgba(0,0,0,.2), 0 12px 32px -12px rgba(0,0,0,.45);
@@ -182,6 +182,19 @@
   .shotframe img{display:block; width:100%; height:auto}
   .shotbar{display:flex; gap:6px; padding:10px 12px; background:#1a2f60; border-bottom:1px solid var(--border)}
   .shotbar i{width:10px; height:10px; border-radius:50%; background:#3b5487}
+
+  /* Boxes that stand out: lighter than the page, a coloured stripe across the top, a soft shadow and a glow on hover. */
+  .fcard,.step,.whocard{position:relative; overflow:hidden; background:linear-gradient(180deg,#2c4a86 0%,var(--card) 60%); border:1px solid var(--card-line);
+    box-shadow:0 18px 40px -18px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08)}
+  .fcard::before,.step::before,.whocard::before{content:""; position:absolute; left:0; right:0; top:0; height:3px; background:var(--accent,var(--primary))}
+  .fcard:hover,.step:hover,.whocard:hover{transform:translateY(-4px); border-color:var(--accent,var(--primary)); box-shadow:0 24px 48px -18px rgba(0,0,0,.75), 0 0 0 1px var(--accent,var(--primary)), 0 0 26px -6px var(--accent,var(--primary))}
+  .step,.whocard{transition:transform .18s ease, box-shadow .18s ease, border-color .18s}
+  .step{overflow:visible} .step::before{border-radius:var(--radius) var(--radius) 0 0} .step .arrow{color:#5671aa; right:-31px}
+  .fcard:has(.ficon.v){--accent:var(--violet)} .fcard:has(.ficon.g){--accent:var(--ok)}
+  .ficon,.whocard .wi{box-shadow:inset 0 0 0 1px rgba(143,182,255,.25)}
+  .spotmedia{background:linear-gradient(160deg,#27427a,#1d3363); border:1px solid var(--card-line); box-shadow:0 22px 50px -20px rgba(0,0,0,.7)}
+  .doccard,.phone,.notif{border-color:var(--card-line)}
+  .fcard h3,.step h3,.whocard h3{color:#fff}
 
   /* ---------- how it works ---------- */
   .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:22px; counter-reset:step}
