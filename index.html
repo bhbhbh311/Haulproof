@@ -7136,6 +7136,12 @@
 
   // ---- Master admin: find duplicate receivers, then merge them or keep them as locations of one company ----
   if ($('recvDupBtn')) $('recvDupBtn').onclick = openRecvDups;
+  // Suggested parent company name for a group: its shortest name without Inc/LLC/punctuation, in Title Case.
+  function parentGuess(g) {
+    const SUF = /\b(inc|llc|llp|lp|co|corp|corporation|company|ltd|incorporated)\b\.?/gi;
+    const n = g.map(x => x.name).sort((a, b) => a.length - b.length)[0] || '';
+    return n.replace(SUF, '').replace(/[.,]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  }
   async function openRecvDups() {
     let ov = $('recvDupModal');
     if (!ov) { ov = document.createElement('div'); ov.id = 'recvDupModal'; ov.className = 'histOverlay';
@@ -7156,7 +7162,9 @@
           + g.map(x => '<tr><td><input type="radio" name="rdk' + gi + '" value="' + x.id + '"' + (x.id === best ? ' checked' : '') + '></td><td><input type="checkbox" class="rdInc" value="' + x.id + '"' + (x.id === best ? '' : ' checked') + '></td>'
             + '<td><b>' + esc(x.name) + '</b><div style="color:var(--muted);font-size:12px;">' + (x.addressLine ? esc(x.addressLine) : '<i>no address</i>') + (x.parentName ? ' · under ' + esc(x.parentName) : '') + '</div></td>'
             + '<td>' + x.docCount + '</td><td style="font-size:12px;">' + (x.usedBy.length ? esc(x.usedBy.join(', ')) : '<span style="color:var(--muted)">nobody</span>') + '</td><td>' + x.contacts + '</td></tr>').join('')
-          + '</tbody></table><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button type="button" class="btn-sm rdMerge">Merge into kept (same place)</button><button type="button" class="ghost btn-sm rdGroupBtn">Make locations of kept (different addresses)</button><span class="rdMsg" style="font-size:12.5px;font-weight:600;align-self:center;"></span></div></div>';
+          + '</tbody></table><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button type="button" class="btn-sm rdMerge">Merge into kept (same place)</button><button type="button" class="ghost btn-sm rdGroupBtn">Make locations of kept (different addresses)</button><span class="rdMsg" style="font-size:12.5px;font-weight:600;align-self:center;"></span></div>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);"><span style="font-size:12.5px;color:var(--muted);">Or put the ticked ones (and the ● one) under a new parent company:</span>'
+          + '<input class="rdParentName" value="' + esc(parentGuess(g)) + '" style="flex:1;min-width:200px;max-width:320px;padding:6px 10px;font-size:13px;"><button type="button" class="ghost btn-sm rdNewParent">Make locations under new parent</button></div></div>';
       }).join('');
       body.querySelectorAll('.rdGroup').forEach(box => {
         const pick = () => { const k = box.querySelector('input[type=radio]:checked'); const keep = k && k.value; const inc = [...box.querySelectorAll('.rdInc:checked')].map(c => c.value).filter(v => v !== keep); return { keep, inc }; };
@@ -7164,6 +7172,11 @@
         box.querySelector('.rdMerge').onclick = () => { const p = pick(); if (!p.keep || !p.inc.length) return msg('Pick one to keep and tick at least one other', 'err');
           confirmDialog({ title: 'Merge ' + p.inc.length + ' into the kept receiver?', okLabel: 'Merge', message: 'Only do this if they are the same place. Documents, customers and contacts move to the kept receiver; the others are switched off.',
             onOk: async () => { try { const r2 = await api('/api/receivers/merge', { method: 'POST', body: JSON.stringify({ keepId: p.keep, mergeIds: p.inc }) }); msg('Merged ✓ — ' + r2.moved.documents + ' documents, ' + r2.moved.contacts + ' contacts moved', 'ok'); box.querySelectorAll('button').forEach(b => b.disabled = true); try { loadReceivers(); } catch (e) {} } catch (e) { msg(e.message, 'err'); } } }); };
+        box.querySelector('.rdNewParent').onclick = async () => { const p = pick(); const name = box.querySelector('.rdParentName').value.trim();
+          const kids = [p.keep, ...p.inc].filter(Boolean);
+          if (!name) return msg('Type the parent company name', 'err'); if (!kids.length) return msg('Tick the locations to put under it', 'err');
+          try { const r2 = await api('/api/receivers/group', { method: 'POST', body: JSON.stringify({ newParentName: name, childIds: kids }) });
+            msg('Done ✓ — ' + r2.grouped + ' location' + (r2.grouped === 1 ? '' : 's') + ' now under “' + name + '”' + (r2.createdParent ? ' (new parent company)' : '') + '. Add each one’s address with Edit if it’s missing.', 'ok'); box.querySelectorAll('button').forEach(b => b.disabled = true); try { loadReceivers(); } catch (e) {} } catch (e) { msg(e.message, 'err'); } };
         box.querySelector('.rdGroupBtn').onclick = async () => { const p = pick(); if (!p.keep || !p.inc.length) return msg('Pick the parent (●) and tick its locations', 'err');
           try { const r2 = await api('/api/receivers/group', { method: 'POST', body: JSON.stringify({ parentId: p.keep, childIds: p.inc }) }); msg('Done ✓ — ' + r2.grouped + ' now under the kept receiver. Add each one’s address with Edit if it’s missing.', 'ok'); try { loadReceivers(); } catch (e) {} } catch (e) { msg(e.message, 'err'); } };
       });

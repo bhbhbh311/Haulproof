@@ -222,7 +222,8 @@ router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
 router.get('/duplicates', requireAuth, requireSuper, (req, res) => {
   const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND active = 1 AND mergedInto IS NULL`).all();
   const groups = {};
-  rows.forEach(o => { const k = core(o.name); if (k) (groups[k] = groups[k] || []).push(o); });
+  // Locations already filed under a parent are intentional look-alikes, not duplicates.
+  rows.filter(o => !o.parentId).forEach(o => { const k = core(o.name); if (k) (groups[k] = groups[k] || []).push(o); });
   const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
   const ccount = db.prepare(`SELECT COUNT(*) n FROM receiver_contacts WHERE receiverId = ?`), pname = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
   const out = Object.values(groups).filter(g => g.length > 1).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
@@ -261,12 +262,22 @@ router.post('/merge', requireAuth, requireSuper, (req, res) => {
   res.json({ ok: true, kept: keep.name, merged: ids.length, moved });
 });
 // Different addresses, same company: keep them separate and roll them up as locations of one parent.
+// newParentName instead of parentId: create a plain parent company (no address) and put every location under it.
 router.post('/group', requireAuth, requireSuper, (req, res) => {
-  const b = req.body || {}, parentId = String(b.parentId || '').trim();
+  const b = req.body || {}, newName = String(b.newParentName || '').trim();
+  let parentId = String(b.parentId || '').trim(), created = null;
+  if (newName) {
+    // Reuse a plain parent company (no address of its own) with exactly that name; a real location is never reused.
+    const existing = db.prepare(`SELECT id, name FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND mergedInto IS NULL AND parentId IS NULL AND LOWER(TRIM(name)) = LOWER(?)
+      AND COALESCE(TRIM(address),'') = '' AND COALESCE(TRIM(city),'') = '' AND COALESCE(TRIM(zip),'') = ''`).get(newName);
+    if (existing) parentId = existing.id;
+    else { parentId = crypto.randomUUID(); created = newName;
+      db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, active, createdAt) VALUES (?,?,?,?,?,1,?)`).run(parentId, newName, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), Date.now()); }
+  }
   const kids = (Array.isArray(b.childIds) ? b.childIds : []).map(String).filter(x => x && x !== parentId);
   if (!db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(parentId) || !kids.length) return res.status(400).json({ error: 'Pick the parent company and at least one location' });
   const n = kids.reduce((t, id) => t + db.prepare(`UPDATE orgs SET parentId = ? WHERE id = ?`).run(parentId, id).changes, 0);
-  res.json({ ok: true, grouped: n });
+  res.json({ ok: true, grouped: n, parentId, createdParent: created });
 });
 
 // ---- Give a receiver a login so they can look up delivered documents (master admin only). ----
