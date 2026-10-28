@@ -745,6 +745,17 @@
     </div>
 
     <!-- DASHBOARD SUMMARY (super-admin only): at-a-glance counts across the whole system. -->
+    <!-- ALL LOGINS (master admin): every login in every company, for cleaning up test logins. -->
+    <div class="card hide" id="allLoginsCard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">All logins</h1><p class="sub" style="margin-bottom:0;">Every login in every company. <b>Gets every copy</b> means it's emailed every signed document for its company (company admins and the always-notify list). Tick test logins and delete them.</p></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="search" id="alSearch" placeholder="Search email, name or company…" style="width:240px;font-size:14px;padding:8px 10px;"><button class="ghost" id="alRefresh" type="button">Refresh</button></div>
+      </div>
+      <div class="ldfilters" id="alFilters"></div>
+      <div id="alTable" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;"><button class="btn-danger" id="alDelete" type="button" disabled>Delete selected</button><span class="sub" id="alSel" style="margin:0;"></span></div>
+      <div id="alCc" style="margin-top:16px;"></div>
+    </div>
     <div class="card hide" id="aiUsageCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">AI usage &amp; cost</h1><p class="sub" style="margin-bottom:0;">What the AI features cost you per company, what you charge, and your margin. Every company starts on a <b>free trial</b> credit; when it's used up AI falls back to the free built-in tools until you switch them to <b>Paid</b> (monthly cap + price per AI document). <b>Unlimited</b> is for test accounts — never capped or charged.</p></div>
@@ -775,17 +786,6 @@
     </div>
 
     <!-- OPT-OUTS (super-admin only): recipients who unsubscribed from document emails. -->
-    <!-- ALL LOGINS (master admin): every login in every company, for cleaning up test logins. -->
-    <div class="card hide" id="allLoginsCard">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">All logins</h1><p class="sub" style="margin-bottom:0;">Every login in every company. <b>Gets every copy</b> means it's emailed every signed document for its company (company admins and the always-notify list). Tick test logins and delete them.</p></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="search" id="alSearch" placeholder="Search email, name or company…" style="width:240px;font-size:14px;padding:8px 10px;"><button class="ghost" id="alRefresh" type="button">Refresh</button></div>
-      </div>
-      <div class="ldfilters" id="alFilters"></div>
-      <div id="alTable" style="margin-top:12px;"><div class="empty">Loading…</div></div>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;"><button class="btn-danger" id="alDelete" type="button" disabled>Delete selected</button><span class="sub" id="alSel" style="margin:0;"></span></div>
-      <div id="alCc" style="margin-top:16px;"></div>
-    </div>
     <div class="card hide" id="optoutsCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Email opt-outs <span id="optCount" class="chip received" style="display:none;"></span></h1><p class="sub" style="margin-bottom:0;">People who unsubscribed. The two lists are separate — opting out of one never affects the other.</p></div>
