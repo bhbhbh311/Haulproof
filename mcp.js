@@ -167,6 +167,7 @@ router.get('/oauth/authorize', (req, res) => {
     // Not signed in: a compact sign-in form that sets the normal portal session, then reloads this page.
     return res.type('html').send(page('Connect ' + appName + ' to HaulProof',
       '<p><b>' + appName + '</b> wants to connect to your HaulProof account. Sign in to continue.</p>' +
+      '<p class="sub">Use your HaulProof <b>dispatch login</b> (the email and password you use for the portal). Driver links can’t connect AI apps — if you don’t have a login, ask your company’s admin to add you under Team logins.</p>' +
       '<form id="f"><label>Email<input id="em" type="email" autocomplete="username" required></label>' +
       '<label>Password<input id="pw" type="password" autocomplete="current-password" required></label>' +
       '<div id="msg" class="err"></div><button class="btn" type="submit">Sign in</button></form>' +
