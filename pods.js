@@ -464,7 +464,8 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
     let bolEmails = [];
     try {
       const p = db.prepare(`SELECT receiverId FROM pods WHERE id = ?`).get(id);
-      if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != ''`).all(p.receiverId).map(r => r.email);
+      // The receiver's own people, plus contacts THIS load's customer added — never another customer's contacts.
+      if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != '' AND (ownerOrgId IS NULL OR ownerOrgId IN (?, ?))`).all(p.receiverId, load.orgId || '', orgId || '').map(r => r.email);
     } catch (e) {}
     // Stop-completed updates → this stop's sales rep + this load's subscribers + the account master list (all team logins).
     let notifyEmails = [];
@@ -635,7 +636,7 @@ router.get('/:id/recipients-suggest', requireAuth, (req, res) => {
     if (!out.has(e)) out.set(e, { email: e, label: label || '' });
   };
   try { (safeJson(pod.recipients) || []).forEach(e => add(e, 'Previously sent')); } catch (e) {}
-  try { if (pod.receiverId) db.prepare(`SELECT name, email FROM receiver_contacts WHERE receiverId = ? AND email IS NOT NULL AND TRIM(email) != ''`).all(pod.receiverId).forEach(c => add(c.email, (c.name ? c.name + ' · ' : '') + (pod.receiverName || 'Receiver'))); } catch (e) {}
+  try { if (pod.receiverId) db.prepare(`SELECT name, email FROM receiver_contacts WHERE receiverId = ? AND email IS NOT NULL AND TRIM(email) != '' AND (ownerOrgId IS NULL OR ownerOrgId IN (?, ?))`).all(pod.receiverId, pod.orgId || '', (req.user && req.user.orgId) || '').forEach(c => add(c.email, (c.name ? c.name + ' · ' : '') + (pod.receiverName || 'Receiver'))); } catch (e) {}
   const load = pod.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(pod.loadId) : null;
   try { if (load && load.customerId) customerDocEmails(load.customerId).forEach(e => add(e, load.customer || 'Customer')); } catch (e) {}
   try { if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => add(e, 'Sales rep')); } catch (e) {}

@@ -1376,6 +1376,7 @@
         <div><h1 style="margin-bottom:0;">Receivers</h1><p class="sub" style="margin-bottom:0;">Consignees your loads are delivered to. Tag a document with a receiver so they can look it up. Give a receiver a parent company to roll its locations up.</p></div>
         <div style="display:flex;gap:8px;">
           <button class="ghost" id="recvImportBtn" type="button">⇪ Import</button>
+          <button class="ghost hide" id="recvDupBtn" type="button">🔎 Find duplicates</button>
           <button class="ghost" id="nrToggle" type="button">＋ Add receiver</button>
           <button class="ghost hide" id="recvAddFind" type="button">＋ Add / find receiver</button>
         </div>
@@ -1925,7 +1926,7 @@
       show('carriersCard', true); loadCarriers();
       show('brokersCard', true); loadBrokers();
       show('receiversCard', true); loadReceivers();
-      if ($('recvAddFind')) $('recvAddFind').classList.add('hide'); if ($('nrToggle')) $('nrToggle').classList.remove('hide');
+      if ($('recvAddFind')) $('recvAddFind').classList.add('hide'); if ($('nrToggle')) $('nrToggle').classList.remove('hide'); if ($('recvDupBtn')) $('recvDupBtn').classList.remove('hide');
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
       loadStorageGauge();
     } else if (u.orgKind === 'broker') {
@@ -7112,6 +7113,17 @@
   if ($('nrCancel')) $('nrCancel').onclick = () => $('nrForm').classList.add('hide');
   if ($('nrCreate')) $('nrCreate').onclick = async () => {
     const name = $('nrName').value.trim(); if (!name){ nrMsg('Receiver name is required','err'); return; }
+    // Same name already in the registry (ignoring Inc/LLC/punctuation)? Ask before adding a duplicate.
+    if (!$('nrCreate')._confirmed) {
+      try { const m = await api('/api/receivers/match?name=' + encodeURIComponent(name));
+        if (m.matches && m.matches.length) {
+          confirmDialog({ title: 'Similar receivers already exist', okLabel: 'Add as new anyway',
+            message: m.matches.map(x => x.name + (x.address ? ' — ' + x.address : '')).join('\n') + '\n\nIf it\'s the same place, use the existing one. Add “' + name + '” as a new receiver only if it\'s a different location.',
+            onOk: () => { $('nrCreate')._confirmed = true; $('nrCreate').click(); } });
+          return;
+        } } catch (e) {}
+    }
+    $('nrCreate')._confirmed = false;
     const body = { name, contactEmail: $('nrEmail').value.trim(), parentId: $('nrParent').value,
       adminEmail: $('nrLoginEmail').value.trim(), adminPassword: $('nrLoginPw').value };
     nrMsg('Saving…');
@@ -7119,6 +7131,42 @@
       ['nrName','nrEmail','nrLoginEmail','nrLoginPw'].forEach(id => $(id).value=''); $('nrParent').value=''; loadReceivers(); }
     catch(e){ nrMsg(e.message || 'Could not create receiver','err'); }
   };
+
+  // ---- Master admin: find duplicate receivers, then merge them or keep them as locations of one company ----
+  if ($('recvDupBtn')) $('recvDupBtn').onclick = openRecvDups;
+  async function openRecvDups() {
+    let ov = $('recvDupModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'recvDupModal'; ov.className = 'histOverlay';
+      ov.innerHTML = '<div class="histBox" style="max-width:980px;"><div class="histHead"><h1 style="margin:0;font-size:18px;">Duplicate receivers</h1><button class="ghost" type="button" id="rdClose">✕ Close</button></div>'
+        + '<p class="sub" style="margin-top:6px;">Receivers whose names match once “Inc”, “LLC” and punctuation are ignored. For each group, pick the one to keep (●), tick the others, then:<br><b>Merge</b> if they are the <b>same place</b> — documents, customers and contacts move to the kept one (each customer keeps its own contacts).<br><b>Make locations</b> if they are <b>different addresses</b> of the same company — they stay separate and roll up under the kept one.</p><div id="rdBody"><div class="empty">Looking for duplicates…</div></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); });
+      $('rdClose').onclick = () => ov.classList.add('hide'); }
+    ov.classList.remove('hide');
+    const body = $('rdBody');
+    try {
+      const r = await api('/api/receivers/duplicates'); const groups = r.groups || [];
+      if (!groups.length) { body.innerHTML = '<div class="empty">No duplicate names found. 🎉</div>'; return; }
+      body.innerHTML = '<div class="sub" style="margin:0 0 8px;">' + groups.length + ' group' + (groups.length === 1 ? '' : 's') + ' to review</div>' + groups.map((g, gi) => {
+        const best = g.slice().sort((a, b) => (b.docCount - a.docCount) || (b.usedBy.length - a.usedBy.length) || (a.createdAt - b.createdAt))[0].id;
+        return '<div class="rdGroup" data-g="' + gi + '" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px;">'
+          + '<table style="margin:0;"><thead><tr><th style="width:56px;">Keep</th><th style="width:56px;">Include</th><th>Name &amp; address</th><th>Documents</th><th>Used by</th><th>Contacts</th></tr></thead><tbody>'
+          + g.map(x => '<tr><td><input type="radio" name="rdk' + gi + '" value="' + x.id + '"' + (x.id === best ? ' checked' : '') + '></td><td><input type="checkbox" class="rdInc" value="' + x.id + '"' + (x.id === best ? '' : ' checked') + '></td>'
+            + '<td><b>' + esc(x.name) + '</b><div style="color:var(--muted);font-size:12px;">' + (x.addressLine ? esc(x.addressLine) : '<i>no address</i>') + (x.parentName ? ' · under ' + esc(x.parentName) : '') + '</div></td>'
+            + '<td>' + x.docCount + '</td><td style="font-size:12px;">' + (x.usedBy.length ? esc(x.usedBy.join(', ')) : '<span style="color:var(--muted)">nobody</span>') + '</td><td>' + x.contacts + '</td></tr>').join('')
+          + '</tbody></table><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button type="button" class="btn-sm rdMerge">Merge into kept (same place)</button><button type="button" class="ghost btn-sm rdGroupBtn">Make locations of kept (different addresses)</button><span class="rdMsg" style="font-size:12.5px;font-weight:600;align-self:center;"></span></div></div>';
+      }).join('');
+      body.querySelectorAll('.rdGroup').forEach(box => {
+        const pick = () => { const k = box.querySelector('input[type=radio]:checked'); const keep = k && k.value; const inc = [...box.querySelectorAll('.rdInc:checked')].map(c => c.value).filter(v => v !== keep); return { keep, inc }; };
+        const msg = (t, k) => { const m = box.querySelector('.rdMsg'); m.textContent = t; m.className = 'rdMsg ' + (k === 'ok' ? 'umsg-ok' : k === 'err' ? 'umsg-err' : ''); };
+        box.querySelector('.rdMerge').onclick = () => { const p = pick(); if (!p.keep || !p.inc.length) return msg('Pick one to keep and tick at least one other', 'err');
+          confirmDialog({ title: 'Merge ' + p.inc.length + ' into the kept receiver?', okLabel: 'Merge', message: 'Only do this if they are the same place. Documents, customers and contacts move to the kept receiver; the others are switched off.',
+            onOk: async () => { try { const r2 = await api('/api/receivers/merge', { method: 'POST', body: JSON.stringify({ keepId: p.keep, mergeIds: p.inc }) }); msg('Merged ✓ — ' + r2.moved.documents + ' documents, ' + r2.moved.contacts + ' contacts moved', 'ok'); box.querySelectorAll('button').forEach(b => b.disabled = true); try { loadReceivers(); } catch (e) {} } catch (e) { msg(e.message, 'err'); } } }); };
+        box.querySelector('.rdGroupBtn').onclick = async () => { const p = pick(); if (!p.keep || !p.inc.length) return msg('Pick the parent (●) and tick its locations', 'err');
+          try { const r2 = await api('/api/receivers/group', { method: 'POST', body: JSON.stringify({ parentId: p.keep, childIds: p.inc }) }); msg('Done ✓ — ' + r2.grouped + ' now under the kept receiver. Add each one’s address with Edit if it’s missing.', 'ok'); try { loadReceivers(); } catch (e) {} } catch (e) { msg(e.message, 'err'); } };
+      });
+    } catch (e) { body.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
 
   // ================= Documents delivered to a receiver =================
   async function loadReceived(){

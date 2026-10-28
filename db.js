@@ -210,6 +210,7 @@ addColumn('orgs', 'roles', 'TEXT');       // JSON array of roles, e.g. ["custome
 addColumn('orgs', 'parentId', 'TEXT');    // optional parent org (a location rolls up to its parent company)
 // Structured address for receivers (address = street line; city/state/zip separate).
 addColumn('orgs', 'city', 'TEXT');
+addColumn('orgs', 'mergedInto', 'TEXT');                 // a duplicate receiver merged into another (kept inactive for history)
 addColumn('orgs', 'state', 'TEXT');
 addColumn('orgs', 'zip', 'TEXT');
 addColumn('orgs', 'externalId', 'TEXT');  // e.g. "hubspot:12345" — for import de-dupe / sync
@@ -448,5 +449,6 @@ CREATE INDEX IF NOT EXISTS idx_delloads_org ON deleted_loads(orgId);
 CREATE INDEX IF NOT EXISTS idx_pods_receiver ON pods(receiverId);
 CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
+addColumn('receiver_contacts', 'ownerOrgId', 'TEXT');   // the customer whose contact this is; NULL = the receiver's own people (master admin)
 
 module.exports = { db, DATA_DIR };

@@ -11,23 +11,45 @@ const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 function norm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+// Name without punctuation, "the" or company suffixes — "DOHERTY STEEL INC." and "Doherty Steel" match.
+const SUFFIX = new Set(['inc', 'llc', 'llp', 'lp', 'co', 'corp', 'corporation', 'company', 'ltd', 'the', 'incorporated', 'dba']);
+function core(s) { return norm(s).split(' ').filter(w => w && !SUFFIX.has(w)).join(' '); }
 
 function rolesOf(o) { let r = []; try { r = o.roles ? JSON.parse(o.roles) : []; } catch (e) {} if (!r.length) r = [o.kind || 'customer']; return r; }
-function contactsOf(id) {
-  return db.prepare(`SELECT id, name, email, phone, receiveBol FROM receiver_contacts WHERE receiverId = ? ORDER BY createdAt`).all(id)
+// Contacts belong to whoever added them: each customer keeps its own people at a receiver (only it sees, edits and
+// emails them); ownerOrgId NULL = the receiver's own people, managed by the master admin and emailed on every load.
+function contactsOf(id, ownerOrgId) {
+  return db.prepare(`SELECT id, name, email, phone, receiveBol FROM receiver_contacts WHERE receiverId = ? AND ownerOrgId IS ? ORDER BY createdAt`).all(id, ownerOrgId || null)
     .map(c => ({ id: c.id, name: c.name || '', email: c.email || '', phone: c.phone || '', receiveBol: !!c.receiveBol }));
 }
-function setContacts(receiverId, contacts) {
-  db.prepare(`DELETE FROM receiver_contacts WHERE receiverId = ?`).run(receiverId);
-  const ins = db.prepare(`INSERT INTO receiver_contacts (id, receiverId, name, email, phone, receiveBol, createdAt) VALUES (?,?,?,?,?,?,?)`);
+function setContacts(receiverId, contacts, ownerOrgId) {
+  db.prepare(`DELETE FROM receiver_contacts WHERE receiverId = ? AND ownerOrgId IS ?`).run(receiverId, ownerOrgId || null);
+  const ins = db.prepare(`INSERT INTO receiver_contacts (id, receiverId, name, email, phone, receiveBol, ownerOrgId, createdAt) VALUES (?,?,?,?,?,?,?,?)`);
   (Array.isArray(contacts) ? contacts : []).forEach(c => {
     const name = String(c && c.name || '').trim(), email = String(c && c.email || '').trim().toLowerCase(), phone = String(c && c.phone || '').trim();
     if (!name && !email) return;                                   // skip empty rows
-    ins.run(crypto.randomUUID(), receiverId, name || null, email || null, phone || null, (c && c.receiveBol) ? 1 : 0, Date.now());
+    ins.run(crypto.randomUUID(), receiverId, name || null, email || null, phone || null, (c && c.receiveBol) ? 1 : 0, ownerOrgId || null, Date.now());
   });
 }
+// One-time: contacts added before per-customer ownership were shared by every customer using the receiver. Give each
+// linked customer its own copy (so nobody loses anyone) and drop the shared row; unlinked receivers keep theirs as
+// the receiver's own people.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY, at INTEGER NOT NULL)`);
+  if (!db.prepare(`SELECT 1 FROM app_migrations WHERE name = 'receiver_contacts_owner'`).get()) {
+    db.transaction(() => {
+      const rows = db.prepare(`SELECT * FROM receiver_contacts WHERE ownerOrgId IS NULL`).all();
+      const links = db.prepare(`SELECT orgId FROM customer_receivers WHERE receiverId = ?`);
+      const ins = db.prepare(`INSERT INTO receiver_contacts (id, receiverId, name, email, phone, receiveBol, ownerOrgId, createdAt) VALUES (?,?,?,?,?,?,?,?)`);
+      rows.forEach(c => { const owners = links.all(c.receiverId).map(r => r.orgId); if (!owners.length) return;
+        owners.forEach(o => ins.run(crypto.randomUUID(), c.receiverId, c.name, c.email, c.phone, c.receiveBol, o, c.createdAt));
+        db.prepare(`DELETE FROM receiver_contacts WHERE id = ?`).run(c.id); });
+      db.prepare(`INSERT INTO app_migrations (name, at) VALUES ('receiver_contacts_owner', ?)`).run(Date.now());
+    })();
+  }
+} catch (e) { console.error('receiver contacts migration', e.message); }
 function addressLine(o) { return [o.address, o.city, o.state, o.zip].map(s => (s || '').trim()).filter(Boolean).join(', '); }
-function receiverOut(o) {
+function receiverOut(o, ownerOrgId) {
   const parent = o.parentId ? db.prepare(`SELECT id, name FROM orgs WHERE id = ?`).get(o.parentId) : null;
   const docCount = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`).get(o.id).n;
   const admins = db.prepare(`SELECT email FROM users WHERE orgId = ? AND role='admin' ORDER BY createdAt`).all(o.id).map(r => r.email);
@@ -35,7 +57,7 @@ function receiverOut(o) {
     contactName: o.contactName, contactEmail: o.contactEmail, contactPhone: o.contactPhone,
     address: o.address, city: o.city, state: o.state, zip: o.zip, addressLine: addressLine(o), externalId: o.externalId || null,
     parentId: o.parentId || null, parentName: parent ? parent.name : null, docCount, admins, hasLogin: admins.length > 0,
-    contacts: contactsOf(o.id) };
+    contacts: contactsOf(o.id, ownerOrgId), mergedInto: o.mergedInto || null };
 }
 function linkReceiver(orgId, receiverId) {
   if (!orgId || !receiverId) return;
@@ -43,6 +65,8 @@ function linkReceiver(orgId, receiverId) {
 }
 // Which org "owns" this add/link: a normal admin uses their own org; super may target a customer via body.customerId.
 function ownerOrgOf(req, b) { return req.user.role === 'superadmin' ? ((b && b.customerId || '').trim() || null) : (req.user.orgId || null); }
+// Whose contacts a list shows: the master admin sees a customer's when managing that customer, else the receiver's own.
+function viewerOwner(req) { return req.user.role === 'superadmin' ? ((req.query.linkedTo || req.query.customerId || '').trim() || null) : (req.user.orgId || null); }
 
 // ---- LIST. Super: the whole registry. Everyone else: only receivers THEY have linked. ----
 router.get('/', requireAuth, (req, res) => {
@@ -54,28 +78,30 @@ router.get('/', requireAuth, (req, res) => {
       rows = db.prepare(`SELECT o.* FROM orgs o JOIN customer_receivers cr ON cr.receiverId = o.id
         WHERE cr.orgId = ? ${all ? '' : 'AND o.active = 1'} ORDER BY o.name COLLATE NOCASE`).all(linkedTo);
     } else {
-      rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') ${all ? '' : 'AND active = 1'} ORDER BY name COLLATE NOCASE`).all();
+      rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND mergedInto IS NULL ${all ? '' : 'AND active = 1'} ORDER BY name COLLATE NOCASE`).all();
     }
   } else {
     rows = db.prepare(`SELECT o.* FROM orgs o JOIN customer_receivers cr ON cr.receiverId = o.id
       WHERE cr.orgId = ? ${all ? '' : 'AND o.active = 1'} ORDER BY o.name COLLATE NOCASE`).all(req.user.orgId || '');
   }
-  res.json({ receivers: rows.map(receiverOut) });
+  const owner = viewerOwner(req);
+  res.json({ receivers: rows.map(o => receiverOut(o, owner)) });
 });
 
 // ---- MATCH the global registry by name (dedupe suggestion). Only surfaced when the user types a
 //      specific name — this is a targeted "is this them?" lookup, not a browsable mass list. ----
 router.get('/match', requireAuth, (req, res) => {
-  const q = norm(req.query.name);
+  const q = core(req.query.name);
   if (q.length < 2) return res.json({ matches: [] });
   const city = norm(req.query.city);
-  const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND active = 1`).all();
+  const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND active = 1 AND mergedInto IS NULL`).all();
   const matches = rows.filter(o => {
-    const n = norm(o.name);
-    if (!(n.includes(q) || q.includes(n))) return false;
-    if (city && o.address && !norm(o.address).includes(city)) return false;
+    const n = core(o.name);
+    if (!n || !(n.includes(q) || q.includes(n))) return false;
+    if (city && !norm(addressLine(o)).includes(city)) return false;
     return true;
-  }).slice(0, 8).map(o => ({ id: o.id, name: o.name, address: o.address || null, parentName: o.parentId ? (db.prepare(`SELECT name FROM orgs WHERE id=?`).get(o.parentId) || {}).name : null }));
+  }).sort((x, y) => (core(x.name) === q ? 0 : 1) - (core(y.name) === q ? 0 : 1)).slice(0, 8)
+    .map(o => ({ id: o.id, name: o.name, address: addressLine(o) || null, parentName: o.parentId ? (db.prepare(`SELECT name FROM orgs WHERE id=?`).get(o.parentId) || {}).name : null }));
   res.json({ matches });
 });
 
@@ -90,7 +116,7 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
     const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(b.receiverId.trim());
     if (!o) return res.status(404).json({ error: 'Receiver not found' });
     linkReceiver(ownerOrg, o.id);
-    return res.status(200).json({ receiver: receiverOut(o), linked: true });
+    return res.status(200).json({ receiver: receiverOut(o, ownerOrg), linked: true });
   }
   // Create a new global receiver.
   const name = (b.name || '').trim();
@@ -113,9 +139,9 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
          (b.address || '').trim() || null, (b.city || '').trim() || null, (b.state || '').trim() || null, (b.zip || '').trim() || null,
          (b.externalId || '').trim() || null, Date.now());
   if (isSuper && adminEmail) createUser({ email: adminEmail, name: (b.adminName || b.contactName || '').trim(), role: 'admin', password: String(adminPassword), orgId: id });
-  setContacts(id, b.contacts);
+  setContacts(id, b.contacts, ownerOrg);
   linkReceiver(ownerOrg, id);
-  res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id)), linked: !!ownerOrg, created: true });
+  res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id), ownerOrg), linked: !!ownerOrg, created: true });
 });
 
 // ---- BULK IMPORT (master admin). Create/refresh many global receivers at once, deduping on
@@ -186,8 +212,61 @@ router.put('/:id', requireAuth, requireCap('manage_customers'), (req, res) => {
          ((b.phone ?? b.contactPhone) ?? o.contactPhone) || null, (b.address ?? o.address) || null,
          (b.city ?? o.city) || null, (b.state ?? o.state) || null, (b.zip ?? o.zip) || null, (b.externalId ?? o.externalId) || null,
          parentId, (b.active === undefined ? o.active : (b.active ? 1 : 0)), o.id);
-  if (b.contacts !== undefined) setContacts(o.id, b.contacts);
-  res.json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
+  const owner = ownerOrgOf(req, b);
+  if (b.contacts !== undefined) setContacts(o.id, b.contacts, owner);
+  res.json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id), owner) });
+});
+
+// ---- Master admin: duplicate receivers. Groups active receivers whose names match once punctuation and company
+//      suffixes are ignored, with what each one has (address, documents, customers, contacts) to decide. ----
+router.get('/duplicates', requireAuth, requireSuper, (req, res) => {
+  const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind='receiver') AND active = 1 AND mergedInto IS NULL`).all();
+  const groups = {};
+  rows.forEach(o => { const k = core(o.name); if (k) (groups[k] = groups[k] || []).push(o); });
+  const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
+  const ccount = db.prepare(`SELECT COUNT(*) n FROM receiver_contacts WHERE receiverId = ?`), pname = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
+  const out = Object.values(groups).filter(g => g.length > 1).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
+      parentName: o.parentId ? ((pname.get(o.parentId) || {}).name || null) : null, docCount: docs.get(o.id).n, usedBy: custs.all(o.id).map(r => r.name), contacts: ccount.get(o.id).n,
+      createdAt: o.createdAt }))).sort((a, b) => a[0].name.localeCompare(b[0].name));
+  res.json({ groups: out });
+});
+// Merge duplicates into one: documents, customer links, contacts (each customer keeps its own), locations and logins
+// move to the kept receiver; the others are switched off and marked merged so nothing points at them.
+router.post('/merge', requireAuth, requireSuper, (req, res) => {
+  const b = req.body || {}, keepId = String(b.keepId || '').trim();
+  const ids = (Array.isArray(b.mergeIds) ? b.mergeIds : []).map(String).filter(x => x && x !== keepId);
+  const keep = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(keepId);
+  if (!keep || !ids.length) return res.status(400).json({ error: 'Pick the receiver to keep and at least one to merge into it' });
+  let moved = { documents: 0, links: 0, contacts: 0 };
+  db.transaction(() => {
+    ids.forEach(id => {
+      const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id); if (!o) return;
+      moved.documents += db.prepare(`UPDATE pods SET receiverId = ?, receiverName = ? WHERE receiverId = ?`).run(keep.id, keep.name, id).changes;
+      db.prepare(`SELECT orgId FROM customer_receivers WHERE receiverId = ?`).all(id).forEach(r => { moved.links += db.prepare(`INSERT OR IGNORE INTO customer_receivers (orgId, receiverId, createdAt) VALUES (?,?,?)`).run(r.orgId, keep.id, Date.now()).changes; });
+      db.prepare(`DELETE FROM customer_receivers WHERE receiverId = ?`).run(id);
+      moved.contacts += db.prepare(`UPDATE receiver_contacts SET receiverId = ? WHERE receiverId = ?`).run(keep.id, id).changes;
+      db.prepare(`UPDATE orgs SET parentId = ? WHERE parentId = ? AND id != ?`).run(keep.id, id, keep.id);
+      db.prepare(`UPDATE users SET orgId = ? WHERE orgId = ?`).run(keep.id, id);
+      if (!addressLine(keep) && addressLine(o)) { db.prepare(`UPDATE orgs SET address = ?, city = ?, state = ?, zip = ? WHERE id = ?`).run(o.address, o.city, o.state, o.zip, keep.id); Object.assign(keep, { address: o.address, city: o.city, state: o.state, zip: o.zip }); }
+      db.prepare(`UPDATE orgs SET active = 0, mergedInto = ? WHERE id = ?`).run(keep.id, id);
+    });
+    // The same person added twice by the same customer collapses to one (keeps "gets BOL" if either had it).
+    db.prepare(`SELECT ownerOrgId, LOWER(email) em, MIN(createdAt) first, MAX(receiveBol) bol, COUNT(*) n FROM receiver_contacts WHERE receiverId = ? AND email IS NOT NULL GROUP BY ownerOrgId, LOWER(email) HAVING n > 1`).all(keep.id).forEach(d => {
+      const ids2 = db.prepare(`SELECT id FROM receiver_contacts WHERE receiverId = ? AND ownerOrgId IS ? AND LOWER(email) = ? ORDER BY createdAt`).all(keep.id, d.ownerOrgId, d.em).map(r => r.id);
+      db.prepare(`UPDATE receiver_contacts SET receiveBol = ? WHERE id = ?`).run(d.bol, ids2[0]);
+      ids2.slice(1).forEach(x => db.prepare(`DELETE FROM receiver_contacts WHERE id = ?`).run(x));
+    });
+  })();
+  console.log('[receivers] merged ' + ids.length + ' into ' + keep.name + ' by ' + req.user.email);
+  res.json({ ok: true, kept: keep.name, merged: ids.length, moved });
+});
+// Different addresses, same company: keep them separate and roll them up as locations of one parent.
+router.post('/group', requireAuth, requireSuper, (req, res) => {
+  const b = req.body || {}, parentId = String(b.parentId || '').trim();
+  const kids = (Array.isArray(b.childIds) ? b.childIds : []).map(String).filter(x => x && x !== parentId);
+  if (!db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(parentId) || !kids.length) return res.status(400).json({ error: 'Pick the parent company and at least one location' });
+  const n = kids.reduce((t, id) => t + db.prepare(`UPDATE orgs SET parentId = ? WHERE id = ?`).run(parentId, id).changes, 0);
+  res.json({ ok: true, grouped: n });
 });
 
 // ---- Give a receiver a login so they can look up delivered documents (master admin only). ----
