@@ -6,53 +6,49 @@
 <title>HaulProof Driver</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&family=Dancing+Script:wght@600&family=Great+Vibes&family=Sacramento&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@700;800&family=Public+Sans:wght@400;500;600;700&family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&family=Dancing+Script:wght@600&family=Great+Vibes&family=Sacramento&display=swap">
+<script>try{if(localStorage.getItem("hp_theme")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}</script>
 <style>
-  :root{
-    --bg:#eceff3; --surface:#ffffff; --surface-2:#f5f7fa; --page:#ffffff;
+  /* HaulProof navy (same as the dispatch portal) by default. "Daylight" (☀ in the header) switches to a light look
+     for bright sun; the choice is remembered on the phone. Documents and the signature pad always stay white. */
+  :root{color-scheme:dark;
+    --bg:#172b58; --surface:#213662; --surface-2:#1b2d56; --page:#ffffff; --sunk:#1b2d56;
+    --ink:#e8effc; --muted:#a9bbd8; --line:#3b5487; --line-strong:#4a6399;
+    --primary:#4d8dff; --primary-ink:#04112e; --primary-soft:#2a4c8f; --primary-line:#4a6399;
+    --tab:#f2b21a; --tab-ink:#3a2a00; --tab-line:#a97a00;
+    --driver:#2a4c8f; --driver-line:#4d8dff; --driver-ink:#cfe0ff;
+    --success:#4cc282; --success-soft:#1e5038; --warn:#e6a740; --warn-soft:#56401f; --danger:#ef7a6c;
+    --ok:#4cc282; --ok-soft:#1e5038; --ok-line:#2a6a47; --warn-line:#6e5222; --bad:#ef7a6c; --bad-soft:#5c2c27; --bad-line:#7a3a32; --violet:#a98bff; --violet-soft:#3f3374; --violet-line:#55479a;
+    --shadow:0 1px 2px rgba(0,0,0,.25),0 10px 28px rgba(0,0,0,.28);
+    --mark-grad:linear-gradient(135deg,#6a9fff,#4d8dff); --btn-grad:linear-gradient(180deg,#5a96ff,#4d8dff);
+    --btn-shadow:0 0 14px rgba(77,141,255,.28); --btn-shadow-h:0 0 20px rgba(77,141,255,.4); --bar-shadow:none; --bar-bg:#1a2f60;
+    --body-bg:radial-gradient(900px 500px at 80% -10%,#26498f 0,transparent 60%),#172b58;}
+  :root[data-theme="light"]{color-scheme:light;
+    --bg:#eceff3; --surface:#ffffff; --surface-2:#f5f7fa; --page:#ffffff; --sunk:#f5f7fa;
     --ink:#16202b; --muted:#5c6b7a; --line:#dde4ec; --line-strong:#c6d0db;
-    --primary:#1655d1; --primary-ink:#fff; --primary-soft:#e7eefc;
+    --primary:#1655d1; --primary-ink:#fff; --primary-soft:#e7eefc; --primary-line:#bcd0f5;
     --tab:#f2b21a; --tab-ink:#3a2a00; --tab-line:#c98f00;
     --driver:#cfe0ff; --driver-line:#3f74e0; --driver-ink:#0b2a66;
     --success:#12784a; --success-soft:#e2f2ea; --warn:#b5731a; --warn-soft:#fbeedd; --danger:#c0392b;
+    --ok:#12784a; --ok-soft:#e2f2ea; --ok-line:#b5dcc7; --warn-line:#f1d3a6; --bad:#c0392b; --bad-soft:#fdecea; --bad-line:#efc4c1; --violet:#7a3cc0; --violet-soft:#f1e8fb; --violet-line:#d7c2f0;
     --shadow:0 1px 2px rgba(20,32,45,.06),0 8px 26px rgba(20,32,45,.09);
     --mark-grad:linear-gradient(135deg,#3f7ae8,#1655d1); --btn-grad:linear-gradient(180deg,#2f6ae4,#1655d1);
-    --btn-shadow:0 2px 6px rgba(22,85,209,.26); --btn-shadow-h:0 6px 15px rgba(22,85,209,.32); --bar-shadow:0 6px 18px rgba(20,40,80,.05);
-  }
-  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-    --bg:#0b111a; --surface:#141e29; --surface-2:#1a2530; --page:#f4f5f7;
-    --ink:#e9eff6; --muted:#94a3b4; --line:#26323f; --line-strong:#33404e;
-    --primary:#5a8dff; --primary-ink:#0a1017; --primary-soft:#18294a;
-    --tab:#f2b21a; --tab-ink:#3a2a00; --tab-line:#a97a00;
-    --driver:#22345c; --driver-line:#5a8dff; --driver-ink:#cfe0ff;
-    --success:#37b077; --success-soft:#123023; --warn:#e0a44e; --warn-soft:#33280f; --danger:#e0685a;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.4);
-    --mark-grad:linear-gradient(135deg,#6f9dff,#5a8dff); --btn-grad:linear-gradient(180deg,#6f9dff,#5a8dff);
-    --btn-shadow:0 2px 8px rgba(0,0,0,.5); --btn-shadow-h:0 6px 16px rgba(0,0,0,.55); --bar-shadow:0 6px 18px rgba(0,0,0,.35);}}
-  :root[data-theme="dark"]{
-    --bg:#0b111a; --surface:#141e29; --surface-2:#1a2530; --page:#f4f5f7;
-    --ink:#e9eff6; --muted:#94a3b4; --line:#26323f; --line-strong:#33404e;
-    --primary:#5a8dff; --primary-ink:#0a1017; --primary-soft:#18294a;
-    --tab:#f2b21a; --tab-ink:#3a2a00; --tab-line:#a97a00;
-    --driver:#22345c; --driver-line:#5a8dff; --driver-ink:#cfe0ff;
-    --success:#37b077; --success-soft:#123023; --warn:#e0a44e; --warn-soft:#33280f; --danger:#e0685a;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.4);
-    --mark-grad:linear-gradient(135deg,#6f9dff,#5a8dff); --btn-grad:linear-gradient(180deg,#6f9dff,#5a8dff);
-    --btn-shadow:0 2px 8px rgba(0,0,0,.5); --btn-shadow-h:0 6px 16px rgba(0,0,0,.55); --bar-shadow:0 6px 18px rgba(0,0,0,.35);}
+    --btn-shadow:0 2px 6px rgba(22,85,209,.26); --btn-shadow-h:0 6px 15px rgba(22,85,209,.32); --bar-shadow:0 6px 18px rgba(20,40,80,.05); --bar-bg:var(--surface);
+    --body-bg:var(--bg);}
   *{box-sizing:border-box;}
   /* Lock the app to the device width: never allow a sideways scroll or drift, and never let any element push
      the page wider than the screen. Keeps everything centered and fully fitting on every phone. */
   html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;}
   img,canvas,svg,table{max-width:100%;}
-  body{background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; line-height:1.5; -webkit-font-smoothing:antialiased;}
+  body{background:var(--body-bg); background-attachment:fixed; color:var(--ink); font-family:"Public Sans","IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; line-height:1.5; -webkit-font-smoothing:antialiased;}
   /* Header: mark + wordmark on the left, then the right cluster (driver badge, Help, sync pill). The wordmark
      takes the flexible space (margin-right:auto) so the cluster groups tightly on the right with just the gap
      between items — a single spacer, NOT one auto-margin per pill (which used to spread them out and shove the
      sync pill off the right edge on a phone). The driver badge shrinks/truncates first; Help + sync never shrink. */
-  .bar{position:sticky; top:0; z-index:40; background:var(--surface); border-bottom:1px solid var(--line); box-shadow:var(--bar-shadow); padding:12px 12px; padding-top:calc(12px + env(safe-area-inset-top)); display:flex; align-items:center; gap:8px; overflow:hidden;}
+  .bar{position:sticky; top:0; z-index:40; background:var(--bar-bg); border-bottom:1px solid var(--line); box-shadow:var(--bar-shadow); padding:12px 12px; padding-top:calc(12px + env(safe-area-inset-top)); display:flex; align-items:center; gap:8px; overflow:hidden;}
   .mark{width:30px;height:30px;border-radius:9px;background:var(--mark-grad);box-shadow:var(--btn-shadow);display:grid;place-items:center;flex:none;}
   .mark svg{width:18px;height:18px;}
-  .wordmark{font-family:"Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;margin-right:auto;flex:none;}
+  .wordmark{font-family:"Overpass","Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;margin-right:auto;flex:none;}
   .wordmark b{color:var(--primary);}
   .pill{display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; border:1px solid var(--line-strong); background:var(--surface-2); color:var(--ink); padding:5px 10px; border-radius:20px; cursor:pointer; flex:none; white-space:nowrap;}
   .pill.off{border-color:var(--warn); color:var(--warn); background:var(--warn-soft);}
@@ -78,7 +74,7 @@
   .welcome{margin:0 0 16px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,var(--primary),#3f7ae8);color:#fff;box-shadow:var(--btn-shadow);}
   .welcome-in{display:flex;align-items:flex-start;gap:10px;padding:14px 14px 15px;}
   .welcome-txt{flex:1;}
-  .wgreet{font-family:"Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;}
+  .wgreet{font-family:"Overpass","Archivo",sans-serif;font-weight:800;font-size:18px;letter-spacing:-.01em;}
   .wmsg{font-size:13.5px;opacity:.92;margin-top:3px;line-height:1.4;}
   .wclose{flex:none;background:rgba(255,255,255,.18);border:none;color:#fff;width:26px;height:26px;border-radius:8px;font-size:17px;line-height:1;cursor:pointer;padding:0;}
   .wclose:hover{background:rgba(255,255,255,.28);}
@@ -88,7 +84,7 @@
   .signon .fields{text-align:left;margin-top:14px;}
   main{max-width:820px;margin:0 auto;padding:20px 16px 60px;}
   .view.hide{display:none;}
-  h1{font-family:"Archivo",sans-serif;font-weight:800;font-size:23px;letter-spacing:-.02em;margin:2px 0 4px;text-wrap:balance;}
+  h1{font-family:"Overpass","Archivo",sans-serif;font-weight:800;font-size:23px;letter-spacing:-.02em;margin:2px 0 4px;text-wrap:balance;}
   .sub{color:var(--muted);font-size:14px;margin:0 0 18px;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;font-size:15px;font-weight:600;border-radius:11px;padding:12px 16px;border:1px solid transparent;cursor:pointer;text-decoration:none;transition:transform .06s,background .15s,border-color .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
   .btn:active{transform:translateY(1px);}
@@ -130,17 +126,17 @@
   input.ti:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
   /* sign view (drop + pages) */
   .signctx{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
-  .signctx .back{background:var(--primary-soft,#e8f0fe);border:1px solid var(--tab-line,#c7d6ee);color:var(--primary);font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;padding:9px 16px;border-radius:11px;-webkit-tap-highlight-color:transparent;white-space:nowrap;}
+  .signctx .back{background:var(--primary-soft,var(--primary-soft));border:1px solid var(--tab-line,var(--primary-line));color:var(--primary);font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;padding:9px 16px;border-radius:11px;-webkit-tap-highlight-color:transparent;white-space:nowrap;}
   .signctx .ctxt{font-size:13px;color:var(--muted);}
   .docmeta{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:14px;box-shadow:var(--shadow);padding:14px;margin-bottom:14px;}
   @media(max-width:560px){.docmeta{grid-template-columns:1fr;}}
   .docmeta label.f{margin:0;}
   .docmeta label.f span{display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
-  .docmeta label.f span em{font-style:normal;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:6px;letter-spacing:.03em;vertical-align:middle;background:#fdeaea;color:#c0392b;text-transform:uppercase;}
+  .docmeta label.f span em{font-style:normal;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:6px;letter-spacing:.03em;vertical-align:middle;background:var(--bad-soft);color:var(--bad);text-transform:uppercase;}
   .docmeta label.f span em.opt{background:var(--surface-2);color:var(--muted);}
   .docmeta label.f input{width:100%;font-family:inherit;font-size:16px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:10px;padding:11px 12px;outline:none;}
   .docmeta label.f input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
-  .docmeta label.f.req.missing input{border-color:#e2a3a0;background:#fdf3f2;}
+  .docmeta label.f.req.missing input{border-color:var(--bad-line);background:var(--bad-soft);}
   /* Prepared-load PO # is shown locked so the driver doesn't change it by accident; Edit unlocks it. */
   .docmeta label.f span .poedit{float:right;font-family:inherit;font-size:11px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--primary);background:var(--primary-soft);border:1px solid var(--primary);border-radius:7px;padding:2px 11px;cursor:pointer;margin-top:-3px;}
   .docmeta label.f input.locked{background:var(--surface);border-style:dashed;border-color:var(--line-strong);color:var(--ink);font-weight:700;cursor:default;}
@@ -157,7 +153,7 @@
      load to show its actions (sign, pickup, check in/out) and times. */
   .ldcard{border:1px solid var(--line-strong);border-radius:12px;background:var(--surface-2);margin-bottom:10px;overflow:hidden;}
   .ldcard.open{border-color:var(--driver-line);box-shadow:0 0 0 1px var(--driver-line);background:var(--surface);}
-  .ldcard.reup{border-left:4px solid #b42318;}
+  .ldcard.reup{border-left:4px solid var(--bad);}
   .ldhead{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
   .ldhead.static{cursor:default;}
   .ldpo{font-weight:700;font-family:"IBM Plex Mono",monospace;font-size:14px;overflow-wrap:anywhere;}
@@ -206,15 +202,15 @@
   .tab.signed{background:transparent !important;border:none !important;animation:none;box-shadow:none;}
   .tab.signed .rsz{display:none !important;}   /* no resize handle on a completed signature — it was the stray blue square */
   .tab.current{outline:3px solid var(--primary);outline-offset:3px;animation:currentPulse 1.1s ease-in-out infinite;z-index:6;}
-  .tab.current::after{content:"👆 Sign as " attr(data-role);position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);background:var(--primary);color:#fff;font-family:"Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;letter-spacing:.01em;padding:4px 9px;border-radius:9px;white-space:nowrap;box-shadow:0 3px 10px rgba(16,42,82,.35);pointer-events:none;}
+  .tab.current::after{content:"👆 Sign as " attr(data-role);position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);background:var(--primary);color:#fff;font-family:"Overpass","Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;letter-spacing:.01em;padding:4px 9px;border-radius:9px;white-space:nowrap;box-shadow:0 3px 10px rgba(16,42,82,.35);pointer-events:none;}
   .tab.current::before{content:"";position:absolute;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--primary);pointer-events:none;}
   @keyframes currentPulse{0%,100%{outline-color:var(--primary);}50%{outline-color:rgba(22,85,209,.3);}}
   .datefield{position:absolute;background:var(--surface);border:1px dashed var(--tab-line);color:var(--ink);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:10.5px;box-shadow:0 2px 6px rgba(0,0,0,.12);overflow:visible;touch-action:none;user-select:none;white-space:nowrap;cursor:grab;}
   .datefield.driver{border-color:var(--driver-line);}
   .datefield.filled{border-style:solid;font-weight:700;}
   /* "Examples only" boxes around the demo buttons so drivers know they're just for trying the app */
-  .demobox{max-width:420px;margin:12px auto 0;border:1.5px dashed var(--line-strong,#c6d0db);border-radius:12px;padding:10px 12px 12px;text-align:center;background:rgba(120,130,150,.06);}
-  .demolbl{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#5c6b7a);margin-bottom:8px;}
+  .demobox{max-width:420px;margin:12px auto 0;border:1.5px dashed var(--line-strong,var(--line));border-radius:12px;padding:10px 12px 12px;text-align:center;background:rgba(120,130,150,.06);}
+  .demolbl{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,var(--muted));margin-bottom:8px;}
   .datefield.dragging{cursor:grabbing;opacity:.92;}
   .tab .content,.datefield .content{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 4px;}
   .tab .content img,.datefield .content img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
@@ -222,7 +218,7 @@
   /* Always-legible caption under a signature box, so a narrow field never hides WHO signs / WHAT it is. */
   /* Caption pill hidden: it sat under every signature box and read as a second "spot to sign" per signer.
      Who-signs-where is carried by the guided banner ("Sign as Consignee") and the active-field tooltip below. */
-  .tab .sigcap{display:none !important;position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:"Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;line-height:1;letter-spacing:.01em;padding:4px 9px;border-radius:999px;background:var(--tab);color:var(--tab-ink);border:1px solid var(--tab-line);box-shadow:0 2px 7px rgba(0,0,0,.22);pointer-events:none;z-index:5;}
+  .tab .sigcap{display:none !important;position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:"Overpass","Archivo",system-ui,sans-serif;font-size:11px;font-weight:800;line-height:1;letter-spacing:.01em;padding:4px 9px;border-radius:999px;background:var(--tab);color:var(--tab-ink);border:1px solid var(--tab-line);box-shadow:0 2px 7px rgba(0,0,0,.22);pointer-events:none;z-index:5;}
   .tab.driver .sigcap{background:var(--driver);color:var(--driver-ink);border-color:var(--driver-line);}
   .tab .sigcap.done{background:var(--surface);border-color:var(--success);color:var(--success);box-shadow:none;}
   /* Resize handle hidden in the driver app: drivers sign where dispatch placed the field, they don't resize it.
@@ -254,7 +250,7 @@
   .cfgact{display:flex;align-items:center;gap:10px;}
   .cfgsaved{font-size:12px;color:var(--ok);font-weight:600;}
   .emailbox{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:14px;margin-bottom:14px;}
-  .emailbox .lbl{font-weight:700;font-family:"Archivo",sans-serif;font-size:15px;margin-bottom:3px;}
+  .emailbox .lbl{font-weight:700;font-family:"Overpass","Archivo",sans-serif;font-size:15px;margin-bottom:3px;}
   .emailbox .hint2{font-size:12.5px;color:var(--muted);margin-bottom:12px;}
   .saved-lab{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin:2px 0 8px;}
   .suggest{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
@@ -281,11 +277,11 @@
   .sigopts{display:flex;flex-direction:column;gap:10px;margin-bottom:6px;}
   .sigopt{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1.5px solid var(--line-strong);border-radius:12px;background:var(--surface);cursor:pointer;font-family:inherit;}
   .sigopt.sel{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
-  .sigopt img{height:38px;max-width:70%;object-fit:contain;}
+  .sigopt img{height:38px;max-width:70%;object-fit:contain;background:#fff;border-radius:6px;padding:2px 6px;}
   .sigopt span{margin-left:auto;font-size:11px;color:var(--muted);font-family:"IBM Plex Mono",monospace;}
   .opthint{color:var(--muted);font-size:13px;padding:16px;text-align:center;border:1px dashed var(--line-strong);border-radius:12px;}
   .padwrap{position:relative;}
-  canvas#pad{width:100%;height:180px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:12px;touch-action:none;display:block;}
+  canvas#pad{width:100%;height:180px;background:#fff;border:1px solid var(--line-strong);border-radius:12px;touch-action:none;display:block;}
   .padtools{display:flex;justify-content:space-between;align-items:center;margin:8px 0 4px;}
   .padtools .clear{background:none;border:none;color:var(--primary);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;}
   .loc{font-size:12px;color:var(--muted);margin:10px 0 4px;font-family:"IBM Plex Mono",monospace;}
@@ -299,27 +295,27 @@
   #dropOverlay.on{display:flex;}
   #dropOverlay .inner{border:3px dashed var(--primary);background:var(--surface);border-radius:18px;padding:38px 46px;text-align:center;box-shadow:var(--shadow);pointer-events:none;}
   #dropOverlay .inner svg{width:44px;height:44px;color:var(--primary);}
-  #dropOverlay .inner b{font-family:"Archivo",sans-serif;font-size:20px;display:block;margin-top:10px;}
+  #dropOverlay .inner b{font-family:"Overpass","Archivo",sans-serif;font-size:20px;display:block;margin-top:10px;}
   #dropOverlay .inner span{color:var(--muted);font-size:14px;}
   .hide{display:none !important;}
   .note{font-size:11.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;margin-top:6px;}
   /* Location consent banner */
-  #locBar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:var(--surface,#fff);border-top:1px solid #d9e2f0;box-shadow:0 -8px 24px rgba(16,42,82,.14);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));transform:translateY(120%);transition:transform .28s ease;}
+  #locBar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:var(--surface,var(--surface));border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(16,42,82,.14);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));transform:translateY(120%);transition:transform .28s ease;}
   #locBar.on{transform:translateY(0);}
   #locBar .locbar-in{display:flex;gap:12px;align-items:flex-start;max-width:640px;margin:0 auto;}
   #locBar .locbar-ico{font-size:26px;line-height:1;flex:0 0 auto;margin-top:1px;}
-  #locBar .locbar-txt b{font-family:"Archivo",sans-serif;font-size:15px;display:block;margin-bottom:3px;color:var(--ink,#12386e);}
+  #locBar .locbar-txt b{font-family:"Overpass","Archivo",sans-serif;font-size:15px;display:block;margin-bottom:3px;color:var(--ink,var(--primary));}
   #locBar .locbar-txt span{font-size:12.5px;color:var(--muted);line-height:1.45;}
   #locBar .locbar-btns{display:flex;gap:10px;max-width:640px;margin:12px auto 0;}
   #locBar .locbar-btns .btn{flex:1;}
   /* Camera capture tray */
   #uploadTools{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:10px;}
-  #capTray{margin-top:14px;border:1px solid #d9e2f0;background:var(--surface,#fff);border-radius:14px;padding:14px;box-shadow:var(--shadow);}
+  #capTray{margin-top:14px;border:1px solid var(--line);background:var(--surface,var(--surface));border-radius:14px;padding:14px;box-shadow:var(--shadow);}
   #capTray .captray-h{margin-bottom:10px;}
-  #capTray .captray-h b{font-family:"Archivo",sans-serif;font-size:15px;color:var(--ink,#12386e);display:block;}
+  #capTray .captray-h b{font-family:"Overpass","Archivo",sans-serif;font-size:15px;color:var(--ink,var(--primary));display:block;}
   #capTray .captray-h span{font-size:12px;color:var(--muted);}
   #capThumbs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
-  .capthumb{position:relative;width:76px;height:100px;border-radius:8px;overflow:hidden;border:1px solid #cdd8ea;background:#f4f7fc;box-shadow:0 1px 4px rgba(16,42,82,.12);}
+  .capthumb{position:relative;width:76px;height:100px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--primary-soft);box-shadow:0 1px 4px rgba(16,42,82,.12);}
   .capthumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .capthumb .pg{position:absolute;left:4px;bottom:4px;background:rgba(18,56,110,.85);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;}
   .capthumb .del{position:absolute;top:3px;right:3px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(200,32,42,.92);color:#fff;font-size:13px;line-height:20px;text-align:center;cursor:pointer;padding:0;}
@@ -327,25 +323,25 @@
   .capthumb .scanned{position:absolute;right:4px;bottom:4px;background:rgba(18,120,74,.92);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;letter-spacing:.02em;}
   /* Multi-stop scanning: a tap-to-cycle stop tag under each page thumbnail. */
   .capcell{display:flex;flex-direction:column;align-items:center;gap:5px;}
-  .capstop{border:1px solid var(--primary,#1656d1);background:var(--primary-soft,#e7f0ff);color:var(--primary,#1656d1);font-family:"Archivo",sans-serif;font-weight:700;font-size:11px;border-radius:7px;padding:3px 8px;cursor:pointer;width:76px;text-align:center;}
+  .capstop{border:1px solid var(--primary,var(--primary));background:var(--primary-soft,var(--primary-soft));color:var(--primary,var(--primary));font-family:"Overpass","Archivo",sans-serif;font-weight:700;font-size:11px;border-radius:7px;padding:3px 8px;cursor:pointer;width:76px;text-align:center;}
   .caphint{width:100%;font-size:12px;color:var(--muted);margin:-2px 0 10px;}
   /* Scan editor (deskew + enhance) */
   #scanEditor{position:fixed;inset:0;z-index:80;display:none;flex-direction:column;background:#0b1017;color:#eaf0f8;}
   #scanEditor.on{display:flex;}
   #scanEditor .sc-head{display:flex;align-items:center;gap:10px;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;flex:none;}
-  #scanEditor .sc-head b{font-family:"Archivo",sans-serif;font-size:16px;}
+  #scanEditor .sc-head b{font-family:"Overpass","Archivo",sans-serif;font-size:16px;}
   #scanEditor .sc-head .sc-step{font-size:12px;color:#9fb2cc;margin-left:auto;}
   #scanEditor .sc-stage{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:6px 12px;}
   #scanEditor .sc-canvas-wrap{position:relative;max-width:100%;max-height:100%;}
   #scanEditor canvas{display:block;max-width:100%;max-height:calc(100vh - 230px);border-radius:6px;touch-action:none;}
   #scanEditor svg.sc-quad{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
   #scanEditor svg.sc-quad polygon{fill:rgba(46,131,255,.14);stroke:#4c9dff;stroke-width:2;vector-effect:non-scaling-stroke;}
-  #scanEditor .sc-handle{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:rgba(76,157,255,.28);border:2.5px solid #7fb6ff;box-shadow:0 0 0 1px rgba(0,0,0,.35);touch-action:none;cursor:grab;z-index:2;}
-  #scanEditor .sc-handle::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#eaf0f8;}
+  #scanEditor .sc-handle{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:rgba(76,157,255,.28);border:2.5px solid var(--primary-line);box-shadow:0 0 0 1px rgba(0,0,0,.35);touch-action:none;cursor:grab;z-index:2;}
+  #scanEditor .sc-handle::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--primary-soft);}
   #scanEditor .sc-hint{text-align:center;font-size:12.5px;color:#9fb2cc;padding:0 16px 4px;flex:none;}
   #scanEditor .sc-filters{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:10px 12px 4px;flex:none;}
   #scanEditor .sc-chip{font-family:inherit;font-weight:600;font-size:13px;padding:8px 14px;border-radius:20px;border:1.5px solid #2b3a4d;background:#16202c;color:#c3d2e6;cursor:pointer;}
-  #scanEditor .sc-chip.on{border-color:#4c9dff;color:#eaf0f8;background:rgba(46,131,255,.18);}
+  #scanEditor .sc-chip.on{border-color:var(--primary);color:#eaf0f8;background:rgba(46,131,255,.18);}
   #scanEditor .sc-foot{display:flex;gap:10px;padding:12px 16px calc(16px + env(safe-area-inset-bottom));flex:none;}
   #scanEditor .sc-foot .btn{flex:1;}
   #scanEditor .btn{font-family:inherit;font-weight:600;font-size:15px;padding:13px 16px;border-radius:11px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
@@ -358,9 +354,9 @@
   #camView .cam-guide{position:absolute;inset:0;pointer-events:none;z-index:2;}
   #camView .cam-frame{position:absolute;border:2.5px dashed rgba(255,255,255,.92);border-radius:12px;box-shadow:0 0 0 100vmax rgba(0,0,0,.42);transition:border-color .15s;}
   #camView .cam-frame::before{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);}
-  #camView .cam-frame.good{border-color:#3fd07a;}
+  #camView .cam-frame.good{border-color:var(--ok);}
   #camView .cam-top{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;z-index:3;}
-  #camView .cam-title{font-family:"Archivo",sans-serif;font-weight:700;font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,.65);}
+  #camView .cam-title{font-family:"Overpass","Archivo",sans-serif;font-weight:700;font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,.65);}
   #camView .cam-x{margin-left:auto;background:rgba(0,0,0,.5);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:22px;line-height:40px;text-align:center;cursor:pointer;padding:0;}
   #camView .cam-hint{position:absolute;left:50%;transform:translateX(-50%);top:calc(60px + env(safe-area-inset-top));background:rgba(0,0,0,.6);padding:9px 15px;border-radius:22px;font-size:13.5px;font-weight:600;z-index:3;text-align:center;max-width:88vw;text-shadow:0 1px 2px rgba(0,0,0,.5);}
   #camView .cam-hint.good{background:rgba(24,120,74,.9);}
@@ -373,15 +369,15 @@
   #camView .cam-auto.off{opacity:.5;}
   #camView .cam-native{position:absolute;right:16px;bottom:calc(40px + env(safe-area-inset-bottom));background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12px;font-weight:600;border-radius:9px;padding:9px 11px;cursor:pointer;z-index:3;}
   /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
-  #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,#eceff3);}
+  #pdfViewer{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;background:var(--bg,var(--sunk));}
   #pdfViewer.on{display:flex;}
   /* Top padding must clear the phone's status bar. env(safe-area-inset-top) covers standalone/notch devices,
      but it resolves to 0 in some Safari states — so guarantee a minimum so Close/Save are never hidden. */
-  #pdfViewer .pv-bar{display:flex;align-items:center;gap:10px;padding:max(calc(env(safe-area-inset-top) + 12px), 48px) 14px 12px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#dde4ec);flex:none;box-shadow:0 2px 8px rgba(20,40,80,.06);position:sticky;top:0;z-index:2;}
-  #pdfViewer .pv-title{font-family:"Archivo",sans-serif;font-weight:700;font-size:15px;color:var(--ink,#16202b);flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #pdfViewer .pv-bar{display:flex;align-items:center;gap:10px;padding:max(calc(env(safe-area-inset-top) + 12px), 48px) 14px 12px;background:var(--surface,var(--surface));border-bottom:1px solid var(--line,var(--line));flex:none;box-shadow:0 2px 8px rgba(20,40,80,.06);position:sticky;top:0;z-index:2;}
+  #pdfViewer .pv-title{font-family:"Overpass","Archivo",sans-serif;font-weight:700;font-size:15px;color:var(--ink,var(--ink));flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   #pdfViewer .pv-close,#pdfViewer .pv-dl{font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:9px;padding:10px 15px;cursor:pointer;flex:none;}
   #pdfViewer .pv-close{background:var(--btn-grad,linear-gradient(180deg,#2f6ae4,#1655d1));color:#fff;box-shadow:var(--btn-shadow);}
-  #pdfViewer .pv-dl{background:var(--surface-2,#f5f7fa);color:var(--ink,#16202b);border:1px solid var(--line-strong,#c6d0db);}
+  #pdfViewer .pv-dl{background:var(--surface-2,var(--sunk));color:var(--ink,var(--ink));border:1px solid var(--line-strong,var(--line));}
   /* min-height:0 lets this flex child actually scroll instead of expanding past the viewport; the safe-area
      padding keeps the last page clear of the iPhone home indicator. */
   #pdfViewer .pv-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:14px;}
@@ -399,6 +395,7 @@
     <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;"><span id="drvName"></span><span id="drvCompany" style="font-size:10px;opacity:.7;font-weight:600;"></span></span>
   </button>
   <a href="/help" target="_blank" rel="noopener" class="pill ico" id="helpPill" style="text-decoration:none;" title="Help &amp; how-to" aria-label="Help"><span class="pi" aria-hidden="true">?</span><span class="pl">Help</span></a>
+  <button class="pill ico" id="themePill" type="button" title="Switch between navy and the bright Daylight look" aria-label="Daylight mode"><span class="pi" aria-hidden="true" id="themeIco">☀</span><span class="pl" id="themeTxt">Daylight</span></button>
   <button class="pill ico" id="reportPill" type="button" title="Report a problem with the app" aria-label="Report a problem"><span aria-hidden="true">⚠</span><span class="pl">Report</span></button>
   <button class="pill" id="cloudPill" type="button"><span class="dot"></span><span id="cloudTxt">…</span></button>
 </header>
@@ -421,7 +418,7 @@
     <div class="signon">
       <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
       <h1>Enter your PIN</h1>
-      <div id="pinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:#12386e;line-height:1.35;"></div>
+      <div id="pinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:var(--primary);line-height:1.35;"></div>
       <p class="sub" id="pinSub">This driver link is protected. Enter your PIN to unlock it on this phone — you'll only need to do this once.</p>
       <div class="fields">
         <input class="ti" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••" style="text-align:center;letter-spacing:.45em;font-size:22px;">
@@ -429,9 +426,9 @@
       <button class="btn primary block" id="pinBtn" type="button">Unlock</button>
       <p class="note" id="pinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
       <div id="pinHelpLinks" style="margin-top:6px;text-align:center;font-size:14px;">
-        <a href="#" id="forgotPinLink" style="color:var(--brand,#1f6feb);text-decoration:none;">Forgot PIN?</a>
+        <a href="#" id="forgotPinLink" style="color:var(--brand,var(--primary));text-decoration:none;">Forgot PIN?</a>
         <span style="color:var(--muted);margin:0 8px;">·</span>
-        <a href="#" id="pinNeedHelpLink" style="color:var(--brand,#1f6feb);text-decoration:none;">Still need help?</a>
+        <a href="#" id="pinNeedHelpLink" style="color:var(--brand,var(--primary));text-decoration:none;">Still need help?</a>
       </div>
       <p class="note" id="forgotPinMsg" style="margin-top:10px;min-height:16px;color:var(--muted);"></p>
 
@@ -451,7 +448,7 @@
     <div class="signon">
       <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#fff" stroke-width="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>
       <h1 id="setPinTitle">Set your own PIN</h1>
-      <div id="setPinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:#12386e;line-height:1.35;"></div>
+      <div id="setPinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:var(--primary);line-height:1.35;"></div>
       <p class="sub" id="setPinSub">Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
       <div class="fields">
         <input class="ti" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;margin-bottom:10px;">
@@ -488,10 +485,10 @@
     </div>
     <h1>Today's route</h1>
     <p class="sub">See your loads below, or upload a document from your phone.</p>
-    <button class="locpill" id="locPill" type="button" aria-live="polite" style="display:none;width:100%;box-sizing:border-box;text-align:left;border:1px solid #ffd7a3;border-radius:12px;padding:11px 13px;margin-bottom:12px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;line-height:1.35;-webkit-tap-highlight-color:transparent;"></button>
+    <button class="locpill" id="locPill" type="button" aria-live="polite" style="display:none;width:100%;box-sizing:border-box;text-align:left;border:1px solid var(--warn-line);border-radius:12px;padding:11px 13px;margin-bottom:12px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;line-height:1.35;-webkit-tap-highlight-color:transparent;"></button>
     <button class="btn primary block" id="dispatchBtn" type="button" style="margin-bottom:28px;padding:20px 16px;font-size:18px;font-weight:800;border-radius:16px;box-shadow:0 6px 18px rgba(63,116,224,0.32);">📤 Upload for dispatch to set up</button>
     <button class="btn ghost block" id="oneoffBtn" type="button" style="display:none !important;margin-bottom:12px;">✍ Upload &amp; build/sign it myself</button>
-    <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,#3f74e0);">
+    <div class="pullcard hide" id="myLoadsCard" style="border:2px solid var(--driver-line,var(--primary));">
       <div class="pulltitle">📋 Your loads <span id="myLoadsCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></div>
       <div id="myLoadsList"></div>
       <div class="pullnote">Loads dispatch assigned to you — tap a load to open it, check in and sign.</div>
@@ -554,14 +551,14 @@
 
     <!-- Add / find a customer from the phone (device-key authed, deduped against the org list) -->
     <div id="drvCustModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
-      <div style="background:#fff;color:#16202b;border-radius:14px;max-width:420px;width:100%;padding:20px;max-height:90vh;overflow:auto;box-shadow:0 12px 44px rgba(0,0,0,.3);">
+      <div style="background:var(--surface);color:var(--ink);border-radius:14px;max-width:420px;width:100%;padding:20px;max-height:90vh;overflow:auto;box-shadow:0 12px 44px rgba(0,0,0,.3);">
         <div style="font-size:17px;font-weight:800;margin-bottom:4px;">Add or find a customer</div>
-        <div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Type the customer name. We check your list so the same company isn't added twice.</div>
-        <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
-        <input id="drvCustName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:16px;">
-        <div id="drvCustDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px;margin:0 0 10px;font-size:13px;color:#7c2d12;"></div>
-        <label style="font-size:12px;font-weight:700;color:#5c6b7a;text-transform:uppercase;letter-spacing:.04em;">Contact email <span style="font-weight:400;text-transform:none;">optional</span></label>
-        <input id="drvCustEmail" type="email" placeholder="ops@customer.com" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid #d9e0ea;border-radius:9px;font-size:16px;">
+        <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">Type the customer name. We check your list so the same company isn't added twice.</div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Customer name</label>
+        <input id="drvCustName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid var(--line);border-radius:9px;font-size:16px;">
+        <div id="drvCustDup" class="hide" style="background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:10px;padding:11px;margin:0 0 10px;font-size:13px;color:var(--warn);"></div>
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Contact email <span style="font-weight:400;text-transform:none;">optional</span></label>
+        <input id="drvCustEmail" type="email" placeholder="ops@customer.com" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 10px;padding:11px;border:1px solid var(--line);border-radius:9px;font-size:16px;">
         <div id="drvCustMsg" style="font-size:13px;margin:6px 0;"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;">
           <button type="button" id="drvCustCancel" class="btn ghost sm">Cancel</button>
@@ -662,7 +659,7 @@
       <canvas id="scCanvas"></canvas>
       <svg class="sc-quad" id="scQuad" preserveAspectRatio="none"><polygon points="0,0 0,0 0,0 0,0"></polygon></svg>
       <div id="scSpinner" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(8,14,26,.46);z-index:20;pointer-events:none;border-radius:inherit;">
-        <div style="width:58px;height:58px;border-radius:50%;border:5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:scspin .8s linear infinite;"></div>
+        <div style="width:58px;height:58px;border-radius:50%;border:5px solid rgba(255,255,255,.35);border-top-color:var(--line);animation:scspin .8s linear infinite;"></div>
         <div style="color:#fff;font-weight:800;font-size:18px;text-shadow:0 1px 4px rgba(0,0,0,.55);letter-spacing:.01em;">Finding the document…</div>
       </div>
     </div>
@@ -705,9 +702,9 @@
   </div>
 </div>
 <div id="locHelp" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:1300;display:flex;align-items:center;justify-content:center;padding:18px;">
-  <div style="background:var(--surface,#fff);border-radius:16px;max-width:430px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.32);max-height:88vh;overflow:auto;">
+  <div style="background:var(--surface,var(--surface));border-radius:16px;max-width:430px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.32);max-height:88vh;overflow:auto;">
     <div style="font-family:'Archivo',sans-serif;font-weight:800;font-size:18px;margin-bottom:8px;">Turn location back on</div>
-    <div id="locHelpBody" style="font-size:14px;line-height:1.55;color:var(--ink,#1a2b45);"></div>
+    <div id="locHelpBody" style="font-size:14px;line-height:1.55;color:var(--ink,var(--primary));"></div>
     <div style="display:flex;gap:10px;margin-top:18px;">
       <button class="btn primary" id="locHelpRetry" type="button" style="flex:1;">Check again</button>
       <button class="btn ghost" id="locHelpClose" type="button">Close</button>
@@ -717,10 +714,10 @@
 <!-- Signer hand-off gate: shown when signing moves from one signer to the next (e.g. Consignee → Driver), so the
      phone is deliberately handed over and the current signer can't accidentally keep signing as the next person. -->
 <div id="handoffModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.58);z-index:1250;display:flex;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:var(--surface,#fff);border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);">
+  <div style="background:var(--surface,var(--surface));border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);">
     <div style="font-size:42px;line-height:1;margin-bottom:8px;">✋</div>
-    <div id="handoffTitle" style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:20px;margin-bottom:6px;color:var(--ink,#12386e);">Consignee signature complete</div>
-    <div id="handoffMsg" style="font-size:15px;color:var(--muted,#5c6b7a);line-height:1.5;margin-bottom:20px;">Please hand the phone to the <b>Driver</b> to sign next.</div>
+    <div id="handoffTitle" style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:20px;margin-bottom:6px;color:var(--ink,var(--primary));">Consignee signature complete</div>
+    <div id="handoffMsg" style="font-size:15px;color:var(--muted,var(--muted));line-height:1.5;margin-bottom:20px;">Please hand the phone to the <b>Driver</b> to sign next.</div>
     <button class="btn primary block" id="handoffStart" type="button" style="font-size:16px;">I'm the Driver — start signing</button>
     <button class="btn ghost block" id="handoffBack" type="button" style="font-size:14px;margin-top:8px;">‹ Go back</button>
   </div>
@@ -730,37 +727,37 @@
      user gesture), plus steps to unblock the in-app camera. -->
 <!-- Split a multi-page upload into separate per-stop documents (each becomes its own doc on the load to sign). -->
 <div id="stopSplit" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.6);z-index:1300;display:flex;flex-direction:column;">
-  <div style="flex:none;padding:calc(14px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);">
+  <div style="flex:none;padding:calc(14px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px;background:var(--surface,var(--surface));border-bottom:1px solid var(--line,var(--line));">
     <b style="font-family:'Archivo',system-ui,sans-serif;font-size:17px;">Split into stops</b>
     <button id="stopSplitAdd" type="button" class="btn ghost sm" style="margin-left:auto;">＋ Add stop</button>
   </div>
-  <div id="stopSplitHint" style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,#5c6b7a);background:var(--surface,#fff);">Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Fill in who each stop is delivered to — each stop becomes its own signed document.</div>
-  <div id="stopSplitStops" style="flex:none;padding:4px 16px 10px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#e2e8f0);max-height:34vh;overflow:auto;"></div>
+  <div id="stopSplitHint" style="flex:none;padding:8px 16px;font-size:13px;color:var(--muted,var(--muted));background:var(--surface,var(--surface));">Tap <b>+ Add stop</b> to create another stop, then tap a page's <b>Stop</b> tag to move that page onto it. Tap a page to enlarge it. Fill in who each stop is delivered to — each stop becomes its own signed document.</div>
+  <div id="stopSplitStops" style="flex:none;padding:4px 16px 10px;background:var(--surface,var(--surface));border-bottom:1px solid var(--line,var(--line));max-height:34vh;overflow:auto;"></div>
   <div id="stopSplitPages" style="flex:1;min-height:0;overflow:auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#0b1017;"></div>
-  <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,#fff);border-top:1px solid var(--line,#e2e8f0);">
+  <div style="flex:none;display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));background:var(--surface,var(--surface));border-top:1px solid var(--line,var(--line));">
     <button id="stopSplitCancel" type="button" class="btn ghost" style="flex:1;">Cancel</button>
     <button id="stopSplitDone" type="button" class="btn primary" style="flex:2;">Create stops</button>
   </div>
 </div>
 <div id="camHelp" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:1300;display:flex;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:var(--surface,#fff);border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);max-height:88vh;overflow:auto;">
+  <div style="background:var(--surface,var(--surface));border-radius:18px;max-width:420px;width:100%;padding:24px 20px;text-align:center;box-shadow:0 14px 46px rgba(0,0,0,.38);max-height:88vh;overflow:auto;">
     <div style="font-size:40px;line-height:1;margin-bottom:8px;">📷</div>
-    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;margin-bottom:6px;color:var(--ink,#12386e);">Use your phone's camera</div>
-    <div style="font-size:14.5px;color:var(--muted,#5c6b7a);line-height:1.5;margin-bottom:18px;">The in-app camera is blocked, but you can still take the photo with your phone's camera. Tap below.</div>
+    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;margin-bottom:6px;color:var(--ink,var(--primary));">Use your phone's camera</div>
+    <div style="font-size:14.5px;color:var(--muted,var(--muted));line-height:1.5;margin-bottom:18px;">The in-app camera is blocked, but you can still take the photo with your phone's camera. Tap below.</div>
     <button class="btn primary block" id="camHelpNative" type="button" style="font-size:16px;">📷 Open my phone's camera</button>
     <button class="btn ghost block" id="camHelpSteps" type="button" style="font-size:14px;margin-top:8px;">How to allow the in-app camera</button>
-    <div id="camHelpStepsBody" class="hide" style="text-align:left;font-size:13.5px;color:var(--ink,#1a2b45);line-height:1.5;margin-top:12px;border-top:1px solid var(--line,#e2e8f0);padding-top:12px;"></div>
+    <div id="camHelpStepsBody" class="hide" style="text-align:left;font-size:13.5px;color:var(--ink,var(--primary));line-height:1.5;margin-top:12px;border-top:1px solid var(--line,var(--line));padding-top:12px;"></div>
     <button class="btn ghost block" id="camHelpClose" type="button" style="font-size:14px;margin-top:8px;">Cancel</button>
   </div>
 </div>
 <!-- Pickup proof photos: required (or optional) photos captured when the driver taps "Pickup complete". -->
 <div id="pickupSheet" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.62);z-index:1300;display:flex;align-items:flex-end;justify-content:center;">
-  <div style="background:var(--surface,#fff);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(10,20,50,.4);">
-    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;color:var(--ink,#12386e);margin-bottom:4px;">📷 Photo of the load at pickup</div>
-    <div style="font-size:14px;color:var(--muted,#5c6b7a);line-height:1.45;margin-bottom:14px;">Take a clear photo of the freight — and the BOL or any pre-existing damage. You can add up to 6. <span id="pkCount" style="font-weight:700;color:var(--ink,#12386e);"></span></div>
+  <div style="background:var(--surface,var(--surface));width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px rgba(10,20,50,.4);">
+    <div style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:19px;color:var(--ink,var(--primary));margin-bottom:4px;">📷 Photo of the load at pickup</div>
+    <div style="font-size:14px;color:var(--muted,var(--muted));line-height:1.45;margin-bottom:14px;">Take a clear photo of the freight — and the BOL or any pre-existing damage. You can add up to 6. <span id="pkCount" style="font-weight:700;color:var(--ink,var(--primary));"></span></div>
     <div id="pkThumbs" style="margin-bottom:12px;"></div>
     <button class="btn ghost block" id="pkAdd" type="button" style="font-size:16px;margin-bottom:10px;">📷 Add photo</button>
-    <button class="btn primary block" id="pkRecord" type="button" style="font-size:16px;background:#0f6f3f;border-color:#0f6f3f;" disabled>Record pickup</button>
+    <button class="btn primary block" id="pkRecord" type="button" style="font-size:16px;background:#0f6f3f;border-color:var(--ok);" disabled>Record pickup</button>
     <button class="btn ghost block" id="pkCancel" type="button" style="font-size:14px;margin-top:8px;">Cancel</button>
     <input type="file" id="pickupCamInput" accept="image/*" capture="environment" hidden>
   </div>
@@ -1079,7 +1076,7 @@ window.__startApp=function(){
     host.innerHTML="";
     (list||[]).forEach(function(n){
       var card=document.createElement("div");
-      card.style.cssText="background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;border-radius:12px;padding:13px 15px;margin:0 0 12px;font-size:14px;line-height:1.45;";
+      card.style.cssText="background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:12px;padding:13px 15px;margin:0 0 12px;font-size:14px;line-height:1.45;";
       var who=n.actorName||n.actorEmail||"a dispatcher";
       var contact = n.actorEmail ? (" You can reach out to "+esc(who)+" ("+esc(n.actorEmail)+") if this was a mistake.") : (" Contact "+esc(who)+" if this was a mistake.");
       card.innerHTML='<div style="font-weight:800;margin-bottom:3px;">⚠ Dispatch removed your upload'+(n.poNumber?(" — PO "+esc(n.poNumber)):"")+'</div><div>'+esc(n.message||"A document you were waiting on was removed.")+contact+'</div>';
@@ -1215,7 +1212,7 @@ window.__startApp=function(){
       bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:10070;background:#b3261e;color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 12px;box-shadow:0 6px 18px rgba(0,0,0,.28);font-size:14px;line-height:1.4;";
       bar.innerHTML='<div><b>This device isn’t linked anymore.</b> Open your personal HaulProof link again (from the text or email your dispatcher sent) to reconnect — until then, documents can’t upload.</div>';
       var x=document.createElement("button"); x.type="button"; x.textContent="Got it";
-      x.style.cssText="display:block;margin-top:10px;background:#fff;color:#b3261e;border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:13px;";
+      x.style.cssText="display:block;margin-top:10px;background:var(--surface);color:var(--bad);border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:13px;";
       x.addEventListener("click",function(){ if(_linkBar&&_linkBar.parentNode) _linkBar.parentNode.removeChild(_linkBar); _linkBar=null; });
       bar.appendChild(x);
       document.body.appendChild(bar); _linkBar=bar;
@@ -1229,8 +1226,8 @@ window.__startApp=function(){
       var ov=document.createElement("div");
       ov.style.cssText="position:fixed;inset:0;background:rgba(8,12,20,.55);z-index:10080;display:flex;align-items:center;justify-content:center;padding:18px;";
       var card=document.createElement("div");
-      card.style.cssText="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:22px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);";
-      card.innerHTML='<div style="font-weight:800;font-size:17px;margin-bottom:8px;color:#12386e;">'+esc(title)+'</div><div style="font-size:14px;color:#42526b;line-height:1.45;margin-bottom:18px;">'+esc(message)+'</div>';
+      card.style.cssText="background:var(--surface);border-radius:16px;max-width:460px;width:100%;padding:22px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);";
+      card.innerHTML='<div style="font-weight:800;font-size:17px;margin-bottom:8px;color:var(--primary);">'+esc(title)+'</div><div style="font-size:14px;color:var(--primary);line-height:1.45;margin-bottom:18px;">'+esc(message)+'</div>';
       var row=document.createElement("div"); row.style.cssText="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
       var cancel=document.createElement("button"); cancel.type="button"; cancel.className="btn ghost"; cancel.textContent="Cancel";
       var ok=document.createElement("button"); ok.type="button"; ok.className="btn primary"; ok.textContent=okLabel||"Continue";
@@ -1304,8 +1301,8 @@ window.__startApp=function(){
   function chooseStop(docs){
     return new Promise(function(resolve){
       var ov=document.createElement("div"); ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center;";
-      var sheet=document.createElement("div"); sheet.style.cssText="background:#fff;width:100%;max-width:520px;border-radius:14px 14px 0 0;padding:16px;max-height:80vh;overflow:auto;";
-      sheet.innerHTML='<div style="font-weight:800;font-size:16px;margin-bottom:2px;">This load has '+docs.length+' stops</div><div style="color:#5c6b7a;font-size:13px;margin-bottom:12px;">Pick the stop you’re signing for.</div>';
+      var sheet=document.createElement("div"); sheet.style.cssText="background:var(--surface);width:100%;max-width:520px;border-radius:14px 14px 0 0;padding:16px;max-height:80vh;overflow:auto;";
+      sheet.innerHTML='<div style="font-weight:800;font-size:16px;margin-bottom:2px;">This load has '+docs.length+' stops</div><div style="color:var(--muted);font-size:13px;margin-bottom:12px;">Pick the stop you’re signing for.</div>';
       // Show stops in order (Stop 1 first); docs without a stop number fall to the bottom.
       var ordered=docs.slice().sort(function(a,b){ return (a.stopNumber||9999)-(b.stopNumber||9999); });
       ordered.forEach(function(doc){
@@ -1369,7 +1366,7 @@ window.__startApp=function(){
     if($("camInput")) $("camInput").value=""; if($("file")) $("file").value="";
     var pg=(_reup&&_reup.page)||1;
     if($("signCtx")) $("signCtx").innerHTML='🔴 Re-shoot page '+pg+' — PO '+esc(d.poNumber||"")+
-      (d.rejectReason?('<div style="color:#b5731a;font-weight:600;margin-top:4px;">Dispatch: '+esc(d.rejectReason)+'</div>'):'')+
+      (d.rejectReason?('<div style="color:var(--warn);font-weight:600;margin-top:4px;">Dispatch: '+esc(d.rejectReason)+'</div>'):'')+
       '<div style="color:var(--muted);font-weight:400;margin-top:4px;">This is the exact page dispatch couldn’t use — shown below. Take a clear new photo of it, then tap “Use these pages.” The rest of the document stays as-is.</div>';
     showView("sign");
     renderReupPreview();   // show the actual rejected page so the driver knows exactly which one to re-shoot
@@ -1381,7 +1378,7 @@ window.__startApp=function(){
       host.innerHTML='';
       if(!_reup || !_reup.orig || !window.pdfjsLib) return;
       var box=document.createElement("div"); box.style.cssText="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 12px;";
-      var cap=document.createElement("div"); cap.style.cssText="font-size:13px;font-weight:700;color:#b42318;text-align:center;"; cap.textContent="Page "+((_reup.page)||1)+" — the one to re-shoot";
+      var cap=document.createElement("div"); cap.style.cssText="font-size:13px;font-weight:700;color:var(--bad);text-align:center;"; cap.textContent="Page "+((_reup.page)||1)+" — the one to re-shoot";
       box.appendChild(cap);
       try{ pdfjsLib.GlobalWorkerOptions.workerSrc="/vendor/pdf.worker.js"; }catch(e){}
       var pdf=await pdfjsLib.getDocument({data:_reup.orig.slice(0)}).promise;   // slice: keep _reup.orig intact for the rebuild
@@ -1391,7 +1388,7 @@ window.__startApp=function(){
       var w=Math.min(280, Math.round((window.innerWidth||360)*0.72));
       var vp=page.getViewport({scale:w/vp0.width});
       var cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
-      cv.style.cssText="border:3px solid #b42318;border-radius:10px;max-width:74vw;background:#fff;box-shadow:0 6px 20px rgba(0,0,0,.18);";
+      cv.style.cssText="border:3px solid var(--bad);border-radius:10px;max-width:74vw;background:#fff;box-shadow:0 6px 20px rgba(0,0,0,.18);";
       box.appendChild(cv);
       host.appendChild(box);
       await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
@@ -1480,11 +1477,11 @@ window.__startApp=function(){
         // One-line status shown on the closed card, so the driver can tell the loads apart at a glance.
         var stat, statColor;
         var atDel = null; ready.forEach(function(d){ var t=d.stopTimes; if(!atDel && t && t.inAt && !t.outAt) atDel={sn:d.stopNumber||1, at:t.inAt}; });
-        if(reup.length){ stat="📷 Dispatch asked you to re-shoot page "+(reup[0].rejectedPage||""); statColor="#b42318"; }
+        if(reup.length){ stat="📷 Dispatch asked you to re-shoot page "+(reup[0].rejectedPage||""); statColor="var(--bad)"; }
         else if(!canOpen){ stat=""; sub="Sent to dispatch — they'll set it up"; }
-        else if(timesOn && atDel){ stat="🕘 At "+((total>1||ready.length>1)?("stop "+atDel.sn):"delivery")+" since "+timeStr(new Date(atDel.at)); statColor="#1f3b63"; }
-        else if(puAt){ stat="🚚 Picked up "+timeStr(new Date(puAt)); statColor="#146c2e"; }
-        else if(timesOn && puT && puT.inAt && !puT.outAt){ stat="🕘 At pickup since "+timeStr(new Date(puT.inAt)); statColor="#1f3b63"; }
+        else if(timesOn && atDel){ stat="🕘 At "+((total>1||ready.length>1)?("stop "+atDel.sn):"delivery")+" since "+timeStr(new Date(atDel.at)); statColor="var(--primary)"; }
+        else if(puAt){ stat="🚚 Picked up "+timeStr(new Date(puAt)); statColor="var(--ok)"; }
+        else if(timesOn && puT && puT.inAt && !puT.outAt){ stat="🕘 At pickup since "+timeStr(new Date(puT.inAt)); statColor="var(--primary)"; }
         else if(ready.length){ stat="✍ Ready to sign"; statColor="var(--primary)"; }
         else { stat=""; }
         if(signed>0 && total>0) stat=(stat?stat+" · ":"")+"✓ "+signed+" of "+total+" signed";
@@ -1493,7 +1490,7 @@ window.__startApp=function(){
         if(isOpen) cardEl.classList.add("open");
         var right = canOpen
           ? '<span class="ldchev" aria-hidden="true">›</span>'
-          : '<span style="background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
+          : '<span style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
         cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
           '<div class="ldpo">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
@@ -1512,8 +1509,8 @@ window.__startApp=function(){
         function slot(pad){ var d=document.createElement("div"); d.style.cssText="padding:"+(pad||"2px 0 6px")+";"; body.appendChild(d); return d; }
         if(reup.length){
           // Dispatch bounced a page back — the re-shoot takes priority over any other action on this load.
-          var rs=slot(); rs.innerHTML='<div style="color:#b42318;font-size:12px;font-weight:700;margin-bottom:6px;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+(reup[0].rejectReason?(" — "+esc(reup[0].rejectReason)):"")+'</div>'+
-            '<button class="btn sm" type="button" style="background:#b42318;color:#fff;border-color:#b42318;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+'</button>';
+          var rs=slot(); rs.innerHTML='<div style="color:var(--bad);font-size:12px;font-weight:700;margin-bottom:6px;">📷 Re-shoot page '+(reup[0].rejectedPage||"")+(reup[0].rejectReason?(" — "+esc(reup[0].rejectReason)):"")+'</div>'+
+            '<button class="btn sm" type="button" style="background:#b42318;color:#fff;border-color:var(--bad);">📷 Re-shoot page '+(reup[0].rejectedPage||"")+'</button>';
           rs.querySelector("button").addEventListener("click", function(){ openReupload(reup[0]); });
         }
         // Pickup complete (per load): one-tap GPS + time so dispatch sees the freight is picked up. No signature.
@@ -1538,7 +1535,7 @@ window.__startApp=function(){
           // Multi-stop load: each stop is its own box — Stop 1 first — with that stop's check-in and its own
           // sign button, spaced apart so the driver can't tap the wrong stop.
           sec("Delivery stops");
-          if(signed>0 && total>0){ var pl2=slot("0 0 6px"); pl2.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stops signed</div>'; }
+          if(signed>0 && total>0){ var pl2=slot("0 0 6px"); pl2.innerHTML='<div style="color:var(--ok);font-size:12px;font-weight:700;">✓ '+signed+' of '+total+' stops signed</div>'; }
           ready.forEach(function(d){
             var sn=d.stopNumber||1, who=d.receiverName||"";
             var box=document.createElement("div"); box.className="ldstopbox"; body.appendChild(box);
@@ -1548,10 +1545,10 @@ window.__startApp=function(){
             sb.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete Stop '+sn+'</button>';
             sb.querySelector("button").addEventListener("click", function(){ openPreparedDoc(d); });
           });
-          if(waiting.length){ var wl2=slot("4px 0 4px"); wl2.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
+          if(waiting.length){ var wl2=slot("4px 0 4px"); wl2.innerHTML='<div style="color:var(--warn);font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
         } else if(ready.length){
           sec("Paperwork");
-          if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:#b5731a;font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
+          if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:var(--warn);font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
           // Signing and sending the paperwork is what completes the delivery (and checks the driver out of the stop).
           var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
           os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); });
@@ -1695,7 +1692,7 @@ window.__startApp=function(){
   }
   // Render the green "Pickup complete" button (wired to mark pickup), into a container.
   function showPickupButton(container, loadId){
-    container.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:#0f6f3f;">📍 Pickup complete</button>';
+    container.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:var(--ok);">📍 Pickup complete</button>';
     var pb=container.querySelector(".myLoadPickup");
     if(pb) pb.addEventListener("click", function(){
       var req=drvFieldOn("requirePickupPhoto"), allow=drvFieldOn("allowPickupPhoto");
@@ -1705,7 +1702,7 @@ window.__startApp=function(){
   }
   // Render the "✓ Picked up …" status with a self-serve Undo (reverses an accidental tap on the spot).
   function renderPickedUp(container, loadId, atMs, gps, pc){
-    container.innerHTML='<div style="color:#146c2e;font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(atMs))+pickupGpsHtml(gps)+(pc?(' · 📷 '+pc+' photo'+(pc===1?'':'s')):'')+' <a href="#" class="pkUndo" style="color:#b42318;font-weight:700;margin-left:6px;text-decoration:underline;">Undo</a></div>';
+    container.innerHTML='<div style="color:var(--ok);font-size:12px;font-weight:700;">✓ Picked up '+timeStr(new Date(atMs))+pickupGpsHtml(gps)+(pc?(' · 📷 '+pc+' photo'+(pc===1?'':'s')):'')+' <a href="#" class="pkUndo" style="color:var(--bad);font-weight:700;margin-left:6px;text-decoration:underline;">Undo</a></div>';
     var u=container.querySelector('.pkUndo');
     if(u) u.addEventListener('click', function(e){ e.preventDefault(); undoPickup(loadId, container, u); });
   }
@@ -1729,13 +1726,13 @@ window.__startApp=function(){
   function renderStopTimes(container, loadId, kind, stop, label, t){
     t=t||{};
     if(!t.inAt && !t.outAt){
-      container.innerHTML='<button class="btn sm stIn" type="button" style="background:#1f3b63;color:#fff;border-color:#1f3b63;">🕘 Check in at '+esc(label)+'</button>';
+      container.innerHTML='<button class="btn sm stIn" type="button" style="background:#1f3b63;color:#fff;border-color:var(--primary);">🕘 Check in at '+esc(label)+'</button>';
     } else {
       var open = t.inAt && !t.outAt;
-      container.innerHTML='<div style="color:#1f3b63;font-size:12px;font-weight:700;">🕘 '+esc(label.charAt(0).toUpperCase()+label.slice(1))+': '+
+      container.innerHTML='<div style="color:var(--primary);font-size:12px;font-weight:700;">🕘 '+esc(label.charAt(0).toUpperCase()+label.slice(1))+': '+
         (t.inAt?('In '+timeStr(new Date(t.inAt))):'')+
         (t.outAt?((t.inAt?' · ':'')+'Out '+timeStr(new Date(t.outAt))+(t.inAt?' ('+durStr(t.outAt-t.inAt)+')':'')):'')+
-        (open?' <a href="#" class="stUndo" style="color:#b42318;margin-left:6px;text-decoration:underline;">Undo</a>':'')+'</div>'+
+        (open?' <a href="#" class="stUndo" style="color:var(--bad);margin-left:6px;text-decoration:underline;">Undo</a>':'')+'</div>'+
         // No separate Check out buttons: "Pickup complete" checks the driver out of pickup, and sending the signed
         // documents checks them out of the delivery stop (the server stamps both).
         ((open && kind==="delivery")?'<div style="color:var(--muted);font-size:12px;margin-top:2px;">Sign the paperwork below to check out.</div>':'');
@@ -1763,7 +1760,7 @@ window.__startApp=function(){
   function closePickupSheet(){ var m=$("pickupSheet"); if(m) m.classList.add("hide"); _pkCtx=null; _pkPhotos=[]; var inp=$("pickupCamInput"); if(inp) inp.value=""; }
   function renderPkThumbs(){
     var box=$("pkThumbs"); if(!box) return;
-    box.innerHTML=_pkPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:74px;height:74px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e2e8f0);"><button type="button" data-i="'+i+'" class="pkDel" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
+    box.innerHTML=_pkPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:74px;height:74px;object-fit:cover;border-radius:8px;border:1px solid var(--line,var(--line));"><button type="button" data-i="'+i+'" class="pkDel" style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid var(--line);font-size:15px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
     Array.prototype.forEach.call(box.querySelectorAll(".pkDel"),function(b){ b.addEventListener("click",function(){ _pkPhotos.splice(+b.dataset.i,1); renderPkThumbs(); }); });
     var rec=$("pkRecord"); if(rec){ rec.disabled=(_pkRequired && _pkPhotos.length===0); rec.textContent=_pkPhotos.length?("✓ Record pickup ("+_pkPhotos.length+")"):(_pkRequired?"Record pickup":"Record pickup (no photo)"); }
     var add=$("pkAdd"); if(add){ add.disabled=_pkPhotos.length>=6; add.style.opacity=_pkPhotos.length>=6?.5:1; }
@@ -1793,15 +1790,15 @@ window.__startApp=function(){
   function buildDeliveryPhotoBox(required){
     var wrap=document.createElement("div");
     wrap.style.cssText="border:1px solid "+(required?"#f0b37e":"var(--line,#e2e8f0)")+";border-radius:12px;padding:12px;margin-bottom:12px;background:"+(required?"#fff7ed":"var(--surface,#fff)")+";";
-    var title=document.createElement("div"); title.style.cssText="font-weight:800;font-size:15px;color:var(--ink,#12386e);margin-bottom:2px;";
+    var title=document.createElement("div"); title.style.cssText="font-weight:800;font-size:15px;color:var(--ink,var(--primary));margin-bottom:2px;";
     title.textContent=required?"📷 Delivery photos — required":"📷 Delivery photos (optional)";
-    var sub=document.createElement("div"); sub.style.cssText="font-size:13px;color:var(--muted,#5c6b7a);line-height:1.4;margin-bottom:10px;";
+    var sub=document.createElement("div"); sub.style.cssText="font-size:13px;color:var(--muted,var(--muted));line-height:1.4;margin-bottom:10px;";
     sub.textContent=required?"Add at least one photo of the delivered freight before you send. Up to 6.":"Add a photo of the delivered freight if you'd like. Up to 6.";
     var thumbs=document.createElement("div"); thumbs.style.marginBottom="8px";
     var add=document.createElement("button"); add.className="btn ghost block"; add.type="button"; add.style.fontSize="15px"; add.textContent="📷 Add delivery photo";
     var inp=document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.setAttribute("capture","environment"); inp.hidden=true;
     function render(){
-      thumbs.innerHTML=_dvPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:66px;height:66px;object-fit:cover;border-radius:8px;border:1px solid var(--line,#e2e8f0);"><button type="button" data-i="'+i+'" class="dvDel" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:14px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
+      thumbs.innerHTML=_dvPhotos.map(function(u,i){ return '<div style="position:relative;display:inline-block;margin:0 8px 8px 0;"><img src="'+u+'" style="width:66px;height:66px;object-fit:cover;border-radius:8px;border:1px solid var(--line,var(--line));"><button type="button" data-i="'+i+'" class="dvDel" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid var(--line);font-size:14px;line-height:1;cursor:pointer;">×</button></div>'; }).join("");
       Array.prototype.forEach.call(thumbs.querySelectorAll(".dvDel"),function(b){ b.addEventListener("click",function(){ _dvPhotos.splice(+b.dataset.i,1); render(); }); });
       add.disabled=_dvPhotos.length>=6; add.style.opacity=_dvPhotos.length>=6?.5:1;
     }
@@ -2918,7 +2915,7 @@ window.__startApp=function(){
       tag.style.cssText="font-family:inherit;font-weight:800;font-size:12px;border:none;border-radius:999px;padding:5px 12px;cursor:pointer;background:"+stopColor(s)+";color:#fff;";
       tag.addEventListener("click",function(){ if(_ssCount<2){ toast("Add a stop first (＋ Add stop), then tap to move pages"); return; } _ssAssign[i]=((_ssAssign[i]||1)%_ssCount)+1; renderStopSplit(); });
       var lbl=document.createElement("div"); lbl.style.cssText="color:#9fb2cc;font-size:11px;"; lbl.textContent="Page "+(i+1);
-      var zoom=document.createElement("div"); zoom.style.cssText="color:#5a8dff;font-size:10px;cursor:zoom-in;"; zoom.textContent="🔍 tap to enlarge";
+      var zoom=document.createElement("div"); zoom.style.cssText="color:var(--primary);font-size:10px;cursor:zoom-in;"; zoom.textContent="🔍 tap to enlarge";
       zoom.addEventListener("click",function(){ showSplitPageZoom(i+1); });
       cell.appendChild(img); cell.appendChild(tag); cell.appendChild(lbl); cell.appendChild(zoom); box.appendChild(cell);
     });
@@ -3262,9 +3259,9 @@ window.__startApp=function(){
   // success (or a live fix) is a more reliable "location is on" signal.
   function locOkGet(){ try{ return localStorage.getItem("hp_loc_ok")||""; }catch(e){ return ""; } }
   function locOkSet(on){ try{ if(on) localStorage.setItem("hp_loc_ok","1"); else localStorage.removeItem("hp_loc_ok"); }catch(e){} }
-  function pillOn(el){ el.style.background="#e7f6ec"; el.style.color="#116b34"; el.style.borderColor="#b7e4c7"; el.innerHTML="📍 Location is on — your signatures get GPS proof"; }
-  function pillOff(el){ el.style.background="#fff4e5"; el.style.color="#8a4b00"; el.style.borderColor="#ffd7a3"; el.innerHTML="⚠️ Location is off — tap to turn it on so deliveries get GPS proof"; }
-  function pillCheck(el){ el.style.background="#eef3fb"; el.style.color="#1c3d70"; el.style.borderColor="#c7d6ee"; el.innerHTML="📍 Tap to turn on location for GPS proof on your signatures"; }
+  function pillOn(el){ el.style.background="var(--ok-soft)"; el.style.color="var(--ok)"; el.style.borderColor="var(--ok-line)"; el.innerHTML="📍 Location is on — your signatures get GPS proof"; }
+  function pillOff(el){ el.style.background="var(--warn-soft)"; el.style.color="var(--warn)"; el.style.borderColor="var(--warn-line)"; el.innerHTML="⚠️ Location is off — tap to turn it on so deliveries get GPS proof"; }
+  function pillCheck(el){ el.style.background="var(--primary-soft)"; el.style.color="var(--primary)"; el.style.borderColor="var(--primary-line)"; el.innerHTML="📍 Tap to turn on location for GPS proof on your signatures"; }
   function renderLocPill(){
     var el=$("locPill"); if(!el) return;
     if(!navigator.geolocation){ el.style.display="none"; return; }
@@ -3561,7 +3558,7 @@ window.__startApp=function(){
     // If dispatch upload found the PO already in use, the server filed it as a new PO — tell the driver clearly.
     if(renamedFrom && renamedFrom!==poNum){
       var rn=document.createElement("div");
-      rn.style.cssText="background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;border-radius:10px;padding:11px 13px;margin:0 0 14px;font-size:13.5px;line-height:1.4;";
+      rn.style.cssText="background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:10px;padding:11px 13px;margin:0 0 14px;font-size:13.5px;line-height:1.4;";
       rn.innerHTML='PO <b>'+esc(renamedFrom)+'</b> was already in use, so this was filed as a new, separate load <b>'+esc(poNum)+'</b>.';
       da.appendChild(rn);
     }
@@ -3646,7 +3643,7 @@ window.__startApp=function(){
     // Clear "Stop N completed" headline when this signature closes out a route stop.
     if(currentStop){
       var done=document.createElement("div");
-      done.style.cssText="display:flex;align-items:center;gap:10px;background:#e7f6ec;border:1px solid #b6e3c4;color:#146c2e;border-radius:12px;padding:14px 16px;margin-bottom:14px;font-weight:800;font-size:17px;";
+      done.style.cssText="display:flex;align-items:center;gap:10px;background:var(--sunk);border:1px solid var(--ok-line);color:var(--ok);border-radius:12px;padding:14px 16px;margin-bottom:14px;font-weight:800;font-size:17px;";
       done.innerHTML='<span style="font-size:22px;line-height:1;">✓</span><span>Stop '+currentStop.n+' completed'+(compCtx&&compCtx.name?(' — '+esc(compCtx.name)):'')+'</span>';
       da.appendChild(done);
     }
@@ -3707,13 +3704,13 @@ window.__startApp=function(){
     var wasOnline=online();
     var ex=document.getElementById("sendSuccess"); if(ex) ex.remove();
     var ov=document.createElement("div"); ov.id="sendSuccess";
-    ov.style.cssText="position:fixed;inset:0;z-index:400;background:var(--surface,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;gap:14px;";
+    ov.style.cssText="position:fixed;inset:0;z-index:400;background:var(--surface,var(--surface));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;gap:14px;";
     var title=stopN!=null ? ("Stop "+stopN+" complete") : "All done";
     var msg=wasOnline ? "Signed documents sent." : "Saved on your phone — they'll send automatically once you have signal.";
     var ring=document.createElement("div");
     ring.style.cssText="width:88px;height:88px;border-radius:50%;background:"+(wasOnline?"#e7f6ec":"#fff4e5")+";display:flex;align-items:center;justify-content:center;";
     ring.innerHTML='<span style="font-size:48px;line-height:1;color:'+(wasOnline?"#146c2e":"#b5731a")+';">✓</span>';
-    var h=document.createElement("div"); h.style.cssText="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:24px;color:var(--ink,#12386e);"; h.textContent=title;
+    var h=document.createElement("div"); h.style.cssText="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:24px;color:var(--ink,var(--primary));"; h.textContent=title;
     var p=document.createElement("div"); p.style.cssText="font-size:15px;color:var(--muted);max-width:320px;line-height:1.45;"; p.textContent=msg;
     var btn=document.createElement("button"); btn.className="btn primary block"; btn.style.cssText="max-width:280px;font-size:17px;margin-top:6px;"; btn.textContent="🏠 Back to Home";
     var cd=document.createElement("div"); cd.style.cssText="font-size:13px;color:var(--muted);";
@@ -3862,7 +3859,7 @@ window.__startApp=function(){
       }
       function docLine(d, isChild){
         var row=document.createElement("div");
-        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0 9px "+(isChild?"14px":"0")+";border-top:1px solid var(--line);"+(isChild?"background:#fafcff;":"");
+        row.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0 9px "+(isChild?"14px":"0")+";border-top:1px solid var(--line);"+(isChild?"background:var(--primary-soft);":"");
         var title = isChild ? (d.stopNumber?("Stop "+d.stopNumber):"Document") : ("PO "+esc(d.poNumber||"—"));
         var sub = isChild ? (esc(d.receiverName||d.consignee||d.docType||"BOL")) : ((d.consignee?esc(d.consignee)+" · ":"")+(d.when?new Date(d.when).toLocaleDateString():""));
         row.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;">'+title+'</div>'+
@@ -3878,7 +3875,7 @@ window.__startApp=function(){
         head.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;";
         head.innerHTML='<div style="min-width:0;"><div style="font-weight:700;font-family:\'IBM Plex Mono\',monospace;font-size:13px;"><span class="rdCaret" style="display:inline-block;width:12px;color:var(--muted);">▸</span> PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
           '<div style="color:var(--muted);font-size:12px;">'+g.docs.length+' documents · tap to view each stop</div></div>'+
-          '<span style="font-size:11px;font-weight:700;color:var(--brand,#1655d1);background:#e7effe;border-radius:999px;padding:3px 9px;white-space:nowrap;">'+g.docs.length+' stops</span>';
+          '<span style="font-size:11px;font-weight:700;color:var(--brand,var(--primary));background:var(--primary-soft);border-radius:999px;padding:3px 9px;white-space:nowrap;">'+g.docs.length+' stops</span>';
         box.appendChild(head);
         var kids=[];
         g.docs.forEach(function(d){ var line=docLine(d, true); line.style.display="none"; box.appendChild(line); kids.push(line); });
@@ -3908,7 +3905,7 @@ window.__startApp=function(){
     function renderChips(){ chipsEl.innerHTML=""; recips.forEach(function(e){ var s=document.createElement("span"); s.className="c"; s.appendChild(document.createTextNode(e)); var x=document.createElement("button"); x.type="button"; x.setAttribute("aria-label","Remove"); x.textContent="×"; x.addEventListener("click",function(){ recips=recips.filter(function(y){return y!==e;}); renderChips(); renderSug(); }); s.appendChild(x); chipsEl.appendChild(s); }); }
     function addEmail(v){ v=(v||"").trim().toLowerCase(); if(!validEmail(v)){ msg.style.color="var(--danger)"; msg.textContent="Enter a valid email"; return; } if(recips.indexOf(v)<0) recips.push(v); msg.textContent=""; renderChips(); renderSug(); }
     var match=(typeof matchConsignee==="function")?matchConsignee({name:d.consignee||d.receiverName||""}):null;
-    function renderSug(){ sugEl.innerHTML=""; ((match&&match.emails)||[]).forEach(function(e){ if(recips.indexOf(e)>=0) return; var b=document.createElement("button"); b.type="button"; b.className="s"; b.style.cssText="font-size:12px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:var(--surface,#fff);"; b.textContent="＋ "+e; b.addEventListener("click",function(){ addEmail(e); }); sugEl.appendChild(b); }); }
+    function renderSug(){ sugEl.innerHTML=""; ((match&&match.emails)||[]).forEach(function(e){ if(recips.indexOf(e)>=0) return; var b=document.createElement("button"); b.type="button"; b.className="s"; b.style.cssText="font-size:12px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:var(--surface,var(--surface));"; b.textContent="＋ "+e; b.addEventListener("click",function(){ addEmail(e); }); sugEl.appendChild(b); }); }
     f.querySelector(".dsAdd").addEventListener("click",function(){ addEmail(inp.value); inp.value=""; inp.focus(); });
     inp.addEventListener("keydown",function(e){ if(e.key==="Enter"){ e.preventDefault(); addEmail(inp.value); inp.value=""; } });
     f.querySelector(".dsCancel").addEventListener("click",function(){ f.remove(); });
@@ -3920,7 +3917,7 @@ window.__startApp=function(){
         var key=currentKey(); var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
         var res=await fetch(driverApi("/my-documents/"+encodeURIComponent(d.id)+"/send"),{method:"POST",headers:hdr,body:JSON.stringify({emails:recips})});
         var j=await res.json().catch(function(){return {};});
-        if(res.ok){ msg.style.color="#146c2e"; msg.textContent="✓ Sent to "+((j.sentTo||recips).join(", "))+(j.blocked&&j.blocked.length?(" (skipped opted-out: "+j.blocked.join(", ")+")"):""); setTimeout(function(){ f.remove(); },2600); }
+        if(res.ok){ msg.style.color="var(--ok)"; msg.textContent="✓ Sent to "+((j.sentTo||recips).join(", "))+(j.blocked&&j.blocked.length?(" (skipped opted-out: "+j.blocked.join(", ")+")"):""); setTimeout(function(){ f.remove(); },2600); }
         else { btn.disabled=false; msg.style.color="var(--danger)"; msg.textContent=j.error||("Send failed ("+res.status+")"); }
       }catch(e){ btn.disabled=false; msg.style.color="var(--danger)"; msg.textContent="No connection — try again when online"; }
     });
@@ -3943,7 +3940,7 @@ window.__startApp=function(){
       var po=p.poNumber?('<span class="pochip">PO '+esc(p.poNumber)+'</span> '):'';
       var chip, note='';
       if(p.status==="uploaded"){ chip='<span class="schip uploaded">Uploaded</span>'; }
-      else if(p.error){ chip='<span class="schip" style="background:#fdecea;color:var(--danger);">⚠ Stuck</span>'; note='<div class="pm" style="color:var(--danger);margin-top:2px;">'+esc(p.error)+'</div>'; }
+      else if(p.error){ chip='<span class="schip" style="background:var(--bad-soft);color:var(--danger);">⚠ Stuck</span>'; note='<div class="pm" style="color:var(--danger);margin-top:2px;">'+esc(p.error)+'</div>'; }
       else if(!online()){ chip='<span class="schip pending">Waiting</span>'; note='<div class="pm" style="margin-top:2px;">Waiting for signal — uploads when you’re back online.</div>'; }
       else { chip='<span class="schip pending">Uploading…</span>'; }
       c.innerHTML='<div class="pi"><div class="pn">'+po+esc(p.consignee||p.name)+'</div><div class="pm">'+timeStr(new Date(p.createdAt))+' · '+Math.round(p.size/1024)+' KB'+reci+'</div>'+note+'</div>'+chip;
@@ -4042,6 +4039,19 @@ if(window.__LIBS) window.__startApp();
     window.addEventListener("focus", tick);
     window.addEventListener("pageshow", function(e){ if(e && e.persisted) tick(); });
   }).catch(function(){});
+})();
+</script>
+<script>
+// Navy ⇄ Daylight switch in the header; remembered on this phone.
+(function(){
+  var btn=document.getElementById('themePill'); if(!btn) return;
+  function paint(){ var light=document.documentElement.getAttribute('data-theme')==='light';
+    document.getElementById('themeIco').textContent=light?'☾':'☀'; document.getElementById('themeTxt').textContent=light?'Navy':'Daylight';
+    btn.title=light?'Switch back to the navy look':'Switch to the bright Daylight look (easier to read in sun)'; }
+  btn.addEventListener('click',function(){ var light=document.documentElement.getAttribute('data-theme')!=='light';
+    if(light) document.documentElement.setAttribute('data-theme','light'); else document.documentElement.removeAttribute('data-theme');
+    try{ localStorage.setItem('hp_theme', light?'light':'navy'); }catch(e){} paint(); });
+  paint();
 })();
 </script>
 </body>
