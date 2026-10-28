@@ -820,8 +820,6 @@ router.put('/:id', requireAuth, express.json(), (req, res) => {
 router.post('/:id/ready', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
-  // A signed document is finished — never send it back to the driver to sign again.
-  if (row.status === 'signed' || row.status === 'emailed') return res.status(409).json({ error: 'This document is already signed' });
   db.prepare(`UPDATE pods SET status = 'prepared' WHERE id = ?`).run(row.id);
   try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'prepared',
     detail: 'Marked ready for driver' + (row.assignedDriverName ? ' — ' + row.assignedDriverName : ''), actor: req.user.email }); } catch (e) {}
