@@ -853,7 +853,10 @@ router.post('/:id/send-again', requireAuth, express.json(), (req, res) => {
   if (!src || !fs.existsSync(src)) return res.status(410).json({ error: 'The document file is missing, so it can’t be sent again' });
   let fields = '[]';
   if (fromOriginal) { try { const f = JSON.parse(row.originalFields || '[]'); if (Array.isArray(f) && f.length) fields = JSON.stringify(f); } catch (e) {} }
-  const hasBoxes = fields !== '[]';
+  // body.setup: dispatch wants to fix the boxes first — the redo waits on the signature setup page instead of
+  // going straight to the driver (it keeps the old boxes as a starting point).
+  const wantSetup = !!(req.body && req.body.setup);
+  const hasBoxes = fields !== '[]' && !wantSetup;
   try {
     const newId = crypto.randomUUID();
     const newPath = path.join(DATA_DIR, 'pods', newId + '.pdf');
@@ -867,7 +870,7 @@ router.post('/:id/send-again', requireAuth, express.json(), (req, res) => {
         assignedDriverId: drv ? drv.id : null, assignedDriverName: drv ? drv.name : null, redoOf: row.id, uploadedAt: Date.now() });
     try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
       detail: (row.stopNumber ? 'Stop ' + row.stopNumber + ' — ' : '') + 'Sent to ' + (drv ? drv.name : 'the driver') + ' to sign again; the signed copy stays until dispatch picks which one to keep'
-        + (hasBoxes ? '' : ' (signature boxes need setting up first)'), actor: req.user.email }); } catch (e) {}
+        + (hasBoxes ? '' : ' (signature boxes to be set up first)'), actor: req.user.email }); } catch (e) {}
     if (hasBoxes) { try { notify.notifyDriverReady(newId); } catch (e) {} }
     res.json({ ok: true, podId: newId, driver: drv ? drv.name : null, needsSetup: !hasBoxes, fromOriginal });
   } catch (e) { console.error('send-again', e.message); res.status(500).json({ error: 'Could not send it again' }); }

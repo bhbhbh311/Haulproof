@@ -3965,10 +3965,12 @@
       title: 'Send ' + stop + ' to the driver again?',
       message: 'The driver gets a fresh, unsigned copy of ' + stop + '. This signed copy stays, and when the new one is signed you pick which one to keep. The customer’s copy waits until you pick.'
         + (p.hasOriginal ? '' : ' (This document was signed before HaulProof kept clean originals, so the driver will get the signed copy to sign over.)'),
-      extraHtml: drivers.length ? '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Driver<select id="saDriver" style="display:block;width:100%;margin-top:4px;padding:8px;">' + opts + '</select></label>' : '',
+      extraHtml: (drivers.length ? '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Driver<select id="saDriver" style="display:block;width:100%;margin-top:4px;padding:8px;">' + opts + '</select></label>' : '')
+        + '<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13.5px;"><input type="checkbox" id="saSetup"> Let me adjust the signature boxes first</label>',
       choices: [{ label: '↻ Send to driver again', run: async () => {
-        const r = await api('/api/pods/' + p.id + '/send-again', { method: 'POST', body: JSON.stringify({ driverId: $('saDriver') ? $('saDriver').value : '' }) });
-        if (r.needsSetup) alert('Sent back for setup: place the signature boxes on the new copy, then it goes to ' + (r.driver || 'the driver') + '.');
+        const setup = !!($('saSetup') && $('saSetup').checked);
+        const r = await api('/api/pods/' + p.id + '/send-again', { method: 'POST', body: JSON.stringify({ driverId: $('saDriver') ? $('saDriver').value : '', setup }) });
+        if (r.needsSetup) { location.href = '/prepare?id=' + encodeURIComponent(r.podId); return; }   // saving the boxes there sends it to the driver
         openLoad(curLoad.id); try { loadLoads(); } catch (e) {}
       } }]
     });
