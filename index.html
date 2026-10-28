@@ -775,6 +775,17 @@
     </div>
 
     <!-- OPT-OUTS (super-admin only): recipients who unsubscribed from document emails. -->
+    <!-- ALL LOGINS (master admin): every login in every company, for cleaning up test logins. -->
+    <div class="card hide" id="allLoginsCard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">All logins</h1><p class="sub" style="margin-bottom:0;">Every login in every company. <b>Gets every copy</b> means it's emailed every signed document for its company (company admins and the always-notify list). Tick test logins and delete them.</p></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="search" id="alSearch" placeholder="Search email, name or company…" style="width:240px;font-size:14px;padding:8px 10px;"><button class="ghost" id="alRefresh" type="button">Refresh</button></div>
+      </div>
+      <div class="ldfilters" id="alFilters"></div>
+      <div id="alTable" style="margin-top:12px;"><div class="empty">Loading…</div></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;"><button class="btn-danger" id="alDelete" type="button" disabled>Delete selected</button><span class="sub" id="alSel" style="margin:0;"></span></div>
+      <div id="alCc" style="margin-top:16px;"></div>
+    </div>
     <div class="card hide" id="optoutsCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Email opt-outs <span id="optCount" class="chip received" style="display:none;"></span></h1><p class="sub" style="margin-bottom:0;">People who unsubscribed. The two lists are separate — opting out of one never affects the other.</p></div>
@@ -1910,6 +1921,7 @@
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
       show('statsCard', true); loadStats();
+      show('allLoginsCard', true); loadAllLogins();
       show('aiUsageCard', true); loadAiUsage();
       show('optoutsCard', true); loadOptouts();
       show('requestsCard', true); loadRequests();
@@ -2119,7 +2131,7 @@
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
-    { key:'dashboard', label:'Dashboard',   cards:['statsCard','aiUsageCard','optoutsCard'] },
+    { key:'dashboard', label:'Dashboard',   cards:['statsCard','allLoginsCard','aiUsageCard','optoutsCard'] },
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
@@ -4105,6 +4117,53 @@
     _confirmOnOk = opts.onOk || null;
     $('confirmModal').classList.remove('hide');
   }
+  // ---- Master admin: All logins (cleanup of test logins across every company) ----
+  let _alUsers = [], _alSel = new Set(), _alFilter = '';
+  const alLooksTest = (u) => !u.system && /(^|[^a-z])test|example\.com$|@test\.|bobtest|fake|demo/i.test(u.email || '') || /test|fake/i.test(u.name || '');
+  const AL_FILTERS = [['', 'All'], ['test', 'Looks like a test'], ['copies', 'Gets every copy'], ['never', 'No sign-in recorded']];
+  function alMatch(u) {
+    const q = ($('alSearch') && $('alSearch').value || '').trim().toLowerCase();
+    if (q && ![u.email, u.name, u.orgName].some(x => (x || '').toLowerCase().includes(q))) return false;
+    if (_alFilter === 'test') return alLooksTest(u);
+    if (_alFilter === 'copies') return u.getsCopies;
+    if (_alFilter === 'never') return !u.lastLoginAt;
+    return true;
+  }
+  async function loadAllLogins() {
+    const box = $('alTable'); if (!box) return;
+    try { const r = await api('/api/users/all'); _alUsers = r.users || []; renderAllLogins();
+      const cc = r.ccOrgs || [];
+      $('alCc').innerHTML = cc.length ? '<div class="sub" style="margin:0 0 6px;"><b>Always-CC addresses</b> (in each company\'s Settings, also emailed every signed copy):</div>' + cc.map(o => `<div style="font-size:13.5px;margin:3px 0;"><b>${esc(o.name)}</b>: ${esc(o.notifyEmails)}</div>`).join('') : '';
+    } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message || 'Could not load logins') + '</div>'; }
+  }
+  function renderAllLogins() {
+    const box = $('alTable'); if (!box) return;
+    $('alFilters').innerHTML = AL_FILTERS.map(f => `<button type="button" class="ldf${_alFilter === f[0] ? ' on' : ''}" data-f="${f[0]}">${f[1]}${f[0] ? ' · ' + _alUsers.filter(u => { const k = _alFilter; _alFilter = f[0]; const m = alMatch(u); _alFilter = k; return m; }).length : ' · ' + _alUsers.length}</button>`).join('');
+    $('alFilters').querySelectorAll('.ldf').forEach(b => b.onclick = () => { _alFilter = b.dataset.f; renderAllLogins(); });
+    const rows = _alUsers.filter(alMatch);
+    const when = (t) => t ? new Date(t).toLocaleDateString() : '—';
+    box.innerHTML = rows.length ? '<table><thead><tr><th style="width:34px;"><input type="checkbox" id="alAll"></th><th>Email</th><th>Name</th><th>Company</th><th>Role</th><th>Gets every copy</th><th>Created</th><th>Last sign-in</th></tr></thead><tbody>' +
+      rows.map(u => `<tr><td>${(u.role === 'superadmin' || u.system) ? '' : `<input type="checkbox" class="alChk" data-id="${u.id}"${_alSel.has(u.id) ? ' checked' : ''}>`}</td>
+        <td>${esc(u.email)}${u.system ? ' <span class="chip prepared">HaulProof Help · built in</span>' : alLooksTest(u) ? ' <span class="chip received">test?</span>' : ''}</td><td>${esc(u.name || '')}</td>
+        <td>${esc(u.orgName || (u.role === 'superadmin' ? 'Master admin' : '— no company —'))}</td><td>${esc(u.role)}</td>
+        <td>${u.getsCopies ? '<span class="chip signed">Yes</span>' : '<span style="color:var(--muted)">No</span>'}</td>
+        <td>${when(u.createdAt)}</td><td>${u.lastLoginAt ? when(u.lastLoginAt) : '<span style="color:var(--muted)">not recorded</span>'}</td></tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">No logins match.</div>';
+    const upd = () => { const n = _alSel.size; $('alDelete').disabled = !n; $('alDelete').textContent = n ? 'Delete ' + n + ' selected' : 'Delete selected'; $('alSel').textContent = n ? 'Deleting removes the login and stops its copies. It can’t be undone.' : ''; };
+    box.querySelectorAll('.alChk').forEach(c => c.onchange = () => { c.checked ? _alSel.add(c.dataset.id) : _alSel.delete(c.dataset.id); upd(); });
+    const all = $('alAll'); if (all) all.onchange = () => { box.querySelectorAll('.alChk').forEach(c => { c.checked = all.checked; all.checked ? _alSel.add(c.dataset.id) : _alSel.delete(c.dataset.id); }); upd(); };
+    upd();
+  }
+  if ($('alSearch')) $('alSearch').addEventListener('input', renderAllLogins);
+  if ($('alRefresh')) $('alRefresh').onclick = loadAllLogins;
+  if ($('alDelete')) $('alDelete').onclick = () => {
+    const pick = _alUsers.filter(u => _alSel.has(u.id));
+    if (!pick.length) return;
+    confirmDialog({ title: 'Delete ' + pick.length + ' login' + (pick.length === 1 ? '' : 's') + '?',
+      message: pick.map(u => u.email).join(', ') + ' — they can no longer sign in and stop getting signed copies. This can’t be undone.',
+      okLabel: 'Delete logins',
+      onOk: async () => { try { const r = await api('/api/users/bulk-delete', { method: 'POST', body: JSON.stringify({ ids: pick.map(u => u.id) }) }); _alSel = new Set(); await loadAllLogins(); alert('Deleted ' + (r.deleted || []).length + ' login(s).'); } catch (e) { alert(e.message || 'Could not delete'); } } });
+  };
   function closeConfirm() { $('confirmModal').classList.add('hide'); _confirmOnOk = null; }
   if ($('confirmCancel')) $('confirmCancel').onclick = closeConfirm;
   if ($('confirmModal')) $('confirmModal').addEventListener('click', e => { if (e.target === $('confirmModal')) closeConfirm(); });

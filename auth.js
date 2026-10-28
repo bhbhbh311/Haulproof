@@ -74,6 +74,7 @@ function orgMetaOf(orgId) {
 // its full role set (so a customer that is also a receiver gets both views), and its parent (hierarchy).
 function signToken(u) {
   const m = orgMetaOf(u.orgId);
+  try { if (u.id) db.prepare('UPDATE users SET lastLoginAt = ? WHERE id = ?').run(Date.now(), u.id); } catch (e) {}
   return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId }, JWT_SECRET, { expiresIn: '12h' });
 }
 

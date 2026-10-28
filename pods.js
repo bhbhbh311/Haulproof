@@ -482,7 +482,7 @@ router.post('/ingest', requireApiKey, raw, async (req, res) => {
       const notifyOrgs = [load.orgId, load.carrierId, load.brokerId].filter(Boolean);
       if (notifyOrgs.length) {
         const ph = notifyOrgs.map(() => '?').join(',');
-        db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != ''`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
+        db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != '' AND email NOT LIKE 'haulproofhelp+%'`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
         // Plus each org's "always CC" completion addresses (set in the portal) — a reliable dispatch inbox that
         // doesn't have to be a login, so it gets EVERY stop regardless of the consignee typed at signing.
         db.prepare(`SELECT notifyEmails AS ne FROM orgs WHERE id IN (${ph})`).all(...notifyOrgs).forEach(r => {

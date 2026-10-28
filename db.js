@@ -151,6 +151,7 @@ function addColumn(table, col, decl) {
   if (!hasColumn(table, col)) { try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`); } catch (e) {} }
 }
 addColumn('users', 'orgId', 'TEXT');
+addColumn('users', 'lastLoginAt', 'INTEGER');   // last time this login signed in (master admin's All logins cleanup view)
 addColumn('users', 'capabilities', 'TEXT');   // JSON array of extra capabilities an admin granted this login
 addColumn('users', 'betaAccess', 'INTEGER NOT NULL DEFAULT 0');   // master-admin-granted "tester" flag: sees the not-yet-rolled-out sections behind a toggle
 addColumn('loads', 'orgId', 'TEXT');

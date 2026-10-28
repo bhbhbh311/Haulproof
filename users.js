@@ -153,6 +153,36 @@ router.delete('/by-email', requireAuth, (req, res) => {
   res.json({ ok: true, deleted: { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId } });
 });
 
+// --- Master-admin cleanup: every login across every company, flagged when it gets a copy of every signed
+//     document (an admin of its company, or on the company's always-notify list), plus each company's
+//     always-CC addresses. Bulk delete removes test logins and their notify/subscription rows. ---
+router.get('/all', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Master admin only' });
+  const notify = new Set(db.prepare('SELECT userId FROM org_notify').all().map(r => r.userId));
+  const users = db.prepare(`SELECT u.id, u.email, u.name, u.role, u.orgId, u.createdAt, u.lastLoginAt, o.name AS orgName, o.kind AS orgKind
+     FROM users u LEFT JOIN orgs o ON o.id = u.orgId ORDER BY (o.name IS NULL), o.name COLLATE NOCASE, u.email`).all()
+    .map(u => { const system = /^haulproofhelp\+/i.test(u.email || ''); return Object.assign(u, { system, getsCopies: !system && (u.role === 'admin' || notify.has(u.id)) }); });
+  const ccOrgs = db.prepare(`SELECT id, name, notifyEmails FROM orgs WHERE notifyEmails IS NOT NULL AND TRIM(notifyEmails) != ''`).all();
+  res.json({ users, ccOrgs });
+});
+router.post('/bulk-delete', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Master admin only' });
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.filter(x => typeof x === 'string').slice(0, 500) : [];
+  const me = req.user.sub || req.user.id;
+  const deleted = [];
+  db.transaction(() => {
+    ids.forEach(id => {
+      const u = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(id);
+      if (!u || u.role === 'superadmin' || u.id === me || /^haulproofhelp\+/i.test(u.email || '')) return;   // never the built-in HaulProof Help logins
+      ['org_notify', 'load_subscribers', 'customer_reps', 'login_links', 'load_archives'].forEach(t => { try { db.prepare(`DELETE FROM ${t} WHERE userId = ?`).run(u.id); } catch (e) {} });
+      db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+      deleted.push(u.email);
+    });
+  })();
+  console.log('[users] master admin ' + (req.user.email || '') + ' deleted logins: ' + deleted.join(', '));
+  res.json({ ok: true, deleted });
+});
+
 // --- Master-admin: grant/revoke "tester" access by email. A tester sees the not-yet-rolled-out
 //     sections (behind a toggle in the portal); everyone else has them hidden. Super-admin only, so a
 //     regular org admin can't reveal the unfinished sections to themselves. Defined before '/:id'. ---
