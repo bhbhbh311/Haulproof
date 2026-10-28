@@ -4,8 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Set up signatures — HaulProof</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@700;800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#f2f4f8;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#dde4ec;--primary:#1655d1;--primary-soft:#e7eefc;--ok:#12784a;}
+  /* Same navy look as the dispatch portal; the document itself stays white paper. */
+  :root{color-scheme:dark;--bg:#172b58;--surface:#213662;--sunk:#1b2d56;--ink:#e8effc;--muted:#a9bbd8;--line:#3b5487;--side-hover:#284379;
+    --primary:#4d8dff;--primary-ink:#04112e;--primary-soft:#2a4c8f;--primary-line:#4a6399;--primary-glow:rgba(77,141,255,.35);
+    --ok:#4cc282;--warn:#e6a740;--bad:#ef7a6c;--violet:#a98bff;--violet-soft:#3f3374;}
   *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
   .bar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 18px 12px;box-shadow:0 1px 4px rgba(20,30,50,.05);}
   .barhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -13,7 +18,7 @@
   .ctx{color:var(--muted);font-size:13px;margin-right:auto;}
   .prow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;}
   .plabel2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);min-width:52px;}
-  .signer,.ftype{font-family:inherit;font-size:12.5px;font-weight:600;border:1.5px solid #c6d0db;border-radius:8px;padding:7px 11px;background:var(--surface);color:var(--ink);cursor:pointer;display:inline-flex;gap:6px;align-items:center;}
+  .signer,.ftype{font-family:inherit;font-size:12.5px;font-weight:600;border:1.5px solid var(--line);border-radius:8px;padding:7px 11px;background:var(--surface);color:var(--ink);cursor:pointer;display:inline-flex;gap:6px;align-items:center;}
   .signer .dot{width:11px;height:11px;border-radius:3px;}
   .signer.on{border-color:var(--primary);box-shadow:0 0 0 3px rgba(22,85,209,.28);font-weight:800;}
   .signer.on::before{content:"✓ ";color:var(--primary);font-weight:900;}
@@ -24,7 +29,7 @@
   .armed b{color:#fff;}
   .armdot{width:13px;height:13px;border-radius:3px;display:inline-block;border:1px solid rgba(255,255,255,.5);}
   .howto{max-width:1200px;margin:12px auto 0;padding:0 16px;}
-  .howto-toggle{background:var(--primary-soft);color:var(--primary);border:1px solid #c3d5f5;border-radius:8px;padding:8px 12px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;}
+  .howto-toggle{background:var(--primary-soft);color:var(--primary);border:1px solid var(--primary-line);border-radius:8px;padding:8px 12px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;}
   .howto-steps{margin:10px 0 0;padding:14px 18px 14px 36px;background:var(--surface);border:1px solid var(--line);border-radius:10px;font-size:13.5px;line-height:1.6;color:var(--ink);}
   .howto-steps li{margin-bottom:7px;}
   .howto-steps li:last-child{margin-bottom:0;}
@@ -33,12 +38,12 @@
   /* Inline animated demo: a looping walkthrough (pick signer → pick field → tap doc → box appears). */
   .demo{margin:10px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;}
   .demo-cap{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:8px;}
-  .demo-stage{position:relative;width:300px;max-width:100%;height:230px;margin:0 auto;background:#f7f9fc;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .demo-stage{position:relative;width:300px;max-width:100%;height:230px;margin:0 auto;background:var(--sunk);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
   .demo-lbl{position:absolute;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
-  .demo-chip{position:absolute;font-size:11px;font-weight:700;border:1.5px solid #c6d0db;border-radius:7px;padding:5px 8px;background:#fff;color:var(--ink);white-space:nowrap;}
+  .demo-chip{position:absolute;font-size:11px;font-weight:700;border:1.5px solid var(--line);border-radius:7px;padding:5px 8px;background:var(--surface);color:var(--ink);white-space:nowrap;}
   #dChipCons{animation:dCons 9s infinite;}
   #dChipField{animation:dField 9s infinite;}
-  .demo-doc{position:absolute;left:10px;top:84px;right:10px;bottom:10px;background:#fff;border:1px dashed #c6d0db;border-radius:6px;}
+  .demo-doc{position:absolute;left:10px;top:84px;right:10px;bottom:10px;background:var(--surface);border:1px dashed var(--line);border-radius:6px;}
   .demo-box{position:absolute;left:26px;top:34px;width:150px;height:40px;border:2px dashed var(--primary);background:rgba(22,85,209,.09);border-radius:6px;color:var(--primary);font-size:10.5px;font-weight:800;line-height:1.15;text-align:center;display:flex;align-items:center;justify-content:center;opacity:0;transform:scale(.6);animation:dBox 9s infinite;}
   .demo-cursor{position:absolute;left:0;top:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));animation:dCur 9s infinite;}
   @keyframes dCur{
@@ -49,14 +54,14 @@
     92%{transform:translate(120px,150px);} 100%{transform:translate(250px,10px);}
   }
   @keyframes dCons{
-    0%,13%{border-color:#c6d0db;background:#fff;box-shadow:none;}
+    0%,13%{border-color:var(--line);background:var(--surface);box-shadow:none;}
     16%,95%{border-color:var(--primary);background:var(--primary-soft);box-shadow:0 0 0 3px rgba(22,85,209,.25);}
-    100%{border-color:#c6d0db;background:#fff;box-shadow:none;}
+    100%{border-color:var(--line);background:var(--surface);box-shadow:none;}
   }
   @keyframes dField{
-    0%,36%{border-color:#c6d0db;background:#fff;color:var(--ink);box-shadow:none;}
+    0%,36%{border-color:var(--line);background:var(--surface);color:var(--ink);box-shadow:none;}
     40%,95%{border-color:var(--primary);background:var(--primary);color:#fff;box-shadow:0 0 0 3px rgba(22,85,209,.22);}
-    100%{border-color:#c6d0db;background:#fff;color:var(--ink);box-shadow:none;}
+    100%{border-color:var(--line);background:var(--surface);color:var(--ink);box-shadow:none;}
   }
   @keyframes dBox{
     0%,62%{opacity:0;transform:scale(.6);}
@@ -70,24 +75,24 @@
     #dChipField{animation:none;border-color:var(--primary);background:var(--primary);color:#fff;}
     .demo-box{animation:none;opacity:1;transform:none;}
   }
-  #fieldLabel{font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;min-width:220px;}
+  #fieldLabel{font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:220px;}
   .lhint{font-size:11.5px;color:var(--muted);}
   .btn{font-family:inherit;font-size:13px;font-weight:600;border:none;border-radius:8px;padding:9px 14px;background:var(--primary);color:#fff;cursor:pointer;}
-  .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid #c6d0db;}
+  .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);}
   .btn.ok{background:var(--ok);}
   .btn:disabled{opacity:.6;cursor:default;}
   .rmItem{padding:9px 12px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line);}
   .rmItem:last-child{border-bottom:none;} .rmItem:hover{background:var(--primary-soft);}
   .rmItem.on{font-weight:700;color:var(--primary);} .rmItem.add{color:var(--primary);font-weight:600;}
-  .lymenu{position:absolute;top:calc(100% + 6px);left:0;min-width:236px;background:var(--surface);border:1px solid #c6d0db;border-radius:10px;box-shadow:0 8px 24px rgba(20,30,50,.20);padding:6px;z-index:60;}
+  .lymenu{position:absolute;top:calc(100% + 6px);left:0;min-width:236px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(20,30,50,.20);padding:6px;z-index:60;}
   .lyitem{display:block;width:100%;text-align:left;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:none;border:none;border-radius:7px;padding:9px 11px;cursor:pointer;}
-  .lyitem:hover{background:#eef4ff;}
-  .lyhint{font-size:12px;color:#5c6b7a;padding:8px 11px;line-height:1.4;border-top:1px solid #eef2f7;margin-top:4px;}
+  .lyitem:hover{background:var(--primary-soft);}
+  .lyhint{font-size:12px;color:var(--muted);padding:8px 11px;line-height:1.4;border-top:1px solid var(--line);margin-top:4px;}
   .hint{max-width:1200px;margin:12px auto 0;padding:0 16px;color:var(--muted);font-size:13px;line-height:1.5;}
   #pages{max-width:1200px;margin:10px auto 60px;padding:0 16px;}
-  .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:#fff;}
+  .page{position:relative;margin:14px auto;box-shadow:0 2px 10px rgba(20,30,50,.14);background:var(--surface);}
   .page canvas{display:block;}
-  .plabel{position:absolute;top:6px;right:8px;font-size:11px;color:#8a97a6;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;}
+  .plabel{position:absolute;top:6px;right:8px;font-size:11px;color:var(--muted);background:rgba(255,255,255,.8);padding:1px 6px;border-radius:6px;}
   /* Placed boxes: a clean outline + soft fill in the signer's colour (dashed = fills in automatically), a small
      name tag above the box so the label is never clipped, and a faint icon for what goes in it. The remove ×
      and resize dot appear on hover/selection with a mouse, and always on touch screens. */
@@ -102,10 +107,10 @@
   .fld.tiny .ico svg{width:11px;height:11px;}
   .fld.hasval .ico{opacity:1;line-height:1.2;width:100%;padding:0 6px;overflow:hidden;}
   .fld .fval{display:block;color:var(--ink);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
-  .side #fieldValue{width:100%;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;}
+  .side #fieldValue{width:100%;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;}
   .hide{display:none !important;}
-  .fld .rsz{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid #fff;cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
-  .fld .del{position:absolute;right:-11px;top:-11px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid #fff;font-size:15px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:10;}
+  .fld .rsz{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:50%;background:var(--c);border:2px solid var(--line);cursor:nwse-resize;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .fld .del{position:absolute;right:-11px;top:-11px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:2px solid var(--line);font-size:15px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:10;}
   .fld .del:hover{background:#e0432f;transform:scale(1.1);}
   @media (pointer:fine){ .fld .rsz,.fld .del{opacity:0;transition:opacity .12s;} .fld:hover .rsz,.fld:hover .del,.fld.sel .rsz,.fld.sel .del{opacity:1;} }
   @media (pointer:coarse){ .fld .del{width:30px;height:30px;right:-15px;top:-15px;font-size:19px;} .fld .rsz{width:20px;height:20px;right:-10px;bottom:-10px;} }
@@ -116,16 +121,16 @@
   body.viewonly #signerRow, body.viewonly #fieldRow, body.viewonly #labelRow,
   body.viewonly #saveBtn, body.viewonly #saveTplBtn, body.viewonly #applyTplBtn, body.viewonly #cropBtn, body.viewonly #aiBtn,
   body.viewonly #armed, body.viewonly #howto, body.viewonly #hint, body.viewonly #cmdRow { display:none !important; }
-  #cmdInput{font-size:13px;padding:7px 10px;border:1px solid #c6d0db;border-radius:8px;min-width:260px;flex:1 1 260px;max-width:460px;}
-  #cmdMic.listening{border-color:#c0392b;color:#c0392b;box-shadow:0 0 0 3px rgba(192,57,43,.22);}
+  #cmdInput{font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;min-width:260px;flex:1 1 260px;max-width:460px;}
+  #cmdMic.listening{border-color:var(--bad);color:var(--bad);box-shadow:0 0 0 3px rgba(192,57,43,.22);}
   /* AI auto-place progress banner (shown while OCR reads the document to suggest signature spots). */
-  .aibanner{max-width:1200px;margin:12px auto 0;padding:11px 14px;background:#eef4ff;border:1px solid #c3d5f5;color:#12386e;border-radius:10px;font-size:14px;font-weight:600;display:none;align-items:center;gap:10px;}
-  .aispin{width:16px;height:16px;border-radius:50%;border:2.5px solid #c3d5f5;border-top-color:#1655d1;animation:aispin .8s linear infinite;display:inline-block;flex:0 0 auto;}
+  .aibanner{max-width:1200px;margin:12px auto 0;padding:11px 14px;background:var(--primary-soft);border:1px solid var(--primary-line);color:var(--primary);border-radius:10px;font-size:14px;font-weight:600;display:none;align-items:center;gap:10px;}
+  .aispin{width:16px;height:16px;border-radius:50%;border:2.5px solid var(--primary-line);border-top-color:var(--primary);animation:aispin .8s linear infinite;display:inline-block;flex:0 0 auto;}
   @keyframes aispin{to{transform:rotate(360deg);}}
   body.viewonly .fld{ cursor:default; }
   body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
   .viewbar{max-width:1200px;margin:12px auto 0;padding:0 16px;}
-  .viewbar .vb{background:#eef4ff;border:1px solid #c3d5f5;color:#12386e;border-radius:10px;padding:11px 14px;font-size:13.5px;line-height:1.4;}
+  .viewbar .vb{background:var(--primary-soft);border:1px solid var(--primary-line);color:var(--primary);border-radius:10px;padding:11px 14px;font-size:13.5px;line-height:1.4;}
   /* ===== Layout: slim top bar, tools in a left side panel, the document on the right ===== */
   .bar{padding:10px 18px;}
   .barhead{gap:8px;}
@@ -143,7 +148,7 @@
      own colour when picked; the picked field tile takes the current signer's colour. */
   .side .chips{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
   .side .signer,.side .ftype{width:100%;min-height:36px;justify-content:flex-start;gap:8px;font-size:12.5px;font-weight:600;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(20,30,50,.06);text-align:left;line-height:1.2;transition:background .12s,border-color .12s,box-shadow .12s;}
-  .side .signer:hover,.side .ftype:hover{border-color:#b9c5d3;background:#f7f9fc;}
+  .side .signer:hover,.side .ftype:hover{border-color:var(--primary-line);background:var(--sunk);}
   .side .signer::before,.side .ftype::before{content:none !important;}
   .side .signer .dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(20,30,50,.12);}
   .side .signer.on{border-color:var(--c);background:var(--cf);color:var(--ink);font-weight:700;box-shadow:inset 0 0 0 1px var(--c);}
@@ -155,10 +160,10 @@
   .side #fieldRow .ftype.on .ficon{color:var(--ac,var(--primary));}
   .side .fgrp{margin:12px 0 6px;}
   /* Clear section breaks: a solid 2px rule between the panel's sections, and section headings in ink. */
-  .side .sec{padding-bottom:18px;margin-bottom:18px;border-bottom:2px solid #b4c0ce;}
+  .side .sec{padding-bottom:18px;margin-bottom:18px;border-bottom:2px solid var(--primary-line);}
   .side .sec:last-of-type,.side .howto.sec{border-bottom:none;}
   .side .armed{margin:0 0 18px;}
-  .side .sech{color:#33414f;font-size:11.5px;}
+  .side .sech{color:var(--muted);font-size:11.5px;}
   .side .cmdbtns .btn{min-height:36px;}
   /* Colour at rest: each signer tile carries a light tint of its own colour; the field tiles carry a light tint
      of the current signer's colour (icons in that colour too). Picked tiles get the stronger fill + outline. */
@@ -167,20 +172,20 @@
   .side .signer.on{background:var(--cf);border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c),0 2px 6px rgba(20,30,50,.10);}
   .side #fieldRow .ftype{background:var(--acl,var(--surface));border-color:var(--acb,var(--line));}
   .side #fieldRow .ftype .ficon{color:var(--ac,var(--muted));}
-  .side #fieldRow .ftype:hover{background:var(--acf,#f7f9fc);border-color:var(--ac,#b9c5d3);}
+  .side #fieldRow .ftype:hover{background:var(--acf,var(--sunk));border-color:var(--ac,var(--primary-line));}
   .side #fieldRow .ftype.on{box-shadow:inset 0 0 0 1px var(--ac,var(--primary)),0 2px 6px rgba(20,30,50,.10);}
   /* Top bar buttons: same tile look as the side panel — icon + label, rounded, soft shadow. */
   .bar .btn.tb{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(20,30,50,.06);transition:background .12s,border-color .12s;}
-  .bar .btn.tb:hover{background:#f7f9fc;border-color:#b9c5d3;}
+  .bar .btn.tb:hover{background:var(--sunk);border-color:var(--primary-line);}
   .bar .btn.tb .tbi{width:16px;height:16px;flex:none;color:var(--primary);}
   .bar .tbcaret{font-size:10px;color:var(--muted);margin-left:-2px;}
-  .bar .btn.tb-auto{background:rgba(122,60,192,.08);border-color:rgba(122,60,192,.40);color:#4b2185;}
-  .bar .btn.tb-auto .tbi{color:#7a3cc0;}
-  .bar .btn.tb-auto:hover{background:rgba(122,60,192,.16);border-color:#7a3cc0;}
+  .bar .btn.tb-auto{background:rgba(122,60,192,.08);border-color:rgba(122,60,192,.40);color:var(--violet);}
+  .bar .btn.tb-auto .tbi{color:var(--violet);}
+  .bar .btn.tb-auto:hover{background:rgba(122,60,192,.16);border-color:var(--violet);}
   .bar .btn.tb-back .tbi{color:var(--muted);}
   .bar .btn.tb-save{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700;padding:7px 16px;box-shadow:0 2px 6px rgba(18,120,74,.30);}
   .bar .btn.tb-save .tbi{color:#fff;}
-  .bar .btn.tb-save:hover{background:#0f6a41;border-color:#0f6a41;}
+  .bar .btn.tb-save:hover{background:#0f6a41;border-color:var(--ok);}
   .bar .btn.tb:disabled{opacity:.55;}
   .side .armed{margin:0 0 18px;font-size:12.5px;line-height:1.35;}
   .side #fieldLabel,.side #cmdInput{width:100%;min-width:0;max-width:none;font-family:inherit;}
@@ -193,7 +198,7 @@
   .placed{display:flex;flex-direction:column;gap:4px;}
   .pempty{font-size:12.5px;color:var(--muted);line-height:1.4;}
   .pitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-family:inherit;font-size:12.5px;background:var(--bg);border:1px solid transparent;border-radius:7px;padding:6px 8px;cursor:pointer;color:var(--ink);}
-  .pitem:hover{border-color:#c6d0db;} .pitem.on{border-color:var(--primary);background:var(--primary-soft);}
+  .pitem:hover{border-color:var(--line);} .pitem.on{border-color:var(--primary);background:var(--primary-soft);}
   .pdot{width:10px;height:10px;border-radius:3px;flex:none;}
   .pwho{font-weight:700;} .pwhat{color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .ppg{font-size:11px;color:var(--muted);}
   .docpane{min-width:0;padding:12px 20px 60px;}
@@ -219,6 +224,52 @@
     .brandsub{display:none;}
     .zoombar{display:none;}   /* phones: pinch to zoom instead */
   }
+  /* ===== Navy look (matches the dispatch portal) ===== */
+  body{font-family:"Public Sans",-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(1200px 600px at 75% -10%,#26498f 0,transparent 60%),var(--bg);background-attachment:fixed;}
+  .bar{background:#1a2f60;border-bottom:0;box-shadow:none;}
+  .bar::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;background:linear-gradient(90deg,transparent,#2f6fe0 20%,var(--primary) 50%,#2f6fe0 80%,transparent);box-shadow:0 0 14px var(--primary-glow);}
+  .brand{font-family:"Overpass",sans-serif;font-size:19px;}
+  .side{background:rgba(22,39,80,.92);border-right:1px solid var(--line);}
+  .side .sec{border-bottom:1px solid var(--line);}
+  .side .sech{color:var(--muted);letter-spacing:.1em;}
+  .sech .cnt{background:var(--primary-soft);color:#cfe0ff;}
+  input,select,textarea{background:var(--sunk);color:var(--ink);border-color:var(--line);}
+  input::placeholder{color:#93a6cc;}
+  /* the document is paper: white page, dark text in typed boxes */
+  .page{background:#fff;box-shadow:0 6px 24px rgba(0,0,0,.35);}
+  .fld .fval{color:#16202b;}
+  .plabel{color:#5c6b7a;}
+  /* tiles in the side panel */
+  .side .signer,.side .ftype{box-shadow:none;color:var(--ink);}
+  .side .signer .dot{box-shadow:0 0 0 2px var(--surface),0 0 0 3px rgba(255,255,255,.18);}
+  .side .signer.on,.side #fieldRow .ftype.on{box-shadow:inset 0 0 0 1px var(--c,var(--ac));}
+  .side .signer.add{color:var(--muted);}
+  .pitem{background:var(--sunk);}
+  .pitem.on{background:var(--primary-soft);}
+  /* now-placing card */
+  .armed{background:linear-gradient(135deg,#2f6fe0,#1f4fb8);box-shadow:0 0 18px rgba(77,141,255,.25);}
+  /* top bar buttons: outlined dark; Save setup is the one solid blue action */
+  .bar .btn.tb{background:var(--sunk);border-color:var(--line);color:var(--ink);box-shadow:none;}
+  .bar .btn.tb:hover{background:var(--side-hover);border-color:#5671aa;}
+  .bar .btn.tb-auto{background:rgba(169,139,255,.14);border-color:rgba(169,139,255,.5);color:#d6c9ff;}
+  .bar .btn.tb-auto .tbi{color:var(--violet);}
+  .bar .btn.tb-auto:hover{background:rgba(169,139,255,.24);border-color:var(--violet);}
+  .bar .btn.tb-save{background:var(--primary);border-color:var(--primary);color:var(--primary-ink);box-shadow:0 0 16px var(--primary-glow);}
+  .bar .btn.tb-save .tbi{color:var(--primary-ink);}
+  .bar .btn.tb-save:hover{background:#6a9fff;border-color:#6a9fff;}
+  .btn{background:var(--primary);color:var(--primary-ink);font-weight:700;}
+  .btn.ghost{background:var(--sunk);color:var(--ink);border-color:var(--line);}
+  .btn.ok{background:var(--primary);color:var(--primary-ink);}
+  .lymenu{background:var(--surface);border-color:var(--line);box-shadow:0 12px 30px rgba(0,0,0,.45);}
+  .lyitem:hover{background:var(--side-hover);}
+  .zoombar{background:var(--surface);border-color:var(--line);box-shadow:0 8px 24px rgba(0,0,0,.4);}
+  .zoombar .zb{background:transparent;color:var(--ink);}
+  .zoombar .zb:hover{background:var(--side-hover);}
+  .toast{background:#0f1d3d;border:1px solid var(--line);}
+  .demo-stage{background:var(--sunk);} .demo-doc{background:#fff;} .demo-chip{background:var(--surface);}
+  .howto-toggle{background:var(--primary-soft);color:#cfe0ff;border-color:var(--primary-line);}
+  .aibanner,.viewbar .vb{background:var(--primary-soft);color:#e8effc;border-color:var(--primary-line);}
+  .aispin{border-color:var(--primary-line);border-top-color:#cfe0ff;}
 </style>
 </head>
 <body>
@@ -333,24 +384,24 @@
 
 <!-- Crop the document's pages (trim background off a "use whole photo" scan) before placing signatures. -->
 <div id="cropModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:320;align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto;">
-  <div style="background:#fff;border-radius:14px;max-width:880px;width:100%;padding:20px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
+  <div style="background:var(--surface);border-radius:14px;max-width:880px;width:100%;padding:20px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-      <h1 style="font-size:18px;margin:0;">✂ Crop &amp; clean up pages <span id="cropCount" style="font-size:13px;font-weight:700;color:#1655d1;"></span></h1>
+      <h1 style="font-size:18px;margin:0;">✂ Crop &amp; clean up pages <span id="cropCount" style="font-size:13px;font-weight:700;color:var(--primary);"></span></h1>
       <button class="btn ghost" id="cropClose" type="button">✕ Close</button>
     </div>
-    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Pick a page, then <b>drag a box</b> around just the document to trim off the background and Apply, and/or tap <b>✨ Clean up this page</b> to sharpen and brighten a soft or dim photo. Save replaces the file and clears any signature boxes (place them after).</p>
+    <p style="color:var(--muted);font-size:13px;margin:6px 0 14px;">Pick a page, then <b>drag a box</b> around just the document to trim off the background and Apply, and/or tap <b>✨ Clean up this page</b> to sharpen and brighten a soft or dim photo. Save replaces the file and clears any signature boxes (place them after).</p>
     <div style="display:flex;gap:16px;flex-wrap:wrap;">
       <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
       <div style="flex:1 1 360px;min-width:300px;">
-        <div style="position:relative;display:inline-block;max-width:100%;border:1px solid #dde4ec;border-radius:6px;background:#f3f4f6;overflow:hidden;">
+        <div style="position:relative;display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:var(--sunk);overflow:hidden;">
           <canvas id="cropStage" style="display:block;max-width:100%;cursor:crosshair;touch-action:none;"></canvas>
-          <div id="cropSel" style="position:absolute;display:none;border:2px dashed #1655d1;background:rgba(22,85,209,0.14);pointer-events:none;"></div>
+          <div id="cropSel" style="position:absolute;display:none;border:2px dashed var(--primary);background:rgba(22,85,209,0.14);pointer-events:none;"></div>
         </div>
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn" id="cropApply" type="button" disabled>Apply crop to this page</button>
           <button class="btn ghost" id="cropEnhance" type="button" title="Sharpen and brighten this page — good for a soft, dim, or washed-out phone photo">✨ Clean up this page</button>
           <button class="btn ghost" id="cropReset" type="button">Reset page</button>
-          <span id="cropPageMsg" style="font-size:12.5px;color:#5c6b7a;"></span>
+          <span id="cropPageMsg" style="font-size:12.5px;color:var(--muted);"></span>
         </div>
       </div>
     </div>
@@ -364,12 +415,12 @@
 
 <!-- Saved-layouts manager (opens over the signature page; closing returns you right here). -->
 <div id="layoutsModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:300;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
-  <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
+  <div style="background:var(--surface);border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
       <h1 style="font-size:18px;margin:0;" id="layoutsTitle">Saved layouts</h1>
       <button class="btn ghost" id="layoutsClose" type="button">✕ Close</button>
     </div>
-    <p style="color:#5c6b7a;font-size:13px;margin:6px 0 14px;">Saved signature layouts for this customer, one per document type. <b>To edit a layout:</b> tap <b>Open / edit</b> to drop it onto this document, move or add boxes, then use <b>Layouts ▾ → Save current as layout</b> — it replaces the saved one. Delete any you no longer want.</p>
+    <p style="color:var(--muted);font-size:13px;margin:6px 0 14px;">Saved signature layouts for this customer, one per document type. <b>To edit a layout:</b> tap <b>Open / edit</b> to drop it onto this document, move or add boxes, then use <b>Layouts ▾ → Save current as layout</b> — it replaces the saved one. Delete any you no longer want.</p>
     <div id="layoutsList" style="font-size:13.5px;">Loading…</div>
     <div style="margin-top:16px;text-align:right;"><button class="btn" id="layoutsBack" type="button">← Back to signature setup</button></div>
   </div>
@@ -377,18 +428,18 @@
 
 <!-- "Remember this layout?" — asked on Save setup when the boxes aren't already this customer's saved layout. -->
 <div id="rememberModal" style="display:none;position:fixed;inset:0;background:rgba(10,16,26,.5);z-index:300;align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto;">
-  <div style="background:#fff;border-radius:14px;max-width:470px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
+  <div style="background:var(--surface);border-radius:14px;max-width:470px;width:100%;padding:22px;box-shadow:0 18px 60px rgba(10,20,50,.35);">
     <h1 style="font-size:18px;margin:0;" id="rmTitle">Remember this layout?</h1>
-    <p style="color:#5c6b7a;font-size:13.5px;line-height:1.45;margin:8px 0 14px;" id="rmMsg"></p>
+    <p style="color:var(--muted);font-size:13.5px;line-height:1.45;margin:8px 0 14px;" id="rmMsg"></p>
     <div id="rmCustWrap" style="display:none;margin-bottom:14px;">
       <div style="position:relative;">
-        <input id="rmCustInput" type="text" autocomplete="off" placeholder="Type to search customers…" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #cdd7e3;border-radius:8px;outline:none;">
+        <input id="rmCustInput" type="text" autocomplete="off" placeholder="Type to search customers…" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;outline:none;">
         <!-- In the flow (not floating) so the open list pushes the buttons down instead of covering them. -->
-        <div id="rmCustList" style="display:none;margin-top:4px;background:#fff;border:1px solid #dde4ec;border-radius:10px;max-height:200px;overflow-y:auto;"></div>
+        <div id="rmCustList" style="display:none;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;max-height:200px;overflow-y:auto;"></div>
       </div>
-      <div id="rmCustNote" style="font-size:12.5px;color:#5c6b7a;margin-top:6px;"></div>
+      <div id="rmCustNote" style="font-size:12.5px;color:var(--muted);margin-top:6px;"></div>
     </div>
-    <label id="rmNoAskRow" style="display:flex;gap:8px;align-items:center;font-size:13px;color:#5c6b7a;margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="rmNoAsk" style="margin:0;"> Don’t ask again for this customer</label>
+    <label id="rmNoAskRow" style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="rmNoAsk" style="margin:0;"> Don’t ask again for this customer</label>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn ghost" id="rmBack" type="button" style="margin-right:auto;">← Keep editing</button>
       <button class="btn ghost" id="rmSkip" type="button">Just this load</button>
@@ -436,7 +487,7 @@
   // Always show, in plain words, exactly what tapping the document will place right now (which signer + field).
   function updateArmed(){
     var el=$('#armed'); if(!el) return;
-    var c=roleColor(activeTool.role); var kn=KIND_NAME[activeTool.kind]||activeTool.kind;
+    var c=uiColor(activeTool.role); var kn=KIND_NAME[activeTool.kind]||activeTool.kind;
     el.innerHTML='<div class="armtop">Now placing</div><div class="armwhat"><span class="armdot" style="background:'+c+'"></span><b>'+esc(activeTool.role)+'</b> · <b>'+esc(kn)+'</b></div><div class="armhow">Click the document where it should go.</div>';
   }
   // Collapsible how-to steps.
@@ -453,6 +504,8 @@
     var h=0; for(var i=0;i<role.length;i++){ h=(h*31+role.charCodeAt(i))>>>0; }
     return pal[h%pal.length];
   }
+  // Brighter versions of the signer colours for the navy side panel; the boxes on the white page keep the deeper ones.
+  function uiColor(role){ var m={'#1655d1':'#4d8dff','#b5731a':'#e6a740','#12784a':'#4cc282','#7a3cc0':'#a98bff','#7b2ff7':'#a98bff','#c2185b':'#f06c9b','#00838f':'#3cc8d4','#5d4037':'#c79a83','#a15c00':'#e6a740','#0f6d8c':'#5ab8e0'}; var c=roleColor(role); return m[c]||c; }
   function rgba(hex,a){ var n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
   // One-line name shown on the box's tag (and as its tooltip).
   function labelText(role,kind,label){
@@ -502,7 +555,7 @@
 
   // Signer buttons (built-in + custom). Clicking sets the active role and tints future fields.
   function wireSigner(b){
-    var c=roleColor(b.dataset.role);
+    var c=uiColor(b.dataset.role);
     var dot=b.querySelector('.dot'); if(dot) dot.style.background=c;
     b.style.setProperty('--c',c); b.style.setProperty('--cf',rgba(c,0.20)); b.style.setProperty('--cl',rgba(c,0.07)); b.style.setProperty('--cb',rgba(c,0.40));
     b.addEventListener('click',function(){
@@ -511,7 +564,7 @@
     });
   }
   // The selected field tile takes the current signer's colour, so "who + what" reads as one choice.
-  function tintFieldTiles(){ var fr=$('#fieldRow'); if(!fr) return; var c=roleColor(activeTool.role); fr.style.setProperty('--ac',c); fr.style.setProperty('--acf',rgba(c,0.20)); fr.style.setProperty('--acl',rgba(c,0.06)); fr.style.setProperty('--acb',rgba(c,0.35)); }
+  function tintFieldTiles(){ var fr=$('#fieldRow'); if(!fr) return; var c=uiColor(activeTool.role); fr.style.setProperty('--ac',c); fr.style.setProperty('--acf',rgba(c,0.20)); fr.style.setProperty('--acl',rgba(c,0.06)); fr.style.setProperty('--acb',rgba(c,0.35)); }
   Array.prototype.forEach.call(document.querySelectorAll('.signer[data-role]'),wireSigner);
   $('#addSigner').addEventListener('click',function(){
     var name=(prompt('Name this signer (e.g. Warehouse Mgr, Lumper):')||'').trim();
@@ -625,7 +678,7 @@
     list.forEach(function(f){
       var it=document.createElement('button'); it.type='button'; it.className='pitem'+(f===selected?' on':'');
       var who=(f.kind==='pickupdate'||AUTO_TIME_KINDS[f.kind])?'Auto':f.role;
-      it.innerHTML='<span class="pdot" style="background:'+roleColor(f.role||'Consignee')+'"></span><span class="pwho">'+esc(who)+'</span><span class="pwhat">'+esc((f.label&&f.kind!=='sigdate'&&f.kind!=='sig')?f.label:(KIND_NAME[f.kind]||f.kind).replace(' (auto)',''))+'</span>'+(pageRecs.length>1?'<span class="ppg">p'+(f.pageIdx+1)+'</span>':'');
+      it.innerHTML='<span class="pdot" style="background:'+uiColor(f.role||'Consignee')+'"></span><span class="pwho">'+esc(who)+'</span><span class="pwhat">'+esc((f.label&&f.kind!=='sigdate'&&f.kind!=='sig')?f.label:(KIND_NAME[f.kind]||f.kind).replace(' (auto)',''))+'</span>'+(pageRecs.length>1?'<span class="ppg">p'+(f.pageIdx+1)+'</span>':'');
       it.addEventListener('click',function(){ selectField(f); if(f.el) f.el.scrollIntoView({behavior:'smooth',block:'center'}); refreshPlaced(); });
       box.appendChild(it);
     });
@@ -779,20 +832,20 @@
     $('#layoutsModal').style.display='flex';
     fetch('/api/customers/'+encodeURIComponent(_tpl.customerId)+'/layouts',{credentials:'include'})
       .then(function(r){return r.json();}).then(function(j){ renderLayouts((j&&j.layouts)||[]); })
-      .catch(function(){ $('#layoutsList').innerHTML='<div style="color:#c0392b;">Couldn’t load layouts.</div>'; });
+      .catch(function(){ $('#layoutsList').innerHTML='<div style="color:var(--bad);">Couldn’t load layouts.</div>'; });
   }
   var _layoutCache={};   // docType -> fields, so the "Use" button can apply without another round-trip
   function renderLayouts(list){
     var box=$('#layoutsList');
-    if(!list.length){ box.innerHTML='<div style="color:#5c6b7a;">No saved layouts for this customer yet. Place your boxes, then choose <b>Layouts ▾ → Save current as layout</b>.</div>'; return; }
+    if(!list.length){ box.innerHTML='<div style="color:var(--muted);">No saved layouts for this customer yet. Place your boxes, then choose <b>Layouts ▾ → Save current as layout</b>.</div>'; return; }
     _layoutCache={};
     list.forEach(function(t){ _layoutCache[t.docType||'BOL']=t.fields||[]; });
-    box.innerHTML='<div style="border:1px solid #dde4ec;border-radius:8px;overflow:hidden;">'+list.map(function(t){
-      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f7;">'
-        +'<div><b>'+esc(t.docType||'BOL')+'</b><div style="color:#5c6b7a;font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
+    box.innerHTML='<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;">'+list.map(function(t){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);">'
+        +'<div><b>'+esc(t.docType||'BOL')+'</b><div style="color:var(--muted);font-size:12px;">'+layoutPerPage(t.fields||[]).perPage+' field'+(layoutPerPage(t.fields||[]).perPage===1?'':'s')+' per page'+(t.updatedAt?(' · updated '+esc(fmtDate(t.updatedAt))):'')+'</div></div>'
         +'<div style="display:flex;gap:6px;">'
         +'<button class="btn lyUse" data-doctype="'+esc(t.docType||'BOL')+'" type="button" title="Drop this layout onto the current document so you can review or edit it" style="padding:6px 12px;font-size:12px;">↴ Open / edit</button>'
-        +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="color:#c0392b;padding:6px 10px;font-size:12px;">Delete</button>'
+        +'<button class="btn ghost lyDel" data-doctype="'+esc(t.docType||'BOL')+'" type="button" style="color:var(--bad);padding:6px 10px;font-size:12px;">Delete</button>'
         +'</div>'
         +'</div>';
     }).join('')+'</div>';
@@ -1216,7 +1269,7 @@
     var html=list.map(function(c){ return '<div class="rmItem'+(_rmChoice&&_rmChoice.id===c.id?' on':'')+'" data-id="'+esc(c.id)+'">'+esc(c.name)+'</div>'; }).join('');
     var exact=(_rmCusts||[]).some(function(c){ return String(c.name).trim().toLowerCase()===ql; });
     if(q && _rmCusts && !exact) html+='<div class="rmItem add" data-new="1">＋ Add “'+esc(q)+'” as a new customer</div>';
-    if(!html) html='<div style="padding:10px 12px;color:#5c6b7a;font-size:13px;">'+(_rmCusts?'No customers yet — type the company name to add one.':'Loading customers…')+'</div>';
+    if(!html) html='<div style="padding:10px 12px;color:var(--muted);font-size:13px;">'+(_rmCusts?'No customers yet — type the company name to add one.':'Loading customers…')+'</div>';
     box.innerHTML=html; box.style.display='block';
     Array.prototype.forEach.call(box.querySelectorAll('.rmItem'),function(it){
       it.addEventListener('mousedown',function(ev){
@@ -1302,12 +1355,12 @@
       chain=chain.then(function(){ return _cropPdf.getPage(pi+1); }).then(function(page){
         var vp0=page.getViewport({scale:1}), vp=page.getViewport({scale:110/vp0.width});
         var cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
-        cv.style.cssText='display:block;border:2px solid #dde4ec;border-radius:4px;cursor:pointer;width:100%;';
+        cv.style.cssText='display:block;border:2px solid var(--line);border-radius:4px;cursor:pointer;width:100%;';
         var wrap=document.createElement('div'); wrap.style.cssText='text-align:center;';
-        var lbl=document.createElement('div'); lbl.style.cssText='font-size:11px;color:#5c6b7a;margin-bottom:3px;'; lbl.textContent='Page '+(pi+1);
+        var lbl=document.createElement('div'); lbl.style.cssText='font-size:11px;color:var(--muted);margin-bottom:3px;'; lbl.textContent='Page '+(pi+1);
         cv.addEventListener('click',function(){ cropShow(pi); });
         var tag=document.createElement('div'); tag.className='cropTag'; tag.setAttribute('data-idx',String(pi));
-        tag.style.cssText='font-size:10px;margin-top:2px;color:#12784a;font-weight:700;min-height:12px;'; tag.textContent=_cropEdits[pi]?('✓ '+(_cropKind[pi]||'edited')):'';
+        tag.style.cssText='font-size:10px;margin-top:2px;color:var(--ok);font-weight:700;min-height:12px;'; tag.textContent=_cropEdits[pi]?('✓ '+(_cropKind[pi]||'edited')):'';
         wrap.appendChild(lbl); wrap.appendChild(cv); wrap.appendChild(tag); box.appendChild(wrap);
         return page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
       });
