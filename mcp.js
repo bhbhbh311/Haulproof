@@ -346,6 +346,17 @@ function loadDetail(d, base) {
     }),
   });
 }
+// Same buckets as the dispatch Dashboard: needs setup → done → on the road → ready for the driver → open.
+function loadCat(l) {
+  if (l.needsSetup) return 'setup';
+  if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'done';
+  if (l.pickedUpAt || l.stopsDone > 0) return 'road';
+  if (l.readyToSign) return 'ready';
+  return 'open';
+}
+// A 7-day download link for one signed document, openable without signing in (for billing / sending to someone).
+function downloadLink(base, pod) { return base + '/d/' + jwt.sign({ k: 'dl', p: pod.id }, JWT_SECRET, { expiresIn: '7d' }); }
+const isSigned = (p) => p.status === 'signed' || p.status === 'emailed';
 function needCompany(user) { if (!user.orgId) throw new ToolError('This login isn’t tied to a company, so it can’t change loads. Reconnect with a company login.'); }
 // Only the owning company files documents (uploads land under the uploader's company).
 function needOwner(user, load) { if ((load.orgId || null) !== (user.orgId || null)) throw new ToolError('Load ' + (load.poNumber || load.id) + ' belongs to another company, so documents can’t be attached from this login.'); }
@@ -410,6 +421,82 @@ const TOOLS = [
       return { created: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
         logins: (r.links || []).map(l => ({ email: l.email, name: l.name || null, role: l.role, setup_link: l.link })),
         note: 'Send each person their own set-up link privately; it lets them choose their password. Existing emails were skipped.' }; } },
+
+  { name: 'needs_attention', title: 'What needs attention',
+    description: 'The dispatch Dashboard as data: counts of loads by status and the list of what is waiting on dispatch right now — documents needing signature setup, signed copies whose email failed, loads with no driver — plus who is on the road. Use it for "what needs my attention?" or "what is happening today?".',
+    inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true },
+    run: async (user, a, base) => {
+      const loads = (await api(user, 'GET', '/api/loads')).results || [];
+      const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+      const item = (l, extra) => Object.assign({ po_number: l.poNumber || l.loadNumber || null, customer: l.customer || l.customerName || null, driver: l.driverName || null,
+        stops: l.stopsTotal ? (l.stopsDone + ' of ' + l.stopsTotal + ' signed') : null, portal_link: base + '/app?load=' + encodeURIComponent(l.id) }, extra || {});
+      const by = (k) => loads.filter(l => loadCat(l) === k);
+      const noDriver = loads.filter(l => !l.driverName && ['ready', 'open'].indexOf(loadCat(l)) >= 0);
+      const failed = loads.filter(l => l.emailFailed > 0);
+      return {
+        counts: { needs_signature_setup: by('setup').length, ready_for_driver: by('ready').length, on_the_road: by('road').length, waiting_on_paperwork: by('open').length,
+          completed: by('done').length, email_failed: failed.length, no_driver: noDriver.length, signed_today: loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0.getTime()).length },
+        needs_attention: [
+          ...failed.map(l => item(l, { issue: 'Signed copy email failed — use send_signed_copy to resend' })),
+          ...by('setup').map(l => item(l, { issue: 'Signature boxes not placed — the driver can’t sign yet (place_signatures)' })),
+          ...noDriver.map(l => item(l, { issue: 'No driver assigned (assign_driver)' })),
+        ].slice(0, 40),
+        on_the_road: by('road').slice(0, 25).map(l => item(l, { picked_up_at: l.pickedUpAt ? new Date(l.pickedUpAt).toISOString() : null })),
+        note: loads.length >= 200 ? 'Only the 200 most recent loads were checked.' : undefined,
+      };
+    } },
+
+  { name: 'send_signed_copy', title: 'Send or resend a signed copy',
+    description: 'Emails signed documents. With "to": sends the signed copy of a load (all signed stops, or one stop) to those addresses — e.g. a customer asking for the POD. Without "to": resends signed copies whose email failed — for one load, or for every load with a failed email when no load is given. Confirm the addresses with the user before sending.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id (optional when resending all failed emails)'), stop: { type: 'integer', minimum: 1, description: 'Only this stop (optional)' },
+      to: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'Email addresses to send to (leave out to resend failed emails)' } } },
+    run: async (user, a) => {
+      const to = (a.to || []).map(e => String(e).trim()).filter(Boolean);
+      let loadsToDo = [];
+      if (a.load) loadsToDo = [await resolveLoad(user, a.load)];
+      else if (to.length) throw new ToolError('Say which load to send (PO #).');
+      else { const rows = ((await api(user, 'GET', '/api/loads')).results || []).filter(l => l.emailFailed > 0); for (const l of rows) loadsToDo.push(await api(user, 'GET', '/api/loads/' + l.id)); }
+      const results = [];
+      for (const d of loadsToDo) {
+        let pods = (d.pods || []).filter(isSigned);
+        if (a.stop) pods = pods.filter(p => Number(p.stopNumber || 1) === Number(a.stop));
+        if (!to.length) pods = pods.filter(p => p.emailStatus === 'failed' || p.emailStatus === 'partial');
+        for (const p of pods) {
+          const label = { po_number: d.load.poNumber, stop: p.stopNumber || 1 };
+          try {
+            const r = to.length ? await api(user, 'POST', '/api/pods/' + p.id + '/send', { json: { emails: to } })
+                                : await api(user, 'POST', '/api/pods/' + p.id + '/resend-email', { json: {} });
+            const failed = r.failed || [], sentTo = r.sentTo || [];
+            const ok = !failed.length && (r.ok === true || r.sent === true) && (sentTo.length > 0 || r.sent === true);
+            results.push(Object.assign(label, r.simulated ? { result: 'not sent — email isn’t set up on the server' }
+              : ok ? { result: 'sent', sent_to: sentTo.length ? sentTo : to, skipped_unsubscribed: (r.blocked && r.blocked.length) ? r.blocked : undefined }
+              : { result: 'failed', not_sent_to: failed.length ? failed : to, error: r.error || 'The email service refused it — check the email setup.' }));
+          } catch (e) { results.push(Object.assign(label, { result: 'failed', error: e.message })); }
+        }
+      }
+      if (!results.length) return { sent: 0, note: to.length ? 'That load has no signed documents' + (a.stop ? ' for stop ' + a.stop : '') + ' yet.' : 'No failed emails to resend.' };
+      return { sent: results.filter(r => r.result === 'sent').length, failed: results.filter(r => r.result !== 'sent').length, results };
+    } },
+
+  { name: 'get_signed_documents', title: 'Get signed documents',
+    description: 'Lists signed documents (BOLs/PODs) with a download link for each PDF — for billing, invoicing or sending to someone. Filter by customer, PO #, and/or signed date range. Download links work for 7 days without signing in, so only share them with people who should see the document.',
+    inputSchema: { type: 'object', properties: { customer: str('Customer name (optional)'), po_number: str('PO # or part of it (optional)'),
+      signed_from: str('Earliest signed date, YYYY-MM-DD (optional)'), signed_to: str('Latest signed date, YYYY-MM-DD (optional)'), limit: { type: 'integer', minimum: 1, maximum: 200, description: 'Max documents (default 50)' } } },
+    annotations: { readOnlyHint: true },
+    run: async (user, a, base) => {
+      const from = a.signed_from ? Date.parse(a.signed_from + 'T00:00:00') : null, to = a.signed_to ? Date.parse(a.signed_to + 'T23:59:59') : null;
+      if ((a.signed_from && isNaN(from)) || (a.signed_to && isNaN(to))) throw new ToolError('Dates must look like 2026-10-28.');
+      const loads = (await api(user, 'GET', '/api/loads' + (a.po_number ? '?q=' + encodeURIComponent(a.po_number) : ''))).results || [];
+      const custOf = {}; loads.forEach(l => { custOf[l.id] = l.customer || l.customerName || null; });
+      const pods = ((await api(user, 'GET', '/api/pods' + (a.po_number ? '?po=' + encodeURIComponent(a.po_number) : ''))).results || []).filter(isSigned);
+      const cn = norm(a.customer);
+      const rows = pods.filter(p => (!from || (p.signedAt && p.signedAt >= from)) && (!to || (p.signedAt && p.signedAt <= to)) && (!cn || norm(custOf[p.loadId]).indexOf(cn) >= 0))
+        .sort((x, y) => (y.signedAt || 0) - (x.signedAt || 0)).slice(0, Math.min(Number(a.limit) || 50, 200));
+      return { total: rows.length, documents: rows.map(p => ({ po_number: p.poNumber || null, load_number: p.loadNumber || null, customer: custOf[p.loadId] || null, stop: p.stopNumber || 1,
+        type: p.docType || null, consignee: p.consignee || p.receiverName || null, driver: p.driver || null, signed_at: p.signedAt ? new Date(p.signedAt).toISOString() : null,
+        download_link: downloadLink(base, p) })),
+        note: (cn && !loads.length) ? 'No loads found to match that customer.' : 'Download links expire in 7 days.' };
+    } },
 
   { name: 'find_loads', title: 'Find loads',
     description: 'Searches loads by PO #, load #, customer, consignee or carrier. With no search, returns the most recent loads.',
@@ -625,6 +712,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'Before creating a load, check list_customers and list_drivers so names match; add_customer only when the company truly is not on the list. ' +
   'To get a document ready for the driver: attach it, call review_pages and confirm the pages with the user, trim_document, then place_signatures. To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. ' +
+  'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first.';
 
 async function handleRpc(msg, user, base) {
@@ -676,6 +764,17 @@ function uploadLink(token) {
   if (!row || row.usedAt || row.expiresAt < Date.now()) return null;
   return row;
 }
+// A signed document's download link from get_signed_documents (7 days, no sign-in needed).
+router.get('/d/:token', async (req, res) => {
+  let t; try { t = jwt.verify(req.params.token, JWT_SECRET); } catch (e) { return res.status(410).type('text').send('This download link has expired or is not valid. Ask for a new one.'); }
+  if (!t || t.k !== 'dl') return res.status(404).type('text').send('Not found');
+  const pod = db.prepare('SELECT * FROM pods WHERE id = ?').get(t.p);
+  if (!pod || !pod.filepath || !require('fs').existsSync(pod.filepath) || (pod.status !== 'signed' && pod.status !== 'emailed')) return res.status(404).type('text').send('That document is no longer available.');
+  const name = ((pod.poNumber ? 'PO ' + pod.poNumber : 'BOL') + (pod.stopNumber ? ' stop ' + pod.stopNumber : '')).replace(/[^\w.\- ]+/g, '_');
+  res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', 'inline; filename="' + name + '.pdf"'); res.setHeader('Cache-Control', 'private, no-store');
+  try { const b = await require('./pods').combinedPodBytes(pod); if (b && b.length) return res.end(Buffer.from(b)); } catch (e) {}
+  require('fs').createReadStream(pod.filepath).pipe(res);
+});
 router.get('/u/:token', (req, res) => {
   const row = uploadLink(req.params.token);
   if (!row) return res.status(404).send(page('Link expired', '<p class="sub">This upload link has expired or was already used. Ask for a new one.</p>'));
