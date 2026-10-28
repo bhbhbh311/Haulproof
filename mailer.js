@@ -1,6 +1,7 @@
 // Sends the consignee their copy of the signed POD.
 // If SMTP isn't configured, it logs what it *would* send (safe for dev/demo).
 const nodemailer = require('nodemailer');
+const graph = require('./graphmail');
 const { unsubToken, unsubTokenCat, filterOptedOut, filterStatusOptedOut } = require('./optout');
 
 // Base URL for links in emails (unsubscribe, "view/join"). Same source of truth as the portal.
@@ -38,8 +39,12 @@ function footerHtml(email) {
     + `Don't want these emails? <a href="${unsubUrl(email)}" style="color:#8a94a6">Unsubscribe</a>.</p>`;
 }
 
+// Sending is on when Microsoft Graph (preferred) or SMTP is configured; otherwise emails are only logged.
+function mailConfigured() { return graph.graphConfigured() || !!process.env.SMTP_HOST; }
+function fromAddr() { return process.env.MAIL_FROM || process.env.MS_SENDER || 'documents@haulproofepod.com'; }
 let transport;
 function getTransport() {
+  if (graph.graphConfigured()) return graph;
   if (transport) return transport;
   if (process.env.SMTP_HOST) {
     transport = nodemailer.createTransport({
@@ -64,11 +69,11 @@ async function emailPodCopy({ to, pod, filePath, contentBytes }) {
     console.log(`[mailer] POD ${pod.id}: all ${blocked.length} recipient(s) opted out — nothing sent`);
     return { sent: false, reason: 'all recipients opted out', blocked };
   }
-  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
+  const from = fromAddr();
   const subject = `Signed delivery receipt — ${pod.poNumber ? 'PO ' + pod.poNumber : 'Load ' + (pod.loadNumber || pod.id)}`;
   const body = `Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.\n\nThank you,\nHaulProof`;
 
-  if (!process.env.SMTP_HOST) {
+  if (!mailConfigured()) {
     console.log(`[mailer:simulated] would email POD ${pod.id} to ${allowed.join(', ')}` + (blocked.length ? ` (skipped opted-out: ${blocked.join(', ')})` : ''));
     return { sent: false, simulated: true, sentTo: allowed, blocked };
   }
@@ -106,12 +111,12 @@ async function sendMail({ to, cc, subject, text, html }) {
   const lower = list.map(s => s.toLowerCase());
   const ccList = (Array.isArray(cc) ? cc : (cc ? [cc] : [])).map(s => String(s || '').trim()).filter(Boolean)
     .filter(s => lower.indexOf(s.toLowerCase()) < 0);
-  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
+  const from = fromAddr();
   try {
     const msg = { from, to: list.join(', '), subject: subject || 'HaulProof', text, html };
     if (ccList.length) msg.cc = ccList.join(', ');
     const info = await getTransport().sendMail(msg);
-    if (!process.env.SMTP_HOST) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}${ccList.length ? ' (cc ' + ccList.join(', ') + ')' : ''}`); return { sent: false, simulated: true }; }
+    if (!mailConfigured()) { console.log(`[mailer:simulated] would email "${subject}" to ${list.join(', ')}${ccList.length ? ' (cc ' + ccList.join(', ') + ')' : ''}`); return { sent: false, simulated: true }; }
     return { sent: true, messageId: info.messageId };
   } catch (e) { console.error('sendMail', e.message); return { sent: false, error: e.message }; }
 }
@@ -123,8 +128,8 @@ async function sendStatusNotice({ to, subject, text, html }) {
   if (!list.length) return { sent: false, reason: 'no recipients' };
   const { allowed, blocked } = filterStatusOptedOut(list);
   if (!allowed.length) return { sent: false, reason: 'all recipients opted out of status updates', blocked };
-  const from = process.env.MAIL_FROM || 'documents@haulproofepod.com';
-  if (!process.env.SMTP_HOST) {
+  const from = fromAddr();
+  if (!mailConfigured()) {
     console.log(`[mailer:simulated] status "${subject}" to ${allowed.join(', ')}` + (blocked.length ? ` (skipped opted-out: ${blocked.join(', ')})` : ''));
     return { sent: false, simulated: true, sentTo: allowed, blocked };
   }
@@ -146,4 +151,4 @@ async function sendStatusNotice({ to, subject, text, html }) {
   return { sent: results.length > 0, sentTo: results.map(r => r.to), blocked, results };
 }
 
-module.exports = { emailPodCopy, sendMail, sendStatusNotice, helpEmail, portalUrl };
+module.exports = { emailPodCopy, sendMail, sendStatusNotice, helpEmail, portalUrl, mailConfigured };
