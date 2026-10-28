@@ -8,14 +8,22 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#eef1f7;--bg2:#e6ebf3;--surface:#fff;--ink:#16202b;--muted:#5c6b7a;--line:#e3e9f1;--primary:#1655d1;--primary-d:#0f47b8;--primary-soft:#e7eefc;--ok:#12784a;--ok-soft:#e2f2ea;--warn:#b5731a;--warn-soft:#fbeedd;--danger:#c0392b;--divider:#aeb9cc;
-    --radius:16px;--radius-sm:10px;
-    --shadow:0 6px 22px rgba(20,40,80,.07),0 1px 3px rgba(20,40,80,.05);
-    --shadow-lg:0 24px 60px rgba(15,40,90,.20);
-    --font:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-    --display:"Archivo",-apple-system,Segoe UI,Roboto,sans-serif;}
+  /* Dark navy theme with HaulProof blue as the one accent (same family as the Callahan FMS design). */
+  :root{color-scheme:dark;
+    --bg:#071026;--bg2:#071026;--surface:#0e1a33;--sunk:#0a1428;--surface2:#0a1428;--surface-2:#13264f;--panel:#0a1428;--card2:#0a1428;
+    --ink:#e8effc;--text:#e8effc;--muted:#97aacb;--line:#22355c;--line-strong:#2e4573;--divider:#34507f;
+    --band:#081633;--side-hover:#13264f;--side-muted:#8396be;
+    --primary:#4d8dff;--primary-d:#3a7af0;--primary-ink:#04112e;--primary-soft:#132a55;--primary-line:#2c4f8f;--primary-glow:rgba(77,141,255,.35);
+    --ok:#4cc282;--ok-soft:#12301f;--ok-line:#1f5a3a;--warn:#e6a740;--warn-soft:#33260d;--warn-line:#5e4517;
+    --danger:#ef7a6c;--bad:#ef7a6c;--bad-soft:#3a1a17;--bad-line:#6a2e27;--violet:#a98bff;--violet-soft:#261d48;--violet-line:#46397f;
+    --radius:12px;--radius-sm:8px;
+    --shadow:none;
+    --shadow-lg:0 24px 60px rgba(0,0,0,.5);
+    --font:"Public Sans",-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    --display:"Overpass",-apple-system,Segoe UI,Roboto,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;}
   *{box-sizing:border-box;}
   /* Lock the page to the device width so the portal never scrolls sideways or drifts off-center (esp. on a
      phone). Wide data tables stay reachable by scrolling INSIDE their own card, not the whole page. */
@@ -32,7 +40,7 @@
   .who{margin-left:auto;color:var(--muted);font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
   .who .uname{font-weight:600;color:var(--ink);}
   .rolebadge{font-family:var(--display);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);background:var(--primary-soft);padding:3px 10px;border-radius:20px;}
-  .rolebadge.alt{color:var(--muted);background:var(--surface-2,#eef2f7);}
+  .rolebadge.alt{color:var(--muted);background:var(--surface-2,var(--sunk));}
   .who .orgname{font-weight:600;color:var(--muted);}
   .who button{margin-left:2px;padding:8px 13px;font-size:13px;}
   main{max-width:1800px;margin:0 auto;padding:26px clamp(16px,2.5vw,44px) 64px;}
@@ -40,17 +48,17 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:20px;}
   h1{font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:-.015em;margin:0 0 4px;} .sub{color:var(--muted);margin:0 0 16px;font-size:14px;line-height:1.5;}
   label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px;}
-  input{width:100%;font-size:16px;padding:11px 12px;border:1px solid #cdd7e3;border-radius:var(--radius-sm);outline:none;background:#f7f9fc;transition:border-color .15s,box-shadow .15s,background .15s;}
-  input:focus{border-color:var(--primary);background:#fff;box-shadow:0 0 0 3px var(--primary-soft);}
-  select{width:100%;font-size:16px;padding:11px 12px;border:1px solid #cdd7e3;border-radius:var(--radius-sm);outline:none;background:#f7f9fc;font-family:inherit;transition:border-color .15s,box-shadow .15s,background .15s;}
-  select:focus{border-color:var(--primary);background:#fff;box-shadow:0 0 0 3px var(--primary-soft);}
-  input[type=file]{padding:8px 10px;background:#fff;}
+  input{width:100%;font-size:16px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);outline:none;background:var(--sunk);transition:border-color .15s,box-shadow .15s,background .15s;}
+  input:focus{border-color:var(--primary);background:var(--surface);box-shadow:0 0 0 3px var(--primary-soft);}
+  select{width:100%;font-size:16px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);outline:none;background:var(--sunk);font-family:inherit;transition:border-color .15s,box-shadow .15s,background .15s;}
+  select:focus{border-color:var(--primary);background:var(--surface);box-shadow:0 0 0 3px var(--primary-soft);}
+  input[type=file]{padding:8px 10px;background:var(--surface);}
   input[type=checkbox]{width:auto;}
   .umsg-ok{color:var(--ok);} .umsg-err{color:var(--danger);}
-  .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,#e0a030);background:var(--warn-soft,#fff6e6);color:#8a5a00;border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
-  input.listFilter{padding:11px 13px;border:1.5px solid #b7c2d0;border-radius:10px;font-size:14px;background:var(--surface,#fff);box-shadow:0 1px 2px rgba(20,30,50,.05);}
-  input.listFilter::placeholder{color:#8a93a3;}
-  input.listFilter:focus{outline:none;border-color:var(--primary,#1757d6);box-shadow:0 0 0 3px rgba(23,87,214,.14);}
+  .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,var(--warn));background:var(--warn-soft,var(--warn-soft));color:var(--warn);border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
+  input.listFilter{padding:11px 13px;border:1.5px solid var(--primary-line);border-radius:10px;font-size:14px;background:var(--surface,var(--surface));box-shadow:0 1px 2px rgba(20,30,50,.05);}
+  input.listFilter::placeholder{color:var(--muted);}
+  input.listFilter:focus{outline:none;border-color:var(--primary,var(--primary));box-shadow:0 0 0 3px rgba(23,87,214,.14);}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
   /* Buttons — one system: solid primary (default), .ghost (secondary/outline), .btn-ok (green),
@@ -58,23 +66,23 @@
   button{font-family:inherit;font-size:14px;font-weight:600;border:none;border-radius:var(--radius-sm);padding:11px 17px;background:var(--primary);color:#fff;cursor:pointer;box-shadow:0 1px 2px rgba(22,85,209,.25);transition:transform .12s ease,box-shadow .12s ease,background .12s;}
   button:hover{transform:translateY(-1px);background:var(--primary-d);box-shadow:0 4px 12px rgba(22,85,209,.28);}
   button:active{transform:translateY(0);box-shadow:0 1px 2px rgba(22,85,209,.25);}
-  button.ghost{background:#fff;color:var(--ink);border:1px solid #cdd7e3;box-shadow:none;}
-  button.ghost:hover{background:#f4f7fc;border-color:#b7c3d4;box-shadow:0 2px 7px rgba(20,40,80,.07);}
+  button.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:none;}
+  button.ghost:hover{background:var(--primary-soft);border-color:var(--primary-line);box-shadow:0 2px 7px rgba(20,40,80,.07);}
   button.btn-ok{background:var(--ok);box-shadow:0 1px 2px rgba(18,120,74,.28);}
   button.btn-ok:hover{background:#0f6640;box-shadow:0 4px 12px rgba(18,120,74,.3);}
   button.btn-danger{background:var(--danger);color:#fff;box-shadow:0 1px 2px rgba(192,57,43,.28);}
   button.btn-danger:hover{background:#a83226;box-shadow:0 4px 12px rgba(192,57,43,.3);}
-  button.ghost.btn-danger{background:#fff;color:var(--danger);border-color:var(--danger);box-shadow:none;}
-  button.ghost.btn-danger:hover{background:#fdecea;border-color:var(--danger);}
+  button.ghost.btn-danger{background:var(--surface);color:var(--danger);border-color:var(--danger);box-shadow:none;}
+  button.ghost.btn-danger:hover{background:var(--bad-soft);border-color:var(--danger);}
   button.btn-sm{padding:6px 11px;font-size:12px;}
   a.linkbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 11px;font-size:12px;font-weight:600;border:1px solid var(--primary);border-radius:var(--radius-sm);background:var(--primary-soft);color:var(--primary);text-decoration:none;cursor:pointer;transition:background .12s,box-shadow .12s;}
-  a.linkbtn:hover{background:#dbe6fb;box-shadow:0 2px 7px rgba(22,85,209,.18);}
+  a.linkbtn:hover{background:var(--primary-soft);box-shadow:0 2px 7px rgba(22,85,209,.18);}
   /* tables */
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);}
-  thead th{background:#f2f6fc;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;}
+  thead th{background:var(--primary-soft);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;}
   th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);}
-  tbody tr:nth-child(even){background:#fafbfe;}
+  tbody tr:nth-child(even){background:var(--primary-soft);}
   tbody tr:hover{background:var(--primary-soft);}
   tbody tr:last-child td{border-bottom:none;}
   td.mono,th.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
@@ -114,13 +122,13 @@
   .authcard{padding:42px 38px;display:flex;flex-direction:column;justify-content:center;}
   .authcard h1{margin-bottom:2px;}
   @media(max-width:760px){.authwrap{grid-template-columns:1fr;margin:0 auto;border-radius:16px;}.authhero{padding:30px 26px;}.authhero ul{margin-top:22px;}.authhero p{margin-bottom:4px;}.authcard{padding:28px 24px;}}
-  .msbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px 14px;background:#fff;color:#2f2f2f;border:1px solid #cdd7e3;border-radius:var(--radius-sm);font-weight:600;font-size:14px;text-decoration:none;cursor:pointer;transition:background .12s,border-color .12s;}
-  .msbtn:hover{background:#f6f8fb;border-color:#b7c3d4;}
+  .msbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm);font-weight:600;font-size:14px;text-decoration:none;cursor:pointer;transition:background .12s,border-color .12s;}
+  .msbtn:hover{background:var(--sunk);border-color:var(--primary-line);}
   .divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:14px 0;}
   .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line);}
   .ssoNote{font-size:13px;border-radius:var(--radius-sm);padding:9px 11px;margin-bottom:14px;}
-  .ssoNote.warn{color:#8a5a13;background:var(--warn-soft);border:1px solid #f0dcc0;}
-  .ssoNote.info{color:var(--primary);background:var(--primary-soft);border:1px solid #cdddf8;}
+  .ssoNote.warn{color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-line);}
+  .ssoNote.info{color:var(--primary);background:var(--primary-soft);border:1px solid var(--primary-line);}
   .hide{display:none !important;}
   .tabhidden{display:none !important;}
   /* Top bar: section tabs on the left, compact invite to the side */
@@ -129,14 +137,14 @@
   .tab{background:transparent;color:var(--muted);border:none;box-shadow:none;font-family:var(--display,inherit);font-weight:700;font-size:14px;padding:9px 15px;border-radius:calc(var(--radius) - 6px);cursor:pointer;white-space:nowrap;}
   .tab:hover{background:var(--primary-soft);color:var(--ink);}
   .tab.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(20,60,140,.18);}
-  .tab .tabcount{display:inline-block;min-width:20px;padding:0 6px;margin-left:7px;border-radius:999px;background:var(--surface2,#eef3fb);color:var(--muted);font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle;}
+  .tab .tabcount{display:inline-block;min-width:20px;padding:0 6px;margin-left:7px;border-radius:999px;background:var(--surface2,var(--primary-soft));color:var(--muted);font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle;}
   .tab .tabcount:empty{display:none;}
   .tab.active .tabcount{background:rgba(255,255,255,.28);color:#fff;}
   .tab .tabcount.alert{background:#e5484d;color:#fff;}
-  .tab.active .tabcount.alert{background:#fff;color:#c0392b;}
+  .tab.active .tabcount.alert{background:var(--surface);color:var(--bad);}
   /* Searchable dropdown (type to filter a long list, e.g. receivers) */
   .ss-wrap{position:relative;}
-  .ss-panel{position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid var(--line-strong,var(--line));border-radius:10px;box-shadow:0 14px 34px -12px rgba(16,44,110,.35);max-height:260px;overflow-y:auto;margin-top:4px;}
+  .ss-panel{position:absolute;left:0;right:0;top:100%;z-index:70;background:var(--surface);border:1px solid var(--line-strong,var(--line));border-radius:10px;box-shadow:0 14px 34px -12px rgba(16,44,110,.35);max-height:260px;overflow-y:auto;margin-top:4px;}
   .ss-item{padding:9px 12px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--line);}
   .ss-item:last-child{border-bottom:none;}
   .ss-item:hover,.ss-item.hi{background:var(--primary-soft);}
@@ -157,8 +165,8 @@
   /* On/off toggle switch (used for document-behavior settings like the audit-trail page) */
   .hp-switch{position:relative;display:inline-block;width:46px;height:26px;flex:none;cursor:pointer;}
   .hp-switch input{position:absolute;opacity:0;width:0;height:0;margin:0;}
-  .hp-switch .hp-track{position:absolute;inset:0;background:#c3ccda;border-radius:999px;transition:background .18s ease;}
-  .hp-switch .hp-track::before{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s ease;}
+  .hp-switch .hp-track{position:absolute;inset:0;background:var(--primary-soft);border-radius:999px;transition:background .18s ease;}
+  .hp-switch .hp-track::before{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;background:var(--surface);border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s ease;}
   .hp-switch input:checked + .hp-track{background:var(--primary,#1757d6);}
   .hp-switch input:checked + .hp-track::before{transform:translateX(20px);}
   .hp-switch input:focus-visible + .hp-track{box-shadow:0 0 0 3px rgba(23,87,214,.35);}
@@ -167,91 +175,246 @@
      stronger status pills and clearer section lines. ===== */
   button{border-radius:9px;}
   button:hover{transform:none;}
-  button.ghost{border:1px solid var(--line);background:#fff;box-shadow:0 1px 2px rgba(20,30,50,.06);}
-  button.ghost:hover{background:#f7f9fc;border-color:#b9c5d3;box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  button.ghost{border:1px solid var(--line);background:var(--surface);box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  button.ghost:hover{background:var(--sunk);border-color:var(--primary-line);box-shadow:0 1px 2px rgba(20,30,50,.06);}
   input,select{border-radius:9px;}
   .tabbar{border-radius:12px;padding:5px;gap:4px;}
   .tab{border-radius:9px;border:1px solid transparent;}
-  .tab:hover{background:#f4f7fc;border-color:var(--line);}
+  .tab:hover{background:var(--primary-soft);border-color:var(--line);}
   .tab.active{background:var(--primary-soft);color:var(--primary);border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary);}
   .tab.active .tabcount{background:var(--primary);color:#fff;}
   .card > h1:first-child,.card h1{padding-bottom:2px;}
-  .card{border-color:#d6dee8;}
+  .card{border-color:var(--line);}
   /* status pills: a coloured dot + firmer colours */
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 10px 3px 8px;border:1px solid transparent;}
   .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none;}
-  .chip.received{color:#9a5b0c;background:#fdf1df;border-color:#f1d3a6;}
-  .chip.prepared{color:var(--primary);background:#e4ecfc;border-color:#bcd0f5;}
-  .chip.signed,.chip.emailed{color:#0f6a41;background:#e0f2e8;border-color:#b5dcc7;}
-  .chip.setup{color:#5b2a9a;background:#f1e8fb;border-color:#d7c2f0;}
+  .chip.received{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-line);}
+  .chip.prepared{color:var(--primary);background:var(--primary-soft);border-color:var(--primary-line);}
+  .chip.signed,.chip.emailed{color:var(--ok);background:var(--sunk);border-color:var(--ok-line);}
+  .chip.setup{color:var(--violet);background:var(--violet-soft);border-color:var(--violet-line);}
   /* load rows: colour stripe on the left by status */
   #loadList tbody tr.ldrow td:first-child{box-shadow:inset 4px 0 0 var(--tone,transparent);}
   #loadList tr.tone-setup{--tone:#7a3cc0;} #loadList tr.tone-open{--tone:#d99a3a;}
   #loadList tr.tone-active{--tone:var(--primary);} #loadList tr.tone-done{--tone:#1f9d62;}
-  #loadList tbody tr:nth-child(even){background:#fbfcfe;}
-  #loadList tbody tr:hover{background:#f1f5fd;}
-  #loadList tbody td{border-bottom-color:#e1e7ef;}
-  #loadList thead th{background:#eef2f8;border-bottom:2px solid #cfd8e3;color:#33414f;}
-  #loadList .ldOpen.ghost{border-color:#bcd0f5;color:var(--primary);background:#f4f8ff;}
-  #loadList .ldOpen.ghost:hover{background:#e4ecfc;border-color:var(--primary);}
+  #loadList tbody tr:nth-child(even){background:var(--primary-soft);}
+  #loadList tbody tr:hover{background:var(--primary-soft);}
+  #loadList tbody td{border-bottom-color:var(--line);}
+  #loadList thead th{background:var(--sunk);border-bottom:2px solid var(--line);color:var(--muted);}
+  #loadList .ldOpen.ghost{border-color:var(--primary-line);color:var(--primary);background:var(--primary-soft);}
+  #loadList .ldOpen.ghost:hover{background:var(--primary-soft);border-color:var(--primary);}
   #loadList .ldOpen.btn-sm{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
   #loadList .ldOpen.btn-sm:hover{background:#68309f;}
   #loadList .ldArch{color:var(--muted);}
   /* Prepare documents (split into stops / review): each page is a card with its stop number and tile buttons. */
   .spgrid{width:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:14px;}
-  .spcard{background:#fff;border:1px solid #d6dee8;border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(20,30,50,.08);display:flex;flex-direction:column;align-items:stretch;gap:8px;}
-  .splbl{font-size:12px;font-weight:700;color:#33414f;text-align:center;}
+  .spcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(20,30,50,.08);display:flex;flex-direction:column;align-items:stretch;gap:8px;}
+  .splbl{font-size:12px;font-weight:700;color:var(--muted);text-align:center;}
   .spthumb{display:block;margin:0 auto;border:1px solid var(--line);border-radius:6px;cursor:zoom-in;max-width:100%;}
-  .spstop{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;font-size:12px;font-weight:700;color:#33414f;text-transform:none;letter-spacing:0;}
+  .spstop{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;font-size:12px;font-weight:700;color:var(--muted);text-transform:none;letter-spacing:0;}
   .spstop input{width:64px;text-align:center;padding:7px 6px;font-size:15px;font-weight:700;}
   .spbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
-  button.spbtn{font-size:11.5px;font-weight:600;padding:7px 6px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,30,50,.06);white-space:nowrap;}
-  button.spbtn:hover{background:#f4f7fc;border-color:#b9c5d3;box-shadow:0 1px 2px rgba(20,30,50,.06);}
-  button.spbtn.sp-crop{background:#f4f8ff;border-color:#bcd0f5;color:var(--primary);}
-  button.spbtn.sp-crop:hover{background:#e4ecfc;border-color:var(--primary);}
-  button.spbtn.sp-reshoot{background:#fdf1df;border-color:#f1d3a6;color:#9a5b0c;}
-  button.spbtn.sp-reshoot:hover{background:#fbe6c6;border-color:#d99a3a;}
-  button.spbtn.sp-remove{background:#fff;border-color:#efc4c1;color:#b42318;}
-  button.spbtn.sp-remove:hover{background:#fdecea;border-color:#b42318;}
-  .sprbar{width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#fdf3f2;border:1px solid #efc4c1;border-radius:10px;padding:8px 10px;margin-bottom:12px;}
+  button.spbtn{font-size:11.5px;font-weight:600;padding:7px 6px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(20,30,50,.06);white-space:nowrap;}
+  button.spbtn:hover{background:var(--primary-soft);border-color:var(--primary-line);box-shadow:0 1px 2px rgba(20,30,50,.06);}
+  button.spbtn.sp-crop{background:var(--primary-soft);border-color:var(--primary-line);color:var(--primary);}
+  button.spbtn.sp-crop:hover{background:var(--primary-soft);border-color:var(--primary);}
+  button.spbtn.sp-reshoot{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn);}
+  button.spbtn.sp-reshoot:hover{background:var(--warn-soft);border-color:var(--warn);}
+  button.spbtn.sp-remove{background:var(--surface);border-color:var(--bad-line);color:var(--bad);}
+  button.spbtn.sp-remove:hover{background:var(--bad-soft);border-color:var(--bad);}
+  .sprbar{width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--bad-soft);border:1px solid var(--bad-line);border-radius:10px;padding:8px 10px;margin-bottom:12px;}
   .sprbar[hidden]{display:none;}
-  .sprbar-t{font-size:12px;font-weight:700;color:#b42318;margin-right:4px;}
-  button.sprchip{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid #bcd0f5;background:#fff;color:var(--primary);box-shadow:none;}
-  button.sprchip:hover{background:#e4ecfc;border-color:var(--primary);box-shadow:none;}
+  .sprbar-t{font-size:12px;font-weight:700;color:var(--bad);margin-right:4px;}
+  button.sprchip{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--primary-line);background:var(--surface);color:var(--primary);box-shadow:none;}
+  button.sprchip:hover{background:var(--primary-soft);border-color:var(--primary);box-shadow:none;}
   button.sprchip.all{border-color:var(--line);color:var(--ink);}
-  .mailfail{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;font-weight:700;color:#b42318;}
-  .mailfail-sub{font-weight:500;color:#8a3b33;}
-  .mailfail button.ldResend{padding:3px 9px;font-size:11.5px;color:#b42318;border-color:#efc4c1;}
-  .mailfail button.ldResend:hover{background:#fdecea;border-color:#b42318;}
-  .aimeter{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+  .mailfail{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:11.5px;font-weight:700;color:var(--bad);}
+  .mailfail-sub{font-weight:500;color:var(--bad);}
+  .mailfail button.ldResend{padding:3px 9px;font-size:11.5px;color:var(--bad);border-color:var(--bad-line);}
+  .mailfail button.ldResend:hover{background:var(--bad-soft);border-color:var(--bad);}
+  .aimeter{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
   .aimeter-top{font-size:14px;}
-  .aimeter-bar{height:8px;background:#e3e9f1;border-radius:999px;overflow:hidden;margin:8px 0 6px;}
+  .aimeter-bar{height:8px;background:var(--sunk);border-radius:999px;overflow:hidden;margin:8px 0 6px;}
   .aimeter-bar span{display:block;height:100%;border-radius:999px;}
   .aimeter-sub{font-size:12.5px;color:var(--muted);}
-  .aiwarn{margin-top:10px;background:#fdf1df;border:1px solid #f1d3a6;color:#8a5a13;border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;}
-  .aitips{margin-top:14px;display:grid;gap:8px;font-size:13px;color:#33414f;}
-  .aitips > div{padding-left:12px;border-left:3px solid #bcd0f5;}
-  .aipromo{position:relative;background:linear-gradient(135deg,#f3eefe 0%,#eef4ff 100%);border:1px solid #d7c2f0;padding:18px 20px;}
+  .aiwarn{margin-top:10px;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;font-weight:600;}
+  .aitips{margin-top:14px;display:grid;gap:8px;font-size:13px;color:var(--muted);}
+  .aitips > div{padding-left:12px;border-left:3px solid var(--primary-line);}
+  .aipromo{position:relative;background:linear-gradient(135deg,var(--violet-soft) 0%,var(--primary-soft) 100%);border:1px solid var(--violet-line);padding:18px 20px;}
   .aipromo.connected{padding:12px 18px;}
   .aipromo-x{position:absolute;top:8px;right:10px;background:transparent;color:var(--muted);border:none;box-shadow:none;font-size:20px;line-height:1;padding:4px 8px;}
   .aipromo-x:hover{background:rgba(0,0,0,.05);color:var(--ink);box-shadow:none;}
   .aipromo-head{display:flex;gap:12px;align-items:flex-start;padding-right:28px;}
   .aipromo-icon{flex:none;width:36px;height:36px;border-radius:10px;background:#7a3cc0;color:#fff;display:grid;place-items:center;font-size:18px;box-shadow:0 2px 6px rgba(122,60,192,.3);}
   .aipromo.connected .aipromo-icon{width:28px;height:28px;font-size:14px;border-radius:8px;}
-  .aipromo-title{font-family:var(--display);font-weight:800;font-size:17px;color:#3d1d70;}
+  .aipromo-title{font-family:var(--display);font-weight:800;font-size:17px;color:var(--violet);}
   .aipromo.connected .aipromo-title{font-size:15px;}
-  .aipromo-sub{font-size:13.5px;color:#4b3a66;margin-top:2px;line-height:1.45;max-width:900px;}
+  .aipromo-sub{font-size:13.5px;color:var(--violet);margin-top:2px;line-height:1.45;max-width:900px;}
   .aipromo-try{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:12px 0 0 48px;}
   .aipromo.connected .aipromo-try{margin-left:40px;margin-top:8px;}
-  .aipromo-say{font-size:12px;font-weight:700;color:#5b2a9a;text-transform:uppercase;letter-spacing:.04em;}
-  .aipromo-chip{font-size:12.5px;background:#fff;border:1px solid #d7c2f0;border-radius:999px;padding:4px 10px;color:#3d1d70;}
+  .aipromo-say{font-size:12px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:.04em;}
+  .aipromo-chip{font-size:12.5px;background:var(--surface);border:1px solid var(--violet-line);border-radius:999px;padding:4px 10px;color:var(--violet);}
   .aipromo-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 0 48px;}
-  .aipromo-actions input{flex:0 1 330px;min-width:200px;font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:9px 11px;background:#fff;}
+  .aipromo-actions input{flex:0 1 330px;min-width:200px;font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:9px 11px;background:var(--surface);}
   .aipromo-actions button{padding:9px 14px;font-size:13px;}
   #aiPromoCopy{background:#7a3cc0;box-shadow:0 2px 6px rgba(122,60,192,.3);}
   #aiPromoCopy:hover{background:#68309f;}
-  .aipromo-steps{margin:12px 0 0 48px;padding:12px 16px 12px 32px;background:#fff;border:1px solid #e3d6f5;border-radius:10px;font-size:13.5px;line-height:1.6;color:#33414f;}
+  .aipromo-steps{margin:12px 0 0 48px;padding:12px 16px 12px 32px;background:var(--surface);border:1px solid var(--violet-line);border-radius:10px;font-size:13.5px;line-height:1.6;color:var(--muted);}
   @media (max-width:700px){ .aipromo-try,.aipromo-actions,.aipromo-steps{margin-left:0;} }
+
+  /* ===== Dark navy look (matches the Callahan FMS design; HaulProof blue is the one accent). =====
+     One button rule: the single main action is solid blue, everything else is an outlined dark button. */
+  body{background:radial-gradient(1200px 600px at 75% -10%,#10265a 0,transparent 60%),var(--bg);background-attachment:fixed;font-size:14px;}
+  h1,h2,h3,.brand{font-family:var(--display);}
+  h1{font-weight:800;letter-spacing:0;}
+  a{color:var(--primary);}
+  td.mono,th.mono,.mono{font-family:var(--mono);font-size:13px;}
+  .bar{background:var(--band);backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:0;box-shadow:none;padding:11px 20px;}
+  .bar::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;background:linear-gradient(90deg,transparent,#2f6fe0 20%,var(--primary) 50%,#2f6fe0 80%,transparent);box-shadow:0 0 14px var(--primary-glow);}
+  .logo .mk{background:var(--primary);box-shadow:0 0 18px var(--primary-glow);border-radius:9px;}
+  .logo .mk svg line,.logo .mk svg path{stroke:var(--primary-ink);}
+  .brand{font-size:22px;letter-spacing:.005em;}
+  .who{color:var(--muted);gap:8px;}
+  .who .uname{color:var(--ink);}
+  .rolebadge{color:var(--primary);background:var(--primary-soft);}
+  .rolebadge.alt{color:var(--muted);background:var(--surface-2);}
+  .who a.ghost{display:inline-flex;align-items:center;padding:7px 12px;border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:13px;font-weight:600;}
+  .who a.ghost:hover{background:var(--side-hover);}
+  /* cards */
+  .card{background:rgba(14,26,51,.92);border:1px solid var(--line);border-radius:12px;box-shadow:none;}
+  .card h1{font-size:21px;}
+  .sub{color:var(--muted);}
+  label{color:var(--muted);}
+  /* inputs */
+  input,select,textarea{background:var(--sunk);color:var(--ink);border:1px solid var(--line);border-radius:8px;}
+  input:focus,select:focus,textarea:focus{background:var(--sunk);border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  input::placeholder,textarea::placeholder{color:var(--side-muted);}
+  input[type=file]{background:var(--sunk);}
+  input[type=checkbox],input[type=radio]{accent-color:var(--primary);}
+  input.listFilter{background:var(--sunk);border:1px solid var(--line);box-shadow:none;}
+  input.listFilter::placeholder{color:var(--side-muted);}
+  select option{background:var(--surface);color:var(--ink);}
+  /* buttons */
+  button{background:var(--primary);color:var(--primary-ink);font-weight:700;border-radius:8px;box-shadow:0 0 14px rgba(77,141,255,.22);}
+  button:hover{background:#6a9fff;box-shadow:0 0 18px var(--primary-glow);}
+  button:active{box-shadow:none;}
+  button:disabled{opacity:.55;cursor:default;}
+  button.ghost,a.ghost{background:var(--sunk);color:var(--ink);border:1px solid var(--line);box-shadow:none;}
+  button.ghost:hover{background:#10203f;border-color:#36507f;box-shadow:none;}
+  button.btn-ok{background:var(--ok);color:#06210f;box-shadow:none;}
+  button.btn-ok:hover{background:#5fd395;box-shadow:none;}
+  button.btn-danger{background:#c0392b;color:#fff;box-shadow:none;}
+  button.btn-danger:hover{background:#d24a3c;box-shadow:none;}
+  button.ghost.btn-danger{background:var(--sunk);color:var(--bad);border-color:var(--bad-line);}
+  button.ghost.btn-danger:hover{background:var(--bad-soft);border-color:var(--bad);}
+  a.linkbtn{background:var(--primary-soft);border-color:var(--primary-line);color:var(--primary);}
+  a.linkbtn:hover{background:#1a3566;box-shadow:none;}
+  @keyframes leadpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(169,139,255,.0);}50%{transform:scale(1.05);box-shadow:0 0 0 5px rgba(169,139,255,.22),0 0 18px rgba(169,139,255,.45);}}
+  /* tables */
+  th,td{border-bottom:1px solid rgba(34,53,92,.65);}
+  thead th,#loadList thead th{background:transparent;color:var(--muted);font-size:11px;letter-spacing:.1em;font-weight:600;border-bottom:1px solid var(--line);}
+  tbody tr:nth-child(even),#loadList tbody tr:nth-child(even){background:transparent;}
+  tbody tr:hover,#loadList tbody tr:hover{background:rgba(255,255,255,.03);}
+  #loadList tbody td{border-bottom-color:rgba(34,53,92,.65);}
+  #loadList tr.tone-setup{--tone:var(--violet);} #loadList tr.tone-open{--tone:var(--warn);}
+  #loadList tr.tone-active{--tone:var(--primary);} #loadList tr.tone-done{--tone:var(--ok);}
+  #loadList .ldOpen.ghost{background:var(--sunk);border-color:var(--line);color:var(--ink);}
+  #loadList .ldOpen.ghost:hover{background:#10203f;border-color:#36507f;}
+  #loadList .ldOpen.btn-sm{background:var(--violet);color:#17093a;box-shadow:0 0 14px rgba(169,139,255,.3);}
+  #loadList .ldOpen.btn-sm:hover{background:#bba3ff;}
+  /* status pills */
+  .chip{border-radius:6px;font-size:12px;font-weight:600;border:0;padding:3px 9px 3px 8px;}
+  .chip.received{color:var(--warn);background:var(--warn-soft);}
+  .chip.prepared{color:var(--primary);background:var(--primary-soft);}
+  .chip.signed,.chip.emailed{color:var(--ok);background:var(--ok-soft);}
+  .chip.setup{color:var(--violet);background:var(--violet-soft);}
+  .chip.failed{color:var(--bad);background:var(--bad-soft);}
+  .dup-warn{color:var(--warn);}
+  .ssoNote.warn{color:var(--warn);} .ssoNote.info{border-color:var(--primary-line);}
+  /* login */
+  .authwrap{background:rgba(14,26,51,.95);border-color:var(--line);}
+  .authhero{background:radial-gradient(130% 130% at 0% 0%,#2f6fe0 0%,#163d8f 50%,#0a1d4a 100%);}
+  /* pop-ups */
+  .histBox{background:var(--surface);border:1px solid var(--line);}
+  .histOverlay{background:rgba(2,6,18,.7);}
+  .ss-panel{background:var(--surface);}
+  .hp-switch .hp-track{background:#2b3f66;}
+  .spcard{background:var(--surface);border-color:var(--line);box-shadow:none;}
+  .spthumb{background:#fff;}
+  button.spbtn,button.sprchip{background:var(--sunk);color:var(--ink);box-shadow:none;}
+  button.spbtn.sp-crop,button.sprchip{color:var(--primary);}
+  button.spbtn.sp-reshoot{color:var(--warn);} button.spbtn.sp-remove{color:var(--bad);}
+  .aimeter-bar{background:#22355c;}
+  .aipromo{background:linear-gradient(135deg,rgba(38,29,72,.85) 0%,rgba(19,40,85,.85) 100%);border:1px dashed var(--violet-line);}
+  .aipromo-x:hover{background:rgba(255,255,255,.06);}
+  .aipromo-icon{background:var(--violet);color:#17093a;box-shadow:0 0 14px rgba(169,139,255,.35);}
+  .aipromo-title{color:var(--ink);} .aipromo-sub{color:var(--muted);}
+  .aipromo-chip{background:var(--sunk);color:var(--ink);}
+  .aipromo-actions input{background:var(--sunk);}
+  #aiPromoCopy{background:var(--violet);color:#17093a;box-shadow:none;}
+  #aiPromoCopy:hover{background:#bba3ff;}
+  .aipromo-steps{background:var(--sunk);color:var(--ink);}
+  .aitips{color:var(--ink);}
+
+  /* ===== Left side menu (was the tab bar). Fixed on desktop; a scrolling strip on phones. ===== */
+  #portalTop{margin-bottom:18px;}
+  .tabbar{background:transparent;border:0;box-shadow:none;padding:0;}
+  .tab{display:flex;align-items:center;gap:11px;background:transparent;color:#d9e4f7;border:0;border-left:3px solid transparent;border-radius:7px;font-family:var(--font);font-weight:600;font-size:14px;padding:9px 12px;box-shadow:none;text-align:left;}
+  .tab svg{width:17px;height:17px;flex:none;stroke:var(--side-muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .tab:hover{background:var(--side-hover);border-color:transparent;color:#fff;box-shadow:none;}
+  .tab.active{background:var(--side-hover);color:#fff;border-color:transparent;border-left-color:var(--primary);box-shadow:none;}
+  .tab.active svg{stroke:var(--primary);}
+  .tab .tabcount,.tab.active .tabcount{margin-left:auto;font-family:var(--mono);font-weight:500;font-size:11px;background:rgba(255,255,255,.08);color:#d9e4f7;border-radius:8px;padding:0 7px;min-width:0;line-height:18px;}
+  .tab .tabcount.alert,.tab.active .tabcount.alert{background:var(--bad);color:#2a0b07;font-weight:700;}
+  .tabgroup{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--side-muted);margin:16px 12px 8px;}
+  .tabgroup:first-child{margin-top:2px;}
+  .inviteSide{background:var(--sunk);border:1px solid var(--line);box-shadow:none;}
+  @media (min-width:901px){
+    body:has(#appView:not(.hide)) main{max-width:none;padding-left:calc(250px + clamp(20px,2.2vw,36px));}
+    #portalTop{position:fixed;left:0;top:var(--barH,58px);bottom:0;width:250px;z-index:40;margin:0;display:flex;flex-direction:column;gap:14px;
+      background:rgba(7,18,41,.92);border-right:1px solid var(--line);padding:16px 10px 20px;overflow-y:auto;}
+    .tabbar{flex-direction:column;flex-wrap:nowrap;gap:2px;flex:0 0 auto;}
+    .tab{width:100%;}
+    .inviteSide{flex:0 0 auto;min-width:0;margin-top:auto;}
+  }
+  @media (max-width:900px){
+    .tabbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:4px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+    .tabbar::-webkit-scrollbar{display:none;}
+    .tab{white-space:nowrap;border-left:0;border-bottom:3px solid transparent;border-radius:6px 6px 0 0;}
+    .tab.active{border-left:0;border-bottom-color:var(--primary);}
+    .tab svg{display:none;}
+    .tabgroup{display:none;}
+    .who .orgname,.who .rolebadge,.who #reportBtn,.who .uname,.brand > span,.inviteSide{display:none !important;}
+    .bar{padding:10px 14px;}
+  }
+
+  /* ===== Dashboard home ===== */
+  .hhero{border:1px solid var(--line);background:linear-gradient(180deg,rgba(14,26,51,.92),rgba(10,20,40,.92));border-radius:12px;padding:24px 28px;margin-bottom:16px;}
+  .hhero h1{font-size:30px;margin:0 0 6px;}
+  .hhero p{margin:0 0 16px;color:var(--muted);font-size:15px;}
+  .hhero .hbtns{display:flex;gap:10px;flex-wrap:wrap;}
+  .hhero .hbtns button{padding:9px 15px;font-size:13px;}
+  .htiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px;}
+  button.htile{display:block;text-align:left;background:rgba(14,26,51,.92);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:9px;padding:14px 18px;color:var(--ink);box-shadow:none;font-family:var(--font);}
+  button.htile:hover{background:#12223f;box-shadow:none;}
+  .htile .v{font-family:var(--display);font-weight:800;font-size:30px;line-height:1.1;}
+  .htile .l{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-top:4px;}
+  .htile.zero .v{color:var(--side-muted);}
+  .hpanels{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+  .hpanel{border:1px solid var(--line);background:rgba(14,26,51,.92);border-radius:12px;overflow:hidden;}
+  .hpanel h2{font-size:19px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .hli{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(34,53,92,.6);}
+  .hli:last-child{border-bottom:0;}
+  .hli .dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .hli .t{min-width:0;flex:1;}
+  .hli .s{color:var(--muted);font-size:12px;}
+  .hli button{padding:5px 11px;font-size:12px;flex:none;}
+  .hempty{padding:18px 16px;color:var(--muted);font-size:13px;}
+  #upToggle{white-space:nowrap;}
+  .ldfilters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0;}
+  button.ldf{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;box-shadow:none;}
+  button.ldf:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
+  button.ldf.on{background:var(--primary-soft);color:var(--primary);border-color:transparent;}
+  @media (max-width:900px){ .htiles{grid-template-columns:repeat(2,minmax(0,1fr));} .hpanels{grid-template-columns:1fr;} .hhero{padding:18px;} .hhero h1{font-size:24px;} .htile .v{font-size:24px;} button.htile{padding:12px 14px;} .htile .l{font-size:11px;letter-spacing:.05em;} }
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
@@ -291,39 +454,39 @@
       <button id="loginBtn" style="width:100%;">Sign in</button>
       <div class="err" id="loginErr"></div>
       <div id="loginLinks" style="margin-top:14px;text-align:center;font-size:13px;">
-        <a href="#" id="forgotPwLink" style="color:#1f6feb;text-decoration:none;">Forgot password?</a>
-        <span style="color:var(--muted,#8a94a6);margin:0 6px;">·</span>
-        <a href="#" id="needHelpLink" style="color:#1f6feb;text-decoration:none;">Still need help?</a>
-        <span style="color:var(--muted,#8a94a6);margin:0 6px;">·</span>
-        <a href="/help" target="_blank" rel="noopener" style="color:#1f6feb;text-decoration:none;">How-to guide</a>
+        <a href="#" id="forgotPwLink" style="color:var(--primary);text-decoration:none;">Forgot password?</a>
+        <span style="color:var(--muted,var(--muted));margin:0 6px;">·</span>
+        <a href="#" id="needHelpLink" style="color:var(--primary);text-decoration:none;">Still need help?</a>
+        <span style="color:var(--muted,var(--muted));margin:0 6px;">·</span>
+        <a href="/help" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:none;">How-to guide</a>
       </div>
 
       <!-- Forgot-password panel -->
-      <div id="forgotPwPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,#e6e9f0);padding-top:14px;">
+      <div id="forgotPwPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,var(--line));padding-top:14px;">
         <label>Your email</label>
         <input id="fpEmail" type="email" placeholder="you@company.com" style="margin-bottom:10px;">
         <button id="fpSend" type="button" style="width:100%;">Email me a reset link</button>
-        <div id="fpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,#5a6577);"></div>
-        <div style="text-align:center;margin-top:6px;"><a href="#" id="fpBack" style="color:var(--muted,#8a94a6);font-size:12px;text-decoration:none;">Back to sign in</a></div>
+        <div id="fpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,var(--muted));"></div>
+        <div style="text-align:center;margin-top:6px;"><a href="#" id="fpBack" style="color:var(--muted,var(--muted));font-size:12px;text-decoration:none;">Back to sign in</a></div>
       </div>
 
       <!-- Need-help panel -->
-      <div id="helpPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,#e6e9f0);padding-top:14px;">
-        <p style="font-size:12.5px;color:var(--muted,#5a6577);margin:0 0 10px;">Can't get in? Send us a note and someone will reach out to help.</p>
+      <div id="helpPanel" class="hide" style="margin-top:14px;border-top:1px solid var(--line,var(--line));padding-top:14px;">
+        <p style="font-size:12.5px;color:var(--muted,var(--muted));margin:0 0 10px;">Can't get in? Send us a note and someone will reach out to help.</p>
         <label>Your email</label>
         <input id="helpEmail" type="email" placeholder="you@company.com" style="margin-bottom:10px;">
         <label>What do you need help with?</label>
         <textarea id="helpNote" rows="3" placeholder="e.g. I can't reset my password" style="width:100%;box-sizing:border-box;margin-bottom:10px;"></textarea>
         <button id="helpSend" type="button" style="width:100%;">Send help request</button>
-        <div id="helpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,#5a6577);"></div>
-        <div style="text-align:center;margin-top:6px;"><a href="#" id="helpBack" style="color:var(--muted,#8a94a6);font-size:12px;text-decoration:none;">Back to sign in</a></div>
+        <div id="helpMsg" style="min-height:16px;font-size:13px;margin-top:8px;color:var(--muted,var(--muted));"></div>
+        <div style="text-align:center;margin-top:6px;"><a href="#" id="helpBack" style="color:var(--muted,var(--muted));font-size:12px;text-decoration:none;">Back to sign in</a></div>
       </div>
     </div>
   </div>
 
   <!-- Forced password reset on first login (temp password issued by an admin) -->
   <div id="pwResetModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;">
-    <div style="background:var(--surface,#fff);border-radius:14px;max-width:420px;width:100%;padding:24px;box-shadow:0 14px 46px rgba(0,0,0,.3);">
+    <div style="background:var(--surface,var(--surface));border-radius:14px;max-width:420px;width:100%;padding:24px;box-shadow:0 14px 46px rgba(0,0,0,.3);">
       <h1 style="font-size:19px;margin:0 0 4px;">Set your password</h1>
       <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">For your security, choose a new password before you continue.</p>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">New password</label>
@@ -339,7 +502,7 @@
   <div id="appView" class="hide">
 
     <!-- Tester-only: shown when a tester flips to the "rollout view" to preview what regular users see. -->
-    <div id="rolloutBanner" class="hide" style="margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13.5px;display:flex;align-items:center;gap:8px;">
+    <div id="rolloutBanner" class="hide" style="margin:0 0 14px;padding:9px 14px;border-radius:10px;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);font-size:13.5px;display:flex;align-items:center;gap:8px;">
       <span aria-hidden="true">👁️</span>
       <span>Rollout preview — you're seeing exactly what a regular user sees. The extra sections are hidden. Flip "Show all sections" back on to test everything.</span>
     </div>
@@ -451,7 +614,7 @@
             <button id="docViewerClose" class="ghost" type="button">✕ Close</button>
           </div>
         </div>
-        <div id="docViewerBody" style="flex:1;min-height:0;margin-top:10px;background:#f1f4f9;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;">
+        <div id="docViewerBody" style="flex:1;min-height:0;margin-top:10px;background:var(--sunk);border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;">
           <div id="docViewerLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;">Loading document…</div>
           <iframe id="docViewerFrame" title="Document preview" style="width:100%;height:100%;border:0;display:none;"></iframe>
         </div>
@@ -480,7 +643,7 @@
         <div style="display:flex;gap:16px;flex-wrap:wrap;">
           <div id="cropThumbs" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding:4px;width:140px;flex:0 0 auto;"></div>
           <div style="flex:1 1 360px;min-width:300px;">
-            <div id="cropStageWrap" style="position:relative;display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:#f3f4f6;overflow:hidden;">
+            <div id="cropStageWrap" style="position:relative;display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:var(--sunk);overflow:hidden;">
               <canvas id="cropStage" style="display:block;max-width:100%;cursor:crosshair;touch-action:none;"></canvas>
               <div id="cropSel" style="position:absolute;display:none;border:2px dashed var(--primary);background:rgba(63,116,224,0.14);pointer-events:none;"></div>
             </div>
@@ -490,7 +653,7 @@
               <span id="cropPageMsg" style="font-size:12.5px;color:var(--muted);"></span>
             </div>
             <div id="cropRejectWrap" style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);">
-              <button class="ghost" id="cropRejectBtn" type="button" style="color:#b42318;border-color:#f3b4ab;">✗ Can't fix it — ask the driver to re-shoot this page</button>
+              <button class="ghost" id="cropRejectBtn" type="button" style="color:var(--bad);border-color:var(--bad-line);">✗ Can't fix it — ask the driver to re-shoot this page</button>
               <div id="cropRejectForm" class="hide" style="margin-top:8px;max-width:460px;">
                 <label style="font-size:12px;color:var(--muted);">What's wrong with this page? (the driver sees this)</label>
                 <input id="cropRejectReason" type="text" placeholder="e.g. too blurry to read / cut off at the bottom" style="width:100%;box-sizing:border-box;margin-top:4px;">
@@ -521,7 +684,7 @@
           <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="srName" placeholder="Full name"></div>
         </div>
         <div class="row" style="grid-template-columns:1fr;margin-top:10px;">
-          <div><label>Email <span style="color:#c0392b;">*required</span></label><input id="srEmail" type="email" placeholder="rep@callahantrans.com"></div>
+          <div><label>Email <span style="color:var(--bad);">*required</span></label><input id="srEmail" type="email" placeholder="rep@callahantrans.com"></div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="srCreate" type="button">Create sales rep</button>
@@ -537,8 +700,8 @@
         <div class="histHead"><h1 style="margin:0;font-size:18px;">Add a driver</h1><button id="drvClose" class="ghost" type="button">✕ Close</button></div>
         <p class="sub" style="margin:8px 0 12px;">Creates a driver on your account with a personal link + PIN, so you can route this load to their phone.</p>
         <div class="row" style="grid-template-columns:1fr 1fr;">
-          <div><label>Driver name <span style="color:#c0392b;">*required</span></label><input id="drvName" placeholder="e.g. Mike Rowe"></div>
-          <div><label>PIN <span style="color:#c0392b;">*required</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">4–6 digits</span></label><input id="drvPin" inputmode="numeric" placeholder="4–6 digits, locks their link"></div>
+          <div><label>Driver name <span style="color:var(--bad);">*required</span></label><input id="drvName" placeholder="e.g. Mike Rowe"></div>
+          <div><label>PIN <span style="color:var(--bad);">*required</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">4–6 digits</span></label><input id="drvPin" inputmode="numeric" placeholder="4–6 digits, locks their link"></div>
         </div>
         <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
           <div><label>Phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="drvPhone" placeholder="(555) 555-5555"></div>
@@ -646,7 +809,7 @@
       </div>
       <div id="ncForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-          <div><label>Company name <span style="color:#c0392b;">*required</span></label><input id="ncName" placeholder="e.g. Brown Strauss"></div>
+          <div><label>Company name <span style="color:var(--bad);">*required</span></label><input id="ncName" placeholder="e.g. Brown Strauss"></div>
           <div><label>Contact name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncContact" placeholder="Main contact"></div>
           <div><label>Contact phone <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ncPhone" placeholder="(555) 555-5555"></div>
         </div>
@@ -657,8 +820,8 @@
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
           <p class="sub" style="margin:0 0 10px;">Their first admin login — this person manages their own dispatchers and drivers:</p>
           <div class="row" style="grid-template-columns:1fr 1fr;">
-            <div><label>Admin email <span style="color:#c0392b;">*required</span></label><input id="ncAdminEmail" type="email" placeholder="admin@customer.com"></div>
-            <div><label>Admin password <span style="color:#c0392b;">*required</span></label><input id="ncAdminPass" placeholder="at least 6 characters"></div>
+            <div><label>Admin email <span style="color:var(--bad);">*required</span></label><input id="ncAdminEmail" type="email" placeholder="admin@customer.com"></div>
+            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="ncAdminPass" placeholder="at least 6 characters"></div>
           </div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -692,13 +855,13 @@
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
           <p class="sub" style="margin:0 0 10px;">Carrier details (auto-filled from FMCSA, or type them in):</p>
           <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-            <div><label>Carrier name <span style="color:#c0392b;">*required</span></label><input id="acName"></div>
+            <div><label>Carrier name <span style="color:var(--bad);">*required</span></label><input id="acName"></div>
             <div><label>MC#</label><input id="acMc"></div>
             <div><label>DOT#</label><input id="acDot"></div>
           </div>
           <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
-            <div><label>Carrier admin email <span style="color:#c0392b;">*required</span></label><input id="acAdminEmail" type="email" placeholder="admin@carrier.com"></div>
-            <div><label>Admin password <span style="color:#c0392b;">*required</span></label><input id="acAdminPass" placeholder="at least 6 characters"></div>
+            <div><label>Carrier admin email <span style="color:var(--bad);">*required</span></label><input id="acAdminEmail" type="email" placeholder="admin@carrier.com"></div>
+            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="acAdminPass" placeholder="at least 6 characters"></div>
           </div>
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button id="acBtn" type="button">Create carrier</button>
@@ -731,13 +894,13 @@
         <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
           <p class="sub" style="margin:0 0 10px;">Broker details (auto-filled from FMCSA, or type them in):</p>
           <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-            <div><label>Broker name <span style="color:#c0392b;">*required</span></label><input id="abName"></div>
+            <div><label>Broker name <span style="color:var(--bad);">*required</span></label><input id="abName"></div>
             <div><label>MC#</label><input id="abMc"></div>
             <div><label>DOT#</label><input id="abDot"></div>
           </div>
           <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
-            <div><label>Broker admin email <span style="color:#c0392b;">*required</span></label><input id="abAdminEmail" type="email" placeholder="admin@broker.com"></div>
-            <div><label>Admin password <span style="color:#c0392b;">*required</span></label><input id="abAdminPass" placeholder="at least 6 characters"></div>
+            <div><label>Broker admin email <span style="color:var(--bad);">*required</span></label><input id="abAdminEmail" type="email" placeholder="admin@broker.com"></div>
+            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="abAdminPass" placeholder="at least 6 characters"></div>
           </div>
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button id="abBtn" type="button">Create broker</button>
@@ -756,7 +919,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;" id="cmTitle">Manage customer</h1><p class="sub" style="margin-bottom:0;">Add logins and drivers, and view or upload documents for this account.</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="cmHelpAs" type="button" style="background:#1655d1;border-color:#1655d1;color:#fff;" title="Sign in as this company's HaulProof Help admin to see exactly what they see and help them. You can return to Master Admin with one click.">🛟 Open as HaulProof Help</button>
+          <button id="cmHelpAs" type="button" style="background:#1655d1;border-color:var(--primary);color:#fff;" title="Sign in as this company's HaulProof Help admin to see exactly what they see and help them. You can return to Master Admin with one click.">🛟 Open as HaulProof Help</button>
           <button class="ghost" id="cmBack" type="button">← Back to customers</button>
         </div>
       </div>
@@ -797,7 +960,7 @@
         </div>
         <div id="cmDocUpForm" class="hide" style="margin-top:14px;">
           <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
-            <div><label>Customer PO # <span style="color:#c0392b;">*required</span></label><input id="cmDocPo" placeholder="e.g. 4501-88"></div>
+            <div><label>Customer PO # <span style="color:var(--bad);">*required</span></label><input id="cmDocPo" placeholder="e.g. 4501-88"></div>
             <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocLoad"></div>
             <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocCons"></div>
             <div><label>Type</label><select id="cmDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
@@ -870,9 +1033,28 @@
         <li>Start a <b>new chat</b> and attach your BOLs or ask about your loads. It works as your login, with your permissions. Manage it under <b>Settings → AI connections</b>.</li>
       </ol>
     </div>
+    <!-- DASHBOARD HOME (company logins): greeting, the main actions, counts by status and what needs attention.
+         Built from the same loads list as the Loads tab (renderHome is called each time that list refreshes). -->
+    <div class="hide" id="homeCard">
+      <div class="hhero">
+        <h1 id="homeHello">Welcome</h1>
+        <p id="homeLine">Loading your loads…</p>
+        <div class="hbtns">
+          <button type="button" id="homeNewLoad">＋ New load</button>
+          <button type="button" class="ghost" id="homeLoads">All loads</button>
+          <button type="button" class="ghost hide" id="homeAttn">Needs attention</button>
+        </div>
+      </div>
+      <div class="htiles" id="homeTiles"></div>
+      <div class="hpanels">
+        <div class="hpanel"><h2>Needs attention</h2><div id="homeAttnList"><div class="hempty">Loading…</div></div></div>
+        <div class="hpanel"><h2>Drivers today</h2><div id="homeDrivers"><div class="hempty">Loading…</div></div></div>
+      </div>
+    </div>
+
     <div class="card" id="loadsCard">
       <!-- First-time welcome: teaches the mental model (what this is + the 3 steps). Dismissed once, stays dismissed. -->
-      <div id="dashWelcome" class="hide" style="margin:-4px 0 16px;border:1px solid var(--primary);background:var(--primary-soft,#eef3fe);border-radius:12px;padding:16px 18px;">
+      <div id="dashWelcome" class="hide" style="margin:-4px 0 16px;border:1px solid var(--primary);background:var(--primary-soft,var(--primary-soft));border-radius:12px;padding:16px 18px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
           <h2 style="margin:0 0 4px;font-size:16px;">👋 Welcome to HaulProof</h2>
           <button id="dashWelcomeClose" type="button" class="ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap;">Got it</button>
@@ -889,6 +1071,7 @@
         <div><h1 style="margin-bottom:0;">Loads</h1><p class="sub" style="margin-bottom:0;">Your loads — assign an FMCSA-verified carrier and track full history. Start a new one with <b>＋ New load</b> below (upload the BOL, or create it and add paperwork later).</p></div>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;"><input id="lSearch" placeholder="Search loads by PO #, carrier, consignee"><button class="ghost" id="lSearchBtn" type="button">Search</button></div>
+      <div class="ldfilters" id="ldFilters"></div>
       <div id="loadList" style="margin-top:12px;"></div>
     </div>
 
@@ -953,7 +1136,7 @@
           </div>
           <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
             <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen. Uncheck any pages below you don't want.</div></div>
-          <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,#fafafa);max-height:340px;overflow:auto;"></div>
+          <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,var(--sunk));max-height:340px;overflow:auto;"></div>
           <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
             <button id="ldUploadBtn" type="button">Upload to this stop</button>
             <button class="ghost" id="ldStopCancel" type="button">Cancel</button>
@@ -965,7 +1148,7 @@
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
         <!-- broker only: once a carrier is assigned AND that carrier allows it, add / see the carrier's drivers -->
-        <div id="ldBrokerDrivers" class="hide" style="margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel,#f7f9fc);">
+        <div id="ldBrokerDrivers" class="hide" style="margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel,var(--sunk));">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <b id="ldBrokerDriversTitle" style="font-size:14px;">Drivers at the carrier</b>
             <button class="ghost sm" id="ldBrokerDriverAdd" type="button" style="margin-left:auto;padding:5px 10px;font-size:12.5px;">＋ Add a driver for them</button>
@@ -1100,7 +1283,7 @@
       </div>
       <div id="upForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-          <div><label>Customer PO # <span style="color:#c0392b;">*required</span></label><input id="uPo" placeholder="e.g. 4501-88"></div>
+          <div><label>Customer PO # <span style="color:var(--bad);">*required</span></label><input id="uPo" placeholder="e.g. 4501-88"></div>
           <div id="uLoadWrap"><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
           <div id="uConsWrap"><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
@@ -1176,7 +1359,7 @@
       </div>
       <div id="nrForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
-          <div><label>Receiver name <span style="color:#c0392b;">*required</span></label><input id="nrName" placeholder="e.g. Home Depot DC #4512"></div>
+          <div><label>Receiver name <span style="color:var(--bad);">*required</span></label><input id="nrName" placeholder="e.g. Home Depot DC #4512"></div>
           <div><label>Contact email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nrEmail" placeholder="dock@receiver.com"></div>
           <div><label>Parent company <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
             <select id="nrParent"><option value="">— none (top-level) —</option></select></div>
@@ -1209,13 +1392,13 @@
 
     <!-- Add / find / edit a customer in YOUR list (with duplicate check) — top-level so it overlays any tab -->
     <div id="custModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
-      <div style="background:var(--surface,#fff);border-radius:14px;max-width:560px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);max-height:92vh;overflow:auto;">
+      <div style="background:var(--surface,var(--surface));border-radius:14px;max-width:560px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);max-height:92vh;overflow:auto;">
         <h1 id="custModalTitle" style="font-size:17px;margin:0 0 4px;">Add or find a customer</h1>
         <p id="custModalSub" style="color:var(--muted);font-size:13px;margin:0 0 14px;">Search your customer list or add a new one. We flag possible duplicates so the same company isn't entered twice.</p>
-        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Customer / company name <span style="color:#c0392b;font-weight:400;">*required</span></label>
+        <label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Customer / company name <span style="color:var(--bad);font-weight:400;">*required</span></label>
         <input id="custModalName" placeholder="e.g. Brown Strauss" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 8px;">
         <div id="custModalMatches"></div>
-        <div id="custModalDup" class="hide" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px 12px;margin:6px 0 10px;font-size:13px;color:#7c2d12;"></div>
+        <div id="custModalDup" class="hide" style="background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:10px;padding:11px 12px;margin:6px 0 10px;font-size:13px;color:var(--warn);"></div>
         <div class="row" style="grid-template-columns:1fr 1fr;gap:10px;">
           <div><label style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Main contact name <span style="font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label>
             <input id="custModalContact" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0 0;"></div>
@@ -1264,7 +1447,7 @@
 
     <!-- Saved signature layouts for a customer -->
     <div id="custLayoutsModal" class="hide" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10001;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
-      <div style="background:var(--surface,#fff);border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);">
+      <div style="background:var(--surface,var(--surface));border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 12px 44px rgba(0,0,0,.28);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <h1 style="font-size:17px;margin:0;" id="custLayoutsTitle">Saved signature layouts</h1>
           <button class="ghost" id="custLayoutsClose" type="button">✕ Close</button>
@@ -1291,7 +1474,7 @@
         <div><h1 style="margin-bottom:0;">Team logins</h1><p class="sub" style="margin-bottom:0;">Create a login so someone can test the portal. They sign in at this site with the email and password you set here.</p></div>
         <button class="ghost" id="teamImportBtn" type="button">⇪ Import</button>
       </div>
-      <div id="orgNotifyBox" style="margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface2,#f7f9fc);">
+      <div id="orgNotifyBox" style="margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface2,var(--sunk));">
         <label style="display:block;">📧 Email a copy of every completed delivery to</label>
         <p class="sub" style="margin:2px 0 8px;">Comma-separated addresses. These get a copy of <b>every</b> signed stop on your loads — no matter which consignee email the driver enters at signing. Use this for a dispatch inbox you always want copied.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -1685,7 +1868,7 @@
     bar.id = 'helpBanner';
     bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#7a1f1f;color:#fff;padding:9px 16px;display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;font-size:13.5px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.18);';
     bar.innerHTML = '🛟 You’re helping <b style="margin:0 4px;">' + esc(u.orgName || 'this company') + '</b> as HaulProof Help.'
-      + ' <button id="helpExitBtn" type="button" style="margin-left:8px;background:#fff;color:#7a1f1f;border:none;border-radius:6px;padding:6px 13px;font-weight:700;cursor:pointer;">← Return to Master Admin</button>';
+      + ' <button id="helpExitBtn" type="button" style="margin-left:8px;background:var(--surface);color:var(--bad);border:none;border-radius:6px;padding:6px 13px;font-weight:700;cursor:pointer;">← Return to Master Admin</button>';
     document.body.insertBefore(bar, document.body.firstChild);
     document.getElementById('helpExitBtn').onclick = async function(){
       var b = document.getElementById('helpExitBtn'); if(b){ b.disabled = true; b.textContent = 'Returning…'; }
@@ -1810,7 +1993,9 @@
       show('aiCreditCard', u.role !== 'superadmin' && !!u.orgId);
       if (u.role !== 'superadmin' && !!u.orgId) loadAiPromo(); else show('aiPromoCard', false);
     } catch(e){}
+    show('homeCard', !pureReceiver && u.role !== 'superadmin' && !!$('loadsCard') && !$('loadsCard').classList.contains('hide'));
     buildTabs();
+    syncBarH();
     refreshAwaitingBadge();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
     if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('documents'); } catch (e) {} openLoad(_dl); }
@@ -1921,8 +2106,10 @@
   // Documents view isn't buried under the management sections. Role logic still decides
   // which cards exist (via .hide); tabs layer on top with .tabhidden, so the two compose.
   var TAB_DEFS = [
+    // The home view for company logins: counts by status and what needs attention.
+    { key:'home',      label:'Dashboard',   cards:['homeCard','aiPromoCard'] },
     // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
-    { key:'documents', label:'Documents / Loads', cards:['aiPromoCard','loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
+    { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
     { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
@@ -1974,15 +2161,42 @@
     if (_si > -1) shown.push(shown.splice(_si, 1)[0]);
     // Reflect the rollout-preview banner state whenever tabs rebuild.
     var rb=$('rolloutBanner'); if(rb) rb.classList.toggle('hide', !(isTester() && !testerShowAll()));
+    var lastGroup = null;
     shown.forEach(function(t){
+      var g = TAB_GROUP[t.key] || 'Dispatch';
+      if(g !== lastGroup){ var h=document.createElement('div'); h.className='tabgroup'; h.textContent=g; bar.appendChild(h); lastGroup=g; }
       var b=document.createElement('button'); b.type='button'; b.className='tab'; b.setAttribute('data-tab', t.key);
-      b.innerHTML = esc(t.label) + '<span class="tabcount"></span>';
+      b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + (TAB_ICON[t.key] || TAB_ICON.documents) + '</svg>' + esc(t.label) + '<span class="tabcount"></span>';
       b.onclick=function(){ selectTab(t.key); };
       bar.appendChild(b);
       applyTabCount(t.key);
     });
-    if(shown.length){ var def = shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
+    if(shown.length){ var def = shown.some(function(t){return t.key==='home';}) ? 'home' : shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
   }
+  // Side-menu headings and icons.
+  var TAB_GROUP = { home:'Dispatch', documents:'Dispatch', received:'Dispatch',
+    drivers:'People', custcarriers:'People', approvedcarriers:'People', mycustomers:'People', team:'People',
+    dashboard:'Master admin', customers:'Master admin', carriers:'Master admin', brokers:'Master admin', receivers:'Master admin', requests:'Master admin',
+    settings:'Account' };
+  var TAB_ICON = {
+    home:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    documents:'<path d="M1 7h13v10H1zM14 10h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/>',
+    received:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 15l2.5 2.5L16 12"/>',
+    drivers:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+    custcarriers:'<path d="M1 7h13v10H1zM14 10h4l3 3v4h-7"/>',
+    approvedcarriers:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+    mycustomers:'<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/>',
+    customers:'<path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/>',
+    team:'<circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c0-3.5 3-5 7-5s7 1.5 7 5M16 14c3 0 6 1.3 6 4.5"/>',
+    dashboard:'<path d="M3 20h18M6 16V10M11 16V5M16 16v-8M21 16v-4"/>',
+    carriers:'<path d="M1 7h13v10H1zM14 10h4l3 3v4h-7"/>',
+    brokers:'<path d="M7 7h10M7 7l3-3M7 7l3 3M17 17H7M17 17l-3-3M17 17l-3 3"/>',
+    receivers:'<path d="M3 9l9-6 9 6v12H3z"/><path d="M9 21v-7h6v7"/>',
+    requests:'<path d="M4 4h16v12H8l-4 4z"/>',
+    settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>' };
+  // Keep the fixed side menu just under the header, whatever height the header wraps to.
+  function syncBarH(){ var b=document.querySelector('.bar'); if(b) document.documentElement.style.setProperty('--barH', (b.getBoundingClientRect().bottom + 2) + 'px'); }
+  window.addEventListener('resize', syncBarH); window.addEventListener('load', syncBarH);
   // Clicking any top tab should drop you out of the super-admin drill-in "Manage" view
   // and back to the normal lists, so the tab you clicked actually shows.
   function closeCustManageForTab(){
@@ -2135,7 +2349,7 @@
           return '<tr data-org="' + (o.orgId || '') + '">'
             + '<td><b>' + esc(o.name || '') + '</b>' + (o.kind ? ' <span style="color:var(--muted);font-size:12px;">' + esc(o.kind) + '</span>' : '') + '</td>'
             + '<td>' + (editable ? '<select class="aiuPlan" style="width:auto;font-size:13px;padding:6px 8px;">' + [['trial','Free trial'],['paid','Paid'],['unlimited','Unlimited (test)'],['off','Off']].map(x => '<option value="' + x[0] + '"' + (o.plan === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select>' : '—')
-              + (o.requestedAt ? '<div style="color:#b5731a;font-size:11.5px;font-weight:700;margin-top:3px;">✋ Asked for more ' + new Date(o.requestedAt).toLocaleDateString() + '</div>' : '') + '</td>'
+              + (o.requestedAt ? '<div style="color:var(--warn);font-size:11.5px;font-weight:700;margin-top:3px;">✋ Asked for more ' + new Date(o.requestedAt).toLocaleDateString() + '</div>' : '') + '</td>'
             + '<td>' + (editable && o.plan === 'trial' ? '<input class="aiuCredit" type="number" min="0" step="1" value="' + (o.creditUsd != null ? o.creditUsd : 10) + '" style="width:70px;font-size:13px;padding:6px 8px;"><div style="font-size:11.5px;color:' + ((o.lifetimeUsd || 0) >= (o.creditUsd || 0) ? 'var(--danger)' : 'var(--muted)') + ';">' + money(o.lifetimeUsd) + ' used</div>' : '<span style="color:var(--muted);font-size:12px;">' + money(o.lifetimeUsd) + ' all-time</span>') + '</td>'
             + '<td>' + (editable ? '<input class="aiuCap" type="number" min="0" step="1" placeholder="no cap" value="' + (o.capUsd != null ? o.capUsd : '') + '" style="width:90px;font-size:13px;padding:6px 8px;">' : '—') + '</td>'
             + '<td>' + (editable ? '<input class="aiuPrice" type="number" min="0" step="0.05" placeholder="0.00" value="' + (o.pricePerDocUsd != null ? o.pricePerDocUsd : '') + '" style="width:90px;font-size:13px;padding:6px 8px;">' : '—') + '</td>'
@@ -2172,7 +2386,7 @@
   if ($('aiuMonth')) $('aiuMonth').onchange = loadAiUsage;
   async function loadStats(){
     const grid = $('statsGrid'); if (!grid) return;
-    const tile = (n, label, accent) => '<div style="background:var(--card2,#f7f9fc);border:1px solid var(--line);border-radius:12px;padding:14px 16px;">'
+    const tile = (n, label, accent) => '<div style="background:var(--card2,var(--sunk));border:1px solid var(--line);border-radius:12px;padding:14px 16px;">'
       + '<div style="font-size:26px;font-weight:800;line-height:1;color:' + (accent||'var(--text,#1f2733)') + ';">' + (n==null?'—':n) + '</div>'
       + '<div style="font-size:12.5px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.03em;">' + label + '</div></div>';
     try {
@@ -2279,7 +2493,7 @@
       }
       actions = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'+grant+
         '<button class="ghost reqReply" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;">Reply</button>'+
-        '<button class="ghost reqDeny" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;color:#c0392b;">Deny</button>'+
+        '<button class="ghost reqDeny" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;color:var(--bad);">Deny</button>'+
         '<span class="reqMsg" data-id="'+x.id+'" style="font-size:12px;font-weight:600;"></span></div>';
     }
     return '<div style="border:1px solid var(--line-strong);border-radius:12px;padding:12px;margin-bottom:10px;">'+
@@ -2362,7 +2576,7 @@
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost carEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
             <button class="carMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
-            <button class="ghost carActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost carActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:var(--bad);' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.carMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name, 'carriersCard'));
@@ -2431,7 +2645,7 @@
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost brEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
             <button class="brMng" data-id="${c.id}" data-name="${esc(c.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
-            <button class="ghost brActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:#c0392b;' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost brActive" data-id="${c.id}" data-active="${c.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${c.active ? 'color:var(--bad);' : ''}">${c.active ? 'Deactivate' : 'Reactivate'}</button>
           </td></tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.brMng').forEach(b => b.onclick = () => openCustManage(b.dataset.id, b.dataset.name, 'brokersCard'));
       box.querySelectorAll('.brEdit').forEach(b => b.onclick = () => { const c = brokerCache.find(x => x.id === b.dataset.id); if (c) openEditOrg(c, 'broker', loadBrokers); });
@@ -2491,7 +2705,7 @@
           <td><b>${esc(c.name)}</b></td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
-          <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button></td>
+          <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.bcRemove').forEach(b => b.onclick = async () => { try { await api('/api/brokers/my-carriers/' + b.dataset.id, { method: 'DELETE' }); loadApprovedCarriers(); } catch (e) { alert(e.message); } });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -2530,7 +2744,7 @@
           <td><b>${esc(c.name)}</b></td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
-          <td style="text-align:right;"><button class="ghost ccrRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button></td>
+          <td style="text-align:right;"><button class="ghost ccrRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ccrRemove').forEach(b => b.onclick = async () => { try { await api('/api/carriers/roster/' + b.dataset.id, { method: 'DELETE' }); loadCustCarriers(); } catch (e) { alert(e.message); } });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -2572,7 +2786,7 @@
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
-        <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
+        <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>
       </td></tr>`).join('');
   }
   async function loadDrivers(orgId, tbody) {
@@ -2726,6 +2940,7 @@
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
     // a driver's upload waiting on dispatch reads "Needs setup" (not a vague "Updated").
     if (l.needsSetup) return '<span class="chip setup">Needs setup</span>';
+    if (l.emailFailed > 0) return '<span class="chip failed">Signed · Email failed</span>';
     // Every stop signed → the load is done; green "Completed" and it stays in the list to open/view.
     if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return '<span class="chip signed">Completed — ready to view</span>';
     // Part-way through a multi-stop load → show progress instead of a flat "Ready to sign".
@@ -2752,7 +2967,7 @@
     } catch (e) {}
     let photoTag = '';
     try { const pl = l.pickedUpPhotos ? (typeof l.pickedUpPhotos === 'string' ? JSON.parse(l.pickedUpPhotos) : l.pickedUpPhotos) : []; if (pl && pl.length) photoTag = ' · 📷 ' + pl.length; } catch (e) {}
-    return `<div style="margin-top:4px;font-size:11.5px;color:#146c2e;font-weight:700;white-space:nowrap;">📍 Picked up ${esc(t)}${mapLink}${photoTag}</div>`;
+    return `<div style="margin-top:4px;font-size:11.5px;color:var(--ok);font-weight:700;white-space:nowrap;">📍 Picked up ${esc(t)}${mapLink}${photoTag}</div>`;
   }
   let _showArchived = false;   // when true, the Loads list shows this user's archived (hidden) loads instead
   let _inTrashView = false;    // when true, the box is showing the recovery bin — auto-refresh must not clobber it
@@ -2771,6 +2986,111 @@
     if (dashWelcomeDismissed() || (user && user.role === 'superadmin')) { w.classList.add('hide'); return; }
     w.classList.remove('hide');
   }
+  // ---- Dashboard home + Loads filters. Each load falls in one bucket: needs setup → done → on the road → ready
+  //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
+  function loadCat(l) {
+    if (l.needsSetup) return 'setup';
+    if (l.stopsTotal > 0 && l.stopsDone >= l.stopsTotal) return 'done';
+    if (l.pickedUpAt || l.stopsDone > 0) return 'road';
+    if (l.readyToSign) return 'ready';
+    return 'open';
+  }
+  const noDriver = (l) => !l.driverName && !l.driverId && ['ready', 'open'].indexOf(loadCat(l)) >= 0;
+  const LD_FILTERS = [
+    ['', 'All', () => true],
+    ['setup', 'Needs setup', l => loadCat(l) === 'setup'],
+    ['ready', 'Ready for driver', l => loadCat(l) === 'ready'],
+    ['road', 'On the road', l => loadCat(l) === 'road'],
+    ['open', 'Waiting on paperwork', l => loadCat(l) === 'open'],
+    ['done', 'Completed', l => loadCat(l) === 'done'],
+    ['mailfail', 'Email failed', l => l.emailFailed > 0],
+    ['nodriver', 'No driver', noDriver],
+  ];
+  let _loadFilter = '';
+  function ldFilterFn(key) { const f = LD_FILTERS.find(x => x[0] === key); return f ? f[2] : (() => true); }
+  function renderLdFilters(loads, show) {
+    const box = $('ldFilters'); if (!box) return;
+    if (!show) { box.innerHTML = ''; return; }
+    box.innerHTML = LD_FILTERS.map(f => {
+      const n = f[0] ? loads.filter(f[2]).length : loads.length;
+      if (f[0] && !n && _loadFilter !== f[0]) return '';
+      return `<button type="button" class="ldf${_loadFilter === f[0] ? ' on' : ''}" data-f="${f[0]}">${f[1]}${f[0] ? ' · ' + n : ''}</button>`;
+    }).join('');
+    box.querySelectorAll('.ldf').forEach(b => b.onclick = () => { _loadFilter = b.dataset.f; _loadsShown = 10; loadLoads(); });
+  }
+  // Open the Loads list on one filter (from a dashboard tile or a Needs-attention item).
+  function showLoadsFiltered(key) { _loadFilter = key || ''; _loadsShown = 10; if ($('lSearch')) $('lSearch').value = ''; selectTab('documents'); loadLoads(); }
+  function startNewLoad() {
+    selectTab('documents');
+    const f = $('upForm'), t = $('upToggle');
+    if (f && f.classList.contains('hide') && t) t.click();
+    const c = $('uploadCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => { const p = $('uPo'); if (p) p.focus(); }, 350);
+  }
+  function renderHome(loads) {
+    if (!$('homeCard') || $('homeCard').classList.contains('hide')) return;
+    const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), week0 = Date.now() - 7 * 86400000;
+    const by = (k) => loads.filter(l => loadCat(l) === k);
+    const setup = by('setup'), ready = by('ready'), road = by('road'), open = by('open');
+    const failed = loads.filter(l => l.emailFailed > 0), nodrv = loads.filter(noDriver);
+    const doneWeek = loads.filter(l => loadCat(l) === 'done' && l.lastSignedAt && l.lastSignedAt >= week0);
+    const signedToday = loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0);
+    const attnN = setup.length + failed.length + nodrv.length;
+    const first = ((user && (user.name || '')) || '').trim().split(/\s+/)[0] || '';
+    const h = now.getHours(), hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+    $('homeHello').textContent = hello + (first ? ', ' + first : '');
+    const bits = [now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })];
+    bits.push(road.length + ' on the road');
+    bits.push(ready.length + ' ready for ' + (ready.length === 1 ? 'a driver' : 'drivers'));
+    bits.push(attnN ? attnN + (attnN === 1 ? ' thing needs' : ' things need') + ' attention' : 'nothing needs attention ✓');
+    $('homeLine').textContent = bits.join(' · ');
+    const ab = $('homeAttn'); ab.classList.toggle('hide', !attnN); ab.textContent = 'Needs attention (' + attnN + ')';
+    const tiles = [
+      ['setup', setup.length, 'Needs signature setup', 'var(--violet)'],
+      ['ready', ready.length, 'Ready for driver', 'var(--primary)'],
+      ['road', road.length, 'On the road', 'var(--warn)'],
+      ['done', doneWeek.length, 'Completed this week', 'var(--ok)'],
+      ['mailfail', failed.length, 'Email failed', 'var(--bad)'],
+      ['nodriver', nodrv.length, 'No driver assigned', 'var(--warn)'],
+      ['open', open.length, 'Waiting on paperwork', 'var(--side-muted)'],
+      ['done', signedToday.length, 'Signed today', 'var(--ok)'],
+    ];
+    $('homeTiles').innerHTML = tiles.map(t => `<button type="button" class="htile${t[1] ? '' : ' zero'}" style="--c:${t[3]}" data-f="${t[0]}"><div class="v">${t[1]}</div><div class="l">${t[2]}</div></button>`).join('');
+    $('homeTiles').querySelectorAll('.htile').forEach(b => b.onclick = () => showLoadsFiltered(b.dataset.f));
+    // Needs attention: failed emails first (customers are waiting on them), then setups, then loads with no driver.
+    const po = (l) => esc(l.poNumber || l.loadNumber || 'Load');
+    const items = [];
+    failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — open it to resend', 'Resend', 'ghost btn-danger', l.id]));
+    setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
+    nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
+    const shownItems = items.slice(0, 8);
+    $('homeAttnList').innerHTML = shownItems.length
+      ? shownItems.map(i => `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]} hOpen" data-id="${i[5]}">${i[3]}</button></div>`).join('')
+        + (items.length > shownItems.length ? `<div class="hempty">+ ${items.length - shownItems.length} more — see the Loads list</div>` : '')
+      : '<div class="hempty">All caught up — nothing needs attention right now.</div>';
+    // Drivers today: everyone with a load in progress, plus who finished a delivery today.
+    const drv = {};
+    loads.forEach(l => {
+      if (!l.driverName) return; const k = l.driverName;
+      const c = loadCat(l);
+      if (c === 'road' || c === 'ready') { (drv[k] = drv[k] || { act: [], done: 0 }).act.push(l); }
+      else if (c === 'done' && l.lastSignedAt && l.lastSignedAt >= day0) { (drv[k] = drv[k] || { act: [], done: 0 }).done++; }
+    });
+    const names = Object.keys(drv).sort((a, b) => drv[b].act.length - drv[a].act.length || a.localeCompare(b));
+    $('homeDrivers').innerHTML = names.length ? names.slice(0, 10).map(n => {
+      const d = drv[n], onRoad = d.act.find(l => loadCat(l) === 'road'), next = onRoad || d.act[0];
+      const pill = onRoad ? '<span class="chip received">On the road</span>' : next ? '<span class="chip prepared">Assigned</span>' : '<span class="chip signed">Done</span>';
+      const sub = next ? (po(next) + (next.stopsTotal > 1 ? ' · ' + next.stopsDone + ' of ' + next.stopsTotal + ' stops signed' : '') + (d.act.length > 1 ? ' · +' + (d.act.length - 1) + ' more' : ''))
+        : (d.done + ' delivered today');
+      return `<div class="hli"><span class="dot" style="background:${onRoad ? 'var(--warn)' : next ? 'var(--primary)' : 'var(--ok)'}"></span><div class="t"><b>${esc(n)}</b><div class="s">${sub}</div></div>${pill}</div>`;
+    }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
+    document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+  }
+  // The AI banner sits on the Dashboard, under the greeting.
+  (function(){ const pc = $('aiPromoCard'), hh = document.querySelector('#homeCard .hhero'); if (pc && hh) hh.after(pc); })();
+  if ($('homeNewLoad')) $('homeNewLoad').onclick = startNewLoad;
+  if ($('homeLoads')) $('homeLoads').onclick = () => showLoadsFiltered('');
+  if ($('homeAttn')) $('homeAttn').onclick = () => { const el = $('homeAttnList'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   let _loadsShown = 10;
   async function loadLoads() {
     _inTrashView = false;
@@ -2784,8 +3104,17 @@
       const r = await api('/api/loads' + (params.length ? ('?' + params.join('&')) : ''));
       // Show every load (newest activity first) — completed loads stay in the list with a green
       // "✓ Completed — ready to view" status so a just-signed load is right there to open, not hidden.
-      const active = r.results;
+      const unfiltered = r.results;
+      const plainList = !q && !_showArchived;
+      if (plainList) { try { renderHome(unfiltered); } catch (e) { console.error('home', e); } }
+      renderLdFilters(unfiltered, !_showArchived && unfiltered.length > 0);
+      const active = _loadFilter ? unfiltered.filter(ldFilterFn(_loadFilter)) : unfiltered;
       const archCount = r.archivedCount || 0;
+      if (!active.length && unfiltered.length && _loadFilter) {
+        box.innerHTML = '<div class="empty">No loads in this filter right now. <a href="#" id="lFiltAll" style="font-weight:600;">Show all loads</a></div>';
+        const fa = $('lFiltAll'); if (fa) fa.onclick = (e) => { e.preventDefault(); _loadFilter = ''; loadLoads(); };
+        return;
+      }
       if (!active.length) {
         const emptyMsg = _showArchived ? 'No archived loads. Use “🗄 Archive” on any load to hide it from your list.'
           : (q ? 'No loads match that search.' : 'No loads yet — loads appear here automatically when a driver uploads a document for you to set up. You can also start one yourself with “＋ New load” below.');
@@ -3352,14 +3681,14 @@
         if (plist && plist.length) pphotos = '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + plist.map(p => { const u = '/api/loads/' + curLoad.id + '/pickup-photo/' + encodeURIComponent(p.id); return '<a href="' + u + '" target="_blank" rel="noopener" title="Open pickup photo"><img src="' + u + '" loading="lazy" style="width:62px;height:62px;object-fit:cover;border-radius:6px;border:1px solid var(--line);"></a>'; }).join('') + '</div>';
       } catch (e) {}
       const resetBtn = ' <button id="ldClearPickup" type="button" class="ghost" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">Reset pickup</button>';
-      rows.push(['Pickup', '<span style="color:#146c2e;font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap + resetBtn + pphotos]);
+      rows.push(['Pickup', '<span style="color:var(--ok);font-weight:700;">✓ Picked up ' + esc(pt) + '</span>' + pmap + resetBtn + pphotos]);
     }
     // Delivery proof photos (driver attached them on the "Send & complete" screen). Grouped by stop when present.
     try {
       const dlist = curLoad.deliveredPhotos ? (typeof curLoad.deliveredPhotos === 'string' ? JSON.parse(curLoad.deliveredPhotos) : curLoad.deliveredPhotos) : [];
       if (dlist && dlist.length) {
         const thumbs = dlist.map(p => { const u = '/api/loads/' + curLoad.id + '/delivery-photo/' + encodeURIComponent(p.id); const st = p.stopNumber ? ' title="Stop ' + p.stopNumber + '"' : ' title="Delivery photo"'; return '<a href="' + u + '" target="_blank" rel="noopener"' + st + '><img src="' + u + '" loading="lazy" style="width:62px;height:62px;object-fit:cover;border-radius:6px;border:1px solid var(--line);"></a>'; }).join('');
-        rows.push(['Delivery photos', '<span style="color:#146c2e;font-weight:700;">📷 ' + dlist.length + ' photo' + (dlist.length === 1 ? '' : 's') + '</span><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + thumbs + '</div>']);
+        rows.push(['Delivery photos', '<span style="color:var(--ok);font-weight:700;">📷 ' + dlist.length + ' photo' + (dlist.length === 1 ? '' : 's') + '</span><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">' + thumbs + '</div>']);
       }
     } catch (e) {}
     // In / out times (driver check-in/out per stop, when the account records them — or any already recorded).
@@ -3511,7 +3840,7 @@
   function appendParkedSection(box, parkedPods, editing) {
     if (!parkedPods || !parkedPods.length) return;
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface2,#f7f9fc);';
+    wrap.style.cssText = 'margin-top:14px;padding:12px;border:1px dashed var(--line);border-radius:8px;background:var(--surface2,var(--sunk));';
     wrap.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:2px;">🗂 Set aside — kept in case a re-shoot isn\'t better</div>'
       + '<div class="sub" style="font-size:12px;margin-bottom:10px;">These aren\'t active and aren\'t sent to the driver. Tap <b>Use this document</b> to put one back in play, then set it up.</div>';
     parkedPods.forEach(p => {
@@ -3597,7 +3926,7 @@
         + '<td><span class="empty">—</span></td>'
         + (showRecv ? '<td><span class="empty">—</span></td>' : '')
         + (showRep ? '<td><span class="empty">—</span></td>' : '')
-        + '<td><span class="chip" style="background:var(--surface2,#eef3fb);color:var(--muted);">Awaiting document</span></td>'
+        + '<td><span class="chip" style="background:var(--surface2,var(--primary-soft));color:var(--muted);">Awaiting document</span></td>'
         + '<td style="text-align:right;white-space:nowrap;">' + (editing ? '<button class="ghost ldAddToStop" data-stop="1" style="padding:3px 8px;font-size:12px;color:var(--primary);font-weight:600;">＋ Add document</button>' : '<span class="empty" style="font-size:12px;">Click Edit to add</span>') + '</td>'
         + '</tr></tbody></table>';
       const addBtn = box.querySelector('.ldAddToStop');
@@ -3622,11 +3951,11 @@
         ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
-        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:#fff7ed;color:#7c2d12;"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${emailFailBadge(p)}</td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload') ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${emailFailBadge(p)}</td>
         <td style="text-align:right;white-space:nowrap;">
-          ${p.dupWarn ? `<div style="margin-bottom:6px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:7px 9px;font-size:12px;color:#7c2d12;text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
+          ${p.dupWarn ? `<div style="margin-bottom:6px;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;font-size:12px;color:var(--warn);text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${p.status === 'needs_reupload'
-            ? `<span style="color:#b42318;font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
+            ? `<span style="color:var(--bad);font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
             ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>`
             : ''}
@@ -3794,7 +4123,7 @@
       ov = document.createElement('div'); ov.id = 'splitZoom';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.9);z-index:10060;display:none;align-items:center;justify-content:center;padding:12px;cursor:zoom-out;';
       const c = document.createElement('canvas'); c.id = 'splitZoomCanvas';
-      c.style.cssText = 'max-width:97vw;max-height:94vh;border-radius:6px;box-shadow:0 12px 44px rgba(0,0,0,.55);background:#fff;';
+      c.style.cssText = 'max-width:97vw;max-height:94vh;border-radius:6px;box-shadow:0 12px 44px rgba(0,0,0,.55);background:var(--surface);';
       const hint = document.createElement('div'); hint.textContent = 'Tap anywhere to close';
       hint.style.cssText = 'position:absolute;top:calc(10px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#fff;font-size:13px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6);';
       ov.appendChild(c); ov.appendChild(hint); document.body.appendChild(ov);
@@ -3943,15 +4272,15 @@
     if (!ov) {
       ov = document.createElement('div'); ov.id = 'splitReject';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.6);z-index:10090;display:none;align-items:center;justify-content:center;padding:16px;';
-      ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:430px;width:100%;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.4);">'
+      ov.innerHTML = '<div style="background:var(--surface);border-radius:12px;max-width:430px;width:100%;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.4);">'
         + '<div style="font-size:16px;font-weight:700;margin-bottom:6px;" id="rspTitle">Ask the driver to re-shoot this page?</div>'
         + '<div class="sub" style="font-size:12.5px;margin-bottom:10px;">This sends just this page back to the driver to photograph again — it comes back as its own one-page document. The other pages stay on this load, so you can keep working them while you wait.</div>'
         + '<label style="font-size:12px;color:var(--muted);">What’s wrong? <span style="font-weight:400;">(optional — the driver sees this)</span></label>'
         + '<textarea id="rspReason" rows="2" style="width:100%;box-sizing:border-box;margin:4px 0 10px;" placeholder="e.g. too blurry to read, or the bottom is cut off"></textarea>'
         + '<label style="display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:12px;cursor:pointer;"><input type="checkbox" id="rspKeep" checked style="width:auto;margin-top:2px;"><span>Keep this page set aside on the load, in case the re-shoot isn’t any better. It won’t be active or sent to the driver — you can put it back later.</span></label>'
         + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
-        + '<button class="btn ghost" id="rspCancel" type="button" style="background:#fff;">Cancel</button>'
-        + '<button class="btn" id="rspSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,#b42318);color:#fff;">✗ Send back to driver</button>'
+        + '<button class="btn ghost" id="rspCancel" type="button" style="background:var(--surface);">Cancel</button>'
+        + '<button class="btn" id="rspSend" type="button" style="background:var(--danger,#b42318);border-color:var(--danger,var(--bad));color:#fff;">✗ Send back to driver</button>'
         + '</div><div id="rspMsg" style="font-size:12.5px;margin-top:8px;"></div></div>';
       document.body.appendChild(ov);
       $('rspCancel').addEventListener('click', () => { ov.style.display = 'none'; });
@@ -3990,13 +4319,13 @@
       ov = document.createElement('div'); ov.id = 'splitCrop';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,.92);z-index:10070;display:none;flex-direction:column;align-items:center;justify-content:center;padding:14px;gap:12px;';
       ov.innerHTML = '<div style="color:#fff;font-size:14px;font-weight:700;">Drag a box around just the document, then Apply</div>' +
-        '<div style="position:relative;display:inline-block;max-width:96vw;max-height:76vh;overflow:hidden;border-radius:6px;background:#fff;">' +
+        '<div style="position:relative;display:inline-block;max-width:96vw;max-height:76vh;overflow:hidden;border-radius:6px;background:var(--surface);">' +
         '<canvas id="scStage" style="display:block;max-width:96vw;max-height:76vh;cursor:crosshair;touch-action:none;"></canvas>' +
-        '<div id="scSel" style="position:absolute;display:none;border:2px dashed #4da3ff;background:rgba(77,163,255,.18);pointer-events:none;"></div></div>' +
+        '<div id="scSel" style="position:absolute;display:none;border:2px dashed var(--primary);background:rgba(77,163,255,.18);pointer-events:none;"></div></div>' +
         '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;">' +
         '<button class="btn" id="scApply" type="button" disabled>Apply crop</button>' +
-        '<button class="btn ghost" id="scCancel" type="button" style="background:#fff;">Cancel</button>' +
-        '<button class="btn ghost" id="scReject" type="button" style="background:#fff;color:var(--danger,#b42318);border-color:var(--danger,#b42318);" title="This page is unusable — send it back to the driver to re-shoot">⚠ Can\'t use it — re-shoot</button>' +
+        '<button class="btn ghost" id="scCancel" type="button" style="background:var(--surface);">Cancel</button>' +
+        '<button class="btn ghost" id="scReject" type="button" style="background:var(--surface);color:var(--danger,var(--bad));border-color:var(--danger,var(--bad));" title="This page is unusable — send it back to the driver to re-shoot">⚠ Can\'t use it — re-shoot</button>' +
         '<span id="scMsg" style="color:#fff;font-size:12.5px;"></span></div>';
       document.body.appendChild(ov);
       const stage = ov.querySelector('#scStage'), sel = ov.querySelector('#scSel');
@@ -4192,7 +4521,7 @@
       const lbl = document.createElement('div'); lbl.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px;'; lbl.textContent = 'Page ' + (pi + 1);
       cv.addEventListener('click', () => showCropPage(pi));
       const tag = document.createElement('div'); tag.className = 'cropTag'; tag.dataset.idx = String(pi);
-      tag.style.cssText = 'font-size:10px;margin-top:2px;color:#146c2e;font-weight:700;min-height:12px;';
+      tag.style.cssText = 'font-size:10px;margin-top:2px;color:var(--ok);font-weight:700;min-height:12px;';
       tag.textContent = _cropEdits[pi] ? '✓ cropped' : '';
       wrap.appendChild(lbl); wrap.appendChild(cv); wrap.appendChild(tag); box.appendChild(wrap);
     }
@@ -4610,7 +4939,7 @@
         const addBtn = document.createElement('button');
         addBtn.type = 'button'; addBtn.className = 'ghost';
         addBtn.textContent = '＋ Add / find customer';
-        addBtn.style.cssText = 'margin-top:10px;width:100%;box-sizing:border-box;font-weight:600;background:#fff;';
+        addBtn.style.cssText = 'margin-top:10px;width:100%;box-sizing:border-box;font-weight:600;background:var(--surface);';
         addBtn.onclick = () => openCustModal();
         body.appendChild(addBtn);
         const cnote = document.createElement('div');
@@ -5433,7 +5762,7 @@
         <button class="ghost cmuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost cmuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset pw</button>
         <button class="ghost cmuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
-        <button class="ghost cmuDel" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>
+        <button class="ghost cmuDel" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>
       </td></tr>`).join('');
   }
   async function cmLoadUsers() {
@@ -5503,7 +5832,7 @@
         const poCell = childCls
           ? '<span style="color:var(--muted);">↳</span>'
           : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber) || '—'));
-        return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
+        return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:var(--primary-soft);"':''}>
           <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber) || '—')}</td>
           <td>${esc(x.consignee) || esc(x.receiverName) || '—'}${x.driver ? `<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>` : ''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${esc(x.docType) || 'BOL'}</td>
           <td><span class="chip ${x.status}">${x.status === 'prepared' ? 'Ready to sign' : x.status === 'signed' ? 'Signed' : x.status === 'emailed' ? 'Emailed' : 'On file'}</span></td>
@@ -5536,7 +5865,7 @@
             <button class="ghost cmLasgBtn" data-load="${g.loadId}" style="padding:3px 8px;font-size:12px;">Assign</button>
             <span class="cmLasgMsg" data-load="${g.loadId}" style="font-size:12px;color:var(--ok);font-weight:600;">${curName?('→ '+esc(curName)):''}</span>
           </div>` : '';
-        html += `<tr class="cmGrpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
+        html += `<tr class="cmGrpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:var(--primary-soft);">
           <td class="mono"><span class="cmGrpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
           <td class="mono">${esc(g.loadNumber)||'—'}</td>
           <td colspan="3" style="color:var(--muted);">${esc(summary)}</td>
@@ -5651,7 +5980,7 @@
             <button class="ghost custCopy" data-link="${o.driverLink}" style="padding:6px 10px;font-size:12px;">Copy link</button>
             <button class="ghost custEdit" data-id="${o.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
             <button class="custManage" data-id="${o.id}" data-name="${esc(o.name)}" style="padding:6px 10px;font-size:12px;">Manage</button>
-            <button class="ghost custActive" data-id="${o.id}" data-active="${o.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${o.active ? 'color:#c0392b;' : ''}">${o.active ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost custActive" data-id="${o.id}" data-active="${o.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;${o.active ? 'color:var(--bad);' : ''}">${o.active ? 'Deactivate' : 'Reactivate'}</button>
           </td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.custCopy').forEach(b => b.onclick = async () => { const ok = await copyText(b.dataset.link); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => b.textContent = 'Copy link', 1600); });
@@ -5730,13 +6059,13 @@
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,40,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:18px;';
     const card = document.createElement('div');
-    card.style.cssText = 'background:#fff;border-radius:16px;max-width:470px;width:100%;padding:24px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);';
+    card.style.cssText = 'background:var(--surface);border-radius:16px;max-width:470px;width:100%;padding:24px;box-shadow:0 24px 60px -20px rgba(16,44,110,.5);';
     card.innerHTML = '<h1 style="font-size:18px;margin:0 0 6px;">Login link ready</h1>'
       + '<p class="sub" style="margin:0 0 14px;color:var(--muted);font-size:14px;">Send this to <b>' + esc(email) + '</b>. Use <b>Copy link</b> to paste a tidy “' + esc(label) + '” link into an email or text — they open it to see their login and a temporary password. Works for 7 days; don’t share it more widely.</p>'
-      + '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:#fbfcff;">'
+      + '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--primary-soft);">'
       + '<a href="' + esc(link) + '" target="_blank" rel="noopener" style="font-weight:700;color:var(--primary);text-decoration:none;">🔗 ' + esc(label) + ' →</a>'
-      + '<button type="button" class="llCopy" style="padding:8px 13px;border:1px solid var(--primary);background:#fff;color:var(--primary);border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy link</button></div>'
-      + '<details style="margin-top:10px;"><summary style="font-size:12px;color:var(--muted);cursor:pointer;">Show full web address</summary><div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><input readonly class="llUrl" value="' + esc(link) + '" style="flex:1;min-width:0;font-size:12px;padding:9px;border:1px solid var(--line);border-radius:9px;font-family:monospace;"><button type="button" class="llCopyUrl" style="padding:9px 12px;border:1px solid var(--line);background:#fff;border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy URL</button></div></details>'
+      + '<button type="button" class="llCopy" style="padding:8px 13px;border:1px solid var(--primary);background:var(--surface);color:var(--primary);border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy link</button></div>'
+      + '<details style="margin-top:10px;"><summary style="font-size:12px;color:var(--muted);cursor:pointer;">Show full web address</summary><div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><input readonly class="llUrl" value="' + esc(link) + '" style="flex:1;min-width:0;font-size:12px;padding:9px;border:1px solid var(--line);border-radius:9px;font-family:monospace;"><button type="button" class="llCopyUrl" style="padding:9px 12px;border:1px solid var(--line);background:var(--surface);border-radius:9px;font-weight:700;cursor:pointer;flex:none;">Copy URL</button></div></details>'
       + '<div style="text-align:right;margin-top:16px;"><button type="button" class="llClose" style="padding:9px 16px;border:none;background:var(--primary);color:#fff;border-radius:9px;font-weight:700;cursor:pointer;">Done</button></div>';
     ov.appendChild(card); document.body.appendChild(ov);
     card.querySelector('.llCopy').onclick = async function () { const ok = await copyRichLink(link, label); const b = this, o = b.textContent; b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(function () { b.textContent = o; }, 1500); };
@@ -5813,7 +6142,7 @@
           <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" data-caps="${esc(JSON.stringify(u.capabilities||[]))}" style="padding:6px 10px;font-size:12px;">Edit</button>
           <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
           <button class="ghost nuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
-          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:#c0392b;">Remove</button>`}
+          ${u.id === myId() ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}
         </td></tr>`).join('');
     } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
   }
@@ -5958,23 +6287,23 @@
   if ($('helpBack')) $('helpBack').onclick = (e) => { e.preventDefault(); showAuthPanel(null); };
   if ($('fpSend')) $('fpSend').onclick = async () => {
     const em = ($('fpEmail').value||'').trim(), msg = $('fpMsg');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { msg.style.color='#c0392b'; msg.textContent='Enter a valid email address'; return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { msg.style.color='var(--bad)'; msg.textContent='Enter a valid email address'; return; }
     msg.style.color='var(--muted,#5a6577)'; msg.textContent='Sending…';
     try {
       const r = await api('/api/auth/forgot-password', { method:'POST', body: JSON.stringify({ email: em }) });
       msg.textContent = (r && r.message) || 'If that email has an account, a reset link is on its way.';
       $('fpSend').disabled = true;
-    } catch (e) { msg.style.color='#c0392b'; msg.textContent = e.message || 'Something went wrong — try again.'; }
+    } catch (e) { msg.style.color='var(--bad)'; msg.textContent = e.message || 'Something went wrong — try again.'; }
   };
   if ($('helpSend')) $('helpSend').onclick = async () => {
     const em = ($('helpEmail').value||'').trim(), note = ($('helpNote').value||'').trim(), msg = $('helpMsg');
-    if (!em && !note) { msg.style.color='#c0392b'; msg.textContent='Add your email or a note so we can help.'; return; }
+    if (!em && !note) { msg.style.color='var(--bad)'; msg.textContent='Add your email or a note so we can help.'; return; }
     msg.style.color='var(--muted,#5a6577)'; msg.textContent='Sending…';
     try {
       const r = await api('/api/auth/help', { method:'POST', body: JSON.stringify({ kind:'password', email: em, note }) });
       msg.textContent = (r && r.message) || "Thanks — we've sent your request to support.";
       $('helpSend').disabled = true;
-    } catch (e) { msg.style.color='#c0392b'; msg.textContent = e.message || 'Something went wrong — try again.'; }
+    } catch (e) { msg.style.color='var(--bad)'; msg.textContent = e.message || 'Something went wrong — try again.'; }
   };
 
   // --- Microsoft SSO surfacing + cookie auto-login ---
@@ -6047,7 +6376,7 @@
       const poCell = childCls
         ? '<span style="color:var(--muted);">↳</span>'
         : (x.loadId?`<a href="#" class="poHist" data-load="${x.loadId}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(x.poNumber)||'—'}</a>`:(esc(x.poNumber)||'—'));
-      return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:#fafcff;"':''}>
+      return `<tr class="${childCls?(childCls+' hide'):''}"${childCls?' style="background:var(--primary-soft);"':''}>
       <td class="mono">${poCell}</td><td class="mono">${childCls?'':(esc(x.loadNumber)||'—')}</td>
       <td>${esc(x.consignee)||esc(x.receiverName)||'—'}${x.driver?`<div style="color:var(--muted);font-size:12px;">✍ ${esc(x.driver)}</div>`:''}</td><td>${`<span style="display:inline-block;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-right:6px;">Stop ${x.stopNumber || 1}</span>`}${x.docType||'BOL'}</td>
       <td>${(x.status==='signed'||x.status==='emailed')?(x.signedAt?new Date(x.signedAt).toLocaleString():'—')+(x.mapUrl?` <a href="${x.mapUrl}" target="_blank" rel="noopener" title="Signing location in Google Maps${x.gpsAcc?(' · ~'+x.gpsAcc+'m accuracy'):''}" style="white-space:nowrap;">📍 Map</a>${gpsSrcLabel(x)}`:''):'<span style="color:var(--muted);">Not signed yet</span>'}</td>
@@ -6085,8 +6414,8 @@
           <button class="ghost lasgBtn" data-load="${g.loadId}" style="padding:4px 9px;font-size:12px;">Assign</button>
           <span class="lasgMsg" data-load="${g.loadId}" style="font-size:12px;color:var(--ok);font-weight:600;">${curName?('→ '+esc(curName)):''}</span>
         </div>`
-        : (curName ? `<span style="font-size:12px;color:var(--muted);">Driver: <b style="color:var(--ink,#1f2733);font-weight:700;">${esc(curName)}</b></span>` : '');
-      html += `<tr class="grpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:#eef3fb;">
+        : (curName ? `<span style="font-size:12px;color:var(--muted);">Driver: <b style="color:var(--ink,var(--ink));font-weight:700;">${esc(curName)}</b></span>` : '');
+      html += `<tr class="grpHead" data-cls="${cls}" data-load="${g.loadId||''}" style="cursor:pointer;background:var(--primary-soft);">
         <td class="mono"><span class="grpCaret" data-cls="${cls}" style="display:inline-block;width:12px;color:var(--muted);">▸</span> <b style="color:var(--primary);font-weight:800;">${esc(g.poNumber)||'—'}</b></td>
         <td class="mono">${esc(g.loadNumber)||'—'}</td>
         <td colspan="3" style="color:var(--muted);">${esc(summary)}</td>
@@ -6142,7 +6471,7 @@
   let sendDocId = null, sendDocChosen = [];
   function renderSendDocChosen() {
     const box = $('sendDocChosen');
-    box.innerHTML = sendDocChosen.map((e, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--primary-soft,#e8f0fe);color:var(--primary);border-radius:14px;padding:4px 10px;font-size:12px;font-weight:600;">${esc(e)} <button type="button" class="sdRm" data-i="${i}" style="border:none;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0;">×</button></span>`).join('');
+    box.innerHTML = sendDocChosen.map((e, i) => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--primary-soft,var(--primary-soft));color:var(--primary);border-radius:14px;padding:4px 10px;font-size:12px;font-weight:600;">${esc(e)} <button type="button" class="sdRm" data-i="${i}" style="border:none;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0;">×</button></span>`).join('');
     box.querySelectorAll('.sdRm').forEach(b => b.onclick = () => { sendDocChosen.splice(Number(b.dataset.i), 1); renderSendDocChosen(); });
   }
   function sendDocAddEmail(raw) {
@@ -6474,7 +6803,7 @@
       box.innerHTML = '<table><thead><tr><th>Receiver</th><th>People</th><th>Documents</th><th></th></tr></thead><tbody>' +
         list.map(r => { const bol = (r.contacts||[]).filter(c=>c.receiveBol).length; return `<tr><td><b>${esc(r.name)}</b>${r.addressLine ? `<div style="color:var(--muted);font-size:12px;">${esc(r.addressLine)}</div>` : ''}${r.parentName ? `<div style="color:var(--muted);font-size:12px;">under ${esc(r.parentName)}</div>` : ''}</td>
           <td>${(r.contacts||[]).length}${bol ? ` <span style="color:var(--muted);font-size:11px;">(${bol} get BOL)</span>` : ''}</td><td>${r.docCount}</td>
-          <td style="text-align:right;white-space:nowrap;"><button class="ghost myRecvEdit" data-id="${r.id}" style="padding:5px 9px;font-size:12px;">Edit</button> <button class="ghost myRecvRm" data-id="${r.id}" style="padding:5px 9px;font-size:12px;color:#c0392b;">Remove</button></td></tr>`; }).join('') +
+          <td style="text-align:right;white-space:nowrap;"><button class="ghost myRecvEdit" data-id="${r.id}" style="padding:5px 9px;font-size:12px;">Edit</button> <button class="ghost myRecvRm" data-id="${r.id}" style="padding:5px 9px;font-size:12px;color:var(--bad);">Remove</button></td></tr>`; }).join('') +
         '</tbody></table>';
       box.querySelectorAll('.myRecvEdit').forEach(b => b.onclick = () => openRecvModal_edit(byId[b.dataset.id], { onDone: () => loadMyReceivers() }));
       box.querySelectorAll('.myRecvRm').forEach(b => b.onclick = async () => { try { await api('/api/receivers/' + b.dataset.id + '/unlink', { method: 'POST', body: JSON.stringify({}) }); loadMyReceivers(); } catch (e) { alert(e.message); } });
@@ -6523,7 +6852,7 @@
         + '<b>' + r.created + '</b> new · <b>' + r.updated + '</b> updated'
         + (r.linked ? ' · <b>' + r.linked + '</b> linked' : (r.unlinked ? ' · added to global list (unlinked)' : ''))
         + (r.skipped ? ' · ' + r.skipped + ' skipped (no name)' : '')
-        + (r.errors && r.errors.length ? '<div style="color:#c0392b;margin-top:6px;">' + r.errors.map(esc).join('<br>') + '</div>' : '')
+        + (r.errors && r.errors.length ? '<div style="color:var(--bad);margin-top:6px;">' + r.errors.map(esc).join('<br>') + '</div>' : '')
         + '</div>';
       loadReceivers();
     } catch(e){ $('recvImpMsg').textContent = e.message; $('recvImpMsg').className = 'umsg-err'; }
@@ -6571,17 +6900,17 @@
     customer: { title:'Import customers', endpoint:'/api/customers/import',
       desc:'Add customers to your list in bulk. Matched on name — re-importing updates an existing customer instead of duplicating it.',
       placeholder:'[{"name":"Brown Strauss","contactName":"Jane Doe","contactEmail":"ap@brownstrauss.com","contactPhone":"918-555-1000","address":"Tulsa, OK"}]\n\n…or CSV:\nname,contactName,contactEmail,contactPhone,address',
-      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> new · <b>'+j.updated+'</b> updated'+(j.skipped?(' · '+j.skipped+' skipped (no name)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'; },
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> new · <b>'+j.updated+'</b> updated'+(j.skipped?(' · '+j.skipped+' skipped (no name)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'; },
       refresh:function(){ try{ if(typeof loadCustomers==='function') loadCustomers(); }catch(e){} try{ if(typeof loadMyCustomersTab==='function') loadMyCustomersTab(); }catch(e){} } },
     team: { title:'Import team logins', endpoint:'/api/users/import',
       desc:'Create portal logins in bulk. Each new person gets a set-up link (below) to choose their own password. Existing emails are skipped. Role: dispatcher, sales, or admin (default dispatcher).',
       placeholder:'[{"email":"jane@callahantrans.com","name":"Jane Doe","role":"dispatcher"}]\n\n…or CSV:\nemail,name,role',
-      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> created'+(j.skipped?(' · '+j.skipped+' skipped (bad or existing email)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.links,'Set-up links — send each person theirs:'); },
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> created'+(j.skipped?(' · '+j.skipped+' skipped (bad or existing email)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.links,'Set-up links — send each person theirs:'); },
       refresh:function(){ try{ loadUsers(); }catch(e){} } },
     driver: { title:'Import drivers', endpoint:'/api/drivers/import',
       desc:'Add drivers in bulk. Each gets a personal link (below) to open on their phone — they set their own PIN on first use. A driver whose name is already on your roster is skipped.',
       placeholder:'[{"name":"Mike Rowe","phone":"555-555-5555","email":"mike@email.com"}]\n\n…or CSV:\nname,phone,email',
-      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> added'+(j.skipped?(' · '+j.skipped+' skipped (duplicate name or bad email)'):'')+(j.errors&&j.errors.length?'<div style="color:#c0392b;margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.drivers,'Driver links — send each driver theirs:'); },
+      result:function(j){ return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"><b>'+j.created+'</b> added'+(j.skipped?(' · '+j.skipped+' skipped (duplicate name or bad email)'):'')+(j.errors&&j.errors.length?'<div style="color:var(--bad);margin-top:6px;">'+j.errors.map(esc).join('<br>')+'</div>':'')+'</div>'+_impLinkList(j.drivers,'Driver links — send each driver theirs:'); },
       refresh:function(){ try{ loadDrivers('', $('driverRows')); }catch(e){} } }
   };
   var _impKind=null, _impParsed=null;
@@ -6657,7 +6986,7 @@
     wrap.innerHTML = `<input class="rcName" placeholder="Name" style="flex:1;min-width:110px;" value="${c ? esc(c.name || '') : ''}">
       <input class="rcEmail" placeholder="email@company.com" style="flex:1.4;min-width:150px;" value="${c ? esc(c.email || '') : ''}">
       <label style="display:flex;align-items:center;gap:5px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink);margin:0;white-space:nowrap;"><input type="checkbox" class="rcBol" style="width:auto;"${c && c.receiveBol ? ' checked' : ''}> Send completed BOL</label>
-      <button type="button" class="rcDel ghost" style="padding:4px 8px;font-size:12px;color:#c0392b;">✕</button>`;
+      <button type="button" class="rcDel ghost" style="padding:4px 8px;font-size:12px;color:var(--bad);">✕</button>`;
     wrap.querySelector('.rcDel').onclick = () => wrap.remove();
     $('recvContacts').appendChild(wrap);
   }
@@ -6778,7 +7107,7 @@
       const byId = {}; list.forEach(r => byId[r.id] = r);
       box.innerHTML = '<table><thead><tr><th>Receiver</th><th>Parent</th><th>Documents</th><th></th></tr></thead><tbody>' +
         list.map(r => `<tr><td><b>${esc(r.name)}</b>${r.addressLine ? `<div style="color:var(--muted);font-size:12px;">${esc(r.addressLine)}</div>` : ''}</td><td>${r.parentName ? esc(r.parentName) : '<span class="empty">—</span>'}</td><td>${r.docCount}</td>
-          <td style="text-align:right;white-space:nowrap;"><button class="ghost cmRecvEdit" data-id="${r.id}" style="padding:5px 9px;font-size:12px;">Edit</button> <button class="ghost cmRecvUnlink" data-id="${r.id}" style="padding:5px 9px;font-size:12px;color:#c0392b;">Unlink</button></td></tr>`).join('') +
+          <td style="text-align:right;white-space:nowrap;"><button class="ghost cmRecvEdit" data-id="${r.id}" style="padding:5px 9px;font-size:12px;">Edit</button> <button class="ghost cmRecvUnlink" data-id="${r.id}" style="padding:5px 9px;font-size:12px;color:var(--bad);">Unlink</button></td></tr>`).join('') +
         '</tbody></table>';
       box.querySelectorAll('.cmRecvEdit').forEach(b => b.onclick = () => openRecvModal_edit(byId[b.dataset.id], { customerId: cmOrgId, onDone: () => loadCmReceivers() }));
       box.querySelectorAll('.cmRecvUnlink').forEach(b => b.onclick = async () => { try { await api('/api/receivers/' + b.dataset.id + '/unlink', { method: 'POST', body: JSON.stringify({ customerId: cmOrgId }) }); loadCmReceivers(); } catch (e) { alert(e.message); } });
@@ -6924,7 +7253,7 @@
     if (!$('cmpCarrierList')) return;
     try {
       const d = await api('/api/orgs/' + cmOrgId + '/partners');
-      const render = (list) => (list && list.length) ? '<table><tbody>' + list.map(x => `<tr><td><b>${esc(x.name)}</b>${x.fmcsaVerified ? ' <span class="chip signed" style="font-size:10px;">FMCSA</span>' : ''}</td><td class="mono" style="color:var(--muted);font-size:12px;">${esc(x.mcNumber) || '—'} / ${esc(x.dotNumber) || '—'}</td><td style="text-align:right;"><button class="cmpRm" data-id="${x.id}" style="padding:4px 9px;font-size:12px;color:#c0392b;">Remove</button></td></tr>`).join('') + '</tbody></table>' : '<div class="empty">None yet.</div>';
+      const render = (list) => (list && list.length) ? '<table><tbody>' + list.map(x => `<tr><td><b>${esc(x.name)}</b>${x.fmcsaVerified ? ' <span class="chip signed" style="font-size:10px;">FMCSA</span>' : ''}</td><td class="mono" style="color:var(--muted);font-size:12px;">${esc(x.mcNumber) || '—'} / ${esc(x.dotNumber) || '—'}</td><td style="text-align:right;"><button class="cmpRm" data-id="${x.id}" style="padding:4px 9px;font-size:12px;color:var(--bad);">Remove</button></td></tr>`).join('') + '</tbody></table>' : '<div class="empty">None yet.</div>';
       $('cmpCarrierList').innerHTML = render(d.carriers);
       $('cmpBrokerList').innerHTML = render(d.brokers);
       document.querySelectorAll('#cmPartnersSection .cmpRm').forEach(b => b.onclick = async () => { try { await api('/api/orgs/' + cmOrgId + '/partners/' + b.dataset.id + '/remove', { method: 'POST' }); loadCmPartners(); } catch (e) { alert(e.message); } });

@@ -151,7 +151,9 @@ router.get('/', requireAuth, (req, res) => {
   const podStat = db.prepare(`SELECT COUNT(*) AS total,
      SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done,
      SUM(CASE WHEN status = 'awaiting_build' THEN 1 ELSE 0 END) AS awaiting,
-     SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared
+     SUM(CASE WHEN status = 'prepared' THEN 1 ELSE 0 END) AS prepared,
+     SUM(CASE WHEN emailStatus IN ('failed','partial') THEN 1 ELSE 0 END) AS mailfail,
+     MAX(signedAt) AS lastSigned
      FROM pods WHERE loadId = ? AND status != 'parked'`);
   const out = rows.map(l => {
     // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak
@@ -169,6 +171,8 @@ router.get('/', requireAuth, (req, res) => {
     // Per-stop signing progress so the list can show "1 of 2 signed" and a "✓ Completed" state.
     o.stopsTotal = ps ? Number(ps.total || 0) : 0;      // documents/stops filed on this load
     o.stopsDone = ps ? Number(ps.done || 0) : 0;        // how many are signed/emailed
+    o.emailFailed = ps ? Number(ps.mailfail || 0) : 0;  // signed copies whose email didn't go out (dashboard + Resend)
+    o.lastSignedAt = ps && ps.lastSigned ? Number(ps.lastSigned) : null;
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     o.archived = archSet.has(l.id);   // this user has hidden this load from their own list
     return o;
