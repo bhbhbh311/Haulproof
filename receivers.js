@@ -231,7 +231,11 @@ router.get('/duplicates', requireAuth, requireSuper, (req, res) => {
   const ccount = db.prepare(`SELECT COUNT(*) n FROM receiver_contacts WHERE receiverId = ?`), pname = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
   // A parent with its locations is already sorted out; a group only needs review while it has a loose record
   // (not a location and not a parent). Parents and locations stay in the group so the loose one can join them.
-  const out = Object.values(groups).filter(g => g.length > 1 && g.some(o => !o.parentId && !isParent.has(o.id))).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
+  // A group needs review while it has a loose record, two records at the same address, or a location filed under another location.
+  const byId = {}; rows.forEach(o => byId[o.id] = o);
+  const needsReview = g => g.some(o => !o.parentId && !isParent.has(o.id)) || g.some(o => o.parentId && byId[o.parentId] && byId[o.parentId].parentId)
+    || g.some((o, i) => { const k = addrKey(o); return k && g.some((x, j) => j !== i && addrKey(x) === k); });
+  const out = Object.values(groups).filter(g => g.length > 1 && needsReview(g)).map(g => g.map(o => ({ id: o.id, name: o.name, addressLine: addressLine(o) || null,
       parentId: o.parentId || null, parentName: o.parentId ? ((pname.get(o.parentId) || {}).name || null) : null, isParent: isParent.has(o.id), addrKey: addrKey(o),
       docCount: docs.get(o.id).n, usedBy: custs.all(o.id).map(r => r.name), contacts: ccount.get(o.id).n, createdAt: o.createdAt })))
     .map(g => g.sort((a, b) => (b.isParent - a.isParent) || (!!b.parentId - !!a.parentId) || a.name.localeCompare(b.name)))
@@ -281,6 +285,8 @@ router.post('/group', requireAuth, requireSuper, (req, res) => {
     else { parentId = crypto.randomUUID(); created = newName;
       db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, active, createdAt) VALUES (?,?,?,?,?,1,?)`).run(parentId, newName, newDeviceKey(), 'receiver', JSON.stringify(['receiver']), Date.now()); }
   }
+  // Locations always sit directly under the top company: picking a location as the parent files them under its parent instead.
+  for (let i = 0, p; i < 5 && (p = db.prepare(`SELECT parentId FROM orgs WHERE id = ?`).get(parentId)) && p.parentId; i++) parentId = p.parentId;
   const kids = (Array.isArray(b.childIds) ? b.childIds : []).map(String).filter(x => x && x !== parentId);
   if (!db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(parentId) || !kids.length) return res.status(400).json({ error: 'Pick the parent company and at least one location' });
   const n = kids.reduce((t, id) => t + db.prepare(`UPDATE orgs SET parentId = ? WHERE id = ?`).run(parentId, id).changes, 0);
