@@ -412,6 +412,10 @@
   #upToggle{white-space:nowrap;}
   .ldbulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:13px;color:var(--muted);}
   .ldbulk span{margin-right:auto;}
+  .segbtns{display:inline-flex;background:var(--sunk);border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px;}
+  button.seg{background:transparent;color:var(--muted);border:0;box-shadow:none;padding:7px 16px;font-size:13px;border-radius:7px;}
+  button.seg:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
+  button.seg.on{background:var(--primary);color:var(--primary-ink);}
   .ldfilters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0;}
   button.ldf{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;box-shadow:none;}
   button.ldf:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
@@ -1571,36 +1575,20 @@
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of pickup</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowPickupPhoto"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Let drivers add pickup photos</b><span id="ft_allowPickupPhoto_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, the driver is offered a photo step at pickup (up to 6) but can skip it. Off keeps pickup a one-tap check-in.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_requirePickupPhoto"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Require a photo at pickup</b><span id="ft_requirePickupPhoto_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, a driver must take at least one photo to record “Pickup complete” — proof of condition at the origin, stamped with time and GPS. (Requiring a photo always offers the step, whether or not the option above is on.)</div>
-            </div>
+          <div class="photoSeg" data-kind="Pickup">
+            <input type="checkbox" id="ft_allowPickupPhoto" hidden><input type="checkbox" id="ft_requirePickupPhoto" hidden>
+            <div style="font-size:14px;margin-bottom:8px;"><b>Pickup photos</b></div>
+            <div class="segbtns"><button type="button" class="seg" data-v="off">Off</button><button type="button" class="seg" data-v="optional">Optional</button><button type="button" class="seg" data-v="required">Required</button></div>
+            <div class="seghint" style="color:var(--muted);font-size:13.5px;margin-top:8px;" data-off="No photos — pickup is a one-tap check-in." data-optional="The driver is offered a photo step at pickup (up to 6) but can skip it." data-required="The driver must take at least one photo to record “Pickup complete” — proof of condition at the origin, stamped with time and GPS."></div>
           </div>
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of delivery</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowDeliveryPhoto"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Let drivers add delivery photos</b><span id="ft_allowDeliveryPhoto_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, the driver can attach photos on the “Send documents &amp; complete” screen after signing (up to 6). Off collects no delivery photos.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_requireDeliveryPhoto"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Require a photo at delivery</b><span id="ft_requireDeliveryPhoto_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, the driver must attach at least one delivery photo before they can send &amp; complete the stop. (Requiring a photo always offers the step, whether or not the option above is on.)</div>
-            </div>
+          <div class="photoSeg" data-kind="Delivery">
+            <input type="checkbox" id="ft_allowDeliveryPhoto" hidden><input type="checkbox" id="ft_requireDeliveryPhoto" hidden>
+            <div style="font-size:14px;margin-bottom:8px;"><b>Delivery photos</b></div>
+            <div class="segbtns"><button type="button" class="seg" data-v="off">Off</button><button type="button" class="seg" data-v="optional">Optional</button><button type="button" class="seg" data-v="required">Required</button></div>
+            <div class="seghint" style="color:var(--muted);font-size:13.5px;margin-top:8px;" data-off="No delivery photos are collected." data-optional="The driver can attach photos (up to 6) on the “Send documents &amp; complete” screen after signing, or skip it." data-required="The driver must attach at least one delivery photo before they can send &amp; complete the stop."></div>
           </div>
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin:18px 0 10px;">Time on site</div>
           <div style="display:flex;align-items:flex-start;gap:12px;">
@@ -5191,7 +5179,23 @@
     const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto', ft_stopTimes: 'stopTimes' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
+    renderPhotoSegs();
   }
+  // Pickup / delivery photos: one Off · Optional · Required choice that sets the two stored flags
+  // (Optional = allow, Required = allow + require), so a contradictory combination can't be picked.
+  function renderPhotoSegs() {
+    document.querySelectorAll('.photoSeg').forEach(function(box){
+      var k = box.dataset.kind, al = $('ft_allow' + k + 'Photo'), rq = $('ft_require' + k + 'Photo');
+      var v = (rq && rq.checked) ? 'required' : (al && al.checked) ? 'optional' : 'off';
+      box.querySelectorAll('.seg').forEach(function(b){ b.classList.toggle('on', b.dataset.v === v); });
+      var h = box.querySelector('.seghint'); if (h) h.innerHTML = h.getAttribute('data-' + v) || '';
+    });
+  }
+  document.querySelectorAll('.photoSeg .seg').forEach(function(btn){ btn.addEventListener('click', function(){
+    var box = btn.closest('.photoSeg'), k = box.dataset.kind, v = btn.dataset.v;
+    $('ft_allow' + k + 'Photo').checked = v !== 'off'; $('ft_require' + k + 'Photo').checked = v === 'required';
+    renderPhotoSegs();
+  }); });
   // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
   var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto','ft_stopTimes'];
   // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
