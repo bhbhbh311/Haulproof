@@ -6409,11 +6409,13 @@
       tb.innerHTML = r.users.map(u => `<tr>
         <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" data-caps="${esc(JSON.stringify(u.capabilities||[]))}" style="padding:6px 10px;font-size:12px;">Edit</button>
+        <td style="text-align:right;white-space:nowrap;">${(/^haulproofhelp\+/i.test(u.email || '') && !(user && user.role === 'superadmin'))
+          // The built-in HaulProof Help login is managed only by the master admin (outside Help mode) — no buttons here.
+          ? '<span class="sub" style="font-size:12px;" title="HaulProof support uses this login to help your company. Only HaulProof can change it.">HaulProof support login</span>'
+          : `<button class="ghost nuEdit" data-id="${u.id}" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-role="${u.role}" data-caps="${esc(JSON.stringify(u.capabilities||[]))}" style="padding:6px 10px;font-size:12px;">Edit</button>
           <button class="ghost nuReset" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;">Reset password</button>
           <button class="ghost nuLink" data-id="${u.id}" style="padding:6px 10px;font-size:12px;color:var(--primary);">Login link</button>
-          ${(u.id === myId() || /^haulproofhelp\+/i.test(u.email || '')) ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}
+          ${(u.id === myId() || /^haulproofhelp\+/i.test(u.email || '')) ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}`}
         </td></tr>`).join('');
       bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: 'they can no longer sign in and stop getting signed copies. This can’t be undone.', url: id => '/api/users/' + id, reload: loadUsers });
     } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
