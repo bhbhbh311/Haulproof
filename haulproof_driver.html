@@ -171,6 +171,12 @@
   .ldstopwho{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .ldstopbox .btn.sm{width:100%;}
   .pill.ico{font-size:13px;}
+  /* Daylight switch: a solid sun-yellow button so drivers spot it (navy-filled moon once in Daylight). */
+  #themePill{background:#ffc94d;border-color:#ffc94d;color:#3a2600;box-shadow:0 0 0 3px rgba(255,201,77,.25);}
+  #themePill .pi{font-size:16px;line-height:1;}
+  html[data-theme="light"] #themePill{background:#1d2f5c;border-color:#1d2f5c;color:#ffffff;box-shadow:none;}
+  .themeTip{position:fixed;z-index:9999;background:#ffc94d;color:#3a2600;font:700 13px/1.3 system-ui,sans-serif;padding:8px 12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.3);max-width:220px;}
+  .themeTip:before{content:"";position:absolute;top:-6px;left:var(--ax,20px);border:6px solid transparent;border-top:0;border-bottom-color:#ffc94d;}
   .pullrow{display:flex;gap:8px;align-items:center;}
   .pullrow .ti{flex:1;min-width:0;}
   .pullnote{font-size:12px;color:var(--muted);margin-top:8px;}
@@ -4068,8 +4074,26 @@ if(window.__LIBS) window.__startApp();
     btn.title=light?'Switch back to the navy look':'Switch to the bright Daylight look (easier to read in sun)'; }
   btn.addEventListener('click',function(){ var light=document.documentElement.getAttribute('data-theme')!=='light';
     if(light) document.documentElement.setAttribute('data-theme','light'); else document.documentElement.removeAttribute('data-theme');
-    try{ localStorage.setItem('hp_theme', light?'light':'navy'); }catch(e){} paint(); });
+    try{ localStorage.setItem('hp_theme', light?'light':'navy'); }catch(e){} paint(); hideTip(); });
   paint();
+  // One-time tip pointing at the button, the first time this phone opens the app.
+  var tip=null;
+  function hideTip(){ if(tip){ tip.remove(); tip=null; } }
+  try{
+    if(!localStorage.getItem('hp_theme_tip') && !localStorage.getItem('hp_theme')){
+      setTimeout(function(){
+        var r=btn.getBoundingClientRect(); if(!r.width) return;
+        tip=document.createElement('div'); tip.className='themeTip'; tip.setAttribute('role','status');
+        tip.textContent='Bright sun? Tap ☀ for Daylight mode — easier to read outside.';
+        document.body.appendChild(tip);
+        var left=Math.max(8, Math.min(window.innerWidth - tip.offsetWidth - 8, r.left + r.width/2 - 24));
+        tip.style.left=left+'px'; tip.style.top=(r.bottom+10)+'px'; tip.style.setProperty('--ax', Math.max(8, r.left + r.width/2 - left - 6)+'px');
+        tip.addEventListener('click', hideTip);
+        setTimeout(hideTip, 7000);
+        localStorage.setItem('hp_theme_tip','1');
+      }, 1500);
+    }
+  }catch(e){}
 })();
 </script>
 </body>
