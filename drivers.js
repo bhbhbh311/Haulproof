@@ -85,6 +85,7 @@ router.get('/link-info', (req, res) => {
 const pinMisses = new Map();
 const PIN_MAX = 5, PIN_LOCK_MS = 10 * 60 * 1000;
 function pinLocked(id) { const m = pinMisses.get(id); return !!(m && m.until > Date.now()); }
+function pinLockSecs(id) { const m = pinMisses.get(id); return m && m.until > Date.now() ? Math.ceil((m.until - Date.now()) / 1000) : 0; }
 function pinMiss(id) { const m = pinMisses.get(id) || { n: 0, until: 0 }; m.n++; if (m.n >= PIN_MAX) { m.until = Date.now() + PIN_LOCK_MS; m.n = 0; } pinMisses.set(id, m); }
 const PIN_LOCK_MSG = 'Too many wrong PINs — wait 10 minutes and try again, or ask dispatch to reset your PIN.';
 
@@ -93,9 +94,9 @@ router.post('/verify-pin', (req, res) => {
   if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
   const d = r.driver;
   if (!d.pinHash) return res.json({ ok: true, unlock: '', name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });   // no PIN set — nothing to check
-  if (pinLocked(d.id)) return res.status(429).json({ error: PIN_LOCK_MSG });
+  if (pinLocked(d.id)) return res.status(429).json({ error: PIN_LOCK_MSG, retryAfter: pinLockSecs(d.id) });
   const pin = String((req.body && req.body.pin) || '');
-  if (!bcrypt.compareSync(pin, d.pinHash)) { pinMiss(d.id); return res.status(401).json({ error: 'That PIN is not correct' }); }
+  if (!bcrypt.compareSync(pin, d.pinHash)) { pinMiss(d.id); if (pinLocked(d.id)) return res.status(429).json({ error: PIN_LOCK_MSG, retryAfter: pinLockSecs(d.id) }); return res.status(401).json({ error: 'That PIN is not correct' }); }
   pinMisses.delete(d.id);
   res.json({ ok: true, unlock: driverUnlockValue(d), name: d.name || '', company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '', mustChangePin: !!d.mustChangePin });
 });

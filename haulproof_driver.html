@@ -310,6 +310,15 @@
   #dropOverlay .inner span{color:var(--muted);font-size:14px;}
   .hide{display:none !important;}
   .note{font-size:11.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;margin-top:6px;}
+  .note.pinMsg{font-family:inherit;font-size:14.5px;font-weight:600;line-height:1.4;text-align:center;}
+  /* PIN boxes are masked (dots) — a Show button reveals them; the numeric keypad stays. */
+  .pinWrap{position:relative;}
+  .pinBox{-webkit-text-security:disc;text-security:disc;padding-right:64px !important;padding-left:64px !important;}
+  .pinBox.reveal{-webkit-text-security:none;text-security:none;}
+  .pinEye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:transparent;border:1px solid var(--line-strong);color:var(--muted);font:600 12.5px/1 inherit;font-family:inherit;padding:8px 10px;border-radius:8px;cursor:pointer;}
+  #pinBtn:disabled{opacity:.55;cursor:not-allowed;}
+  /* Behind the PIN screens the driver isn't "in" yet — hide the Synced badge. */
+  body.pinLocked #cloudPill{display:none !important;}
   /* Location consent banner */
   #locBar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:var(--surface,var(--surface));border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(16,42,82,.14);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));transform:translateY(120%);transition:transform .28s ease;}
   #locBar.on{transform:translateY(0);}
@@ -432,16 +441,16 @@
       <div id="pinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:var(--primary);line-height:1.35;"></div>
       <p class="sub" id="pinSub">This driver link is protected. Enter your PIN to unlock it on this phone — you'll only need to do this once.</p>
       <div class="fields">
-        <input class="ti" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••" style="text-align:center;letter-spacing:.45em;font-size:22px;">
+        <div class="pinWrap" style=""><input class="ti pinBox" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••" style="text-align:center;letter-spacing:.45em;font-size:22px;"><button type="button" class="pinEye" data-for="pinInput" aria-label="Show PIN" aria-pressed="false">Show</button></div>
       </div>
       <button class="btn primary block" id="pinBtn" type="button">Unlock</button>
-      <p class="note" id="pinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
+      <p class="note pinMsg" id="pinErr" role="alert" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
       <div id="pinHelpLinks" style="margin-top:6px;text-align:center;font-size:14px;">
         <a href="#" id="forgotPinLink" style="color:var(--brand,var(--primary));text-decoration:none;">Forgot PIN?</a>
         <span style="color:var(--muted);margin:0 8px;">·</span>
         <a href="#" id="pinNeedHelpLink" style="color:var(--brand,var(--primary));text-decoration:none;">Still need help?</a>
       </div>
-      <p class="note" id="forgotPinMsg" style="margin-top:10px;min-height:16px;color:var(--muted);"></p>
+      <p class="note pinMsg" id="forgotPinMsg" style="margin-top:10px;min-height:16px;color:var(--muted);"></p>
 
       <!-- Driver "still need help" note panel -->
       <div id="pinHelpPanel" class="hide" style="margin-top:12px;margin-bottom:180px;text-align:left;border-top:1px solid var(--line,#2a3346);padding-top:12px;">
@@ -462,11 +471,11 @@
       <div id="setPinWho" style="display:none;margin:2px 0 8px;font-size:14px;font-weight:700;color:var(--primary);line-height:1.35;"></div>
       <p class="sub" id="setPinSub">Pick a 4–6 digit PIN only you know. You'll use it to unlock this link.</p>
       <div class="fields">
-        <input class="ti" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;margin-bottom:10px;">
-        <input class="ti" id="setPin2" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Confirm PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;">
+        <div class="pinWrap" style="margin-bottom:10px;"><input class="ti pinBox" id="setPin1" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="New PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;"><button type="button" class="pinEye" data-for="setPin1" aria-label="Show PIN" aria-pressed="false">Show</button></div>
+        <div class="pinWrap" style=""><input class="ti pinBox" id="setPin2" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Confirm PIN" style="text-align:center;letter-spacing:.45em;font-size:22px;"><button type="button" class="pinEye" data-for="setPin2" aria-label="Show PIN" aria-pressed="false">Show</button></div>
       </div>
       <button class="btn primary block" id="setPinBtn" type="button">Save PIN</button>
-      <p class="note" id="setPinErr" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
+      <p class="note pinMsg" id="setPinErr" role="alert" style="color:var(--danger);margin-top:10px;min-height:16px;"></p>
     </div>
   </section>
 
@@ -989,6 +998,9 @@ window.__startApp=function(){
     window.__hpBusy = (v==="sign");
     holdPodId=null;   // leaving the completion screen releases any held stop for upload
     ["Route","Sign","Outbox","Signon","Pin","SetPin"].forEach(function(n){ var el=$("view"+n); if(el) el.classList.toggle("hide", n.toLowerCase()!==v); });
+    document.body.classList.toggle("pinLocked", v==="pin" || v==="setpin");
+    if(v==="pin" || v==="setpin"){ if(window.__hpHideLocBar) window.__hpHideLocBar(); }
+    else if(window.__locBarWanted && window.__hpShowLocBar){ window.__locBarWanted=false; setTimeout(window.__hpShowLocBar, 600); }
     if(v==="route"){ renderRoute(); if(online()){ loadMyLoads(); loadMyDocuments(); loadNotices(); } }
     if(v==="outbox"){ renderOutbox(); if(online()) syncOutbox(); }
     // First-time guide: on Home, lead to the one first step (Upload for dispatch). Clear it on other screens.
@@ -1122,7 +1134,7 @@ window.__startApp=function(){
     if(n){ el.textContent = n + (c?(" · "+c):""); el.style.display=""; }
     else { el.textContent=""; el.style.display="none"; }
   }
-  function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; fillWhoEl("pinWho"); showView("pin"); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
+  function showPinGate(){ $("pinInput").value=""; $("pinErr").textContent=""; fillWhoEl("pinWho"); showView("pin"); resumePinLock(); setTimeout(function(){ try{ $("pinInput").focus(); }catch(e){} },40); }
   async function verifyPin(){
     var pin=$("pinInput").value.trim();
     if(!/^\d{4,6}$/.test(pin)){ $("pinErr").textContent="Enter your 4–6 digit PIN"; return; }
@@ -1133,7 +1145,7 @@ window.__startApp=function(){
       var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-Api-Key":currentKey()},body:JSON.stringify({pin:pin})});
       $("pinBtn").disabled=false;
       if(r.status===401){ $("pinErr").textContent="That PIN is not correct"; $("pinInput").select(); return; }
-      if(r.status===429){ var lk={}; try{ lk=await r.json(); }catch(_){} $("pinErr").textContent=lk.error||"Too many wrong PINs — wait 10 minutes and try again"; return; }
+      if(r.status===429){ var lk={}; try{ lk=await r.json(); }catch(_){} startPinLock(lk.retryAfter||600); return; }
       if(!r.ok){ $("pinErr").textContent="Couldn't check the PIN — try again"; return; }
       var d=await r.json(); saveUnlock(d.unlock||""); if(d.name) setDriver(d.name); setCompany(d.company,d.companyKind); $("pinErr").textContent="";
       // First use with an admin-set PIN → make the driver choose their own before going in.
@@ -1141,6 +1153,26 @@ window.__startApp=function(){
       finishStart();
     }catch(e){ $("pinBtn").disabled=false; $("pinErr").textContent="No connection — try again when you're online"; }
   }
+  // Too many wrong PINs: Unlock stays off with a live countdown until the server will take a PIN again (survives a reload).
+  var _pinLockT=null;
+  function pinLockKey(){ return "hp_pinlock_"+(currentKey()||"").slice(-12); }
+  function startPinLock(secs){ var until=Date.now()+secs*1000; try{ localStorage.setItem(pinLockKey(), String(until)); }catch(e){} runPinLock(until); }
+  function runPinLock(until){
+    clearInterval(_pinLockT);
+    var btn=$("pinBtn"), err=$("pinErr");
+    function draw(){
+      var left=Math.ceil((until-Date.now())/1000);
+      if(left<=0){ clearInterval(_pinLockT); btn.disabled=false; btn.textContent="Unlock"; err.textContent="You can try your PIN again now."; try{ localStorage.removeItem(pinLockKey()); }catch(e){} return; }
+      var m=Math.floor(left/60), s2=left%60;
+      btn.disabled=true; btn.textContent="Try again in "+m+":"+(s2<10?"0":"")+s2;
+      err.textContent="Too many wrong PINs. Wait for the timer, or ask dispatch to reset your PIN.";
+    }
+    draw(); _pinLockT=setInterval(draw, 1000);
+  }
+  function resumePinLock(){ try{ var u=+localStorage.getItem(pinLockKey()); if(u && u>Date.now()) runPinLock(u); }catch(e){} }
+  document.addEventListener("click", function(e){ var b=e.target.closest && e.target.closest(".pinEye"); if(!b) return;
+    var inp=$(b.dataset.for); if(!inp) return; var on=!inp.classList.contains("reveal"); inp.classList.toggle("reveal", on);
+    b.textContent=on?"Hide":"Show"; b.setAttribute("aria-pressed", on?"true":"false"); b.setAttribute("aria-label", on?"Hide PIN":"Show PIN"); inp.focus(); });
   var _lastPin="";   // the PIN the driver just entered, so we can authorize their PIN change
   function showSetPinGate(isCreate){ if($("setPin1"))$("setPin1").value=""; if($("setPin2"))$("setPin2").value=""; if($("setPinErr"))$("setPinErr").textContent="";
     if($("setPinTitle")) $("setPinTitle").textContent = isCreate ? "Create your PIN" : "Set your own PIN";
@@ -3276,8 +3308,14 @@ window.__startApp=function(){
   // --- Location consent banner: explain WHY, and remember an "always allow" choice so we don't ask again. ---
   function locConsentGet(){ try{ return localStorage.getItem("hp_loc_consent")||""; }catch(e){ return ""; } }
   function locConsentSet(v){ try{ localStorage.setItem("hp_loc_consent",v); }catch(e){} }
-  function showLocBar(){ var el=$("locBar"); if(el){ el.style.display=""; setTimeout(function(){ el.classList.add("on"); },30); } }
-  function hideLocBar(){ var el=$("locBar"); if(el){ el.classList.remove("on"); setTimeout(function(){ el.style.display="none"; },300); } }
+  // Not over the PIN screens — the driver isn't in yet. Ask once they're through.
+  function showLocBar(){ if(document.body.classList.contains("pinLocked")){ window.__locBarWanted=true; return; }
+    var el=$("locBar"); if(el){ window.__locBarUp=true; el.style.display=""; setTimeout(function(){
+      if(document.body.classList.contains("pinLocked")){ window.__locBarWanted=true; el.style.display="none"; return; }
+      el.classList.add("on"); },30); } }
+  window.__hpShowLocBar=showLocBar;
+  window.__hpHideLocBar=function(){ var el=$("locBar"); if(el && window.__locBarUp){ window.__locBarUp=false; window.__locBarWanted=true; el.classList.remove("on"); el.style.display="none"; } };
+  function hideLocBar(){ window.__locBarUp=false; var el=$("locBar"); if(el){ el.classList.remove("on"); setTimeout(function(){ el.style.display="none"; },300); } }
   function initLocationConsent(){
     var allowBtn=$("locAllow"), laterBtn=$("locLater");
     if(allowBtn) allowBtn.addEventListener("click", function(){ locConsentSet("always"); hideLocBar(); warmLocation(); });
