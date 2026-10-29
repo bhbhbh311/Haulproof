@@ -19,9 +19,13 @@ const { upsertSsoUser, signToken } = require('./auth');
 
 const router = express.Router();
 
-const TENANT = process.env.MS_TENANT_ID || 'common';
-const CLIENT_ID = process.env.MS_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.MS_CLIENT_SECRET || '';
+// "Sign in with Microsoft" has its own switch: MS_CLIENT_ID / MS_CLIENT_SECRET are also the Graph *mail* (and backup)
+// app's credentials, and setting those must not quietly turn on a sign-in button that app isn't registered for.
+// SSO uses MS_SSO_CLIENT_ID / MS_SSO_CLIENT_SECRET (/ MS_SSO_TENANT_ID), or the shared MS_* values when MS_SSO_ENABLED=1.
+const SSO_SHARED = process.env.MS_SSO_ENABLED === '1';
+const TENANT = process.env.MS_SSO_TENANT_ID || (SSO_SHARED && process.env.MS_TENANT_ID) || 'common';
+const CLIENT_ID = process.env.MS_SSO_CLIENT_ID || (SSO_SHARED ? process.env.MS_CLIENT_ID : '') || '';
+const CLIENT_SECRET = process.env.MS_SSO_CLIENT_SECRET || (SSO_SHARED ? process.env.MS_CLIENT_SECRET : '') || '';
 // PORTAL_URL is the single source of truth for the portal's address (no trailing slash).
 const PORTAL_URL = (process.env.PORTAL_URL || 'http://localhost:4000').replace(/\/+$/, '');
 // The redirect URI is derived from PORTAL_URL so there's only one setting to change when you
