@@ -3789,6 +3789,7 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
   // Recovery bin: deleted loads + documents an admin can restore (or a master admin can purge for good).
+  let _trashNotice = null;   // { loadId, text } — shown once at the top of the bin after a restore
   async function loadTrash() {
     _inTrashView = true;
     const box = $('loadList');
@@ -3802,10 +3803,20 @@
       let html = `<div class="sub" style="margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">`
         + `<span>Deleted items are kept for ${days} days, then permanently removed. Restore brings them back exactly.</span>`
         + `<span><a href="#" id="lTrashBack" style="color:var(--primary);text-decoration:none;font-weight:600;">← Back to loads</a></span></div>`;
+      // Just restored something: say so, with a button straight to the load (it returns to its original spot in the list).
+      if (_trashNotice) {
+        html += `<div class="umsg-ok" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:12px 14px;border:1px solid var(--ok);border-radius:10px;background:rgba(60,200,140,.12);font-weight:600;">`
+          + `<span>✓ ${esc(_trashNotice.text)}</span><button type="button" id="trOpenRestored" style="padding:6px 14px;font-size:13px;">Open it ›</button></div>`;
+      }
+      const wireTop = () => {
+        const bb = $('lTrashBack'); if (bb) bb.onclick = (e) => { e.preventDefault(); _trashNotice = null; loadLoads(); };
+        const ob = $('trOpenRestored'); if (ob && _trashNotice) { const id = _trashNotice.loadId; ob.onclick = () => { _inTrashView = false; openLoad(id); }; }
+        _trashNotice = null;
+      };
       if (!loads.length && !docs.length) {
         html += '<div class="empty">Recovery bin is empty. Deleted loads and documents will show up here.</div>';
         box.innerHTML = html;
-        const bb = $('lTrashBack'); if (bb) bb.onclick = (e) => { e.preventDefault(); loadLoads(); };
+        wireTop();
         return;
       }
       const purgeBtn = (kind, id) => canPurge ? `<button class="ghost trPurge" data-kind="${kind}" data-id="${id}" title="Permanently delete — cannot be undone" style="padding:6px 9px;font-size:12px;color:var(--danger);border-color:var(--danger);margin-left:6px;">🗑 Delete permanently</button>` : '';
@@ -3834,15 +3845,21 @@
           </tr>`).join('') + '</tbody></table>';
       }
       box.innerHTML = html;
-      const bb = $('lTrashBack'); if (bb) bb.onclick = (e) => { e.preventDefault(); loadLoads(); };
+      wireTop();
       box.querySelectorAll('.trRestoreLoad').forEach(b => b.onclick = async () => {
         b.disabled = true;
-        try { await api('/api/trash/load/' + b.dataset.id + '/restore', { method: 'POST' }); loadTrash(); }
+        try { const r = await api('/api/trash/load/' + b.dataset.id + '/restore', { method: 'POST' });
+          const cell = b.closest('tr') && b.closest('tr').querySelector('.mono'), po = cell ? cell.textContent.trim() : '';
+          _trashNotice = { loadId: b.dataset.id, text: (po && po !== '—' ? 'PO ' + po : 'Load') + ' restored' + (r && r.restoredDocs ? ' with ' + r.restoredDocs + ' document' + (r.restoredDocs === 1 ? '' : 's') : '') + ' — it’s back in its original spot in the loads list.' };
+          loadTrash(); }
         catch (e) { b.disabled = false; alert(e.message || 'Could not restore'); }
       });
       box.querySelectorAll('.trRestoreDoc').forEach(b => b.onclick = async () => {
         b.disabled = true;
-        try { await api('/api/trash/doc/' + b.dataset.id + '/restore', { method: 'POST' }); loadTrash(); }
+        try { await api('/api/trash/doc/' + b.dataset.id + '/restore', { method: 'POST' });
+          const d = docs.find(x => x.id === b.dataset.id);
+          if (d && d.loadId) _trashNotice = { loadId: d.loadId, text: (d.docType || 'Document') + (d.stopNumber ? ' (Stop ' + d.stopNumber + ')' : '') + ' restored to PO ' + (d.poNumber || '') + '.' };
+          loadTrash(); }
         catch (e) { b.disabled = false; alert(e.message || 'Could not restore'); }
       });
       box.querySelectorAll('.trPurge').forEach(b => b.onclick = () => {
