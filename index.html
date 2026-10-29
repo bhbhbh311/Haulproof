@@ -2983,7 +2983,7 @@
     const title = (p.emailError || '') + (failed.length ? '\nNot sent to: ' + failed.join(', ') : '');
     return `<div class="mailfail" title="${esc(title)}"><span>✉ ${p.emailStatus === 'partial' ? 'Some emails failed' : 'Email failed — not sent'}</span>`
       + `<span class="mailfail-sub">${failed.length} recipient${failed.length === 1 ? '' : 's'}${when}</span>`
-      + `<button class="ghost btn-sm ldResend" data-id="${p.id}" type="button">↻ Resend</button></div>`;
+      + `<button class="ghost btn-sm ldResend" data-id="${p.id}" type="button" title="Try sending the signed copy again to the people it didn't reach">↻ Retry email</button></div>`;
   }
   function loadStatusChip(l) {
     // Actionable document state wins over the raw "last event" so the pill tells you what to DO:
@@ -3117,7 +3117,7 @@
     const po = (l) => esc(l.poNumber || l.loadNumber || 'Load');
     const items = [];
     picks.forEach(l => items.push(['var(--violet)', `<b>Pick the signed copy to keep</b> · ${po(l)}`, 'A stop was signed twice — the customer copy is on hold until you choose', 'Pick', '', l.id]));
-    failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — open it to resend', 'Resend', 'ghost btn-danger', l.id]));
+    failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — open it to retry the email', 'Retry email', 'ghost btn-danger', l.id]));
     setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
     nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
     const shownItems = items.slice(0, 8);
@@ -3968,12 +3968,12 @@
     const opts = drivers.map(d => `<option value="${d.id}"${d.name === cur ? ' selected' : ''}>${esc(d.name)}</option>`).join('');
     const stop = 'Stop ' + (p.stopNumber || 1);
     choiceDialog({
-      title: 'Send ' + stop + ' to the driver again?',
-      message: 'The driver gets a fresh, unsigned copy of ' + stop + '. This signed copy stays, and when the new one is signed you pick which one to keep. The customer’s copy waits until you pick.'
+      title: 'Have the driver re-sign ' + stop + '?',
+      message: 'Use this when a signature needs redoing (a mistake or a practice run). The driver gets a fresh, unsigned copy of ' + stop + ' on their phone. This signed copy stays, and when the new one is signed you pick which one to keep. The customer’s copy waits until you pick.'
         + (p.hasOriginal ? '' : ' (This document was signed before HaulProof kept clean originals, so the driver will get the signed copy to sign over.)'),
       extraHtml: (drivers.length ? '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Driver<select id="saDriver" style="display:block;width:100%;margin-top:4px;padding:8px;">' + opts + '</select></label>' : '')
         + '<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13.5px;"><input type="checkbox" id="saSetup"> Let me adjust the signature boxes first</label>',
-      choices: [{ label: '↻ Send to driver again', run: async () => {
+      choices: [{ label: '✍ Send for re-signing', run: async () => {
         const setup = !!($('saSetup') && $('saSetup').checked);
         const r = await api('/api/pods/' + p.id + '/send-again', { method: 'POST', body: JSON.stringify({ driverId: $('saDriver') ? $('saDriver').value : '', setup }) });
         if (r.needsSetup) { location.href = '/prepare?id=' + encodeURIComponent(r.podId); return; }   // saving the boxes there sends it to the driver
@@ -4160,7 +4160,7 @@
           ${p.status === 'needs_reupload'
             ? `<span style="color:var(--bad);font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
-            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document">📧 Send</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="Send the driver a fresh, unsigned copy of this stop. This signed copy stays until you pick which one to keep.">↻ Send to driver again</button>`}`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
             : ''}
           ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
           ${p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build') ? `&nbsp;<button class="ghost ldRedoCancel btn-sm" data-id="${p.id}" type="button" title="Take the redo back off the driver's phone; the first signed copy stays">Cancel redo</button>` : ''}
