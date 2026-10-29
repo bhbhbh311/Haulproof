@@ -4498,8 +4498,8 @@
           const failed = parse(p.emailFailedTo).map(x => x.toLowerCase());
           const all = Array.from(new Set([...parse(p.recipients), ...parse(p.emailFailedTo)]));
           return `<div class="rtPod" data-id="${p.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
-            <div style="font-weight:700;margin-bottom:6px;">Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}${p.emailError ? `<div class="sub" style="font-weight:400;font-size:12px;margin-top:2px;color:var(--bad);">Last try: ${esc(friendlyMailError(p.emailError))}</div>` : ''}</div>`
-            + all.map(e => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:3px 0;margin:0;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink);"><input type="checkbox" class="rtTo" value="${esc(e)}" checked> ${esc(e)}${failed.indexOf(e.toLowerCase()) >= 0 ? ' <span class="sub" style="font-size:11.5px;color:var(--bad);">not sent</span>' : ' <span class="sub" style="font-size:11.5px;">already sent</span>'}</label>`).join('')
+            <div style="font-weight:700;margin-bottom:6px;">Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}${p.emailError ? `<div class="sub rtLast" style="font-weight:400;font-size:12px;margin-top:2px;color:var(--bad);">Last try: ${esc(friendlyMailError(p.emailError))}</div>` : ''}</div>`
+            + all.map(e => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:3px 0;margin:0;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink);"><input type="checkbox" class="rtTo" value="${esc(e)}" checked> ${esc(e)}${failed.indexOf(e.toLowerCase()) >= 0 ? ' <span class="sub rtSt" style="font-size:11.5px;color:var(--bad);">not sent</span>' : ' <span class="sub rtSt" style="font-size:11.5px;">already sent</span>'}</label>`).join('')
             + `<div class="rtRes" style="font-size:13px;font-weight:600;margin-top:6px;"></div></div>`;
         }).join('')
       + `<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;"><button class="ghost" type="button" id="rtCancel">Cancel</button><button type="button" id="rtGo"><span class="rtSpin" style="display:none;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:rtspin .8s linear infinite;"></span><span class="rtLbl">↻ Retry email</span></button></div>`;
@@ -4517,6 +4517,14 @@
         try {
           const out = await api('/api/pods/' + box.dataset.id + '/resend-email', { method: 'POST', body: JSON.stringify({ to }) });
           changed = true;
+          // Show each address's own result next to it: ✓ sent, or still not sent.
+          if (!out.simulated) {
+            const bad = (out.failed || []).map(x => String(x).toLowerCase());
+            box.querySelectorAll('.rtTo:checked').forEach(c => { const st = c.parentNode.querySelector('.rtSt'); if (!st) return;
+              const ok = bad.indexOf(c.value.toLowerCase()) < 0;
+              st.textContent = ok ? '✓ sent' : 'not sent'; st.style.color = ok ? 'var(--ok)' : 'var(--bad)'; st.style.fontWeight = '700'; if (ok) c.checked = false; });
+            if (!bad.length) { const last = box.querySelector('.rtLast'); if (last) last.remove(); }
+          }
           if (out.simulated) { res.textContent = 'Email isn’t set up on the server, so nothing was sent.'; res.style.color = 'var(--warn)'; }
           else if (out.failed && out.failed.length) {
             res.style.color = 'var(--bad)';
