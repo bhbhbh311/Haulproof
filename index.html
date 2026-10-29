@@ -2612,10 +2612,10 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, ['carrier'])}</td>
             <td style="text-align:right;"><button class="acUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.acUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('acName').value = c.name; $('acMc').value = c.mcNumber || ''; $('acDot').value = c.dotNumber || '';
@@ -2680,10 +2680,10 @@
     try {
       const r = await api('/api/brokers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, ['broker'])}</td>
             <td style="text-align:right;"><button class="abUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.abUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('abName').value = c.name; $('abMc').value = c.mcNumber || ''; $('abDot').value = c.dotNumber || '';
@@ -2732,10 +2732,10 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, ['carrier'])}</td>
             <td style="text-align:right;">${fmcsaOk(c, 'carrier') ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
               : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — approve it with a warning">Approve anyway</button>`
               : `<button class="bcAsk ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — only HaulProof can approve it">Ask HaulProof</button>`}</td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
@@ -2784,10 +2784,10 @@
             : `<button class="ccrAsk ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean as a ${noun}: ${esc(fmcsaProblemsOf(c, kind).join('; '))} — only HaulProof can approve it">Ask HaulProof (${noun})</button>`;
         };
         const addBtns = (c, i) => addBtn(c, i, 'carrier') + addBtn(c, i, 'broker');
-        box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, ['carrier', 'broker'])}</td>
             <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.ccrAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], b.dataset.kind));
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
@@ -3101,6 +3101,17 @@
     rows.push(['Safety rating', SAFETY_LABEL[String(snap.safetyRating || '').toUpperCase()] || (snap.safetyRating ? snap.safetyRating : 'Not rated'), { S: 'signed', C: 'prepared', U: 'failed' }[String(snap.safetyRating || '').toUpperCase()] || 'received']);
     if (snap.powerUnits != null || snap.drivers != null) rows.push(['Fleet', (snap.powerUnits != null ? snap.powerUnits + ' power unit' + (snap.powerUnits === 1 ? '' : 's') : '') + (snap.powerUnits != null && snap.drivers != null ? ' · ' : '') + (snap.drivers != null ? snap.drivers + ' driver' + (snap.drivers === 1 ? '' : 's') : ''), null]);
     return rows;
+  }
+  // HaulProof's call per type, from the snapshot: OK to add, or needs HaulProof's approval (and why, on hover).
+  // Replaces FMCSA's raw "allowed to operate" flag, which says Y even when the authority or insurance isn't there.
+  function fmcsaVerdictHtml(c, kinds) {
+    if (c.snapshot && !c.snapshot.checked) return '<span class="chip received" style="font-size:11px;">Couldn’t check</span>';
+    return kinds.map(k => {
+      const noun = k === 'broker' ? 'broker' : 'carrier', probs = fmcsaProblemsOf(c, k);
+      return `<div style="margin:2px 0;white-space:nowrap;">` + (probs.length
+        ? `<span class="chip failed" style="font-size:11px;" title="${esc(probs.join('; '))}">✕ ${kinds.length > 1 ? noun[0].toUpperCase() + noun.slice(1) + ': ' : ''}Needs HaulProof approval</span>`
+        : `<span class="chip signed" style="font-size:11px;">✓ ${kinds.length > 1 ? noun[0].toUpperCase() + noun.slice(1) + ': ' : ''}OK to use</span>`) + '</div>';
+    }).join('');
   }
   const FM_SNAP = {};   // lookup results / saved companies by key, for the Details button
   let fmSnapSeq = 0;
@@ -6088,13 +6099,13 @@
       const r = await api('/api/' + (broker ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
       let html = '';
       if (r.fmcsa && r.fmcsa.length) {
-        html += `<table><thead><tr><th>${Noun}</th><th>MC / DOT</th><th>Allowed to operate</th><th></th></tr></thead><tbody>` +
+        html += `<table><thead><tr><th>${Noun}</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>` +
           r.fmcsa.map((c, i) => `<tr>
             <td><b>${esc(c.name)}</b>${c.address ? '<div style="color:var(--muted);font-size:12px;">' + esc(c.address) + '</div>' : ''}</td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || 'Unknown') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, [noun])}</td>
             <td style="text-align:right;"><button class="carPick" data-i="${i}" style="padding:6px 10px;font-size:12px;">${broker ? 'Hand to broker' : 'Assign'}</button></td>
-          </tr>`).join('') + '</tbody></table>';
+          </tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.innerHTML = html;
         box.querySelectorAll('.carPick').forEach(b => b.onclick = () => broker ? assignBrokerFromFmcsa(r.fmcsa[+b.dataset.i]) : assignFromFmcsa(r.fmcsa[+b.dataset.i]));
       } else {
@@ -7795,10 +7806,10 @@
     try {
       const r = await api('/api/' + (cmpKind === 'broker' ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b>${c.address ? `<div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div>` : ''}</td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, [cmpKind === 'broker' ? 'broker' : 'carrier'])}</td>
             <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.cmpAdd').forEach(b => b.onclick = () => cmpAdd(r.fmcsa[+b.dataset.i], true));
       } else {
