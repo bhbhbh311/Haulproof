@@ -1052,7 +1052,7 @@
         <div class="aipromo-icon">✨</div>
         <div>
           <div class="aipromo-title" id="aiPromoTitle">Let AI do the paperwork</div>
-          <div class="aipromo-sub" id="aiPromoSub">Connect HaulProof to your AI assistant — Claude, or any app that supports MCP connectors — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.</div>
+          <div class="aipromo-sub" id="aiPromoSub">Connect HaulProof to your AI assistant — Claude, ChatGPT or any AI app that supports connectors (MCP) — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.</div>
         </div>
       </div>
       <div class="aipromo-try" id="aiPromoTry">
@@ -1670,7 +1670,7 @@
     </div>
     <div class="card hide" id="aiConnCard">
       <h1>AI connections</h1>
-      <p class="sub">Connect an AI app like Claude so it can look up and create loads, assign drivers, add customers and attach documents for you. It works as <b>your</b> login, with the same permissions. In Claude: <b>Settings → Connectors → Add custom connector</b>, paste this address, then sign in and click Allow.</p>
+      <p class="sub">Connect an AI app — Claude, ChatGPT or any app that supports connectors (MCP) — so it can look up and create loads, assign drivers, add customers and attach documents for you. It works as <b>your</b> login, with the same permissions. In Claude: <b>Settings → Connectors → Add custom connector</b>, paste this address, then sign in and click Allow.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 14px;">
         <input id="aiConnUrl" readonly style="flex:1;min-width:220px;font-family:ui-monospace,Consolas,monospace;font-size:13px;">
         <button class="ghost" id="aiConnCopy" type="button">Copy</button>
@@ -2305,7 +2305,7 @@
     try { const r = await api('/api/ai-connections'); connected = !!((r.connections || []).length); } catch (e) {}
     card.classList.toggle('connected', connected);
     $('aiPromoTitle').textContent = connected ? 'Your AI assistant is connected to HaulProof' : 'Let AI do the paperwork';
-    $('aiPromoSub').textContent = connected ? 'Open a new chat in your AI app and attach your BOLs, or ask about your loads.' : 'Connect HaulProof to your AI assistant — Claude, or any app that supports MCP connectors — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.';
+    $('aiPromoSub').textContent = connected ? 'Open a new chat in your AI app and attach your BOLs, or ask about your loads.' : 'Connect HaulProof to your AI assistant — Claude, ChatGPT or any AI app that supports connectors (MCP) — then just tell it what you need: it creates the load, attaches the BOLs, keeps only the pages to sign, places the signatures and sends it to your driver.';
     $('aiPromoActions').classList.toggle('hide', connected); if (connected) $('aiPromoSteps').classList.add('hide');
     card.classList.remove('hide');
   }
