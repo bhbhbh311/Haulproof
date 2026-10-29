@@ -2586,7 +2586,7 @@
         r.carriers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
           <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="white-space:nowrap;">${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}${fmcsaSnapBtn(c, 'carrier')}</td>
           <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost carEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -2612,11 +2612,11 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;"><button class="acUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>';
+            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="acUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.acUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('acName').value = c.name; $('acMc').value = c.mcNumber || ''; $('acDot').value = c.dotNumber || '';
           acVerified = true; acAllowed = c.allowedToOperate || ''; $('acVerified').innerHTML = '<span style="color:var(--ok);font-weight:600;">✓ FMCSA-verified</span>' + (c.allowedToOperate === 'Y' ? ' · allowed to operate' : ' · check operating status');
@@ -2655,7 +2655,7 @@
         r.brokers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
           <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="white-space:nowrap;">${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}${fmcsaSnapBtn(c, 'broker')}</td>
           <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost brEdit" data-id="${c.id}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -2680,11 +2680,11 @@
     try {
       const r = await api('/api/brokers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;"><button class="abUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>';
+            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="abUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.abUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('abName').value = c.name; $('abMc').value = c.mcNumber || ''; $('abDot').value = c.dotNumber || '';
           abVerified = true; abAllowed = c.allowedToOperate || ''; $('abVerified').innerHTML = '<span style="color:var(--ok);font-weight:600;">✓ FMCSA-verified</span>' + (c.allowedToOperate === 'Y' ? ' · authority active' : ' · check authority status');
@@ -2719,7 +2719,7 @@
         r.carriers.map(c => `<tr>
           <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="white-space:nowrap;">${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}${fmcsaSnapBtn(c, 'carrier')}</td>
           <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.bcRemove').forEach(b => b.onclick = async () => { try { await api('/api/brokers/my-carriers/' + b.dataset.id, { method: 'DELETE' }); loadApprovedCarriers(); } catch (e) { alert(e.message); } });
@@ -2732,13 +2732,13 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;">${authStateOf(c, 'carrier') === 'active' ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
-              : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="No active carrier authority on FMCSA — approve it with a warning">Approve anyway</button>`
-              : `<button class="bcAsk ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="No active carrier authority on FMCSA — only HaulProof can approve it">Ask HaulProof</button>`}</td></tr>`).join('') + '</tbody></table>';
+            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;">${fmcsaOk(c, 'carrier') ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
+              : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — approve it with a warning">Approve anyway</button>`
+              : `<button class="bcAsk ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — only HaulProof can approve it">Ask HaulProof</button>`}</td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.bcAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], 'carrier'));
         box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
@@ -2762,7 +2762,7 @@
           <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td>${c.kind === 'broker' ? '<span class="chip" style="background:var(--violet-soft,rgba(169,139,255,.18));color:var(--violet,#a98bff);">Broker</span>' : '<span class="chip signed">Carrier</span>'}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-          <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
+          <td style="white-space:nowrap;">${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}${fmcsaSnapBtn(c, c.kind)}</td>
           <td style="text-align:right;"><button class="ghost ccrRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
         </tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.ccrRemove').forEach(b => b.onclick = async () => { try { await api('/api/carriers/roster/' + b.dataset.id, { method: 'DELETE' }); loadCustCarriers(); } catch (e) { alert(e.message); } });
@@ -2778,17 +2778,17 @@
         // Offer "Add as carrier" / "Add as broker" from the company's FMCSA authority (both when unknown or it holds both).
         // Active authority → "Add as carrier/broker". Otherwise admins get an "anyway" button (confirmed, then flagged).
         const addBtn = (c, i, kind) => {
-          const st = authStateOf(c, kind), noun = kind === 'broker' ? 'broker' : 'carrier', sty = 'padding:6px 10px;font-size:12px;margin-left:6px;';
-          if (st === 'active') return `<button class="ccrAdd${kind === 'broker' ? ' ghost' : ''}" data-i="${i}" data-kind="${kind}" style="${sty}">Add as ${noun}</button>`;
-          return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — HaulProof can add it with a warning">Add as ${noun} anyway</button>`
-            : `<button class="ccrAsk ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — only HaulProof can approve it">Ask HaulProof (${noun})</button>`;
+          const noun = kind === 'broker' ? 'broker' : 'carrier', sty = 'padding:6px 10px;font-size:12px;margin-left:6px;';
+          if (fmcsaOk(c, kind)) return `<button class="ccrAdd${kind === 'broker' ? ' ghost' : ''}" data-i="${i}" data-kind="${kind}" style="${sty}">Add as ${noun}</button>`;
+          return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean as a ${noun}: ${esc(fmcsaProblemsOf(c, kind).join('; '))} — HaulProof can add it with a warning">Add as ${noun} anyway</button>`
+            : `<button class="ccrAsk ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean as a ${noun}: ${esc(fmcsaProblemsOf(c, kind).join('; '))} — only HaulProof can approve it">Ask HaulProof (${noun})</button>`;
         };
         const addBtns = (c, i) => addBtn(c, i, 'carrier') + addBtn(c, i, 'broker');
-        box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>';
+            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.ccrAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], b.dataset.kind));
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
@@ -3074,9 +3074,79 @@
     const row = (lbl, st) => `<div style="margin:2px 0;"><span class="chip ${tone[st] || 'received'}" style="font-size:11px;">${lbl}: ${AUTH_LABEL[st] || st}</span></div>`;
     return row('Carrier', cs) + row('Broker', bs) + '<div style="margin-top:3px;">' + saferLink(c) + '</div>';
   }
-  // Warning on a saved carrier/broker that an admin added without active FMCSA authority (cleared once it's active).
+  // ---- FMCSA snapshot: what FMCSA reports for the company (USDOT status, out-of-service, authority, insurance/bond,
+  //      safety rating, fleet). It's a snapshot only — never a guarantee — so the disclaimer goes wherever it's shown.
+  const FMCSA_DISCLAIMER = 'FMCSA snapshot only — what FMCSA reported when HaulProof checked. It is not a guarantee of a company’s authority, insurance, safety or identity. Do your own carrier vetting before tendering freight.';
+  function fmcsaDisclaimerHtml(at) {
+    return '<div class="fmcsaDisc" style="margin-top:8px;font-size:11.5px;color:var(--muted);line-height:1.4;">ⓘ ' + (at ? 'Checked ' + esc(new Date(at).toLocaleString()) + '. ' : '') + esc(FMCSA_DISCLAIMER) + '</div>';
+  }
+  const SAFETY_LABEL = { S: 'Satisfactory', C: 'Conditional', U: 'Unsatisfactory' };
+  function fmMoney(n) { if (n == null) return ''; n = +n; if (!(n > 0)) return '$0'; return '$' + (n < 100000 ? n * 1000 : n).toLocaleString(); }   // FMCSA reports these in $1,000s
+  // Clean for this kind? Uses the server's problem list when there is one; older results fall back to authority only.
+  function fmcsaOk(c, kind) { return c.problems && c.problems[kind] ? !c.problems[kind].length : authStateOf(c, kind) === 'active'; }
+  function fmcsaProblemsOf(c, kind) { return c.problems && c.problems[kind] ? c.problems[kind] : (fmcsaOk(c, kind) ? [] : ['no active ' + kind + ' authority']); }
+  // The facts as small rows of chips: [label, value, tone].
+  function fmcsaSnapRows(snap, c) {
+    if (!snap || !snap.checked) return [['FMCSA', 'Couldn’t check — try again', 'received']];
+    const rows = [], ins = snap.insurance || {};
+    if (snap.usdotStatus) rows.push(['USDOT', snap.usdotStatus === 'active' ? 'Active' : 'Inactive', snap.usdotStatus === 'active' ? 'signed' : 'failed']);
+    else if (!snap.onFile) rows.push(['USDOT', 'No record found', 'failed']);
+    rows.push(['Out of service', snap.oosDate ? 'OOS order ' + snap.oosDate : (snap.allowedToOperate === false ? 'Not allowed to operate' : 'No OOS order'), snap.oosDate || snap.allowedToOperate === false ? 'failed' : 'signed']);
+    const a = snap.authority || {};
+    ['carrier', 'broker'].forEach(k => { const st = a[k] || (c ? authStateOf(c, k) : 'unknown'); if (st && st !== 'unknown') rows.push([k === 'broker' ? 'Broker authority' : 'Carrier authority', AUTH_LABEL[st] || st, { active: 'signed', pending: 'prepared', inactive: 'failed', none: 'received' }[st] || 'received']); });
+    if (ins.bipdRequired) rows.push(['Liability ins.', ins.bipdOnFile > 0 ? fmMoney(ins.bipdOnFile) + ' on file' + (ins.bipdRequiredAmount ? ' (req. ' + fmMoney(ins.bipdRequiredAmount) + ')' : '') : 'Not on file', ins.bipdOnFile > 0 && !(ins.bipdRequiredAmount && ins.bipdOnFile < ins.bipdRequiredAmount) ? 'signed' : 'failed']);
+    else if (ins.bipdOnFile > 0) rows.push(['Liability ins.', fmMoney(ins.bipdOnFile) + ' on file', 'signed']);
+    if (ins.cargoOnFile > 0) rows.push(['Cargo ins.', fmMoney(ins.cargoOnFile) + ' on file', 'signed']);
+    if (ins.bondRequired || ins.bondOnFile > 0) rows.push(['Broker bond', ins.bondOnFile > 0 ? fmMoney(ins.bondOnFile) + ' on file' : 'Not on file', ins.bondOnFile > 0 ? 'signed' : 'failed']);
+    rows.push(['Safety rating', SAFETY_LABEL[String(snap.safetyRating || '').toUpperCase()] || (snap.safetyRating ? snap.safetyRating : 'Not rated'), { S: 'signed', C: 'prepared', U: 'failed' }[String(snap.safetyRating || '').toUpperCase()] || 'received']);
+    if (snap.powerUnits != null || snap.drivers != null) rows.push(['Fleet', (snap.powerUnits != null ? snap.powerUnits + ' power unit' + (snap.powerUnits === 1 ? '' : 's') : '') + (snap.powerUnits != null && snap.drivers != null ? ' · ' : '') + (snap.drivers != null ? snap.drivers + ' driver' + (snap.drivers === 1 ? '' : 's') : ''), null]);
+    return rows;
+  }
+  const FM_SNAP = {};   // lookup results / saved companies by key, for the Details button
+  let fmSnapSeq = 0;
+  function fmcsaSnapHtml(c) {
+    if (!c.snapshot) return fmcsaAuthChip(c);
+    const key = 'l' + (++fmSnapSeq); FM_SNAP[key] = { c, kind: null };
+    const rows = fmcsaSnapRows(c.snapshot, c).filter(r => r[0] !== 'Fleet' && r[0] !== 'Cargo ins.');
+    return rows.map(r => `<div style="margin:2px 0;"><span class="chip ${r[2]}" style="font-size:11px;">${esc(r[0])}: ${esc(r[1])}</span></div>`).join('')
+      + `<div style="margin-top:3px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button type="button" class="ghost fmSnapBtn" data-k="${key}" style="padding:2px 8px;font-size:11px;">Details</button>${saferLink(c)}</div>`;
+  }
+  // Saved company: a "Snapshot" button that opens the details (and lets them refresh it from FMCSA).
+  function fmcsaSnapBtn(c, kind) {
+    if (!c || !c.dotNumber) return '';
+    const key = 's' + c.id; FM_SNAP[key] = { c, kind: kind || c.kind || 'carrier' };
+    return ` <button type="button" class="ghost fmSnapBtn" data-k="${key}" style="padding:2px 8px;font-size:11px;margin-left:4px;" title="What FMCSA reports for this company">FMCSA snapshot</button>`;
+  }
+  function fmcsaDetailsHtml(c, snap, problems, kind) {
+    const rows = fmcsaSnapRows(snap, c);
+    return (problems && problems.length ? `<div style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:rgba(255,170,0,.12);color:var(--warn);font-size:13px;font-weight:600;">⚠ ${esc(problems.join('; '))}</div>`
+        : (snap && snap.checked && kind ? `<div style="margin-bottom:10px;font-size:13px;font-weight:600;color:var(--ok);">✓ Nothing FMCSA reports blocks this company as a ${kind === 'broker' ? 'broker' : 'carrier'}.</div>` : ''))
+      + '<table style="width:100%;font-size:13px;"><tbody>' + rows.map(r => `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;white-space:nowrap;">${esc(r[0])}</td><td style="padding:4px 0;">${r[2] ? `<span class="chip ${r[2]}" style="font-size:11.5px;">${esc(r[1])}</span>` : esc(r[1])}</td></tr>`).join('')
+      + (snap && snap.crashes != null ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">Crashes (24 mo)</td><td>${esc(String(snap.crashes))}</td></tr>` : '')
+      + (snap && (snap.driverOosRate != null || snap.vehicleOosRate != null) ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">Inspection OOS rate</td><td>${snap.driverOosRate != null ? 'Driver ' + esc(String(snap.driverOosRate)) + '%' : ''}${snap.driverOosRate != null && snap.vehicleOosRate != null ? ' · ' : ''}${snap.vehicleOosRate != null ? 'Vehicle ' + esc(String(snap.vehicleOosRate)) + '%' : ''}</td></tr>` : '')
+      + (snap && snap.mcs150Outdated ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">MCS-150</td><td><span class="chip prepared" style="font-size:11.5px;">Out of date</span></td></tr>` : '')
+      + '</tbody></table>'
+      + '<div style="margin-top:8px;">' + saferLink(c) + '</div>' + fmcsaDisclaimerHtml(snap && snap.checked ? snap.at : null);
+  }
+  function openFmcsaDetails(key) {
+    const e = FM_SNAP[key]; if (!e) return;
+    const c = e.c, saved = key[0] === 's';
+    const kind = e.kind || (c.problems ? (fmcsaOk(c, 'carrier') || !fmcsaOk(c, 'broker') ? 'carrier' : 'broker') : null);
+    const snap = c.fmcsaSnapshot || c.snapshot || null;
+    const problems = saved ? null : (kind ? fmcsaProblemsOf(c, kind) : null);
+    const choices = saved && c.id ? [{ label: 'Refresh from FMCSA', run: async () => {
+      const r = await api('/api/carriers/' + c.id + '/recheck-authority', { method: 'POST' });
+      c.fmcsaSnapshot = r.snapshot; c.authWarning = r.authWarning;
+      setTimeout(() => choiceDialog({ title: 'FMCSA snapshot — ' + (c.name || ''), message: '', extraHtml: fmcsaDetailsHtml(c, r.snapshot, r.problems, e.kind), choices: [] }), 0);
+      setTimeout(() => { try { loadCustCarriers(); } catch (_) {} try { loadApprovedCarriers(); } catch (_) {} try { if (curLoad && curLoad.id) renderCarrierNow(); } catch (_) {} }, 900);
+    } }] : [];
+    choiceDialog({ title: 'FMCSA snapshot — ' + (c.name || ''), message: snap ? '' : 'No snapshot saved for this company yet — refresh it from FMCSA.',
+      extraHtml: snap ? fmcsaDetailsHtml(c, snap, problems, e.kind || kind) : fmcsaDisclaimerHtml(null), choices });
+  }
+  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.fmSnapBtn'); if (b) openFmcsaDetails(b.dataset.k); });
+  // Warning on a saved carrier/broker that HaulProof approved without a clean FMCSA snapshot (cleared once it's clean).
   function authWarnHtml(c) {
-    return c && c.authWarning ? `<div style="margin-top:3px;font-size:12px;font-weight:600;color:var(--warn);" title="Added by an admin override. HaulProof re-checks FMCSA weekly and clears this once the authority is active.">⚠ ${esc(c.authWarning)} <button type="button" class="ghost authRecheck" data-id="${c.id}" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span></div>` : '';
+    return c && c.authWarning ? `<div style="margin-top:3px;font-size:12px;font-weight:600;color:var(--warn);" title="Approved by HaulProof without a clean FMCSA snapshot. HaulProof re-checks FMCSA weekly and clears this once it comes back clean.">⚠ ${esc(c.authWarning)} <button type="button" class="ghost authRecheck" data-id="${c.id}" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span></div>` : '';
   }
   // One handler for every "Check FMCSA now" button (lists and the load page): re-check, then refresh what's on screen.
   document.addEventListener('click', async (e) => {
@@ -3084,7 +3154,7 @@
     const msg = b.parentNode.querySelector('.authRecheckMsg'); b.disabled = true; const t = b.textContent; b.textContent = 'Checking…';
     try {
       const r = await api('/api/carriers/' + b.dataset.id + '/recheck-authority', { method: 'POST' });
-      if (msg) msg.textContent = r.authWarning ? 'Still not active (' + r.state + ').' : '✓ Active on FMCSA — warning cleared.';
+      if (msg) msg.textContent = r.authWarning ? 'Still flagged: ' + (r.problems || []).join('; ') + '.' : '✓ FMCSA snapshot is clean — warning cleared.';
       if (!r.authWarning) setTimeout(() => { try { loadCustCarriers(); } catch (_) {} try { loadApprovedCarriers(); } catch (_) {} try { if (curLoad && curLoad.id) openLoad(curLoad.id); } catch (_) {} }, 900);
     } catch (err) { if (msg) msg.textContent = err.message; }
     b.disabled = false; b.textContent = t;
@@ -3097,9 +3167,9 @@
       const j = await res.json().catch(() => ({}));
       if (res.ok) return onDone(j);
       if (j.code === 'authority' && j.canOverride && !override) {
-        return confirmDialog({ title: 'Add without active authority?', okLabel: 'Add anyway', message: j.error, onOk: () => send(true).catch(e => alert(e.message)) });
+        return confirmDialog({ title: 'Add without a clean FMCSA snapshot?', okLabel: 'Add anyway', message: j.error + '\n\n' + FMCSA_DISCLAIMER, onOk: () => send(true).catch(e => alert(e.message)) });
       }
-      if (j.code === 'authority' && j.canRequest) return askHaulProofApproval(body, kind || body.kind || 'carrier');
+      if (j.code === 'authority' && j.canRequest) { const k = kind || body.kind || 'carrier'; return askHaulProofApproval(Object.assign({}, body, { problems: { [k]: j.problems || [] } }), k); }
       throw new Error(j.error || res.statusText);
     };
     try { await send(false); } catch (e) { alert(e.message); }
@@ -3110,8 +3180,8 @@
   function askHaulProofApproval(c, kind) {
     const noun = kind === 'broker' ? 'broker' : 'carrier';
     choiceDialog({ title: 'Ask HaulProof to approve ' + (c.name || 'this company') + '?',
-      message: 'FMCSA doesn’t show active ' + noun + ' authority for this company, so only HaulProof can approve adding it. If approved, it’s added to your list with a warning until FMCSA shows the authority as active.',
-      extraHtml: '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Why do you need it? (optional)<textarea id="ahReason" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;font:inherit;"></textarea></label>',
+      message: 'FMCSA’s snapshot flags this company as a ' + noun + ': ' + (fmcsaProblemsOf(c, kind).join('; ') || 'not clean') + '. Only HaulProof can approve adding it. If approved, it’s added to your list with a warning until FMCSA’s snapshot comes back clean (re-checked weekly).',
+      extraHtml: fmcsaDisclaimerHtml(null) + '<label style="display:block;margin-top:10px;font-size:13px;font-weight:600;color:var(--muted);">Why do you need it? (optional)<textarea id="ahReason" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;font:inherit;"></textarea></label>',
       choices: [{ label: 'Send for approval', run: async () => {
         const r = await api('/api/carriers/authority-request', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, address: c.address, kind, reason: $('ahReason') ? $('ahReason').value : '' }) });
         alert(r.alreadyAsked ? 'You already asked HaulProof about this one — it’s waiting for approval.' : 'Sent to HaulProof for approval. You’ll get an email when it’s decided.');
@@ -7725,11 +7795,11 @@
     try {
       const r = await api('/api/' + (cmpKind === 'broker' ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b>${c.address ? `<div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div>` : ''}</td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>';
+            <td>${fmcsaSnapHtml(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.cmpAdd').forEach(b => b.onclick = () => cmpAdd(r.fmcsa[+b.dataset.i], true));
       } else {
         box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn\'t switched on yet — add manually below.' : 'No FMCSA match — add manually below.') + '</div>' +

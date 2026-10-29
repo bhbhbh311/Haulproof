@@ -49,46 +49,105 @@ function upsertBrokerOrg({ name, mcNumber, dotNumber, verified, allowedToOperate
   return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id);
 }
 
-// ---- Authority gate for saving a company as a carrier or broker. Active authority of that type → saved plainly.
-// Anything else (pending, inactive, none on file, or FMCSA couldn't be checked) needs an admin override, and the
-// company then carries a warning until a later check finds the authority active (see recheckAuthority). ----
-const AUTH_WORDS = { pending: 'is pending', inactive: 'is inactive or revoked', none: 'isn’t on file', unknown: 'couldn’t be checked' };
-function authWarningText(kind, state) { return 'FMCSA ' + (kind === 'broker' ? 'broker' : 'carrier') + ' authority ' + (AUTH_WORDS[state] || AUTH_WORDS.unknown); }
-async function authorityState(kind, dotNumber) {
-  const d = String(dotNumber || '').replace(/\D/g, '');
-  if (!d) return 'unknown';
-  let a = null; try { a = await fetchAuthority(d); } catch (e) { a = null; }
-  if (!a) return 'unknown';
-  return (a.state && a.state[kind]) || (a[kind] ? 'active' : 'none');
+// ---- FMCSA snapshot + eligibility gate for saving a company as a carrier or broker. ----
+// The snapshot is what FMCSA reports today (company record + authority sub-record): USDOT status, operating status /
+// out-of-service, authority, insurance and bond on file, safety rating and fleet size. It is information as reported by
+// FMCSA, not a guarantee. A company is "eligible" as a carrier/broker when FMCSA shows nothing blocking for that type;
+// anything else needs HaulProof's approval and the company carries a warning until a later check comes back clean.
+async function fetchCarrierRecord(dot) {
+  const d = String(dot || '').replace(/\D/g, '');
+  if (!WEBKEY || !d) return null;
+  try {
+    const r = await fetch(FMCSA_BASE + 'carriers/' + encodeURIComponent(d) + '?webKey=' + encodeURIComponent(WEBKEY), { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) });
+    if (r.status === 404) return { _missing: true };
+    if (!r.ok) { console.log('[fmcsa] record dot=' + d + ' HTTP ' + r.status); return null; }
+    const j = await r.json();
+    const c = j && j.content ? (Array.isArray(j.content) ? (j.content[0] || {}).carrier : j.content.carrier) : null;
+    return c || { _missing: true };
+  } catch (e) { console.log('[fmcsa] record dot=' + d + ' failed: ' + e.message); return null; }
 }
+// Read a field whatever its exact capitalisation.
+function fld(o, ...names) {
+  if (!o) return undefined;
+  const keys = Object.keys(o); for (const n of names) { const k = keys.find(x => x.toLowerCase() === n.toLowerCase()); if (k !== undefined && o[k] !== null && o[k] !== '') return o[k]; }
+  return undefined;
+}
+const num = (v) => { const n = Number(String(v == null ? '' : v).replace(/[^0-9.]/g, '')); return isFinite(n) ? n : null; };
+function buildSnapshot(rec, auth) {
+  const checked = !!(rec || auth);
+  const r = rec && !rec._missing ? rec : null;
+  const yn = (v) => v == null ? null : String(v).toUpperCase().startsWith('Y');
+  const statusCode = fld(r, 'statusCode');
+  return {
+    checked, at: Date.now(), onFile: !!r,
+    usdotStatus: statusCode == null ? null : (String(statusCode).toUpperCase() === 'A' ? 'active' : 'inactive'),
+    allowedToOperate: fld(r, 'allowedToOperate') == null ? null : yn(fld(r, 'allowedToOperate')),
+    oosDate: fld(r, 'oosDate') || null,
+    authority: auth && auth.state ? auth.state : null,
+    insurance: {
+      bipdRequired: yn(fld(r, 'bipdInsuranceRequired')), bipdRequiredAmount: num(fld(r, 'bipdRequiredAmount')), bipdOnFile: num(fld(r, 'bipdInsuranceOnFile')),
+      cargoRequired: yn(fld(r, 'cargoInsuranceRequired')), cargoOnFile: num(fld(r, 'cargoInsuranceOnFile')),
+      bondRequired: yn(fld(r, 'bondInsuranceRequired')), bondOnFile: num(fld(r, 'bondInsuranceOnFile')),
+    },
+    safetyRating: fld(r, 'safetyRating') || null, safetyRatingDate: fld(r, 'safetyRatingDate') || null,
+    powerUnits: num(fld(r, 'totalPowerUnits')), drivers: num(fld(r, 'totalDrivers')),
+    crashes: num(fld(r, 'crashTotal')), driverOosRate: num(fld(r, 'driverOosRate')), vehicleOosRate: num(fld(r, 'vehicleOosRate')),
+    mcs150Outdated: yn(fld(r, 'mcs150Outdated')),
+  };
+}
+const AUTH_WORDS = { pending: 'pending', inactive: 'inactive or revoked', none: 'not on file' };
+// What blocks this company as a carrier/broker, in plain words. Empty = nothing FMCSA reports stands in the way.
+function snapshotProblems(kind, snap) {
+  if (!snap || !snap.checked) return ['FMCSA couldn’t be checked'];
+  const out = [], a = snap.authority && snap.authority[kind];
+  if (snap.usdotStatus === 'inactive') out.push('USDOT record inactive');
+  if (a !== 'active') out.push('no active ' + kind + ' authority' + (a && AUTH_WORDS[a] ? ' (' + AUTH_WORDS[a] + ')' : ''));
+  if (snap.oosDate) out.push('out-of-service order (' + snap.oosDate + ')');
+  else if (snap.allowedToOperate === false && a === 'active') out.push('not allowed to operate');
+  const ins = snap.insurance || {};
+  if (kind === 'carrier' && ins.bipdRequired && (ins.bipdOnFile == null || ins.bipdOnFile <= 0 || (ins.bipdRequiredAmount && ins.bipdOnFile < ins.bipdRequiredAmount))) out.push('liability insurance not on file');
+  if (kind === 'broker' && ins.bondRequired && !(ins.bondOnFile > 0)) out.push('broker bond not on file');
+  return out;
+}
+async function fmcsaEligibility(kind, dotNumber) {
+  const d = String(dotNumber || '').replace(/\D/g, '');
+  if (!d) { const snap = buildSnapshot(null, null); return { snap, problems: ['no DOT # to check with FMCSA'] }; }
+  const [rec, auth] = await Promise.all([fetchCarrierRecord(d), fetchAuthority(d).catch(() => null)]);
+  const snap = buildSnapshot(rec, auth);
+  return { snap, problems: snapshotProblems(kind, snap) };
+}
+function warningFrom(problems) { return problems.length ? 'FMCSA: ' + problems.join('; ') : null; }
 // Only HaulProof may override (legal exposure): the master admin, or the master working in a company as HaulProof Help.
 // Everyone else can ask HaulProof to approve it (POST /authority-request), which lands in the master's Requests inbox.
 function isHaulProof(req) { return req.user.role === 'superadmin' || /^haulproofhelp\+/i.test(req.user.email || ''); }
-// Returns { ok, warning } or { ok:false, status, body } for the route to send.
+// Returns { ok, warning, snapshot } or { ok:false, status, body } for the route to send.
 async function authorityGate(req, kind, dotNumber, name, override) {
-  const state = await authorityState(kind, dotNumber);
-  if (state === 'active') return { ok: true, warning: null };
+  const { snap, problems } = await fmcsaEligibility(kind, dotNumber);
+  if (!problems.length) return { ok: true, warning: null, snapshot: snap };
   const hp = isHaulProof(req);
-  const warning = authWarningText(kind, state);
-  if (hp && override) return { ok: true, warning };
-  return { ok: false, status: 409, body: { code: 'authority', state, warning, canOverride: hp, canRequest: !hp,
-    error: (name || 'This company') + ': ' + warning + '.' + (hp ? ' You can add it anyway — it will show a warning until FMCSA shows the authority as active.' : ' Only HaulProof can approve it — send it to HaulProof for approval.') } };
+  const warning = warningFrom(problems);
+  if (hp && override) return { ok: true, warning, snapshot: snap };
+  return { ok: false, status: 409, body: { code: 'authority', problems, warning, canOverride: hp, canRequest: !hp,
+    error: (name || 'This company') + ' — ' + warning + '.' + (hp ? ' You can add it anyway — it will show a warning until FMCSA’s snapshot comes back clean.' : ' Only HaulProof can approve it — send it to HaulProof for approval.') } };
 }
-function setAuthWarning(orgId, warning) {
-  try { db.prepare(`UPDATE orgs SET authWarning = ?, authCheckedAt = ? WHERE id = ?`).run(warning || null, Date.now(), orgId); } catch (e) {}
+function setAuthWarning(orgId, warning, snapshot) {
+  try {
+    db.prepare(`UPDATE orgs SET authWarning = ?, authCheckedAt = ? WHERE id = ?`).run(warning || null, Date.now(), orgId);
+    if (snapshot && snapshot.checked) db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ? WHERE id = ?`).run(JSON.stringify(snapshot), snapshot.at || Date.now(), orgId);
+  } catch (e) {}
 }
 // Re-check flagged companies against FMCSA once a week each (a daily timer picks up the ones last checked over 7
-// days ago, so restarts don't add checks): clear the warning once the authority is active.
+// days ago, so restarts don't add checks): clear the warning once the snapshot comes back clean.
 const WEEK = 7 * 24 * 3600000;
 async function recheckAuthority() {
   if (!WEBKEY) return;
   const rows = db.prepare(`SELECT id, kind, dotNumber, authWarning FROM orgs WHERE authWarning IS NOT NULL AND dotNumber IS NOT NULL AND kind IN ('carrier','broker')
     AND COALESCE(authCheckedAt,0) < ? ORDER BY COALESCE(authCheckedAt,0) LIMIT 100`).all(Date.now() - WEEK);
   for (const o of rows) {
-    const state = await authorityState(o.kind, o.dotNumber);
-    if (state === 'unknown') continue;   // FMCSA didn't answer — keep the old warning, try again next time
-    setAuthWarning(o.id, state === 'active' ? null : authWarningText(o.kind, state));
-    if (state === 'active') console.log('[authority] ' + o.id + ' now active — warning cleared');
+    const { snap, problems } = await fmcsaEligibility(o.kind, o.dotNumber);
+    if (!snap.checked) continue;   // FMCSA didn't answer — keep the old warning, try again next time
+    setAuthWarning(o.id, warningFrom(problems), snap);
+    if (!problems.length) console.log('[authority] ' + o.id + ' clean on FMCSA — warning cleared');
   }
 }
 function startAuthorityRecheck() { setTimeout(() => recheckAuthority().catch(() => {}), 120000).unref(); setInterval(() => recheckAuthority().catch(() => {}), 24 * 3600000).unref(); }
@@ -101,8 +160,8 @@ router.post('/authority-request', requireAuth, async (req, res) => {
   const list = req.user.orgKind === 'broker' ? 'approved' : 'roster';
   if (!name || !req.user.orgId) return res.status(400).json({ error: 'Pick the company to ask about' });
   if (list === 'approved' && kind === 'broker') return res.status(400).json({ error: 'Your approved list is for carriers' });
-  const state = await authorityState(kind, b.dotNumber);
-  if (state === 'active') return res.status(400).json({ error: 'FMCSA shows this authority as active — you can add it directly.' });
+  const { snap, problems } = await fmcsaEligibility(kind, b.dotNumber);
+  if (!problems.length) return res.status(400).json({ error: 'FMCSA shows nothing blocking this one — you can add it directly.' });
   const dup = db.prepare(`SELECT id FROM access_requests WHERE kind = 'authority' AND status = 'pending' AND requestOrgId = ? AND COALESCE(dotNumber,'') = ? AND orgType = ?`).get(req.user.orgId, String(b.dotNumber || ''), kind);
   if (dup) return res.json({ ok: true, alreadyAsked: true });
   const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(req.user.orgId) || {};
@@ -112,11 +171,11 @@ router.post('/authority-request', requireAuth, async (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending','[]',?,?,?,?)`)
     .run(id, crypto.randomBytes(4).toString('hex').toUpperCase(), 'authority', kind, req.user.name || req.user.email, req.user.email, name,
       String(b.mcNumber || '').trim() || null, String(b.dotNumber || '').trim() || null, org.name || null,
-      authWarningText(kind, state) + (reason ? ' — ' + reason : ''), req.user.orgId, list, String(b.address || '').trim() || null, Date.now());
+      warningFrom(problems) + (reason ? ' — ' + reason : ''), req.user.orgId, list, String(b.address || '').trim() || null, Date.now());
   try {
     const { sendMail, helpEmail } = require('./mailer');
     sendMail({ to: helpEmail(), subject: 'HaulProof: approval needed — ' + name + ' as ' + kind,
-      text: (org.name || 'A company') + ' (' + req.user.email + ') wants to add ' + name + (b.dotNumber ? ' (DOT ' + b.dotNumber + ')' : '') + ' as a ' + kind + '.\n' + authWarningText(kind, state) + '.' + (reason ? '\nTheir note: ' + reason : '') + '\n\nReview it under Requests in HaulProof.' });
+      text: (org.name || 'A company') + ' (' + req.user.email + ') wants to add ' + name + (b.dotNumber ? ' (DOT ' + b.dotNumber + ')' : '') + ' as a ' + kind + '.\n' + warningFrom(problems) + '.' + (reason ? '\nTheir note: ' + reason : '') + '\n\nReview it under Requests in HaulProof.' });
   } catch (e) {}
   res.status(201).json({ ok: true });
 });
@@ -127,7 +186,9 @@ function grantAuthorityRequest(r) {
     ? upsertBrokerOrg({ name: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, verified: true, address: r.address })
     : upsertCarrierOrg({ name: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, verified: true, address: r.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(r.requestOrgId, o.id, Date.now());
-  setAuthWarning(o.id, String(r.note || '').split(' — ')[0] || authWarningText(kind, 'unknown'));
+  setAuthWarning(o.id, String(r.note || '').split(' — ')[0] || 'FMCSA: approved by HaulProof without a clean snapshot');
+  // Fill in the FMCSA snapshot in the background (the approval itself doesn't wait on FMCSA).
+  fmcsaEligibility(kind, r.dotNumber).then(({ snap, problems }) => { if (snap.checked) setAuthWarning(o.id, warningFrom(problems) || null, snap); }).catch(() => {});
   return o;
 }
 
@@ -139,16 +200,16 @@ router.post('/:id/recheck-authority', requireAuth, async (req, res) => {
     || db.prepare(`SELECT 1 FROM broker_carriers WHERE brokerId = ? AND carrierId = ?`).get(req.user.orgId || '', o.id)
     || db.prepare(`SELECT 1 FROM loads WHERE (orgId = ? OR brokerId = ?) AND (carrierId = ? OR brokerId = ?) LIMIT 1`).get(req.user.orgId || '', req.user.orgId || '', o.id, o.id);
   if (!linked) return res.status(404).json({ error: 'Company not found' });
-  if (!o.authWarning) return res.json({ ok: true, authWarning: null, state: 'active' });
   if (o.authCheckedAt && Date.now() - o.authCheckedAt < 3600000) {
     const mins = Math.ceil((3600000 - (Date.now() - o.authCheckedAt)) / 60000);
     return res.status(429).json({ error: 'Checked with FMCSA less than an hour ago — try again in ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.' });
   }
-  const state = await authorityState(o.kind, o.dotNumber);
-  if (state === 'unknown') return res.status(502).json({ error: 'FMCSA didn’t answer — try again later.' });
-  const warning = state === 'active' ? null : authWarningText(o.kind, state);
-  setAuthWarning(o.id, warning);
-  res.json({ ok: true, state, authWarning: warning });
+  const { snap, problems } = await fmcsaEligibility(o.kind, o.dotNumber);
+  if (!snap.checked) return res.status(502).json({ error: 'FMCSA didn’t answer — try again later.' });
+  // Only a flagged company's warning changes here; a clean one picks up a warning only if HaulProof re-approves it.
+  const warning = o.authWarning ? warningFrom(problems) : null;
+  setAuthWarning(o.id, warning, snap);
+  res.json({ ok: true, authWarning: warning, problems, snapshot: snap });
 });
 
 // Pull a carrier object out of QCMobile's response (content is an object for id lookups, array for name).
@@ -255,7 +316,7 @@ async function fmcsaLookup({ mc, dot, name }) {
     const carriers = raw.map(c => normalize(c, mc));
     // Fill in the MC# from the docket sub-record wherever we don't already have one.
     // A few companies at a time (not all ~30 requests at once) so FMCSA doesn't throttle the lookup.
-    const one = async (c) => {
+    const one = async (c, i) => {
       if (!c.mcNumber && c.dotNumber) { c.mcNumber = await fetchMcByDot(c.dotNumber); }
       if (c.dotNumber) {
         const a = await fetchAuthority(c.dotNumber);
@@ -268,8 +329,11 @@ async function fmcsaLookup({ mc, dot, name }) {
         if (use) { c.authBroker = use.broker; c.authCarrier = use.carrier; c.authState = use.state; }
       }
       delete c._recordAuth;
+      // The FMCSA snapshot from the search record + authority, and what (if anything) blocks each type.
+      c.snapshot = buildSnapshot(raw[i] || null, c.authState ? { state: c.authState } : null);
+      c.problems = { carrier: snapshotProblems('carrier', c.snapshot), broker: snapshotProblems('broker', c.snapshot) };
     };
-    for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map(one));
+    for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map((c, k) => one(c, i + k)));
     return { configured: true, results: carriers };
   } catch (e) {
     return { configured: true, results: [], error: 'Could not reach FMCSA' };
@@ -333,7 +397,8 @@ router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
 });
 function carrierOut(o) {
   return { id: o.id, name: o.name, mcNumber: o.mcNumber, dotNumber: o.dotNumber, fmcsaVerified: !!o.fmcsaVerified,
-    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null };
+    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null,
+    fmcsaSnapshot: (() => { try { return o.fmcsaSnapshot ? JSON.parse(o.fmcsaSnapshot) : null; } catch (e) { return null; } })() };
 }
 
 // Save a carrier into the registry (from an FMCSA result, or an admin override for one FMCSA didn't return).
@@ -360,14 +425,14 @@ router.post('/', requireAuth, async (req, res) => {
     // Refresh verification snapshot if this call carries a verified result.
     if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
-    setAuthWarning(existing.id, gate.warning);
+    setAuthWarning(existing.id, gate.warning, gate.snapshot);
     return res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
               VALUES (?,?, 'carrier', ?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
-  setAuthWarning(id, gate.warning);
+  setAuthWarning(id, gate.warning, gate.snapshot);
   // Optionally create the carrier's first admin login (master/customer admin only).
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
   if (adminEmail) {
@@ -413,7 +478,7 @@ router.post('/roster', requireAuth, async (req, res) => {
     ? upsertBrokerOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address })
     : upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(org, carrier.id, Date.now());
-  setAuthWarning(carrier.id, gate.warning);
+  setAuthWarning(carrier.id, gate.warning, gate.snapshot);
   const saved = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(carrier.id);
   res.status(201).json({ carrier: Object.assign(carrierOut(saved), { kind: asBroker ? 'broker' : 'carrier' }) });
 });

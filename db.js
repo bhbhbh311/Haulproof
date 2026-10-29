@@ -458,6 +458,9 @@ addColumn('orgs', 'authCheckedAt', 'INTEGER');   // last FMCSA authority check
 addColumn('access_requests', 'requestOrgId', 'TEXT');   // the company asking
 addColumn('access_requests', 'requestList', 'TEXT');    // where it goes: 'roster' (customer carriers/brokers) or 'approved' (broker's carriers)
 addColumn('access_requests', 'address', 'TEXT');
+// The FMCSA snapshot last seen for a saved carrier/broker (USDOT status, authority, insurance on file, safety, fleet).
+addColumn('orgs', 'fmcsaSnapshot', 'TEXT');      // JSON
+addColumn('orgs', 'fmcsaSnapshotAt', 'INTEGER');
 // "Send to driver again": a signed stop can be redone. The clean unsigned original is kept with the signed copy so a
 // redo starts from it; while both signed copies exist dispatch picks one (pickPending) and the other becomes 'not_used'.
 addColumn('pods', 'originalFile', 'TEXT');        // the unsigned original this signed copy was made from (kept for a redo)

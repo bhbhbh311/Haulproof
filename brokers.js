@@ -12,7 +12,8 @@ const router = express.Router();
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 function brokerOut(o) {
   return { id: o.id, name: o.name, mcNumber: o.mcNumber, dotNumber: o.dotNumber, fmcsaVerified: !!o.fmcsaVerified,
-    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null };
+    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null,
+    fmcsaSnapshot: (() => { try { return o.fmcsaSnapshot ? JSON.parse(o.fmcsaSnapshot) : null; } catch (e) { return null; } })() };
 }
 const isAdmin = (req) => req.user.role === 'admin' || req.user.role === 'superadmin';
 
@@ -52,14 +53,14 @@ router.post('/', requireAuth, async (req, res) => {
   if (existing) {
     if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
-    setAuthWarning(existing.id, gate.warning);
+    setAuthWarning(existing.id, gate.warning, gate.snapshot);
     return res.json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
               VALUES (?,?, 'broker', ?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
-  setAuthWarning(id, gate.warning);
+  setAuthWarning(id, gate.warning, gate.snapshot);
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
   if (adminEmail) {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Only an admin can create a broker login' });
@@ -126,7 +127,7 @@ router.post('/my-carriers', requireAuth, async (req, res) => {
   if (!gate.ok) return res.status(gate.status).json(gate.body);
   const carrier = upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(brokerOrg, carrier.id, Date.now());
-  setAuthWarning(carrier.id, gate.warning);
+  setAuthWarning(carrier.id, gate.warning, gate.snapshot);
   res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(carrier.id)) });
 });
 // Remove a carrier from the roster.
