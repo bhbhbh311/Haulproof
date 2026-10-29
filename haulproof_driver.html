@@ -1219,6 +1219,23 @@ window.__startApp=function(){
       document.body.appendChild(bar); _linkBar=bar;
     }catch(e){}
   }
+  // The server answers 401 { pin:true } when this phone's saved PIN unlock is missing or out of date (e.g. dispatch
+  // reset the PIN): forget it and show the PIN screen. Queued uploads stay queued and go once the PIN is entered.
+  (function(){
+    var _f=window.fetch; if(!_f||_f.__hpPin) return;
+    var wrapped=function(input, init){
+      return _f.apply(this, arguments).then(function(res){
+        try{
+          var h=(init&&init.headers)||{};
+          if(res.status===401 && (h["X-Api-Key"]||h["x-api-key"])){
+            res.clone().json().then(function(j){ if(j&&j.pin){ clearUnlock(); try{ showPinGate(); }catch(_){} } }).catch(function(){});
+          }
+        }catch(_){}
+        return res;
+      });
+    };
+    wrapped.__hpPin=true; window.fetch=wrapped;
+  })();
   function isLinkError(status, msg){ return status===401 && /device key|not valid|link/i.test(msg||""); }
   // Simple yes/no confirm sheet (returns a Promise<boolean>) — used to warn before an action that changes
   // what gets saved (e.g. a PO # that already exists becoming a new, separate load).

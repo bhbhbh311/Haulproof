@@ -57,6 +57,19 @@ function driverOut(req, d) {
     link: originOf(req) + '/driver?k=' + encodeURIComponent(d.token) };
 }
 
+// A driver link with a PIN works only with the "unlock" value the phone earned by entering that PIN (sent as
+// X-Driver-Unlock) — so a forwarded or copied link is useless without the PIN. The PIN screens themselves, help and
+// "report a problem" stay open; portal logins (a session) aren't affected.
+const PIN_FREE = new Set(['/link-info', '/verify-pin', '/change-pin', '/forgot-pin', '/help', '/report-problem']);
+router.use((req, res, next) => {
+  if (PIN_FREE.has(req.path)) return next();
+  if ((req.headers.authorization || '').startsWith('Bearer ') || (req.cookies && req.cookies.hp_session)) return next();
+  const r = resolveKey(req);
+  if (!r || !r.driver || !r.driver.pinHash) return next();
+  if ((req.headers['x-driver-unlock'] || '').trim() === driverUnlockValue(r.driver)) return next();
+  return res.status(401).json({ error: 'Enter your driver PIN to continue', pin: true });
+});
+
 // --- Endpoints the DRIVER APP calls with its own token (X-Api-Key), not a portal login ---
 // Does this link need a PIN before it can be used? (Lets the app show the lock screen.)
 router.get('/link-info', (req, res) => {

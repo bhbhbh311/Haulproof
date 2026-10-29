@@ -82,7 +82,7 @@ function requireAuthOrKey(req, res, next) {
   const hasSession = h.startsWith('Bearer ') || !!(req.cookies && req.cookies.hp_session);
   if (hasSession) return requireAuth(req, res, next);
   const r = resolveKey(req);
-  if (r) { req.org = r.org; req.driver = r.driver; req.viaKey = true; return next(); }
+  if (r) { req.org = r.org; req.driver = r.driver; req.viaKey = true; return enforceDriverPin(req, res, next); }
   return requireAuth(req, res, next);
 }
 // If this request came in on a PIN-protected driver token, it must carry the matching unlock value.
@@ -278,7 +278,7 @@ router.get('/lookup', requireAuthOrKey, (req, res) => {
 });
 
 // ---- INGEST (signed POD back from the driver app). Device key; stored under that customer. ----
-router.post('/ingest', requireApiKey, raw, async (req, res) => {
+router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) => {
   try {
     let orgId = req.org.id;
     const h = req.headers, dec = decoder(h);
@@ -1054,7 +1054,7 @@ router.post('/:id/reject-page', requireAuth, express.json(), (req, res) => {
 });
 
 // ---- Driver RE-UPLOADS a corrected document after dispatch asked them to re-shoot a page. Device key. ----
-router.post('/:id/reupload', requireApiKey, raw, (req, res) => {
+router.post('/:id/reupload', requireApiKey, enforceDriverPin, raw, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   // The device key must belong to an org connected to this document (its owner, or the assigned carrier/broker).
