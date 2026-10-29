@@ -1261,11 +1261,24 @@
       </div>
     </div>
 
+    <!-- HAULPROOF OK LIST (master admin): every saved carrier/broker with its latest FMCSA snapshot -->
+    <div class="card hide" id="okListCard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">HaulProof OK list</h1><p class="sub" style="margin-bottom:0;max-width:760px;">Every carrier and broker HaulProof has checked with FMCSA. A clean check from the last 7 days is reused for any company’s add or import; older ones are checked with FMCSA again first. Flagged companies are never reused — each company that wants one still asks you, and your approval covers only that company.</p></div>
+        <button class="ghost" id="okRefresh" type="button">↻ Refresh</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:14px;">
+        <div style="flex:1 1 240px;"><label for="okSearch">Search</label><input id="okSearch" placeholder="Name, MC# or DOT#"></div>
+        <div id="okFilters" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      </div>
+      <div id="okList" style="margin-top:14px;"></div>
+    </div>
+
     <!-- APPROVED CARRIERS (broker) -->
     <div class="card hide" id="brokerCarriersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Approved carriers</h1><p class="sub" style="margin-bottom:0;">Approve the carriers you work with — verified on FMCSA. You can assign loads only to carriers on this list.</p></div>
-        <button class="ghost" id="bcToggle" type="button">＋ Approve a carrier</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="bcImport" type="button">⇪ Import a list</button><button class="ghost" id="bcToggle" type="button">＋ Approve a carrier</button></div>
       </div>
       <div id="bcForm" class="hide" style="margin-top:16px;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
@@ -1282,7 +1295,7 @@
     <div class="card hide" id="custCarriersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div><h1 style="margin-bottom:0;">Carriers &amp; brokers</h1><p class="sub" style="margin-bottom:0;">The carriers and brokers you work with — verified on FMCSA. Save them here, then pick one when you assign a load.</p></div>
-        <button class="ghost" id="ccrToggle" type="button">＋ Add a carrier or broker</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="ghost" id="ccrImport" type="button">⇪ Import a list</button><button class="ghost" id="ccrToggle" type="button">＋ Add a carrier or broker</button></div>
       </div>
       <div id="ccrForm" class="hide" style="margin-top:16px;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
@@ -1910,7 +1923,7 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','custManageCard','requestsCard'];
+    const SUPER_CARDS = ['statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','okListCard','custManageCard','requestsCard'];
     show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     const roles = (u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : []);
     const pureReceiver = u.role !== 'superadmin' && roles.indexOf('receiver') > -1 && !['customer','carrier','broker'].some(r => roles.indexOf(r) > -1);
@@ -1928,6 +1941,7 @@
       show('customersCard', true); loadCustomers();
       show('carriersCard', true); loadCarriers();
       show('brokersCard', true); loadBrokers();
+      show('okListCard', true); loadOkList();
       show('receiversCard', true); loadReceivers();
       if ($('recvAddFind')) $('recvAddFind').classList.add('hide'); if ($('nrToggle')) $('nrToggle').classList.remove('hide'); if ($('recvDupBtn')) $('recvDupBtn').classList.remove('hide');
       [...CUSTOMER_CARDS, 'custManageCard'].forEach(id => show(id, false));
@@ -2135,6 +2149,7 @@
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
+    { key:'oklist',    label:'FMCSA OK list', cards:['okListCard'] },
     { key:'receivers', label:'Receivers',   cards:['receiversCard'] },
     { key:'requests',  label:'Requests',    cards:['requestsCard'] }
   ];
@@ -3149,7 +3164,7 @@
       const r = await api('/api/carriers/' + c.id + '/recheck-authority', { method: 'POST' });
       c.fmcsaSnapshot = r.snapshot; c.authWarning = r.authWarning;
       setTimeout(() => choiceDialog({ title: 'FMCSA snapshot — ' + (c.name || ''), message: '', extraHtml: fmcsaDetailsHtml(c, r.snapshot, r.problems, e.kind), choices: [] }), 0);
-      setTimeout(() => { try { loadCustCarriers(); } catch (_) {} try { loadApprovedCarriers(); } catch (_) {} try { if (curLoad && curLoad.id) renderCarrierNow(); } catch (_) {} }, 900);
+      setTimeout(() => { try { loadCustCarriers(); } catch (_) {} try { loadApprovedCarriers(); } catch (_) {} try { if (curLoad && curLoad.id) renderCarrierNow(); } catch (_) {} try { if (user && user.role === 'superadmin') loadOkList(); } catch (_) {} }, 900);
     } }] : [];
     choiceDialog({ title: 'FMCSA snapshot — ' + (c.name || ''), message: snap ? '' : 'No snapshot saved for this company yet — refresh it from FMCSA.',
       extraHtml: snap ? fmcsaDetailsHtml(c, snap, problems, e.kind || kind) : fmcsaDisclaimerHtml(null), choices });
@@ -3198,6 +3213,207 @@
         alert(r.alreadyAsked ? 'You already asked HaulProof about this one — it’s waiting for approval.' : 'Sent to HaulProof for approval. You’ll get an email when it’s decided.');
       } }] });
   }
+
+  // ---- Import a list of carriers/brokers (customers' roster, brokers' approved list): paste MC#/DOT#s or upload a
+  //      CSV/Excel file → HaulProof checks each (reusing its 7-day OK list, else FMCSA) → add the OK ones in one click,
+  //      send the flagged ones to HaulProof together. Nothing is saved before the second screen. ----
+  function impParseNumbers(text, bare) {
+    const rows = [];
+    String(text || '').split(/\r?\n/).forEach(line => {
+      const t = line.trim(); if (!t) return;
+      const kind = /\bbroker\b/i.test(t) ? 'broker' : (/\bcarrier\b/i.test(t) ? 'carrier' : '');
+      let m = t.match(/\bDOT\s*#?\s*:?\s*(\d{1,9})/i), mc = t.match(/\b(?:MC|MX|FF)\s*#?\s*-?\s*:?\s*(\d{1,8})/i);
+      if (m) rows.push({ dot: m[1], kind, input: 'DOT ' + m[1] });
+      else if (mc) rows.push({ mc: mc[1], kind, input: 'MC ' + mc[1] });
+      else { const n = t.match(/(\d{1,9})/); if (n) rows.push(bare === 'dot' ? { dot: n[1], kind, input: 'DOT ' + n[1] } : { mc: n[1], kind, input: 'MC ' + n[1] }); }
+    });
+    return rows;
+  }
+  function impParseCsv(text, bare) {
+    const lines = String(text || '').split(/\r?\n/).filter(l => l.trim());
+    if (!lines.length) return [];
+    const split = (l) => { const out = []; let cur = '', q = false; for (const ch of l) { if (ch === '"') q = !q; else if ((ch === ',' || ch === '\t' || ch === ';') && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map(x => x.trim()); };
+    const head = split(lines[0]).map(h => h.toLowerCase());
+    const ix = (re) => head.findIndex(h => re.test(h));
+    const iMc = ix(/^(mc|mc ?#|mc ?number|docket|mc\/mx)/), iDot = ix(/(^dot|usdot|dot ?#|dot ?number)/), iType = ix(/^(type|kind|carrier ?\/ ?broker|role)/);
+    if (iMc < 0 && iDot < 0) return impParseNumbers(lines.join('\n'), bare);   // no header row we know — read it like a pasted list
+    return lines.slice(1).map(l => {
+      const c = split(l), mc = iMc >= 0 ? String(c[iMc] || '').replace(/\D/g, '') : '', dot = iDot >= 0 ? String(c[iDot] || '').replace(/\D/g, '') : '';
+      const kind = iType >= 0 && /broker/i.test(c[iType] || '') ? 'broker' : (iType >= 0 && /carrier/i.test(c[iType] || '') ? 'carrier' : '');
+      return dot ? { dot, mc, kind, input: 'DOT ' + dot } : (mc ? { mc, kind, input: 'MC ' + mc } : null);
+    }).filter(Boolean);
+  }
+  function impLoadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    return new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => ok(window.XLSX); sc.onerror = () => no(new Error('Couldn’t open Excel files right now — save it as CSV and try again.')); document.head.appendChild(sc); });
+  }
+  let _imp = null;
+  function openCarrierImport() {
+    const broker = isBrokerUser();
+    let ov = $('impModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'impModal'; ov.className = 'histOverlay hide'; ov.style.zIndex = '10060';
+      ov.innerHTML = '<div class="histBox" style="max-width:1100px;" id="impBox"></div>'; document.body.appendChild(ov); }
+    _imp = { rows: [], results: [], broker };
+    $('impBox').innerHTML = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div><h1 style="margin:0 0 4px;font-size:20px;">Import ${broker ? 'carriers' : 'carriers &amp; brokers'}</h1><p class="sub" style="margin:0;">Paste MC or DOT numbers, or upload your ${broker ? 'approved-carrier' : 'carrier'} spreadsheet. HaulProof checks each one before anything is saved.</p></div>
+        <div style="display:flex;gap:8px;"><button class="ghost" type="button" id="impTpl">⬇ Template (.csv)</button><button class="ghost" type="button" id="impClose">Close</button></div></div>
+      <div id="impStep1" style="margin-top:16px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">
+          <div><label for="impText">Paste a list</label><textarea id="impText" rows="9" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:10px;font:13px/1.6 ui-monospace,monospace;" placeholder="MC 392354\nMC 225579 broker\nDOT 639602"></textarea>
+            <div class="sub" style="font-size:12px;margin-top:4px;">One per line.${broker ? '' : ' Add “broker” after the number to save it as a broker; otherwise it’s saved as a carrier.'}</div>
+            <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:500;">Numbers with no MC/DOT label are <select id="impBare" style="width:auto;margin:0;"><option value="mc">MC #s</option><option value="dot">DOT #s</option></select></label></div>
+          <div><label for="impFile">Or upload a file</label><div style="margin-top:4px;border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;">
+            <input id="impFile" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv" style="display:block;margin:0 auto 8px;">
+            <div class="sub" style="font-size:12px;">.csv or .xlsx — columns we read: MC#, DOT#, Type (carrier / broker, optional)</div><div id="impFileMsg" class="sub" style="font-size:12.5px;margin-top:6px;"></div></div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+          <span class="sub" id="impCount" style="font-size:13px;">Nothing is saved until you confirm on the next screen.</span>
+          <button type="button" id="impGo">Check with FMCSA</button></div>
+        ${fmcsaDisclaimerHtml()}
+      </div>
+      <div id="impStep2" class="hide" style="margin-top:16px;"></div>`;
+    ov.classList.remove('hide');
+    $('impClose').onclick = () => ov.classList.add('hide');
+    $('impTpl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['MC,DOT,Type\n392354,,carrier\n,2214746,' + (broker ? 'carrier' : 'broker') + '\n'], { type: 'text/csv' })); a.download = 'haulproof-carriers-template.csv'; a.click(); };
+    const count = () => { const n = impParseNumbers($('impText').value, $('impBare').value).length + (_imp.fileRows ? _imp.fileRows.length : 0); $('impCount').textContent = n ? n + ' row' + (n === 1 ? '' : 's') + ' found · nothing is saved until you confirm on the next screen' : 'Nothing is saved until you confirm on the next screen.'; };
+    $('impText').oninput = count; $('impBare').onchange = count;
+    $('impFile').onchange = async () => {
+      const f = $('impFile').files[0]; _imp.fileRows = null; if (!f) { count(); return; }
+      try {
+        let text;
+        if (/\.xlsx?$/i.test(f.name)) { const X = await impLoadXlsx(); const wb = X.read(await f.arrayBuffer(), { type: 'array' }); text = X.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]); }
+        else text = await f.text();
+        _imp.fileRows = impParseCsv(text, $('impBare').value);
+        $('impFileMsg').textContent = _imp.fileRows.length ? '✓ ' + _imp.fileRows.length + ' rows read from ' + f.name : 'No MC or DOT numbers found in ' + f.name;
+      } catch (e) { $('impFileMsg').textContent = e.message; }
+      count();
+    };
+    $('impGo').onclick = () => {
+      const seen = new Set(), rows = [];
+      impParseNumbers($('impText').value, $('impBare').value).concat(_imp.fileRows || []).forEach(r => { if (broker) r.kind = 'carrier'; const k = (r.dot ? 'd' + r.dot : 'm' + r.mc) + '|' + (r.kind || 'carrier'); if (!seen.has(k)) { seen.add(k); rows.push(r); } });
+      if (!rows.length) { alert('Paste or upload at least one MC or DOT number.'); return; }
+      if (rows.length > 500) { alert('Up to 500 at a time, please — split the list.'); return; }
+      _imp.rows = rows; impRun(rows.map((_, i) => i));
+    };
+  }
+  async function impRun(idxs) {
+    $('impStep1').classList.add('hide'); $('impStep2').classList.remove('hide');
+    const total = idxs.length; let done = 0;
+    const draw = () => impDraw(done < total ? { done, total } : null);
+    draw();
+    for (let i = 0; i < idxs.length; i += 10) {
+      const part = idxs.slice(i, i + 10);
+      try {
+        const r = await api('/api/carriers/import/check', { method: 'POST', body: JSON.stringify({ rows: part.map(k => _imp.rows[k]) }) });
+        part.forEach((k, j) => { _imp.results[k] = Object.assign(r.results[j] || { status: 'error', message: 'No answer' }, { sel: (r.results[j] || {}).status === 'ok' }); });
+      } catch (e) { part.forEach(k => { _imp.results[k] = { input: _imp.rows[k].input, kind: _imp.rows[k].kind || 'carrier', status: 'error', message: e.message }; }); }
+      done += part.length; draw();
+    }
+  }
+  function impDraw(progress) {
+    const R = _imp.results.map((r, i) => r ? Object.assign(r, { i }) : null).filter(Boolean);
+    const cnt = (st) => R.filter(r => r.status === st && !r.done).length;
+    const nOk = R.filter(r => r.status === 'ok' && r.sel && !r.done).length, nFl = cnt('flagged');
+    const fromHp = R.filter(r => r.source === 'haulproof').length, fromFm = R.filter(r => r.source === 'fmcsa').length;
+    const tile = (n, lbl, bg, fg) => `<div style="padding:12px;border-radius:12px;background:${bg};"><div style="font-size:24px;font-weight:800;color:${fg};">${n}</div><div style="font-size:12.5px;">${lbl}</div></div>`;
+    const chip = (r) => r.done === 'added' ? '<span class="chip signed">Added ✓</span>' : r.done === 'asked' ? '<span class="chip prepared">Sent to HaulProof</span>'
+      : ({ ok: '<span class="chip signed">✓ OK to use</span>', flagged: '<span class="chip failed">✕ Needs HaulProof approval</span>', exists: '<span class="chip received">Already on your list</span>', notfound: '<span class="chip received">Not found</span>', error: '<span class="chip received">Couldn’t check</span>' })[r.status] || '';
+    const when = (r) => r.checkedAt ? esc(new Date(r.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + ' · ' + (r.source === 'haulproof' ? 'HaulProof’s list' : 'FMCSA') : '';
+    R.forEach(r => { if (r.snapshot) FM_SNAP['i' + r.i] = { c: { name: r.name, dotNumber: r.dotNumber, snapshot: r.snapshot, problems: { [r.kind]: r.problems || [] } }, kind: r.kind }; });
+    const body = R.map(r => `<tr${r.status === 'exists' ? ' style="opacity:.6;"' : ''}>
+        <td>${r.status === 'ok' && !r.done ? `<input type="checkbox" class="impSel" data-i="${r.i}"${r.sel ? ' checked' : ''} aria-label="Select ${esc(r.name || r.input)}">` : ''}</td>
+        <td><b>${esc(r.name || r.input || '')}</b>${r.problems && r.problems.length && r.status === 'flagged' ? `<div style="font-size:12px;color:var(--danger);margin-top:2px;">${esc(r.problems.join('; '))}</div>` : ''}${r.message ? `<div style="font-size:12px;color:var(--warn);margin-top:2px;">${esc(r.message)}</div>` : ''}</td>
+        <td class="mono">${r.status === 'notfound' || r.status === 'error' ? `<input class="impFix" data-i="${r.i}" value="${esc(_imp.rows[r.i].dot || _imp.rows[r.i].mc || '')}" style="width:110px;padding:5px 8px;font:12.5px ui-monospace,monospace;" aria-label="Fix the number"> <select class="impFixBy" data-i="${r.i}" style="width:auto;padding:4px;"><option value="mc"${_imp.rows[r.i].dot ? '' : ' selected'}>MC</option><option value="dot"${_imp.rows[r.i].dot ? ' selected' : ''}>DOT</option></select>` : (esc(r.mcNumber) || '—') + ' / ' + (esc(r.dotNumber) || '—')}</td>
+        <td>${r.kind === 'broker' ? 'Broker' : 'Carrier'}</td>
+        <td>${chip(r)}${r.snapshot ? ` <button type="button" class="ghost fmSnapBtn" data-k="i${r.i}" style="padding:2px 8px;font-size:11px;">Details</button>` : ''}</td>
+        <td class="sub" style="font-size:12.5px;white-space:nowrap;">${when(r)}</td></tr>`).join('');
+    $('impStep2').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:13px;" class="sub"><span>${progress ? 'Checking ' + progress.done + ' of ' + progress.total + '…' : 'Checked ' + R.length + ' · ' + fromHp + ' from HaulProof’s list · ' + fromFm + ' from FMCSA'}</span><span>${progress ? '' : 'Done'}</span></div>
+      <div style="height:8px;border-radius:4px;background:var(--line);margin:6px 0 14px;"><div style="height:8px;border-radius:4px;background:var(--primary);width:${progress ? Math.round(100 * progress.done / Math.max(1, progress.total)) : 100}%;transition:width .3s;"></div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">
+        ${tile(cnt('ok'), 'OK to use — ready to add', 'rgba(60,200,140,.14)', 'var(--ok)')}${tile(nFl, 'Needs HaulProof approval', 'rgba(255,110,90,.14)', 'var(--danger)')}${tile(cnt('exists'), 'Already on your list — skipped', 'rgba(140,160,200,.14)', 'inherit')}${tile(cnt('notfound') + cnt('error'), 'Not found / couldn’t check — fix &amp; re-check', 'rgba(255,200,80,.14)', 'var(--warn)')}
+      </div>
+      <div style="overflow-x:auto;max-height:52vh;overflow-y:auto;"><table><thead><tr><th></th><th>Company</th><th>MC / DOT</th><th>Type</th><th>HaulProof check</th><th>Checked</th></tr></thead><tbody>${body}</tbody></table></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+        <button type="button" class="ghost" id="impBack">← Start over</button>
+        ${cnt('notfound') + cnt('error') ? '<button type="button" class="ghost" id="impRecheck">Re-check fixed rows</button>' : ''}
+        ${nFl ? `<button type="button" class="ghost" id="impAsk" style="color:var(--warn);border-color:var(--warn);">Ask HaulProof to approve ${nFl}</button>` : ''}
+        <button type="button" id="impAdd"${nOk && !progress ? '' : ' disabled'}>Add ${nOk} OK compan${nOk === 1 ? 'y' : 'ies'}</button></div>
+      ${fmcsaDisclaimerHtml()}`;
+    $('impStep2').querySelectorAll('.impSel').forEach(c => c.onchange = () => { _imp.results[+c.dataset.i].sel = c.checked; impDraw(progress); });
+    $('impBack').onclick = () => openCarrierImport();
+    if ($('impRecheck')) $('impRecheck').onclick = () => {
+      const idx = [];
+      $('impStep2').querySelectorAll('.impFix').forEach(inp => { const i = +inp.dataset.i, by = $('impStep2').querySelector('.impFixBy[data-i="' + i + '"]').value, v = inp.value.replace(/\D/g, '');
+        if (!v) return; _imp.rows[i] = { kind: _imp.rows[i].kind, [by]: v, input: (by === 'dot' ? 'DOT ' : 'MC ') + v }; idx.push(i); });
+      if (idx.length) impRun(idx);
+    };
+    if ($('impAsk')) $('impAsk').onclick = () => {
+      const fl = R.filter(r => r.status === 'flagged' && !r.done);
+      choiceDialog({ title: 'Ask HaulProof to approve ' + fl.length + ' compan' + (fl.length === 1 ? 'y' : 'ies') + '?',
+        message: 'FMCSA’s snapshot flags these, so only HaulProof can approve adding them. Each one HaulProof approves is added to your list with a warning until FMCSA’s snapshot comes back clean (re-checked weekly).',
+        extraHtml: fmcsaDisclaimerHtml(null) + '<label style="display:block;margin-top:10px;font-size:13px;font-weight:600;color:var(--muted);">Why do you need them? (optional)<textarea id="impReason" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;font:inherit;"></textarea></label>',
+        choices: [{ label: 'Send for approval', run: async () => {
+          const r = await api('/api/carriers/authority-request', { method: 'POST', body: JSON.stringify({ reason: ($('impReason') ? $('impReason').value : '') || 'From an imported list', rows: fl.map(x => ({ name: x.name, mcNumber: x.mcNumber, dotNumber: x.dotNumber, address: x.address, kind: x.kind })) }) });
+          fl.forEach((x, j) => { const res = (r.results || [])[j] || {}; if (res.ok || res.alreadyAsked) x.done = 'asked'; else if (res.error) x.message = res.error; });
+          impDraw(null);
+        } }] });
+    };
+    $('impAdd').onclick = async () => {
+      const b = $('impAdd'); b.disabled = true;
+      const todo = R.filter(r => r.status === 'ok' && r.sel && !r.done);
+      let n = 0;
+      for (const r of todo) {
+        b.textContent = 'Adding ' + (++n) + ' of ' + todo.length + '…';
+        try {
+          await api(_imp.broker ? '/api/brokers/my-carriers' : '/api/carriers/roster', { method: 'POST', body: JSON.stringify({ name: r.name, mcNumber: r.mcNumber, dotNumber: r.dotNumber, address: r.address, allowedToOperate: r.allowedToOperate, fmcsaVerified: true, kind: r.kind }) });
+          r.done = 'added';
+        } catch (e) { r.message = e.message; r.status = 'error'; }
+      }
+      impDraw(null);
+      try { if (_imp.broker) loadApprovedCarriers(); else loadCustCarriers(); } catch (_) {}
+    };
+  }
+  if ($('ccrImport')) $('ccrImport').onclick = openCarrierImport;
+  if ($('bcImport')) $('bcImport').onclick = openCarrierImport;
+
+  // ---- Master admin: HaulProof's OK list ----
+  let _okList = [], _okFilter = 'all';
+  async function loadOkList() {
+    const box = $('okList'); if (!box) return;
+    box.innerHTML = '<div class="sub">Loading…</div>';
+    try { _okList = (await api('/api/carriers/ok-list')).companies || []; drawOkList(); }
+    catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
+  function okKindCell(g, k) {
+    if (!g.snapshot) return '<span class="chip received">Not checked yet</span>';
+    const p = (g.problems && g.problems[k]) || [];
+    if (!p.length) return '<span class="chip signed">✓ OK</span>';
+    if (p.length === 1 && /^no active /.test(p[0])) return `<span class="chip received" title="${esc(p[0])}">No authority</span>`;
+    return `<span class="chip failed" title="${esc(p.join('; '))}">⚠ Flagged</span>`;
+  }
+  function okIsFlagged(g) { return !!(g.warnings.length || (g.problems && g.kinds.some(k => (g.problems[k === 'broker' ? 'broker' : 'carrier'] || []).length && !(g.problems[k === 'broker' ? 'broker' : 'carrier'].length === 1 && /^no active /.test(g.problems[k === 'broker' ? 'broker' : 'carrier'][0]))))); }
+  function drawOkList() {
+    const q = ($('okSearch').value || '').trim().toLowerCase();
+    const groups = { all: () => true, fresh: g => g.fresh && !okIsFlagged(g), flagged: okIsFlagged, stale: g => !g.fresh };
+    const label = { all: 'All', fresh: 'OK · fresh', flagged: 'Flagged', stale: 'Over 7 days / not checked' };
+    $('okFilters').innerHTML = Object.keys(groups).map(k => `<button type="button" class="${_okFilter === k ? '' : 'ghost'} okF" data-k="${k}" style="padding:8px 12px;font-size:13px;">${label[k]} ${_okList.filter(groups[k]).length}</button>`).join('');
+    $('okFilters').querySelectorAll('.okF').forEach(b => b.onclick = () => { _okFilter = b.dataset.k; drawOkList(); });
+    const list = _okList.filter(groups[_okFilter]).filter(g => !q || (g.name || '').toLowerCase().indexOf(q) >= 0 || String(g.mcNumber || '').indexOf(q) >= 0 || String(g.dotNumber || '').indexOf(q) >= 0);
+    if (!list.length) { $('okList').innerHTML = '<div class="empty">Nothing to show.</div>'; return; }
+    $('okList').innerHTML = '<div style="overflow-x:auto;"><table><thead><tr><th>Company</th><th>MC / DOT</th><th>As carrier</th><th>As broker</th><th>Last checked</th><th>Used by</th><th></th></tr></thead><tbody>' + list.map(g => {
+      const key = 'o' + g.id; FM_SNAP[key] = { c: { id: g.id, name: g.name, dotNumber: g.dotNumber, fmcsaSnapshot: g.snapshot }, kind: g.kinds[0] === 'broker' ? 'broker' : 'carrier' };
+      FM_SNAP['s' + g.id] = FM_SNAP[key];
+      const at = g.snapshot && g.snapshot.at, days = at ? Math.floor((Date.now() - at) / 86400000) : null;
+      const when = at ? (g.fresh ? esc(new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + ' · ' + (days === 0 ? 'today' : days + ' day' + (days === 1 ? '' : 's') + ' ago') : `<span class="chip prepared">${esc(new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))} · over 7 days</span>`) : '<span class="sub">—</span>';
+      return `<tr><td><b>${esc(g.name)}</b>${g.warnings.length ? `<div style="font-size:12px;color:var(--warn);margin-top:2px;">⚠ ${esc(g.warnings[0])}</div>` : ''}</td>
+        <td class="mono">${esc(g.mcNumber) || '—'} / ${esc(g.dotNumber) || '—'}</td><td>${okKindCell(g, 'carrier')}</td><td>${okKindCell(g, 'broker')}</td>
+        <td style="font-size:12.5px;white-space:nowrap;">${when}</td>
+        <td style="font-size:12.5px;" class="sub">${g.usedBy.length ? esc(g.usedBy.slice(0, 2).join(', ')) + (g.usedBy.length > 2 ? ' +' + (g.usedBy.length - 2) : '') : '—'}</td>
+        <td style="text-align:right;white-space:nowrap;">${g.dotNumber ? `<button type="button" class="ghost fmSnapBtn" data-k="s${g.id}" style="padding:4px 10px;font-size:12px;">Snapshot</button>` : ''}</td></tr>`;
+    }).join('') + '</tbody></table></div>' + fmcsaDisclaimerHtml();
+  }
+  if ($('okSearch')) $('okSearch').oninput = () => drawOkList();
+  if ($('okRefresh')) $('okRefresh').onclick = () => loadOkList();
   // ---- Dashboard home + Loads filters. Each load falls in one bucket: needs setup → done → on the road → ready
   //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
   function loadCat(l) {

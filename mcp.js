@@ -321,6 +321,18 @@ async function api(user, method, path, opts) {
   if (!r.ok) throw new ToolError(data.error || ('HaulProof returned an error (' + r.status + ')'));
   return data;
 }
+const FMCSA_NOTE = 'FMCSA snapshot only — what FMCSA reported when HaulProof checked. Not a guarantee of a company’s authority, insurance, safety or identity.';
+async function checkCarrierRows(user, companies) {
+  const rows = (companies || []).slice(0, 500).map(c => ({ mc: String(c.mc || '').replace(/\D/g, ''), dot: String(c.dot || '').replace(/\D/g, ''), kind: c.type === 'broker' ? 'broker' : 'carrier', input: (c.dot ? 'DOT ' + c.dot : 'MC ' + (c.mc || '')) }));
+  const out = [];
+  for (let i = 0; i < rows.length; i += 25) out.push(...((await api(user, 'POST', '/api/carriers/import/check', { json: { rows: rows.slice(i, i + 25) } })).results || []));
+  return out;
+}
+function carrierRowOut(r) {
+  return { input: r.input, status: r.status, type: r.kind, name: r.name || null, mc: r.mcNumber || null, dot: r.dotNumber || null,
+    problems: r.problems && r.problems.length ? r.problems : undefined, message: r.message || undefined,
+    checked: r.checkedAt ? new Date(r.checkedAt).toISOString().slice(0, 10) + (r.source === 'haulproof' ? ' (HaulProof list)' : ' (FMCSA)') : undefined };
+}
 const norm = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '').trim());
 // Pick one item by id or by name: exact, then normalized, then a single partial match. Ambiguity is an error.
@@ -488,6 +500,36 @@ const TOOLS = [
       return { created: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
         logins: (r.links || []).map(l => ({ email: l.email, name: l.name || null, role: l.role, setup_link: l.link })),
         note: 'Send each person their own set-up link privately; it lets them choose their password. Existing emails were skipped.' }; } },
+
+  { name: 'check_carriers', title: 'Check carriers/brokers on FMCSA',
+    description: 'Checks a list of carriers or brokers (by MC# or DOT#) the way the portal\'s Carriers / Brokers → Import list does, without saving anything. Each row comes back ok (nothing FMCSA reports blocks it), flagged (needs HaulProof\'s approval — the reasons are listed), exists (already on this account\'s list), or notfound. Show the user the results before calling add_carriers. Results are an FMCSA snapshot only, not a guarantee.',
+    inputSchema: { type: 'object', properties: { companies: { type: 'array', minItems: 1, maxItems: 500, description: 'Carriers/brokers to check',
+      items: { type: 'object', properties: { mc: str('MC number (optional if DOT given)'), dot: str('USDOT number (optional if MC given)'), type: { type: 'string', enum: ['carrier', 'broker'], description: 'Save as carrier (default) or broker. Broker accounts can only save carriers.' } } } } }, required: ['companies'] },
+    annotations: { readOnlyHint: true },
+    run: async (user, a) => { needCompany(user); return { results: (await checkCarrierRows(user, a.companies)).map(carrierRowOut), disclaimer: FMCSA_NOTE }; } },
+
+  { name: 'add_carriers', title: 'Add carriers/brokers',
+    description: 'Adds a list of carriers or brokers (by MC# or DOT#) to this account\'s list — the portal\'s Carriers / Brokers → Import. Rows FMCSA shows clean are added; ones already on the list are skipped; flagged ones are NOT added — with ask_haulproof true they are sent to HaulProof for approval instead (only HaulProof can approve those). Run check_carriers and confirm the list with the user first.',
+    inputSchema: { type: 'object', properties: { companies: { type: 'array', minItems: 1, maxItems: 500, description: 'Carriers/brokers to add',
+      items: { type: 'object', properties: { mc: str('MC number (optional if DOT given)'), dot: str('USDOT number (optional if MC given)'), type: { type: 'string', enum: ['carrier', 'broker'], description: 'Carrier (default) or broker' } } } },
+      ask_haulproof: { type: 'boolean', description: 'Send the flagged ones to HaulProof for approval (default false)' }, reason: str('Why they need the flagged ones (optional, for HaulProof)') }, required: ['companies'] },
+    run: async (user, a) => { needCompany(user);
+      const rows = await checkCarrierRows(user, a.companies);
+      const org = db.prepare('SELECT kind FROM orgs WHERE id = ?').get(user.orgId) || {}, broker = org.kind === 'broker', added = [], failed = [];
+      for (const r of rows.filter(x => x.status === 'ok')) {
+        try {
+          await api(user, 'POST', broker ? '/api/brokers/my-carriers' : '/api/carriers/roster', { json: { name: r.name, mcNumber: r.mcNumber, dotNumber: r.dotNumber, address: r.address, allowedToOperate: r.allowedToOperate, fmcsaVerified: true, kind: r.kind } });
+          added.push(r);
+        } catch (e) { failed.push({ company: r.name || r.input, error: e.message }); }
+      }
+      const flagged = rows.filter(x => x.status === 'flagged');
+      let asked = 0;
+      if (a.ask_haulproof && flagged.length) {
+        const q = await api(user, 'POST', '/api/carriers/authority-request', { json: { rows: flagged.map(r => ({ name: r.name, mcNumber: r.mcNumber, dotNumber: r.dotNumber, address: r.address, kind: r.kind })), reason: a.reason || 'From an imported list' } });
+        asked = q.sent || 0;
+      }
+      return { added: added.map(carrierRowOut), already_on_list: rows.filter(x => x.status === 'exists').map(carrierRowOut),
+        needs_haulproof_approval: flagged.map(carrierRowOut), sent_to_haulproof: asked, not_found: rows.filter(x => x.status === 'notfound' || x.status === 'error').map(carrierRowOut), failed, disclaimer: FMCSA_NOTE }; } },
 
   { name: 'needs_attention', title: 'What needs attention',
     description: 'The dispatch Dashboard as data: counts of loads by status and the list of what is waiting on dispatch right now — documents needing signature setup, signed copies whose email failed, loads with no driver — plus who is on the road. Use it for "what needs my attention?" or "what is happening today?".',
@@ -784,7 +826,8 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. ' +
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
-  'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first.';
+  'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
+  'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).';
 
 async function handleRpc(msg, user, base) {
   const id = msg.id;

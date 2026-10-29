@@ -113,8 +113,31 @@ async function fmcsaEligibility(kind, dotNumber) {
   const d = String(dotNumber || '').replace(/\D/g, '');
   if (!d) { const snap = buildSnapshot(null, null); return { snap, problems: ['no DOT # to check with FMCSA'] }; }
   const [rec, auth] = await Promise.all([fetchCarrierRecord(d), fetchAuthority(d).catch(() => null)]);
-  const snap = buildSnapshot(rec, auth);
-  return { snap, problems: snapshotProblems(kind, snap) };
+  const recAuth = rec && !rec._missing ? authorityFromRecords([rec]) : null;
+  const more = (x) => x && x.state && (x.state.carrier !== 'none' || x.state.broker !== 'none');
+  const snap = buildSnapshot(rec, more(auth) ? auth : (more(recAuth) ? recAuth : (auth || recAuth)));
+  return { snap, problems: snapshotProblems(kind, snap), rec };
+}
+// ---- HaulProof's OK list: the latest FMCSA snapshot is kept on each saved carrier/broker (shared across HaulProof,
+// by DOT#). A CLEAN snapshot from the last 7 days is reused instead of asking FMCSA again (adds, imports); anything
+// older, or flagged, is checked with FMCSA. HaulProof's approvals of flagged companies are never reused this way. ----
+const SNAP_FRESH = 7 * 24 * 3600000;
+function savedSnapshot(dot) {
+  const d = String(dot || '').replace(/\D/g, ''); if (!d) return null;
+  const row = db.prepare(`SELECT fmcsaSnapshot FROM orgs WHERE dotNumber = ? AND kind IN ('carrier','broker') AND fmcsaSnapshot IS NOT NULL ORDER BY COALESCE(fmcsaSnapshotAt,0) DESC LIMIT 1`).get(d);
+  try { const s = row ? JSON.parse(row.fmcsaSnapshot) : null; return s && s.checked ? s : null; } catch (e) { return null; }
+}
+function saveSnapshotForDot(dot, snap) {
+  const d = String(dot || '').replace(/\D/g, '');
+  if (!d || !snap || !snap.checked) return;
+  try { db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ? WHERE dotNumber = ? AND kind IN ('carrier','broker') AND COALESCE(fmcsaSnapshotAt,0) <= ?`).run(JSON.stringify(snap), snap.at || Date.now(), d, snap.at || Date.now()); } catch (e) {}
+}
+async function eligibilityCached(kind, dotNumber) {
+  const s = savedSnapshot(dotNumber);
+  if (s && Date.now() - (s.at || 0) < SNAP_FRESH) { const problems = snapshotProblems(kind, s); if (!problems.length) return { snap: s, problems, cached: true }; }
+  const r = await fmcsaEligibility(kind, dotNumber);
+  saveSnapshotForDot(dotNumber, r.snap);
+  return r;
 }
 function warningFrom(problems) { return problems.length ? 'FMCSA: ' + problems.join('; ') : null; }
 // Only HaulProof may override (legal exposure): the master admin, or the master working in a company as HaulProof Help.
@@ -122,7 +145,7 @@ function warningFrom(problems) { return problems.length ? 'FMCSA: ' + problems.j
 function isHaulProof(req) { return req.user.role === 'superadmin' || /^haulproofhelp\+/i.test(req.user.email || ''); }
 // Returns { ok, warning, snapshot } or { ok:false, status, body } for the route to send.
 async function authorityGate(req, kind, dotNumber, name, override) {
-  const { snap, problems } = await fmcsaEligibility(kind, dotNumber);
+  const { snap, problems } = await eligibilityCached(kind, dotNumber);
   if (!problems.length) return { ok: true, warning: null, snapshot: snap };
   const hp = isHaulProof(req);
   const warning = warningFrom(problems);
@@ -133,7 +156,11 @@ async function authorityGate(req, kind, dotNumber, name, override) {
 function setAuthWarning(orgId, warning, snapshot) {
   try {
     db.prepare(`UPDATE orgs SET authWarning = ?, authCheckedAt = ? WHERE id = ?`).run(warning || null, Date.now(), orgId);
-    if (snapshot && snapshot.checked) db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ? WHERE id = ?`).run(JSON.stringify(snapshot), snapshot.at || Date.now(), orgId);
+    if (snapshot && snapshot.checked) {
+      db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ? WHERE id = ?`).run(JSON.stringify(snapshot), snapshot.at || Date.now(), orgId);
+      const o = db.prepare(`SELECT dotNumber FROM orgs WHERE id = ?`).get(orgId);
+      if (o && o.dotNumber) saveSnapshotForDot(o.dotNumber, snapshot);   // same company saved as carrier and broker
+    }
   } catch (e) {}
 }
 // Re-check flagged companies against FMCSA once a week each (a daily timer picks up the ones last checked over 7
@@ -154,31 +181,128 @@ function startAuthorityRecheck() { setTimeout(() => recheckAuthority().catch(() 
 
 // "Ask HaulProof to approve": a company that wants to save a carrier/broker without active authority sends it to the
 // master admin's Requests inbox; granting it there adds it to their list with the warning.
-router.post('/authority-request', requireAuth, async (req, res) => {
-  const b = req.body || {};
+// An imported list sends its flagged rows together ({ rows: [...] }) — one email to HaulProof for the lot.
+function authorityRequestRow(req, b, list, orgName) {
   const name = String(b.name || '').trim(), kind = b.kind === 'broker' ? 'broker' : 'carrier';
+  if (!name) return { error: 'Pick the company to ask about' };
+  if (list === 'approved' && kind === 'broker') return { error: 'Your approved list is for carriers' };
+  return { name, kind };
+}
+router.post('/authority-request', requireAuth, async (req, res) => {
+  const body = req.body || {};
   const list = req.user.orgKind === 'broker' ? 'approved' : 'roster';
-  if (!name || !req.user.orgId) return res.status(400).json({ error: 'Pick the company to ask about' });
-  if (list === 'approved' && kind === 'broker') return res.status(400).json({ error: 'Your approved list is for carriers' });
-  const { snap, problems } = await fmcsaEligibility(kind, b.dotNumber);
-  if (!problems.length) return res.status(400).json({ error: 'FMCSA shows nothing blocking this one — you can add it directly.' });
-  const dup = db.prepare(`SELECT id FROM access_requests WHERE kind = 'authority' AND status = 'pending' AND requestOrgId = ? AND COALESCE(dotNumber,'') = ? AND orgType = ?`).get(req.user.orgId, String(b.dotNumber || ''), kind);
-  if (dup) return res.json({ ok: true, alreadyAsked: true });
+  if (!req.user.orgId) return res.status(400).json({ error: 'Pick the company to ask about' });
+  const many = Array.isArray(body.rows), rows = many ? body.rows.slice(0, 500) : [body];
+  const reason = String(body.reason || '').trim().slice(0, 500);
   const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(req.user.orgId) || {};
-  const reason = String(b.reason || '').trim().slice(0, 500);
-  const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO access_requests (id, code, kind, orgType, contactName, email, company, mcNumber, dotNumber, targetCompany, note, status, thread, requestOrgId, requestList, address, createdAt)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending','[]',?,?,?,?)`)
-    .run(id, crypto.randomBytes(4).toString('hex').toUpperCase(), 'authority', kind, req.user.name || req.user.email, req.user.email, name,
-      String(b.mcNumber || '').trim() || null, String(b.dotNumber || '').trim() || null, org.name || null,
-      warningFrom(problems) + (reason ? ' — ' + reason : ''), req.user.orgId, list, String(b.address || '').trim() || null, Date.now());
-  try {
-    const { sendMail, helpEmail } = require('./mailer');
-    sendMail({ to: helpEmail(), subject: 'HaulProof: approval needed — ' + name + ' as ' + kind,
-      text: (org.name || 'A company') + ' (' + req.user.email + ') wants to add ' + name + (b.dotNumber ? ' (DOT ' + b.dotNumber + ')' : '') + ' as a ' + kind + '.\n' + warningFrom(problems) + '.' + (reason ? '\nTheir note: ' + reason : '') + '\n\nReview it under Requests in HaulProof.' });
-  } catch (e) {}
+  const results = [], sent = [];
+  for (const b of rows) {
+    const v = authorityRequestRow(req, b || {}, list);
+    if (v.error) { results.push({ name: b && b.name, error: v.error }); continue; }
+    const { name, kind } = v;
+    const { problems } = await eligibilityCached(kind, b.dotNumber);
+    if (!problems.length) { results.push({ name, error: 'FMCSA shows nothing blocking this one — you can add it directly.' }); continue; }
+    const dup = db.prepare(`SELECT id FROM access_requests WHERE kind = 'authority' AND status = 'pending' AND requestOrgId = ? AND COALESCE(dotNumber,'') = ? AND orgType = ?`).get(req.user.orgId, String(b.dotNumber || ''), kind);
+    if (dup) { results.push({ name, alreadyAsked: true }); continue; }
+    const id = crypto.randomUUID();
+    db.prepare(`INSERT INTO access_requests (id, code, kind, orgType, contactName, email, company, mcNumber, dotNumber, targetCompany, note, status, thread, requestOrgId, requestList, address, createdAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending','[]',?,?,?,?)`)
+      .run(id, crypto.randomBytes(4).toString('hex').toUpperCase(), 'authority', kind, req.user.name || req.user.email, req.user.email, name,
+        String(b.mcNumber || '').trim() || null, String(b.dotNumber || '').trim() || null, org.name || null,
+        warningFrom(problems) + (reason ? ' — ' + reason : ''), req.user.orgId, list, String(b.address || '').trim() || null, Date.now());
+    results.push({ name, ok: true }); sent.push({ name, kind, dot: b.dotNumber, problems });
+  }
+  if (sent.length) {
+    try {
+      const { sendMail, helpEmail } = require('./mailer');
+      const one = sent.length === 1 ? sent[0] : null;
+      sendMail({ to: helpEmail(), subject: 'HaulProof: approval needed — ' + (one ? one.name + ' as ' + one.kind : sent.length + ' carriers/brokers from ' + (org.name || 'a company')),
+        text: (org.name || 'A company') + ' (' + req.user.email + ') wants to add:\n' + sent.map(x => '• ' + x.name + (x.dot ? ' (DOT ' + x.dot + ')' : '') + ' as a ' + x.kind + ' — ' + warningFrom(x.problems)).join('\n')
+          + (reason ? '\nTheir note: ' + reason : '') + '\n\nReview ' + (one ? 'it' : 'them') + ' under Requests in HaulProof.' });
+    } catch (e) {}
+  }
+  if (many) return res.status(sent.length ? 201 : 200).json({ ok: true, results, sent: sent.length });
+  const r = results[0] || {};
+  if (r.error) return res.status(400).json({ error: r.error });
+  if (r.alreadyAsked) return res.json({ ok: true, alreadyAsked: true });
   res.status(201).json({ ok: true });
 });
+
+// ---- Import a list: check each row (MC# or DOT#, optional type) before anything is saved. The page sends the list
+// a few rows at a time for its progress bar. Companies with a clean FMCSA check from the last 7 days come straight
+// from HaulProof's OK list; the rest are checked with FMCSA now. Nothing here saves — the page adds the OK rows
+// through the normal save (which applies the same rules) and sends the flagged ones to HaulProof. ----
+async function dotFromMc(mc) {
+  const m = String(mc || '').replace(/\D/g, ''); if (!m) return null;
+  const o = db.prepare(`SELECT dotNumber, name FROM orgs WHERE mcNumber = ? AND kind IN ('carrier','broker') AND dotNumber IS NOT NULL LIMIT 1`).get(m);
+  if (o) return { dot: String(o.dotNumber), name: o.name };
+  if (!WEBKEY) return null;
+  try {
+    const r = await fetch(FMCSA_BASE + 'carriers/docket-number/' + m + '?webKey=' + encodeURIComponent(WEBKEY), { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) });
+    if (r.status === 404) return { missing: true };
+    if (!r.ok) return null;
+    const c = pickCarriers(await r.json())[0];
+    return c && c.dotNumber != null ? { dot: String(c.dotNumber), name: c.legalName || c.dbaName || '' } : { missing: true };
+  } catch (e) { return null; }
+}
+async function checkImportRow(row, listOrg, brokerList) {
+  const kind = brokerList ? 'carrier' : (String(row.kind || '').toLowerCase().indexOf('broker') === 0 ? 'broker' : 'carrier');
+  const out = { input: String(row.input || row.dot || row.mc || '').slice(0, 80), kind, mcNumber: String(row.mc || '').replace(/\D/g, ''), dotNumber: String(row.dot || '').replace(/\D/g, '') };
+  if (!out.dotNumber && !out.mcNumber) return Object.assign(out, { status: 'notfound', message: 'No MC# or DOT# in this row' });
+  if (!out.dotNumber) {
+    const f = await dotFromMc(out.mcNumber);
+    if (!f) return Object.assign(out, { status: 'error', message: 'FMCSA didn’t answer — try again' });
+    if (f.missing) return Object.assign(out, { status: 'notfound', message: 'No company on FMCSA with MC ' + out.mcNumber + ' — check the number' });
+    out.dotNumber = f.dot; out.name = f.name;
+  }
+  const org = db.prepare(`SELECT * FROM orgs WHERE dotNumber = ? AND kind = ? LIMIT 1`).get(out.dotNumber, kind) || db.prepare(`SELECT * FROM orgs WHERE dotNumber = ? AND kind IN ('carrier','broker') LIMIT 1`).get(out.dotNumber);
+  if (org) { out.name = org.name; out.mcNumber = out.mcNumber || org.mcNumber || ''; out.address = org.address || ''; }
+  const mine = listOrg && db.prepare(`SELECT 1 FROM broker_carriers bc JOIN orgs o ON o.id = bc.carrierId WHERE bc.brokerId = ? AND o.dotNumber = ? AND o.kind = ?`).get(listOrg, out.dotNumber, kind);
+  const r = await eligibilityCached(kind, out.dotNumber);
+  out.snapshot = r.snap; out.problems = r.problems; out.source = r.cached ? 'haulproof' : 'fmcsa'; out.checkedAt = r.snap && r.snap.at;
+  if (r.rec && !r.rec._missing) {
+    out.name = out.name || r.rec.legalName || r.rec.dbaName || '';
+    out.address = out.address || [r.rec.phyStreet, r.rec.phyCity, r.rec.phyState, r.rec.phyZipcode].filter(Boolean).join(', ');
+    out.allowedToOperate = r.rec.allowedToOperate || '';
+  }
+  if (r.snap && r.snap.checked && !r.snap.onFile && !org) return Object.assign(out, { status: 'notfound', message: 'No company on FMCSA with DOT ' + out.dotNumber + ' — check the number' });
+  if (!out.mcNumber && !r.cached) out.mcNumber = await fetchMcByDot(out.dotNumber);
+  if (mine) return Object.assign(out, { status: 'exists' });
+  if (!r.snap || !r.snap.checked) return Object.assign(out, { status: 'error', message: 'FMCSA didn’t answer — try again' });
+  return Object.assign(out, { status: r.problems.length ? 'flagged' : 'ok' });
+}
+router.post('/import/check', requireAuth, async (req, res) => {
+  const rows = Array.isArray((req.body || {}).rows) ? req.body.rows.slice(0, 25) : [];
+  const brokerList = req.user.orgKind === 'broker';
+  const listOrg = brokerList ? req.user.orgId : rosterOrg(req);
+  if (!listOrg) return res.status(403).json({ error: 'No organization on this login' });
+  const results = new Array(rows.length);
+  for (let i = 0; i < rows.length; i += 4) await Promise.all(rows.slice(i, i + 4).map((r, k) => checkImportRow(r || {}, listOrg, brokerList).then(x => { results[i + k] = x; })));
+  res.json({ results });
+});
+
+// The master admin's view of HaulProof's OK list: every saved carrier/broker with its latest FMCSA snapshot.
+router.get('/ok-list', requireAuth, (req, res) => {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'HaulProof only' });
+  const rows = db.prepare(`SELECT * FROM orgs WHERE kind IN ('carrier','broker') AND active = 1 ORDER BY name`).all();
+  const users = db.prepare(`SELECT bc.carrierId, o.name FROM broker_carriers bc JOIN orgs o ON o.id = bc.brokerId`).all();
+  const usedBy = {}; users.forEach(u => { (usedBy[u.carrierId] = usedBy[u.carrierId] || []).push(u.name); });
+  const groups = new Map();
+  rows.forEach(o => {
+    const key = o.dotNumber ? 'd' + o.dotNumber : 'id' + o.id;
+    const g = groups.get(key) || { ids: [], name: o.name, mcNumber: o.mcNumber || '', dotNumber: o.dotNumber || '', kinds: [], warnings: [], usedBy: [], snapshot: null };
+    g.ids.push(o.id); g.kinds.push(o.kind); if (!g.mcNumber && o.mcNumber) g.mcNumber = o.mcNumber;
+    if (o.authWarning) g.warnings.push(o.authWarning);
+    (usedBy[o.id] || []).forEach(n => { if (g.usedBy.indexOf(n) < 0) g.usedBy.push(n); });
+    try { const s = o.fmcsaSnapshot ? JSON.parse(o.fmcsaSnapshot) : null; if (s && (!g.snapshot || (s.at || 0) > (g.snapshot.at || 0))) g.snapshot = s; } catch (e) {}
+    groups.set(key, g);
+  });
+  const companies = [...groups.values()].map(g => Object.assign(g, { id: g.ids[0],
+    problems: g.snapshot ? { carrier: snapshotProblems('carrier', g.snapshot), broker: snapshotProblems('broker', g.snapshot) } : null,
+    fresh: !!(g.snapshot && Date.now() - (g.snapshot.at || 0) < SNAP_FRESH) }));
+  res.json({ companies });
+});
+
 // Called when the master grants an authority request: save the company to the asker's list, flagged.
 function grantAuthorityRequest(r) {
   const kind = r.orgType === 'broker' ? 'broker' : 'carrier';
@@ -333,6 +457,7 @@ async function fmcsaLookup({ mc, dot, name }) {
       // The FMCSA snapshot from the search record + authority, and what (if anything) blocks each type.
       c.snapshot = buildSnapshot(raw[i] || null, c.authState ? { state: c.authState } : null);
       c.problems = { carrier: snapshotProblems('carrier', c.snapshot), broker: snapshotProblems('broker', c.snapshot) };
+      if (c.dotNumber) saveSnapshotForDot(c.dotNumber, c.snapshot);
     };
     for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map((c, k) => one(c, i + k)));
     return { configured: true, results: carriers };
