@@ -2609,10 +2609,10 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;"><button class="acUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.acUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('acName').value = c.name; $('acMc').value = c.mcNumber || ''; $('acDot').value = c.dotNumber || '';
@@ -2677,10 +2677,10 @@
     try {
       const r = await api('/api/brokers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;"><button class="abUse" data-i="${i}" style="padding:6px 10px;font-size:12px;">Use</button></td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.abUse').forEach(b => b.onclick = () => {
           const c = r.fmcsa[+b.dataset.i]; $('abName').value = c.name; $('abMc').value = c.mcNumber || ''; $('abDot').value = c.dotNumber || '';
@@ -2729,10 +2729,10 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;"><button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button></td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
@@ -2768,10 +2768,10 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;"><button class="ccrAdd" data-i="${i}" style="padding:6px 10px;font-size:12px;">Add</button></td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
@@ -3038,6 +3038,14 @@
     if (b && !b._wired) { b._wired = true; b.onclick = function(){ try { localStorage.setItem('hp_dash_welcome','1'); } catch(e){} w.classList.add('hide'); }; }
     if (dashWelcomeDismissed() || (user && user.role === 'superadmin')) { w.classList.add('hide'); return; }
     w.classList.remove('hide');
+  }
+  // FMCSA operating authority from a lookup result: Carrier (common/contract), Broker, both, or not reported.
+  function fmcsaAuthChip(c) {
+    if (c.authCarrier === undefined && c.authBroker === undefined) return '<span class="chip received" title="FMCSA didn’t report authority for this company">Not reported</span>';
+    if (c.authCarrier && c.authBroker) return '<span class="chip prepared" title="Active carrier (common/contract) and broker authority">Carrier + Broker</span>';
+    if (c.authCarrier) return '<span class="chip signed" title="Active common or contract carrier authority">Carrier only</span>';
+    if (c.authBroker) return '<span class="chip" style="background:var(--violet-soft,rgba(169,139,255,.18));color:var(--violet,#a98bff);" title="Active broker authority, no carrier authority">Broker only</span>';
+    return '<span class="chip failed" title="No active carrier or broker authority on FMCSA">No active authority</span>';
   }
   // ---- Dashboard home + Loads filters. Each load falls in one bucket: needs setup → done → on the road → ready
   //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
@@ -7652,10 +7660,10 @@
     try {
       const r = await api('/api/' + (cmpKind === 'broker' ? 'brokers' : 'carriers') + '/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = '<table><thead><tr><th>' + (cmpKind === 'broker' ? 'Broker' : 'Carrier') + '</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b>${c.address ? `<div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div>` : ''}</td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
-            <td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
+            <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.cmpAdd').forEach(b => b.onclick = () => cmpAdd(r.fmcsa[+b.dataset.i], true));
       } else {
