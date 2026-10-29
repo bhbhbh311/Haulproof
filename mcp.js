@@ -552,6 +552,7 @@ const TOOLS = [
           ...noDriver.map(l => item(l, { issue: 'No driver assigned (assign_driver)' })),
         ].slice(0, 40),
         on_the_road: by('road').slice(0, 25).map(l => item(l, { picked_up_at: l.pickedUpAt ? new Date(l.pickedUpAt).toISOString() : null })),
+        carrier_alerts: await (async () => { try { return ((await api(user, 'GET', '/api/carriers/alerts')).alerts || []).map(x => ({ carrier: x.name, type: x.type === 'flagged' ? 'changed on FMCSA' : 'cleared on FMCSA', problems: x.problems || undefined, open_loads: (x.loads || []).map(l => l.po) })); } catch (e) { return undefined; } })(),
         note: loads.length >= 200 ? 'Only the 200 most recent loads were checked.' : undefined,
       };
     } },

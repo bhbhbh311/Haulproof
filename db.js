@@ -461,6 +461,22 @@ addColumn('access_requests', 'address', 'TEXT');
 // The FMCSA snapshot last seen for a saved carrier/broker (USDOT status, authority, insurance on file, safety, fleet).
 addColumn('orgs', 'fmcsaSnapshot', 'TEXT');      // JSON
 addColumn('orgs', 'fmcsaSnapshotAt', 'INTEGER');
+// Weekly FMCSA monitoring: a saved carrier/broker that changed on FMCSA (went bad, or cleared), per company that uses it.
+db.exec(`CREATE TABLE IF NOT EXISTS carrier_alerts (
+  id          TEXT PRIMARY KEY,
+  ownerOrgId  TEXT NOT NULL,      -- the customer/broker that has it on its list or on an open load
+  carrierId   TEXT NOT NULL,      -- orgs.id of the carrier/broker
+  carrierName TEXT,
+  kind        TEXT,               -- 'carrier' | 'broker'
+  type        TEXT NOT NULL,      -- 'flagged' | 'cleared'
+  problems    TEXT,               -- what FMCSA's snapshot shows, in words
+  loads       TEXT,               -- JSON [{ id, po, onRoad }] — this company's open loads with it
+  createdAt   INTEGER NOT NULL,
+  ackAt       INTEGER,
+  ackBy       TEXT,
+  emailedAt   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_calerts_owner ON carrier_alerts(ownerOrgId, ackAt);`);
 // "Send to driver again": a signed stop can be redone. The clean unsigned original is kept with the signed copy so a
 // redo starts from it; while both signed copies exist dispatch picks one (pickPending) and the other becomes 'not_used'.
 addColumn('pods', 'originalFile', 'TEXT');        // the unsigned original this signed copy was made from (kept for a redo)

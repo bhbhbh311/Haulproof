@@ -411,12 +411,14 @@ router.delete('/:id', requireAuth, requireCap('delete_loadsdocs'), (req, res) =>
 });
 
 // Hand a load to a broker. Only the owning customer (or super) does this.
-router.post('/:id/assign-broker', requireAuth, (req, res) => {
+router.post('/:id/assign-broker', requireAuth, async (req, res) => {
   const load = ownedLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const brokerId = (req.body && req.body.brokerId || '').trim();
   const broker = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind='broker'`).get(brokerId);
   if (!broker) return res.status(400).json({ error: 'Pick a broker from the list' });
+  const gate = await require('./carriers').assignGate(req, broker, 'broker', !!(req.body && req.body.override));
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   // A load is handled by a broker OR a direct carrier, not both — handing it to a broker clears any direct carrier.
   db.prepare(`UPDATE loads SET brokerId = ?, brokerName = ?, carrierId = NULL, carrierName = NULL, status = 'assigned' WHERE id = ?`).run(broker.id, broker.name, load.id);
   const tag = broker.fmcsaVerified ? 'FMCSA-verified' : 'admin override — not FMCSA verified';
@@ -427,7 +429,7 @@ router.post('/:id/assign-broker', requireAuth, (req, res) => {
 
 // Assign a carrier to a load. The owning customer, super, OR the broker the load was handed to.
 // A broker may only assign carriers on its approved roster.
-router.post('/:id/assign-carrier', requireAuth, (req, res) => {
+router.post('/:id/assign-carrier', requireAuth, async (req, res) => {
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const carrierId = (req.body && req.body.carrierId || '').trim();
@@ -437,6 +439,8 @@ router.post('/:id/assign-carrier', requireAuth, (req, res) => {
   const isAssignedBroker = isBroker(req) && (load.brokerId || null) === (req.user.orgId || null);
   if (!isOwner && !isAssignedBroker) return res.status(404).json({ error: 'Load not found' });
   if (isAssignedBroker && !brokerApproved(req.user.orgId, carrier.id)) return res.status(403).json({ error: 'Approve this carrier before assigning it a load' });
+  const gate = await require('./carriers').assignGate(req, carrier, 'carrier', !!(req.body && req.body.override));
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   // A load has a direct carrier OR a broker, not both. When the OWNER assigns a carrier directly, clear any broker.
   // When the ASSIGNED BROKER assigns a carrier, that carrier sits UNDER the broker, so the broker stays.
   if (isAssignedBroker) db.prepare(`UPDATE loads SET carrierId = ?, carrierName = ?, status = 'assigned' WHERE id = ?`).run(carrier.id, carrier.name, load.id);

@@ -1073,7 +1073,7 @@
       </div>
       <div class="htiles" id="homeTiles"></div>
       <div class="hpanels">
-        <div class="hpanel"><h2>Needs attention</h2><div id="homeAttnList"><div class="hempty">Loading…</div></div></div>
+        <div class="hpanel"><h2>Needs attention</h2><div id="homeCarAlerts"></div><div id="homeAttnList"><div class="hempty">Loading…</div></div></div>
         <div class="hpanel"><h2>Drivers today</h2><div id="homeDrivers"><div class="hempty">Loading…</div></div></div>
       </div>
     </div>
@@ -3203,7 +3203,7 @@
       if (j.code === 'authority' && j.canOverride && !override) {
         return confirmDialog({ title: 'Add without a clean FMCSA snapshot?', okLabel: 'Add anyway', message: j.error + '\n\n' + FMCSA_DISCLAIMER, onOk: () => send(true).catch(e => alert(e.message)) });
       }
-      if (j.code === 'authority' && j.canRequest) { const k = kind || body.kind || 'carrier'; return askHaulProofApproval(Object.assign({}, body, { problems: { [k]: j.problems || [] } }), k); }
+      if (j.code === 'authority' && j.canRequest) { const k = kind || body.kind || 'carrier'; return askHaulProofApproval(Object.assign({}, body, j.company || {}, { problems: { [k]: j.problems || [] } }), k); }
       throw new Error(j.error || res.statusText);
     };
     try { await send(false); } catch (e) { alert(e.message); }
@@ -3214,7 +3214,7 @@
   function askHaulProofApproval(c, kind) {
     const noun = kind === 'broker' ? 'broker' : 'carrier';
     choiceDialog({ title: 'Ask HaulProof to approve ' + (c.name || 'this company') + '?',
-      message: 'FMCSA’s snapshot flags this company as a ' + noun + ': ' + (fmcsaProblemsOf(c, kind).join('; ') || 'not clean') + '. Only HaulProof can approve adding it. If approved, it’s added to your list with a warning until FMCSA’s snapshot comes back clean (re-checked weekly).',
+      message: 'FMCSA’s snapshot flags this company as a ' + noun + ': ' + (fmcsaProblemsOf(c, kind).join('; ') || 'not clean') + '. Only HaulProof can approve it. If approved, it’s on your list with a warning until FMCSA’s snapshot comes back clean (re-checked weekly).',
       extraHtml: fmcsaDisclaimerHtml(null) + '<label style="display:block;margin-top:10px;font-size:13px;font-weight:600;color:var(--muted);">Why do you need it? (optional)<textarea id="ahReason" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;font:inherit;"></textarea></label>',
       choices: [{ label: 'Send for approval', run: async () => {
         const r = await api('/api/carriers/authority-request', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, address: c.address, kind, reason: $('ahReason') ? $('ahReason').value : '' }) });
@@ -3467,6 +3467,33 @@
     const c = $('uploadCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => { const p = $('uPo'); if (p) p.focus(); }, 350);
   }
+
+  // ---- Carrier alerts (weekly FMCSA monitoring): a saved carrier/broker that changed on FMCSA. Loads already assigned
+  //      aren't touched — the alert says which ones, and dispatch decides. ----
+  let _carAlerts = [], _carAlertsAt = 0, _carAlertsBusy = false;
+  async function loadCarrierAlerts(loads) {
+    if (_carAlertsBusy || Date.now() - _carAlertsAt < 60000 || !user || !user.orgId) return;
+    _carAlertsBusy = true;
+    try { _carAlerts = (await api('/api/carriers/alerts')).alerts || []; _carAlertsAt = Date.now(); if (loads) renderHome(loads); else drawCarrierAlerts(); } catch (e) {}
+    _carAlertsBusy = false;
+  }
+  function drawCarrierAlerts() {
+    const box = $('homeCarAlerts'); if (!box) return;
+    box.innerHTML = _carAlerts.map(a => {
+      FM_SNAP['a' + a.id] = { c: { id: a.carrierId, name: a.name, dotNumber: a.dotNumber, fmcsaSnapshot: a.snapshot }, kind: a.kind };
+      const bad = a.type === 'flagged', loads = a.loads || [];
+      const where = loads.length ? 'On ' + loads.map(l => 'PO ' + esc(l.po || '?') + (l.onRoad ? ' (on the road)' : '')).join(', ') + '. Those stay as they are — your call.' : 'No open loads with it.';
+      const title = bad ? `<b>Carrier alert</b> · ${esc(a.name)} — ${esc(a.problems || 'flagged on FMCSA')}` : `<b>Cleared</b> · ${esc(a.name)} is clean on FMCSA now`;
+      const sub = bad ? where + ' New loads can’t be assigned to it until FMCSA’s snapshot is clean or HaulProof approves it.' : 'The warning was removed.';
+      return `<div class="hli"><span class="dot" style="background:${bad ? 'var(--bad)' : 'var(--ok)'}"></span><div class="t">${title}<div class="s">${sub}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${a.snapshot ? `<button type="button" class="ghost fmSnapBtn" data-k="a${a.id}">Snapshot</button>` : ''}${bad && loads[0] ? `<button type="button" class="hCarOpen" data-id="${loads[0].id}">Open PO ${esc(loads[0].po || '')}</button>` : ''}<button type="button" class="ghost hCarAck" data-id="${a.id}">Got it</button></div></div>`;
+    }).join('');
+    box.querySelectorAll('.hCarOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+    box.querySelectorAll('.hCarAck').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try { await api('/api/carriers/alerts/' + b.dataset.id + '/ack', { method: 'POST' }); _carAlerts = _carAlerts.filter(x => x.id !== b.dataset.id); drawCarrierAlerts(); } catch (e) { alert(e.message); b.disabled = false; }
+    });
+  }
   function renderHome(loads) {
     if (!$('homeCard') || $('homeCard').classList.contains('hide')) return;
     const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), week0 = Date.now() - 7 * 86400000;
@@ -3475,7 +3502,9 @@
     const failed = loads.filter(l => l.emailFailed > 0), nodrv = loads.filter(noDriver), picks = loads.filter(l => l.pickPending > 0);
     const doneWeek = loads.filter(l => loadCat(l) === 'done' && l.lastSignedAt && l.lastSignedAt >= week0);
     const signedToday = loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0);
-    const attnN = setup.length + failed.length + nodrv.length + picks.length;
+    const carAlerts = _carAlerts.filter(a => a.type === 'flagged');
+    const attnN = setup.length + failed.length + nodrv.length + picks.length + carAlerts.length;
+    loadCarrierAlerts(loads);
     const first = ((user && (user.name || '')) || '').trim().split(/\s+/)[0] || '';
     const h = now.getHours(), hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
     $('homeHello').textContent = hello + (first ? ', ' + first : '');
@@ -3505,7 +3534,8 @@
     setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
     nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
     const shownItems = items.slice(0, 8);
-    $('homeAttnList').innerHTML = shownItems.length
+    drawCarrierAlerts();
+    $('homeAttnList').innerHTML = (shownItems.length || _carAlerts.length) && !shownItems.length ? '' : shownItems.length
       ? shownItems.map(i => `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]} hOpen" data-id="${i[5]}">${i[3]}</button></div>`).join('')
         + (items.length > shownItems.length ? `<div class="hempty">+ ${items.length - shownItems.length} more — see the Loads list</div>` : '')
       : '<div class="hempty">All caught up — nothing needs attention right now.</div>';
@@ -5691,7 +5721,7 @@
         const cid = sel.value;
         if (!cid) { $('swMsg').textContent = 'Pick a carrier, or approve one under “Approved carriers” first.'; return; }
         btn.disabled = true; const o = btn.textContent; btn.textContent = 'Assigning…'; $('swMsg').textContent = '';
-        try { await assignCarrierId(cid); stat.textContent = '✓ Assigned: ' + (curLoad.carrierName || ''); btn.textContent = 'Change carrier'; }
+        try { if (await assignCarrierId(cid)) { stat.textContent = '✓ Assigned: ' + (curLoad.carrierName || ''); btn.textContent = 'Change carrier'; } else btn.textContent = o; }
         catch (e) { $('swMsg').textContent = e.message; btn.textContent = o; }
         btn.disabled = false;
       };
@@ -6246,8 +6276,29 @@
     if (!carrierId) { alert('Approve a carrier under “Approved carriers” first, then assign it.'); return; }
     try { await assignCarrierId(carrierId); } catch (e) { alert(e.message); }
   };
+  // Assign through the FMCSA check: a saved company FMCSA now flags can't be assigned without HaulProof (HaulProof gets
+  // an "assign anyway"; everyone else gets "Ask HaulProof"). Resolves with the answer once assigned, or null when it
+  // went to a dialog instead (an override then finishes through `later`).
+  async function postAssign(url, body, kind, later) {
+    const send = async (override) => {
+      const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(Object.assign({}, body, override ? { override: true } : {})) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) return j;
+      if (j.code === 'authority' && j.canOverride && !override) {
+        confirmDialog({ title: 'Assign without a clean FMCSA snapshot?', okLabel: 'Assign anyway', message: j.error + '\n\n' + FMCSA_DISCLAIMER, onOk: () => send(true).then(x => x && later(x)).catch(e => alert(e.message)) });
+        return null;
+      }
+      if (j.code === 'authority' && j.canRequest) { askHaulProofApproval(Object.assign({}, j.company || {}, { problems: { [kind]: j.problems || [] } }), kind); return null; }
+      throw new Error(j.error || res.statusText);
+    };
+    return send(false);
+  }
   async function assignBrokerId(brokerId) {
-    const r = await api('/api/loads/' + curLoad.id + '/assign-broker', { method: 'POST', body: JSON.stringify({ brokerId }) });
+    const r = await postAssign('/api/loads/' + curLoad.id + '/assign-broker', { brokerId }, 'broker', afterBrokerAssigned);
+    if (!r) return false;
+    afterBrokerAssigned(r); return true;
+  }
+  function afterBrokerAssigned(r) {
     curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Handed to broker ✓ — they’ll assign the carrier.</div>'; loadHistory(curLoad.id);
   }
   async function assignBrokerFromFmcsa(c) {
@@ -6368,7 +6419,11 @@
       async (j) => { try { await assignCarrierId(j.carrier.id); } catch (e) { alert(e.message); } }, 'carrier');
   }
   async function assignCarrierId(carrierId) {
-    const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
+    const r = await postAssign('/api/loads/' + curLoad.id + '/assign-carrier', { carrierId }, 'carrier', afterCarrierAssigned);
+    if (!r) return false;
+    afterCarrierAssigned(r); return true;
+  }
+  function afterCarrierAssigned(r) {
     curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier assigned ✓</div>'; loadHistory(curLoad.id);
     // Broker just picked the carrier → the "Assign a driver" dropdown should now show that carrier's roster.
     if (isBrokerUser()) { try { populateLdDrivers(); } catch (e) {} if ($('ldDrvBody') && $('ldDrvBody').classList.contains('hide')) { $('ldDrvBody').classList.remove('hide'); if ($('ldDrvCaret')) $('ldDrvCaret').textContent = '▾'; } }

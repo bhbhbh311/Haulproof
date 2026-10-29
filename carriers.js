@@ -163,20 +163,122 @@ function setAuthWarning(orgId, warning, snapshot) {
     }
   } catch (e) {}
 }
-// Re-check flagged companies against FMCSA once a week each (a daily timer picks up the ones last checked over 7
-// days ago, so restarts don't add checks): clear the warning once the snapshot comes back clean.
+// ---- Weekly FMCSA monitoring of EVERY saved carrier/broker (a daily timer picks up the ones last checked over 7 days
+// ago, those on open loads first). A company that goes bad raises a "carrier alert" for each company that uses it
+// (Dashboard → Needs attention, plus an email to its admins); a flagged one that comes back clean raises "cleared"
+// (and HaulProof's ⚠ warning comes off). Loads already assigned are never touched — dispatch decides. ----
 const WEEK = 7 * 24 * 3600000;
+const OPEN_LOAD_DAYS = 90 * 24 * 3600000;
+function openLoadsFor(orgId) {
+  return db.prepare(`SELECT l.id, l.orgId, l.brokerId, l.poNumber, l.loadNumber, l.pickedUpAt,
+      (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status NOT IN ('parked','not_used')) AS total,
+      (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS done
+    FROM loads l WHERE (l.carrierId = ? OR l.brokerId = ?) AND l.createdAt > ?`).all(orgId, orgId, Date.now() - OPEN_LOAD_DAYS)
+    .filter(l => !(l.total > 0 && l.done >= l.total));
+}
+function raiseCarrierAlert(org, type, problems) {
+  const loads = openLoadsFor(org.id);
+  const owners = new Set(db.prepare(`SELECT brokerId FROM broker_carriers WHERE carrierId = ?`).all(org.id).map(r => r.brokerId));
+  loads.forEach(l => { if (l.orgId && l.orgId !== org.id) owners.add(l.orgId); if (l.brokerId && l.brokerId !== org.id) owners.add(l.brokerId); });
+  const text = (problems || []).join('; ');
+  let n = 0;
+  owners.forEach(owner => {
+    if (!owner) return;
+    // The same news only once: skip if this company already has an un-dismissed alert saying the same thing.
+    if (db.prepare(`SELECT 1 FROM carrier_alerts WHERE ownerOrgId = ? AND carrierId = ? AND type = ? AND COALESCE(problems,'') = ? AND ackAt IS NULL`).get(owner, org.id, type, text)) return;
+    // A "cleared" replaces any open "flagged" for the same company (and vice versa).
+    db.prepare(`UPDATE carrier_alerts SET ackAt = ?, ackBy = 'superseded' WHERE ownerOrgId = ? AND carrierId = ? AND ackAt IS NULL`).run(Date.now(), owner, org.id);
+    const mine = loads.filter(l => l.orgId === owner || l.brokerId === owner).map(l => ({ id: l.id, po: l.poNumber || l.loadNumber || '', onRoad: !!(l.pickedUpAt || l.done > 0) }));
+    db.prepare(`INSERT INTO carrier_alerts (id, ownerOrgId, carrierId, carrierName, kind, type, problems, loads, createdAt) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(crypto.randomUUID(), owner, org.id, org.name, org.kind === 'broker' ? 'broker' : 'carrier', type, text || null, JSON.stringify(mine), Date.now());
+    n++;
+  });
+  return n;
+}
 async function recheckAuthority() {
   if (!WEBKEY) return;
-  const rows = db.prepare(`SELECT id, kind, dotNumber, authWarning FROM orgs WHERE authWarning IS NOT NULL AND dotNumber IS NOT NULL AND kind IN ('carrier','broker')
-    AND COALESCE(authCheckedAt,0) < ? ORDER BY COALESCE(authCheckedAt,0) LIMIT 100`).all(Date.now() - WEEK);
-  for (const o of rows) {
-    const { snap, problems } = await fmcsaEligibility(o.kind, o.dotNumber);
-    if (!snap.checked) continue;   // FMCSA didn't answer — keep the old warning, try again next time
-    setAuthWarning(o.id, warningFrom(problems), snap);
-    if (!problems.length) console.log('[authority] ' + o.id + ' clean on FMCSA — warning cleared');
+  const rows = db.prepare(`SELECT o.* FROM orgs o WHERE o.kind IN ('carrier','broker') AND o.active = 1 AND o.dotNumber IS NOT NULL AND o.dotNumber != ''
+      AND COALESCE(o.fmcsaSnapshotAt, 0) < ?
+    ORDER BY EXISTS (SELECT 1 FROM loads l WHERE (l.carrierId = o.id OR l.brokerId = o.id) AND l.createdAt > ?) DESC, COALESCE(o.fmcsaSnapshotAt, 0)
+    LIMIT 300`).all(Date.now() - WEEK, Date.now() - OPEN_LOAD_DAYS);
+  let alerts = 0;
+  for (let i = 0; i < rows.length; i += 2) {
+    await Promise.all(rows.slice(i, i + 2).map(async (o) => {
+      const kind = o.kind === 'broker' ? 'broker' : 'carrier';
+      let prev = null; try { prev = o.fmcsaSnapshot ? JSON.parse(o.fmcsaSnapshot) : null; } catch (e) {}
+      const prevProblems = prev && prev.checked ? snapshotProblems(kind, prev) : null;
+      const { snap, problems } = await fmcsaEligibility(kind, o.dotNumber);
+      if (!snap.checked) return;   // FMCSA didn't answer — keep what we had, try again next run
+      if (o.authWarning) {
+        // Approved by HaulProof with a warning: keep the warning current; clear it (and say so) once FMCSA is clean.
+        setAuthWarning(o.id, warningFrom(problems), snap);
+        if (!problems.length) { alerts += raiseCarrierAlert(o, 'cleared', []); console.log('[monitor] ' + o.name + ' clean on FMCSA — warning cleared'); }
+        return;
+      }
+      db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ?, authCheckedAt = ? WHERE id = ?`).run(JSON.stringify(snap), snap.at, Date.now(), o.id);
+      saveSnapshotForDot(o.dotNumber, snap);
+      const isNew = problems.some(p => !(prevProblems || []).includes(p));
+      if (problems.length && isNew) { alerts += raiseCarrierAlert(o, 'flagged', problems); console.log('[monitor] ' + o.name + ' flagged: ' + problems.join('; ')); }
+      else if (!problems.length && prevProblems && prevProblems.length) alerts += raiseCarrierAlert(o, 'cleared', []);
+    }));
+  }
+  if (rows.length) console.log('[monitor] checked ' + rows.length + ' carriers/brokers with FMCSA, ' + alerts + ' alert(s)');
+  await emailCarrierAlerts().catch(e => console.error('[monitor] email', e.message));
+}
+// One email per company with whatever changed since the last email — to its admins only. Nothing changed → no email.
+async function emailCarrierAlerts() {
+  const pend = db.prepare(`SELECT * FROM carrier_alerts WHERE emailedAt IS NULL AND ackAt IS NULL ORDER BY createdAt`).all();
+  if (!pend.length) return;
+  const byOwner = {}; pend.forEach(a => (byOwner[a.ownerOrgId] = byOwner[a.ownerOrgId] || []).push(a));
+  const { sendMail, portalUrl } = require('./mailer');
+  for (const owner of Object.keys(byOwner)) {
+    const list = byOwner[owner];
+    const to = db.prepare(`SELECT email FROM users WHERE orgId = ? AND role = 'admin'`).all(owner).map(u => u.email).filter(e => e && !/^haulproofhelp\+/i.test(e));
+    db.prepare(`UPDATE carrier_alerts SET emailedAt = ? WHERE id IN (${list.map(() => '?').join(',')})`).run(Date.now(), ...list.map(a => a.id));
+    if (!to.length) continue;
+    const bad = list.filter(a => a.type === 'flagged'), good = list.filter(a => a.type === 'cleared');
+    const line = (a) => {
+      let loads = []; try { loads = JSON.parse(a.loads || '[]'); } catch (e) {}
+      return '• ' + a.carrierName + (a.type === 'flagged' ? ' — ' + a.problems : ' — clean on FMCSA now') +
+        (loads.length ? '\n   On ' + loads.map(l => 'PO ' + (l.po || '?') + (l.onRoad ? ' (on the road)' : '')).join(', ') + '.' : (a.type === 'flagged' ? '\n   No open loads.' : ''));
+    };
+    const subject = bad.length ? bad.length + ' of your ' + (bad.length === 1 ? 'carriers' : 'carriers/brokers') + ' changed on FMCSA' : 'Carrier update: ' + good.length + ' cleared on FMCSA';
+    const text = 'HaulProof re-checks the carriers and brokers you work with against FMCSA every week.\n\n'
+      + (bad.length ? 'Changed:\n' + bad.map(line).join('\n') + '\n\nLoads already assigned stay as they are — you decide what to do with them. New loads can’t be assigned to these until FMCSA’s snapshot is clean or HaulProof approves them.\n\n' : '')
+      + (good.length ? 'Cleared:\n' + good.map(line).join('\n') + '\n\n' : '')
+      + 'See them on your Dashboard: ' + (portalUrl ? portalUrl() + '/app' : 'https://haulproofepod.com/app') + '\n\n'
+      + 'FMCSA snapshot only — what FMCSA reported when HaulProof checked. It is not a guarantee of a company’s authority, insurance, safety or identity.';
+    try { await sendMail({ to, subject: 'HaulProof: ' + subject, text }); } catch (e) { console.error('[monitor] mail ' + owner, e.message); }
   }
 }
+// Assigning a saved carrier/broker to a load: re-check it if its last check is over 7 days old; one that FMCSA now
+// flags can't be assigned without HaulProof (a HaulProof-approved one, with its ⚠ warning, can). FMCSA being down
+// doesn't block a company that's already saved.
+async function assignGate(req, org, kind, override) {
+  if (!org || !org.dotNumber || org.authWarning) return { ok: true };
+  const r = await eligibilityCached(kind, org.dotNumber);
+  if (!r.snap || !r.snap.checked) return { ok: true };
+  if (!r.cached) { try { db.prepare(`UPDATE orgs SET fmcsaSnapshot = ?, fmcsaSnapshotAt = ? WHERE id = ?`).run(JSON.stringify(r.snap), r.snap.at, org.id); } catch (e) {} }
+  if (!r.problems.length) return { ok: true };
+  const hp = isHaulProof(req), warning = warningFrom(r.problems);
+  if (hp && override) { setAuthWarning(org.id, warning, r.snap); return { ok: true }; }
+  return { ok: false, status: 409, body: { code: 'authority', problems: r.problems, warning, canOverride: hp, canRequest: !hp,
+    company: { name: org.name, mcNumber: org.mcNumber, dotNumber: org.dotNumber, address: org.address },
+    error: org.name + ' — ' + warning + '.' + (hp ? ' You can assign it anyway — it will carry a warning.' : ' Only HaulProof can approve using it — pick another ' + kind + ', or ask HaulProof.') } };
+}
+// Dashboard: this company's carrier alerts (not yet dismissed), and "Got it".
+router.get('/alerts', requireAuth, (req, res) => {
+  if (!req.user.orgId) return res.json({ alerts: [] });
+  const rows = db.prepare(`SELECT a.*, o.fmcsaSnapshot, o.dotNumber, o.mcNumber FROM carrier_alerts a LEFT JOIN orgs o ON o.id = a.carrierId
+    WHERE a.ownerOrgId = ? AND a.ackAt IS NULL ORDER BY a.createdAt DESC LIMIT 50`).all(req.user.orgId);
+  res.json({ alerts: rows.map(a => ({ id: a.id, carrierId: a.carrierId, name: a.carrierName, kind: a.kind, type: a.type, problems: a.problems, createdAt: a.createdAt,
+    dotNumber: a.dotNumber, mcNumber: a.mcNumber, loads: (() => { try { return JSON.parse(a.loads || '[]'); } catch (e) { return []; } })(),
+    snapshot: (() => { try { return a.fmcsaSnapshot ? JSON.parse(a.fmcsaSnapshot) : null; } catch (e) { return null; } })() })) });
+});
+router.post('/alerts/:id/ack', requireAuth, (req, res) => {
+  db.prepare(`UPDATE carrier_alerts SET ackAt = ?, ackBy = ? WHERE id = ? AND ownerOrgId = ?`).run(Date.now(), req.user.email || req.user.id, req.params.id, req.user.orgId || '');
+  res.json({ ok: true });
+});
 function startAuthorityRecheck() { setTimeout(() => recheckAuthority().catch(() => {}), 120000).unref(); setInterval(() => recheckAuthority().catch(() => {}), 24 * 3600000).unref(); }
 
 // "Ask HaulProof to approve": a company that wants to save a carrier/broker without active authority sends it to the
@@ -615,4 +717,4 @@ router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, startAuthorityRecheck, recheckAuthority, grantAuthorityRequest, isHaulProof };
+module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, assignGate, setAuthWarning, startAuthorityRecheck, recheckAuthority, emailCarrierAlerts, grantAuthorityRequest, isHaulProof };
