@@ -3048,8 +3048,10 @@
     return 'open';
   }
   const noDriver = (l) => !l.driverName && !l.driverId && ['ready', 'open'].indexOf(loadCat(l)) >= 0;
+  const needsAttn = (l) => loadCat(l) === 'setup' || l.emailFailed > 0 || l.pickPending > 0 || noDriver(l);   // the Dashboard's Needs attention list
   const LD_FILTERS = [
     ['', 'All', () => true],
+    ['attn', 'Needs attention', needsAttn],
     ['setup', 'Needs setup', l => loadCat(l) === 'setup'],
     ['ready', 'Ready for driver', l => loadCat(l) === 'ready'],
     ['road', 'On the road', l => loadCat(l) === 'road'],
@@ -3144,7 +3146,7 @@
   (function(){ const pc = $('aiPromoCard'), hh = document.querySelector('#homeCard .hhero'); if (pc && hh) hh.after(pc); })();
   if ($('homeNewLoad')) $('homeNewLoad').onclick = startNewLoad;
   if ($('homeLoads')) $('homeLoads').onclick = () => showLoadsFiltered('');
-  if ($('homeAttn')) $('homeAttn').onclick = () => { const el = $('homeAttnList'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  if ($('homeAttn')) $('homeAttn').onclick = () => showLoadsFiltered('attn');
   // ---- Select several loads and delete them together (each goes to the Recovery bin, as a single delete does) ----
   let _ldSel = new Set();
   function wireLoadBulk(box, showing) {
