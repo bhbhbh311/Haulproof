@@ -85,7 +85,13 @@ router.get('/match', requireAuth, (req, res) => {
   if (!org || !q) return res.json({ matches: [] });
   const rows = db.prepare(`SELECT * FROM customers WHERE ownerOrgId = ?`).all(org);
   const matches = rows.filter(r => { const n = norm(r.name); return n === q || n.indexOf(q) >= 0 || q.indexOf(n) >= 0; }).slice(0, 6);
-  res.json({ matches: matches.map(cOut) });
+  // Companies with their own HaulProof account (the public registry, not other companies' private lists) that look
+  // like this name — so "Brown Str…" suggests Brown Strauss even before it's on this company's list.
+  const mine = new Set(rows.map(r => norm(r.name)));
+  const known = q.length < 3 ? [] : db.prepare(`SELECT id, name FROM orgs WHERE kind = 'customer' AND active = 1`).all()
+    .filter(o => { const n = norm(o.name); return n && !mine.has(n) && (n.indexOf(q) >= 0 || q.indexOf(n) >= 0); }).slice(0, 4)
+    .map(o => ({ name: o.name, onHaulProof: true }));
+  res.json({ matches: matches.map(cOut), known });
 });
 
 // Add a customer to this org's list. Exact-name dedup: if one already exists, return it (existed:true)

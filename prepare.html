@@ -1262,19 +1262,31 @@
         });
     });
   }
-  var _rmCusts=null, _rmChoice=null;
+  var _rmCusts=null, _rmChoice=null, _rmKnown=[], _rmKnownQ='', _rmKnownT=null;
+  // Companies already on HaulProof that look like what's typed (fetched as you type, debounced).
+  function rmFetchKnown(q){
+    clearTimeout(_rmKnownT);
+    if(q.length<3){ _rmKnown=[]; _rmKnownQ=q; return; }
+    _rmKnownT=setTimeout(function(){
+      fetch('/api/customers/match?name='+encodeURIComponent(q),{credentials:'include'}).then(function(r){return r.json();})
+        .then(function(j){ if($('#rmCustInput').value.trim()!==q) return; _rmKnown=(j&&j.known)||[]; _rmKnownQ=q; if(document.activeElement===$('#rmCustInput')) rmRenderList(); })
+        .catch(function(){});
+    },250);
+  }
   function rmRenderList(){
     var box=$('#rmCustList'), q=$('#rmCustInput').value.trim(), ql=q.toLowerCase();
     var list=(_rmCusts||[]).filter(function(c){ return !ql || String(c.name).toLowerCase().indexOf(ql)>=0; }).slice(0,200);
     var html=list.map(function(c){ return '<div class="rmItem'+(_rmChoice&&_rmChoice.id===c.id?' on':'')+'" data-id="'+esc(c.id)+'">'+esc(c.name)+'</div>'; }).join('');
     var exact=(_rmCusts||[]).some(function(c){ return String(c.name).trim().toLowerCase()===ql; });
+    if(q===_rmKnownQ) (_rmKnown||[]).forEach(function(k,i){ html+='<div class="rmItem" data-known="'+i+'"><b>'+esc(k.name)+'</b> <span style="color:var(--muted);font-size:12px;">· already on HaulProof — add to your customers</span></div>'; });
     if(q && _rmCusts && !exact) html+='<div class="rmItem add" data-new="1">＋ Add “'+esc(q)+'” as a new customer</div>';
     if(!html) html='<div style="padding:10px 12px;color:var(--muted);font-size:13px;">'+(_rmCusts?'No customers yet — type the company name to add one.':'Loading customers…')+'</div>';
     box.innerHTML=html; box.style.display='block';
     Array.prototype.forEach.call(box.querySelectorAll('.rmItem'),function(it){
       it.addEventListener('mousedown',function(ev){
         ev.preventDefault();
-        if(it.dataset.new){ _rmChoice={name:q,isNew:true}; $('#rmCustNote').textContent='“'+q+'” will be added to your customers and set on this load.'; }
+        if(it.dataset.known){ var k=_rmKnown[+it.dataset.known]; if(!k) return; _rmChoice={name:k.name,isNew:true}; $('#rmCustNote').textContent='“'+k.name+'” will be added to your customers and set on this load.'; }
+        else if(it.dataset.new){ _rmChoice={name:q,isNew:true}; $('#rmCustNote').textContent='“'+q+'” will be added to your customers and set on this load.'; }
         else { var c=(_rmCusts||[]).find(function(x){ return x.id===it.dataset.id; }); if(!c) return; _rmChoice={id:c.id,name:c.name}; $('#rmCustNote').textContent='Will be set as this load’s customer.'; }
         $('#rmCustInput').value=_rmChoice.name; box.style.display='none'; $('#rmCustNote').style.color='#5c6b7a';
       });
@@ -1286,7 +1298,7 @@
       .then(function(j){ _rmCusts=(j&&j.customers)||[]; if(document.activeElement===$('#rmCustInput')) rmRenderList(); })
       .catch(function(){ _rmCusts=[]; });
   });
-  $('#rmCustInput').addEventListener('input',function(){ _rmChoice=null; $('#rmCustNote').textContent=''; rmRenderList(); });
+  $('#rmCustInput').addEventListener('input',function(){ _rmChoice=null; $('#rmCustNote').textContent=''; rmRenderList(); rmFetchKnown($('#rmCustInput').value.trim()); });
   $('#rmCustInput').addEventListener('blur',function(){ setTimeout(function(){ $('#rmCustList').style.display='none'; },150); });
   // Resolves to {action:'remembered'|'skip'|'cancel', customerName, docType}. 'remembered' = the layout is saved.
   function askRemember(out){
@@ -1316,7 +1328,13 @@
       $('#rmBack').onclick=function(){ finish({action:'cancel'}); };
       $('#rmSkip').onclick=function(){ if(hasCust && $('#rmNoAsk').checked) setNoAsk(_tpl.customerId); finish({action:'skip'}); };
       $('#rmYes').onclick=function(){
-        if(!hasCust && !_rmChoice){ $('#rmCustNote').style.color='#c0392b'; $('#rmCustNote').textContent='Pick a customer from the list (or type a new name and choose “Add”).'; $('#rmCustInput').focus(); return; }
+        // Nothing clicked in the list: use what's typed — the matching customer if there is one, else add it as new.
+        if(!hasCust && !_rmChoice){
+          var typed=$('#rmCustInput').value.trim();
+          if(!typed){ $('#rmCustNote').style.color='#c0392b'; $('#rmCustNote').textContent='Type the customer’s name.'; $('#rmCustInput').focus(); return; }
+          var hit=(_rmCusts||[]).find(function(c){ return String(c.name).trim().toLowerCase()===typed.toLowerCase(); });
+          _rmChoice = hit ? {id:hit.id,name:hit.name} : {name:typed,isNew:true};
+        }
         if(hasCust && $('#rmNoAsk').checked) setNoAsk(_tpl.customerId);
         busy(true); $('#rmYes').textContent='Saving…';
         (hasCust ? Promise.resolve() : setLoadCustomer(_rmChoice))
