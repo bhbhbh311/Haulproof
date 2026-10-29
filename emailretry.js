@@ -33,9 +33,10 @@ function recordEmailResult(podId, intended, mail, { manual } = {}) {
 }
 
 // Send the copy again to the addresses that didn't get it (or, if none are recorded, to everyone it was meant for).
-async function resendPod(pod, { manual, actor } = {}) {
+// `only`: dispatch picked which of the intended addresses to try (unticked ones drop out of this copy's retries).
+async function resendPod(pod, { manual, actor, only } = {}) {
   const { combinedPodBytes } = require('./pods');   // lazy: pods.js requires this module
-  const to = safeJson(pod.emailFailedTo) || safeJson(pod.recipients) || [];
+  const to = Array.isArray(only) ? only : (safeJson(pod.emailFailedTo) || safeJson(pod.recipients) || []);
   if (!to.length) return { error: 'No recipients on this document' };
   let combined = null; try { combined = await combinedPodBytes(pod); } catch (e) {}
   const mail = await emailPodCopy({ to, pod: { id: pod.id, poNumber: pod.poNumber, loadNumber: pod.loadNumber, consignee: pod.consignee, docType: pod.docType, filename: pod.filename, signedAt: pod.signedAt }, filePath: pod.filepath, contentBytes: combined });
@@ -69,13 +70,20 @@ async function retryDue() {
 function startRetryLoop() { setInterval(retryDue, 5 * 60000).unref(); setTimeout(retryDue, 60000).unref(); }
 
 const router = express.Router();
-router.post('/:id/resend-email', requireAuth, async (req, res) => {
+router.post('/:id/resend-email', requireAuth, express.json(), async (req, res) => {
   const pods = require('./pods');
   const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!pods.canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
   if (!pod.filepath) return res.status(404).json({ error: 'The document file is not available' });
+  // Optional subset: only addresses this copy was already meant for (its recipients or the ones that failed).
+  let only;
+  if (Array.isArray(req.body && req.body.to)) {
+    const allowed = new Set([...(safeJson(pod.recipients) || []), ...(safeJson(pod.emailFailedTo) || [])].map(e => String(e).toLowerCase()));
+    only = req.body.to.map(e => String(e || '').trim()).filter(e => allowed.has(e.toLowerCase()));
+    if (!only.length) return res.status(400).json({ error: 'Tick at least one address' });
+  }
   try {
-    const mail = await resendPod(pod, { manual: true, actor: req.user.email });
+    const mail = await resendPod(pod, { manual: true, actor: req.user.email, only });
     if (mail.error && !mail.failed) return res.status(400).json({ error: mail.error });
     const failed = (mail.failed || []).map(f => f.to);
     res.json({ ok: !failed.length, simulated: !!mail.simulated, sentTo: mail.sentTo || [], failed, error: failed.length ? mail.error : undefined });

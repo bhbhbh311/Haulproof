@@ -92,6 +92,7 @@
   a.dl{color:var(--primary);font-weight:600;text-decoration:none;} a.dl:hover{text-decoration:underline;} .empty{color:var(--muted);text-align:center;padding:28px 20px;}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
   /* First-time guide: the one "do this next" action grows + glows so a new dispatcher's eye lands on it. */
+  @keyframes rtspin{to{transform:rotate(360deg);}}
   @keyframes leadpulse{0%,100%{transform:scale(1);box-shadow:0 2px 8px rgba(22,85,209,.25);}50%{transform:scale(1.06);box-shadow:0 0 0 6px rgba(22,85,209,.22),0 8px 20px rgba(22,85,209,.42);}}
   .lead-cta{animation:leadpulse 1.45s ease-in-out infinite;position:relative;z-index:2;}
   @media (prefers-reduced-motion: reduce){.lead-cta{animation:none;}}
@@ -3117,7 +3118,7 @@
     const po = (l) => esc(l.poNumber || l.loadNumber || 'Load');
     const items = [];
     picks.forEach(l => items.push(['var(--violet)', `<b>Pick the signed copy to keep</b> · ${po(l)}`, 'A stop was signed twice — the customer copy is on hold until you choose', 'Pick', '', l.id]));
-    failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — open it to retry the email', 'Retry email', 'ghost btn-danger', l.id]));
+    failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — pick who gets it and try again', 'Retry email', 'ghost btn-danger hRetry', l.id]));
     setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
     nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
     const shownItems = items.slice(0, 8);
@@ -3142,6 +3143,7 @@
       return `<div class="hli"><span class="dot" style="background:${onRoad ? 'var(--warn)' : next ? 'var(--primary)' : 'var(--ok)'}"></span><div class="t"><b>${esc(n)}</b><div class="s">${sub}</div></div>${pill}</div>`;
     }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
     document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+    document.querySelectorAll('#homeCard .hRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));   // retry right here, no detour into the load
   }
   // The AI banner sits on the Dashboard, under the greeting.
   (function(){ const pc = $('aiPromoCard'), hh = document.querySelector('#homeCard .hhero'); if (pc && hh) hh.after(pc); })();
@@ -3937,6 +3939,66 @@
   }
   // Append the "Set aside" section (parked docs kept when a page was sent back to re-shoot) under the docs table.
   // Parked docs are not active and are never sent to a driver; the dispatcher restores one to put it back in play.
+  // ---- Retry a signed copy's email: pick the addresses (all ticked = everyone it was meant for), with a spinner
+  //      while it tries and the result in plain words. Opens from a stop's "Retry email" or the Dashboard. ----
+  function friendlyMailError(e) {
+    const t = String(e || '');
+    if (/5\.7\.139|SmtpClientAuthentication|smtp_auth_disabled/i.test(t)) return 'Microsoft is blocking HaulProof’s email sign-in — the email setup isn’t finished yet.';
+    if (/535|Invalid login|Authentication/i.test(t)) return 'The email account refused HaulProof’s sign-in.';
+    if (/ETIMEDOUT|ECONN|timeout/i.test(t)) return 'Couldn’t reach the email server — try again in a few minutes.';
+    return t.slice(0, 160) || 'The email didn’t go out.';
+  }
+  async function openRetryEmail(loadId, onlyPodId) {
+    let ov = $('retryModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'retryModal'; ov.className = 'histOverlay hide'; ov.style.zIndex = '10080';
+      ov.innerHTML = '<div class="histBox" style="max-width:560px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><h1 style="margin:0;font-size:18px;">Retry email</h1><button class="ghost" type="button" id="rtClose">✕ Close</button></div><div id="rtBody" style="margin-top:10px;"></div></div>';
+      document.body.appendChild(ov); ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); }); }
+    let changed = false;
+    const close = () => { ov.classList.add('hide'); if (changed) { try { if (curLoad && curLoad.id === loadId && !$('loadDetailCard').classList.contains('hide')) openLoad(loadId); } catch (e) {} try { loadLoads(); } catch (e) {} } };
+    $('rtClose').onclick = close;
+    const body = $('rtBody'); body.innerHTML = '<div class="empty">Loading…</div>'; ov.classList.remove('hide');
+    let r; try { r = await api('/api/loads/' + loadId); } catch (e) { body.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
+    const parse = (x) => { try { return JSON.parse(x || '[]') || []; } catch (e) { return []; } };
+    const pods = (r.pods || []).filter(p => (p.emailStatus === 'failed' || p.emailStatus === 'partial') && p.status !== 'not_used' && (!onlyPodId || p.id === onlyPodId));
+    if (!pods.length) { body.innerHTML = '<div class="empty">Nothing is waiting to be emailed on this load.</div>'; return; }
+    const po = (r.load && (r.load.poNumber || r.load.loadNumber)) || '';
+    body.innerHTML = `<p class="sub" style="margin:0 0 10px;">PO ${esc(po)} — tick who should get the signed copy. Everyone it was meant for is listed; unticked addresses are skipped and won’t be retried.</p>`
+      + `<label style="display:flex;gap:8px;align-items:center;font-weight:600;font-size:13.5px;margin:0 0 6px;text-transform:none;letter-spacing:normal;color:var(--ink);"><input type="checkbox" id="rtAll" checked> Select all</label>`
+      + pods.map(p => {
+          const failed = parse(p.emailFailedTo).map(x => x.toLowerCase());
+          const all = Array.from(new Set([...parse(p.recipients), ...parse(p.emailFailedTo)]));
+          return `<div class="rtPod" data-id="${p.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+            <div style="font-weight:700;margin-bottom:6px;">Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}${p.emailError ? `<div class="sub" style="font-weight:400;font-size:12px;margin-top:2px;color:var(--bad);">Last try: ${esc(friendlyMailError(p.emailError))}</div>` : ''}</div>`
+            + all.map(e => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:3px 0;margin:0;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink);"><input type="checkbox" class="rtTo" value="${esc(e)}" checked> ${esc(e)}${failed.indexOf(e.toLowerCase()) >= 0 ? ' <span class="sub" style="font-size:11.5px;color:var(--bad);">not sent</span>' : ' <span class="sub" style="font-size:11.5px;">already sent</span>'}</label>`).join('')
+            + `<div class="rtRes" style="font-size:13px;font-weight:600;margin-top:6px;"></div></div>`;
+        }).join('')
+      + `<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;"><button class="ghost" type="button" id="rtCancel">Cancel</button><button type="button" id="rtGo"><span class="rtSpin" style="display:none;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:rtspin .8s linear infinite;"></span><span class="rtLbl">↻ Retry email</span></button></div>`;
+    $('rtCancel').onclick = close;
+    const boxes = () => [...body.querySelectorAll('.rtTo')];
+    $('rtAll').onchange = () => boxes().forEach(c => c.checked = $('rtAll').checked);
+    body.querySelectorAll('.rtTo').forEach(c => c.onchange = () => { $('rtAll').checked = boxes().every(x => x.checked); });
+    $('rtGo').onclick = async () => {
+      const go = $('rtGo'); if (!boxes().some(c => c.checked)) { body.querySelector('.rtRes').textContent = 'Tick at least one address.'; return; }
+      go.disabled = true; $('rtCancel').disabled = true; go.querySelector('.rtSpin').style.display = 'inline-block'; go.querySelector('.rtLbl').textContent = 'Trying…';
+      for (const box of body.querySelectorAll('.rtPod')) {
+        const res = box.querySelector('.rtRes'), to = [...box.querySelectorAll('.rtTo:checked')].map(c => c.value);
+        if (!to.length) { res.textContent = 'Skipped — no addresses ticked.'; res.style.color = 'var(--muted)'; continue; }
+        res.textContent = 'Sending to ' + to.length + '…'; res.style.color = 'var(--muted)';
+        try {
+          const out = await api('/api/pods/' + box.dataset.id + '/resend-email', { method: 'POST', body: JSON.stringify({ to }) });
+          changed = true;
+          if (out.simulated) { res.textContent = 'Email isn’t set up on the server, so nothing was sent.'; res.style.color = 'var(--warn)'; }
+          else if (out.failed && out.failed.length) {
+            res.style.color = 'var(--bad)';
+            res.innerHTML = '✕ Not sent to ' + out.failed.length + ' of ' + to.length + ': ' + esc(out.failed.join(', ')) + '<div style="font-weight:600;margin-top:3px;">' + esc(friendlyMailError(out.error)) + ' HaulProof keeps retrying automatically.</div>'
+              + (out.error ? '<div class="sub" style="font-weight:400;font-size:11.5px;margin-top:3px;word-break:break-word;">' + esc(out.error) + '</div>' : '');
+          }
+          else { res.textContent = '✓ Sent to ' + (out.sentTo || to).length + ' address' + ((out.sentTo || to).length === 1 ? '' : 'es') + '.'; res.style.color = 'var(--ok)'; }
+        } catch (e) { res.textContent = '✕ ' + friendlyMailError(e.message); res.style.color = 'var(--bad)'; }
+      }
+      go.querySelector('.rtSpin').style.display = 'none'; go.querySelector('.rtLbl').textContent = '↻ Try again'; go.disabled = false; $('rtCancel').disabled = false; $('rtCancel').textContent = 'Done';
+    };
+  }
   // ---- "Send to driver again" (redo a signed stop) ----
   // The built-in support logins (haulproofhelp+company@…) read as "HaulProof Help" wherever a person is named.
   const whoLabel = (who) => /^haulproofhelp\+/i.test(String(who || '')) ? 'HaulProof Help' : (who || '');
@@ -4182,15 +4244,7 @@
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id, { method: 'DELETE' }); openLoad(curLoad.id); if (typeof refreshAwaitingBadge === 'function') refreshAwaitingBadge(); } catch (e) { alert(e.message); } }
     }));
     box.querySelectorAll('.ldOpenDoc').forEach(b => b.onclick = () => openDocViewer(byId[b.dataset.id]));
-    box.querySelectorAll('.ldResend').forEach(b => b.onclick = async () => {
-      b.disabled = true; const t = b.textContent; b.textContent = 'Sending…';
-      try {
-        const r = await api('/api/pods/' + b.dataset.id + '/resend-email', { method: 'POST' });
-        if (r.simulated) alert('Email isn’t set up on the server yet — nothing was sent.');
-        else if (r.failed && r.failed.length) alert('Still not sent to ' + r.failed.join(', ') + (r.error ? '\n\n' + r.error : ''));
-        openLoad(curLoad.id);
-      } catch (e) { alert(e.message || 'Could not resend'); b.disabled = false; b.textContent = t; }
-    });
+    box.querySelectorAll('.ldResend').forEach(b => b.onclick = () => openRetryEmail(curLoad.id, b.dataset.id));
     // One "Review" button opens the review popup (view the doc, crop a page, split into stops, or send a page
     // back to re-shoot). Replaces the old separate Split and Crop buttons.
     box.querySelectorAll('.ldReview').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
