@@ -2,6 +2,7 @@
 // If SMTP isn't configured, it logs what it *would* send (safe for dev/demo).
 const nodemailer = require('nodemailer');
 const graph = require('./graphmail');
+const resend = require('./resendmail');
 const { unsubToken, unsubTokenCat, filterOptedOut, filterStatusOptedOut } = require('./optout');
 
 // Base URL for links in emails (unsubscribe, "view/join"). Same source of truth as the portal.
@@ -39,11 +40,12 @@ function footerHtml(email) {
     + `Don't want these emails? <a href="${unsubUrl(email)}" style="color:#8a94a6">Unsubscribe</a>.</p>`;
 }
 
-// Sending is on when Microsoft Graph (preferred) or SMTP is configured; otherwise emails are only logged.
-function mailConfigured() { return graph.graphConfigured() || !!process.env.SMTP_HOST; }
-function fromAddr() { return process.env.MAIL_FROM || process.env.MS_SENDER || 'documents@haulproofepod.com'; }
+// Sending is on when Resend (preferred), Microsoft Graph or SMTP is configured; otherwise emails are only logged.
+function mailConfigured() { return resend.resendConfigured() || graph.graphConfigured() || !!process.env.SMTP_HOST; }
+function fromAddr() { return resend.resendConfigured() ? resend.fromAddr() : (process.env.MAIL_FROM || process.env.MS_SENDER || 'documents@haulproofepod.com'); }
 let transport;
 function getTransport() {
+  if (resend.resendConfigured()) return resend;
   if (graph.graphConfigured()) return graph;
   if (transport) return transport;
   if (process.env.SMTP_HOST) {

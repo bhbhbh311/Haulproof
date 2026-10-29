@@ -609,7 +609,7 @@ try { digest.startDailyDigest(); } catch (e) { console.error('digest arm', e && 
 try { require('./emailretry').startRetryLoop(); } catch (e) { console.error('email retry loop', e.message); }   // retry failed signed-copy emails
 app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);
-  console.log('Email: ' + (require('./graphmail').graphConfigured() ? 'Microsoft Graph as ' + (process.env.MS_SENDER || process.env.MAIL_FROM || '?') : process.env.SMTP_HOST ? 'SMTP' : 'NOT set up (emails are only simulated)') + ' · OneDrive backups: ' + (process.env.BACKUP_ONEDRIVE_USER && require('./graphmail').graphConfigured() ? 'on (' + process.env.BACKUP_ONEDRIVE_USER + ')' : 'off'));
+  console.log('Email: ' + (require('./resendmail').resendConfigured() ? 'Resend as ' + require('./resendmail').fromAddr() : require('./graphmail').graphConfigured() ? 'Microsoft Graph as ' + (process.env.MS_SENDER || process.env.MAIL_FROM || '?') : process.env.SMTP_HOST ? 'SMTP' : 'NOT set up (emails are only simulated)') + ' · OneDrive backups: ' + (process.env.BACKUP_ONEDRIVE_USER && require('./graphmail').graphConfigured() ? 'on (' + process.env.BACKUP_ONEDRIVE_USER + ')' : 'off'));
   if (ssoConfigured()) {
     console.log(`Microsoft SSO: ON. Register this EXACT redirect URI in your Entra app registration:`);
     console.log(`   ${REDIRECT_URI}`);

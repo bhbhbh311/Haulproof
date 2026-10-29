@@ -4475,6 +4475,9 @@
     const t = String(e || '');
     if (/5\.7\.139|SmtpClientAuthentication|smtp_auth_disabled/i.test(t)) return 'Microsoft is blocking HaulProof’s email sign-in — the email setup isn’t finished yet.';
     if (/535|Invalid login|Authentication/i.test(t)) return 'The email account refused HaulProof’s sign-in.';
+    if (/Resend 40[13]/i.test(t) && /domain|verif/i.test(t)) return 'The sending domain isn’t verified in Resend yet — finish the DNS records there.';
+    if (/Resend 401|API key/i.test(t)) return 'The Resend API key in Render isn’t valid.';
+    if (/5\.7\.708/.test(t)) return 'Microsoft is holding back mail from the new haulproofepod.com tenant (trial) — it was refused.';
     if (/ETIMEDOUT|ECONN|timeout/i.test(t)) return 'Couldn’t reach the email server — try again in a few minutes.';
     return t.slice(0, 160) || 'The email didn’t go out.';
   }
