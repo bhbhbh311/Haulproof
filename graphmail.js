@@ -45,6 +45,8 @@ async function sendMail(msg) {
   const from = sender();
   if (!from) throw new Error('Set MS_SENDER or MAIL_FROM to the mailbox HaulProof sends from');
   const box = '/users/' + encodeURIComponent(from);
+  // The From line must be the mailbox doing the sending (Microsoft refuses "send on behalf of" another mailbox).
+  msg = { ...msg, from: process.env.MS_SENDER || process.env.MAIL_FROM };
   const full = await mime(msg);
   if (full.length <= DIRECT_MAX) {
     await call('POST', box + '/sendMail', { body: full.toString('base64'), type: 'text/plain' });

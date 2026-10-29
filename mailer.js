@@ -42,7 +42,11 @@ function footerHtml(email) {
 
 // Sending is on when Resend (preferred), Microsoft Graph or SMTP is configured; otherwise emails are only logged.
 function mailConfigured() { return resend.resendConfigured() || graph.graphConfigured() || !!process.env.SMTP_HOST; }
-function fromAddr() { return resend.resendConfigured() ? resend.fromAddr() : (process.env.MAIL_FROM || process.env.MS_SENDER || 'documents@haulproofepod.com'); }
+function fromAddr() {
+  if (resend.resendConfigured()) return resend.fromAddr();
+  if (graph.graphConfigured()) return process.env.MS_SENDER || process.env.MAIL_FROM;   // the mailbox Graph sends as
+  return process.env.MAIL_FROM || process.env.MS_SENDER || 'documents@haulproofepod.com';
+}
 let transport;
 function getTransport() {
   if (resend.resendConfigured()) return resend;
