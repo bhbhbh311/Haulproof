@@ -153,10 +153,13 @@ async function fetchAuthority(dot) {
   if (!WEBKEY || !d) return null;
   const url = FMCSA_BASE + 'carriers/' + encodeURIComponent(d) + '/authority?webKey=' + encodeURIComponent(WEBKEY);
   try {
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) });
-    if (!r.ok) return null;
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) });
+    // FMCSA answers "no authority" with a 404 or an empty list — that's "none on file", not a failed check.
+    if (r.status === 404) { console.log('[fmcsa] authority dot=' + d + ' 404 → none on file'); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
+    if (!r.ok) { console.log('[fmcsa] authority dot=' + d + ' HTTP ' + r.status); return null; }
     const json = await r.json();
     const arr = Array.isArray(json.content) ? json.content : (json.content ? [json.content] : []);
+    if (!arr.length) { console.log('[fmcsa] authority dot=' + d + ' empty → none on file'); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
     let broker = false, common = false, contract = false, sawAny = false;
     // Inactive ("I") and pending flags too, so a lookup can say Active / Pending / Inactive / none for each type.
     const inactive = { carrier: false, broker: false }, pending = { carrier: false, broker: false };
@@ -176,11 +179,11 @@ async function fetchAuthority(dot) {
       }
     };
     arr.forEach(scan);
-    if (!sawAny) return arr.length ? { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } } : null;
+    if (!sawAny) { console.log('[fmcsa] authority dot=' + d + ' no status fields in ' + JSON.stringify(arr).slice(0, 300)); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
     const carrier = common || contract;
     const stateOf = (activeNow, t) => activeNow ? 'active' : pending[t] ? 'pending' : inactive[t] ? 'inactive' : 'none';
     return { broker, carrier, state: { carrier: stateOf(carrier, 'carrier'), broker: stateOf(broker, 'broker') } };
-  } catch (e) { return null; }
+  } catch (e) { console.log('[fmcsa] authority dot=' + d + ' failed: ' + e.message); return null; }
 }
 
 // Call FMCSA QCMobile. Returns { configured, results, error }.
@@ -199,14 +202,16 @@ async function fmcsaLookup({ mc, dot, name }) {
     // Keep the list short so the follow-up MC# lookups stay quick.
     const carriers = pickCarriers(json).slice(0, 15).map(c => normalize(c, mc));
     // Fill in the MC# from the docket sub-record wherever we don't already have one.
-    await Promise.all(carriers.map(async (c) => {
+    // A few companies at a time (not all ~30 requests at once) so FMCSA doesn't throttle the lookup.
+    const one = async (c) => {
       if (!c.mcNumber && c.dotNumber) { c.mcNumber = await fetchMcByDot(c.dotNumber); }
       if (c.dotNumber) {
         const a = await fetchAuthority(c.dotNumber);
-        // null = FMCSA didn't tell us; leave the flags undefined so the UI/rules treat it as "unknown".
+        // null = FMCSA didn't answer; leave the flags undefined so the UI/rules treat it as "unknown".
         if (a) { c.authBroker = a.broker; c.authCarrier = a.carrier; c.authState = a.state; }
       }
-    }));
+    };
+    for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map(one));
     return { configured: true, results: carriers };
   } catch (e) {
     return { configured: true, results: [], error: 'Could not reach FMCSA' };
