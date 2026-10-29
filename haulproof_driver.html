@@ -4066,7 +4066,18 @@ if(window.__LIBS) window.__startApp();
 (function(){
   if(!("serviceWorker" in navigator)) return;
   var reloading=false, pending=false, hadController=!!navigator.serviceWorker.controller;
+  // Last time the driver touched the app or came back to it (e.g. from the phone's camera app). An update only
+  // applies after a minute of quiet, so it can never land in the middle of something they just did.
+  var lastActive=Date.now();
+  ["pointerdown","touchstart","keydown","input","change"].forEach(function(ev){ document.addEventListener(ev, function(){ lastActive=Date.now(); }, {capture:true, passive:true}); });
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) lastActive=Date.now(); });
   function busy(){
+    if(Date.now()-lastActive < 60000) return true;
+    if(window.__hpBusy) return true;                       // signing / entering emails / completion screen
+    // Only update from the home (route) screen. Anywhere else — taking photos, reviewing pages, the send-to-dispatch
+    // screen, signing, the outbox, the PIN screens — the driver may have unsaved work, so wait until they're back home.
+    var route=document.getElementById("viewRoute");
+    if(!route || route.classList.contains("hide")) return true;
     var m=document.getElementById("modal"), c=document.getElementById("camView"), s=document.getElementById("stopSplit");
     if(m && m.classList.contains("on")) return true;      // adopting / drawing a signature
     if(c && c.classList.contains("on")) return true;      // camera open
