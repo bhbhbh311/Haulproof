@@ -126,6 +126,7 @@ function normalize(c, mcHint) {
     statusCode: c.statusCode || '',
     address: [c.phyStreet, c.phyCity, c.phyState, c.phyZipcode].filter(Boolean).join(', '),
     verified: true,
+    _recordAuth: authorityFromRecords([c]),   // the company record's own authority fields, when FMCSA includes them
   };
 }
 // A carrier's MC (docket) number lives on a SEPARATE FMCSA sub-record, not on the
@@ -160,6 +161,14 @@ async function fetchAuthority(dot) {
     const json = await r.json();
     const arr = Array.isArray(json.content) ? json.content : (json.content ? [json.content] : []);
     if (!arr.length) { console.log('[fmcsa] authority dot=' + d + ' empty → none on file'); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
+    const read = authorityFromRecords(arr);
+    if (!read) { console.log('[fmcsa] authority dot=' + d + ' no status fields in ' + JSON.stringify(arr).slice(0, 300)); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
+    return read;
+  } catch (e) { console.log('[fmcsa] authority dot=' + d + ' failed: ' + e.message); return null; }
+}
+// Read authority status fields from FMCSA records (the authority sub-record, or a company record that carries the
+// same fields). Returns { broker, carrier, state } or null when no status fields are present.
+function authorityFromRecords(arr) {
     let broker = false, common = false, contract = false, sawAny = false;
     // Inactive ("I") and pending flags too, so a lookup can say Active / Pending / Inactive / none for each type.
     const inactive = { carrier: false, broker: false }, pending = { carrier: false, broker: false };
@@ -178,12 +187,11 @@ async function fetchAuthority(dot) {
         else if (type && key.indexOf('revocation') >= 0 && (val === 'Y' || val === 'A')) { sawAny = true; inactive[type] = true; }
       }
     };
-    arr.forEach(scan);
-    if (!sawAny) { console.log('[fmcsa] authority dot=' + d + ' no status fields in ' + JSON.stringify(arr).slice(0, 300)); return { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } }; }
+    (arr || []).forEach(scan);
+    if (!sawAny) return null;
     const carrier = common || contract;
     const stateOf = (activeNow, t) => activeNow ? 'active' : pending[t] ? 'pending' : inactive[t] ? 'inactive' : 'none';
     return { broker, carrier, state: { carrier: stateOf(carrier, 'carrier'), broker: stateOf(broker, 'broker') } };
-  } catch (e) { console.log('[fmcsa] authority dot=' + d + ' failed: ' + e.message); return null; }
 }
 
 // Call FMCSA QCMobile. Returns { configured, results, error }.
@@ -200,7 +208,10 @@ async function fmcsaLookup({ mc, dot, name }) {
     if (!r.ok) return { configured: true, results: [], error: 'FMCSA returned ' + r.status };
     const json = await r.json();
     // Keep the list short so the follow-up MC# lookups stay quick.
-    const carriers = pickCarriers(json).slice(0, 15).map(c => normalize(c, mc));
+    const raw = pickCarriers(json).slice(0, 15);
+    // Diagnostic: which authority/status fields FMCSA's company record carries (field names and values only).
+    try { raw.slice(0, 4).forEach(x => console.log('[fmcsa] record dot=' + x.dotNumber + ' ' + JSON.stringify(Object.fromEntries(Object.entries(x).filter(([k]) => /authority|broker|common|contract|status/i.test(k)))))); } catch (e) {}
+    const carriers = raw.map(c => normalize(c, mc));
     // Fill in the MC# from the docket sub-record wherever we don't already have one.
     // A few companies at a time (not all ~30 requests at once) so FMCSA doesn't throttle the lookup.
     const one = async (c) => {
@@ -208,8 +219,14 @@ async function fmcsaLookup({ mc, dot, name }) {
       if (c.dotNumber) {
         const a = await fetchAuthority(c.dotNumber);
         // null = FMCSA didn't answer; leave the flags undefined so the UI/rules treat it as "unknown".
-        if (a) { c.authBroker = a.broker; c.authCarrier = a.carrier; c.authState = a.state; }
+        // The authority sub-record can come back empty while the company record itself shows the status — use whichever
+        // says more (anything beyond "none on file").
+        const rec = c._recordAuth, more = (x) => x && x.state && (x.state.carrier !== 'none' || x.state.broker !== 'none');
+        const use = more(a) ? a : (more(rec) ? rec : (a || rec));
+        if (rec && !more(a) && more(rec)) console.log('[fmcsa] dot=' + c.dotNumber + ' authority from the company record: ' + JSON.stringify(rec.state));
+        if (use) { c.authBroker = use.broker; c.authCarrier = use.carrier; c.authState = use.state; }
       }
+      delete c._recordAuth;
     };
     for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map(one));
     return { configured: true, results: carriers };
