@@ -35,14 +35,31 @@ function buildDigest(sinceTs) {
   const docsSigned = count(`SELECT COUNT(*) c FROM pods WHERE status IN ('signed','emailed')`);
   const orgTotals = all(`SELECT kind, COUNT(*) c FROM orgs WHERE active = 1 GROUP BY kind`);
   const totalsByKind = {}; orgTotals.forEach(r => { totalsByKind[r.kind || 'customer'] = r.c; });
-  return { sinceTs, newUsers, newOrgs, pendingReqs, newReqCount, docsNew, docsTotal, docsSigned, totalsByKind };
+  // Weekly FMCSA monitoring: carriers/brokers that changed (or cleared) in this period — one line per company, with who uses it.
+  const alertRows = all(`SELECT a.carrierId, a.carrierName, a.type, a.problems, a.loads, o.name AS ownerName FROM carrier_alerts a
+      LEFT JOIN orgs o ON o.id = a.ownerOrgId WHERE a.createdAt >= ? AND COALESCE(a.ackBy,'') != 'superseded' ORDER BY a.createdAt ASC`, [sinceTs]);
+  const carrierChanges = [], seen = {};
+  alertRows.forEach(a => {
+    const k = a.carrierId + '|' + a.type;
+    let c = seen[k];
+    if (!c) { c = seen[k] = { name: a.carrierName, type: a.type, problems: a.problems, owners: [], pos: [] }; carrierChanges.push(c); }
+    if (a.ownerName && c.owners.indexOf(a.ownerName) < 0) c.owners.push(a.ownerName);
+    try { JSON.parse(a.loads || '[]').forEach(l => { const t = 'PO ' + (l.po || '?') + (l.onRoad ? ' (on the road)' : ''); if (c.pos.indexOf(t) < 0) c.pos.push(t); }); } catch (e) {}
+  });
+  const carriersChecked = count(`SELECT COUNT(*) c FROM orgs WHERE kind IN ('carrier','broker') AND fmcsaSnapshotAt >= ?`, [sinceTs]);
+  return { sinceTs, newUsers, newOrgs, pendingReqs, newReqCount, docsNew, docsTotal, docsSigned, totalsByKind, carrierChanges, carriersChecked };
 }
 
 function fmtDate(ts) { try { return new Date(ts).toLocaleString('en-US', { timeZone: 'America/Chicago' }); } catch (e) { return new Date(ts).toISOString(); } }
 
 function render(d) {
   const nUsers = d.newUsers.length, nOrgs = d.newOrgs.length, nPend = d.pendingReqs.length;
-  const subject = `HaulProof daily — ${nUsers} new login${nUsers === 1 ? '' : 's'}, ${nOrgs} new compan${nOrgs === 1 ? 'y' : 'ies'}, ${nPend} request${nPend === 1 ? '' : 's'} pending`;
+  const nBad = d.carrierChanges.filter(c => c.type === 'flagged').length;
+  const subject = `HaulProof daily — ${nUsers} new login${nUsers === 1 ? '' : 's'}, ${nOrgs} new compan${nOrgs === 1 ? 'y' : 'ies'}, ${nPend} request${nPend === 1 ? '' : 's'} pending` + (nBad ? `, ${nBad} carrier alert${nBad === 1 ? '' : 's'}` : '');
+  const carrierLine = (c) => c.name + (c.type === 'flagged' ? ' — ' + (c.problems || 'flagged on FMCSA') : ' — cleared, clean on FMCSA now')
+    + (c.owners.length ? ' · used by ' + c.owners.join(', ') : '') + (c.pos.length ? ' · open loads: ' + c.pos.join(', ') : '');
+  const nGood = d.carrierChanges.length - nBad;
+  const carrierHead = 'FMCSA carrier monitoring — ' + d.carriersChecked + ' checked, ' + nBad + ' changed, ' + nGood + ' cleared';
 
   // ---- plain text ----
   const T = [];
@@ -65,6 +82,10 @@ function render(d) {
   });
   else T.push('  (none)');
   T.push('');
+  T.push(carrierHead.toUpperCase());
+  if (d.carrierChanges.length) d.carrierChanges.forEach(c => T.push('  • ' + (c.type === 'flagged' ? '⚠ ' : '✓ ') + carrierLine(c)));
+  else T.push('  (no changes)');
+  T.push('');
   T.push('DOCUMENTS');
   T.push('  New in this period: ' + d.docsNew);
   T.push('  Total on file: ' + d.docsTotal + ' (' + d.docsSigned + ' signed/emailed)');
@@ -86,6 +107,9 @@ function render(d) {
     const what = r.kind === 'driver' ? ('Driver — wants to join ' + esc(r.targetCompany || '?')) : ('Company — ' + esc(cap(r.orgType || 'customer')) + (r.company ? (': ' + esc(r.company)) : ''));
     return li('<b>' + who + '</b> — ' + what + (r.email ? (' <span style="color:#8a94a6;">&lt;' + esc(r.email) + '&gt;</span>') : ''));
   }));
+  const carriersHtml = ul(d.carrierChanges.map(c => li((c.type === 'flagged' ? '<span style="color:#c0392b;font-weight:700;">⚠</span> ' : '<span style="color:#1e8e5a;font-weight:700;">✓</span> ') + '<b>' + esc(c.name) + '</b> — '
+    + esc(c.type === 'flagged' ? (c.problems || 'flagged on FMCSA') : 'cleared, clean on FMCSA now')
+    + (c.owners.length ? ' <span style="color:#8a94a6;">· used by ' + esc(c.owners.join(', ')) + '</span>' : '') + (c.pos.length ? ' <span style="color:#8a94a6;">· open loads: ' + esc(c.pos.join(', ')) + '</span>' : ''))));
   const docsHtml = '<div style="font:14px system-ui,Arial,sans-serif;color:#1f2733;">New in this period: <b>' + d.docsNew + '</b><br>Total on file: <b>' + d.docsTotal + '</b> (' + d.docsSigned + ' signed/emailed)</div>';
   const totalsHtml = '<div style="font:13px system-ui,Arial,sans-serif;color:#5c6b7a;">' + ['customer', 'carrier', 'broker', 'receiver'].map(k => '<b>' + (tk[k] || 0) + '</b> ' + k + ((tk[k] || 0) === 1 ? '' : 's')).join(' &nbsp;·&nbsp; ') + '</div>';
 
@@ -95,6 +119,7 @@ function render(d) {
     + sec('New team logins / users (' + nUsers + ')', usersHtml)
     + sec('New companies (' + nOrgs + ')', orgsHtml)
     + sec('Pending access requests (' + nPend + (d.newReqCount ? (' · ' + d.newReqCount + ' new today') : '') + ')', reqsHtml)
+    + sec(carrierHead, carriersHtml)
     + sec('Documents', docsHtml)
     + sec('Companies on platform', totalsHtml)
     + '<p style="margin:26px 0 0;"><a href="' + portalUrl() + '/app" style="display:inline-block;background:#1f6feb;color:#fff;font-weight:700;text-decoration:none;padding:11px 20px;border-radius:9px;">Open HaulProof &rarr;</a></p>'
