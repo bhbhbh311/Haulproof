@@ -451,6 +451,9 @@ CREATE INDEX IF NOT EXISTS idx_orgs_parent   ON orgs(parentId);
 `);
 addColumn('receiver_contacts', 'ownerOrgId', 'TEXT');
 addColumn('login_links', 'pendingReset', 'INTEGER');
+// A carrier/broker an admin added without active FMCSA authority carries a warning until a later check finds it active.
+addColumn('orgs', 'authWarning', 'TEXT');        // e.g. "No carrier authority on file with FMCSA" — NULL when verified active
+addColumn('orgs', 'authCheckedAt', 'INTEGER');   // last FMCSA authority check
 // "Send to driver again": a signed stop can be redone. The clean unsigned original is kept with the signed copy so a
 // redo starts from it; while both signed copies exist dispatch picks one (pickPending) and the other becomes 'not_used'.
 addColumn('pods', 'originalFile', 'TEXT');        // the unsigned original this signed copy was made from (kept for a redo)

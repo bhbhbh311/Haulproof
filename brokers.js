@@ -5,14 +5,14 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { requireAuth, requireAdmin, createUser } = require('./auth');
-const { fmcsaLookup, upsertCarrierOrg, carrierOut } = require('./carriers');
+const { fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning } = require('./carriers');
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const router = express.Router();
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
 function brokerOut(o) {
   return { id: o.id, name: o.name, mcNumber: o.mcNumber, dotNumber: o.dotNumber, fmcsaVerified: !!o.fmcsaVerified,
-    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active };
+    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null };
 }
 const isAdmin = (req) => req.user.role === 'admin' || req.user.role === 'superadmin';
 
@@ -109,16 +109,20 @@ router.get('/my-carriers', requireAuth, (req, res) => {
   res.json({ carriers: rows.map(carrierOut) });
 });
 // Approve a carrier into the roster (from FMCSA data, or an admin override).
-router.post('/my-carriers', requireAuth, (req, res) => {
+router.post('/my-carriers', requireAuth, async (req, res) => {
   const brokerOrg = brokerScope(req);
   if (!brokerOrg) return res.status(403).json({ error: 'Brokers only' });
   const b = req.body || {};
   const name = (b.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Carrier name is required' });
   if (!b.fmcsaVerified && !isAdmin(req)) return res.status(403).json({ error: 'Only an admin can approve a carrier FMCSA did not verify' });
+  // Active carrier authority approves plainly; anything else needs an admin override and carries a warning.
+  const gate = await authorityGate(req, 'carrier', b.dotNumber, name, !!b.override);
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   const carrier = upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(brokerOrg, carrier.id, Date.now());
-  res.status(201).json({ carrier: carrierOut(carrier) });
+  setAuthWarning(carrier.id, gate.warning);
+  res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(carrier.id)) });
 });
 // Remove a carrier from the roster.
 router.delete('/my-carriers/:carrierId', requireAuth, (req, res) => {

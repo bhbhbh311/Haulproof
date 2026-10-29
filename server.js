@@ -220,6 +220,7 @@ app.use('/api/trash', trashRouter);
 // --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
 // Master-admin: send the daily digest right now (to test it / get an on-demand copy). The scheduled one still
 // fires once a day on its own.
+try { require('./carriers').startAuthorityRecheck(); } catch (e) { console.error('authority recheck', e.message); }
 app.post('/api/digest/test', requireAuth, requireSuper, async (_req, res) => {
   try { const r = await digest.sendNow(); res.json({ ok: true, to: digest.RECIPIENT, sent: !!(r && (r.sent || r.simulated)), simulated: !!(r && r.simulated), error: r && r.error || null }); }
   catch (e) { res.status(500).json({ error: e.message }); }

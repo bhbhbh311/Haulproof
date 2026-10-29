@@ -2581,7 +2581,7 @@
       if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
-          <td><b>${esc(c.name)}</b></td>
+          <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
           <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
@@ -2650,7 +2650,7 @@
       if (!r.brokers || !r.brokers.length) { box.innerHTML = '<div class="empty">No brokers to show.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Broker</th><th>MC / DOT</th><th>FMCSA</th><th>Status</th><th></th></tr></thead><tbody>' +
         r.brokers.map(c => `<tr style="${c.active ? '' : 'opacity:.6;'}">
-          <td><b>${esc(c.name)}</b></td>
+          <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
           <td>${c.active ? '<span class="chip signed">Active</span>' : '<span class="chip received">Inactive</span>'}</td>
@@ -2714,7 +2714,7 @@
       if (!r.carriers.length) { box.innerHTML = '<div class="empty">No approved carriers yet. Approve one above to assign it loads.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr>
-          <td><b>${esc(c.name)}</b></td>
+          <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
           <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
@@ -2733,11 +2733,13 @@
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;">${(c.authBroker && c.authCarrier === false) ? '<span class="sub" style="font-size:12px;" title="FMCSA shows broker authority only — it can’t haul your loads">Broker only — can’t haul</span>' : `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`}</td></tr>`).join('') + '</tbody></table>';
+            <td style="text-align:right;">${authStateOf(c, 'carrier') === 'active' ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
+              : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="No active carrier authority on FMCSA — approve it with a warning">Approve anyway</button>`
+              : '<span class="sub" style="font-size:12px;" title="No active carrier authority on FMCSA">No carrier authority — ask an admin</span>'}</td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
-          try { await api('/api/brokers/my-carriers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) }); $('bcResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier approved ✓</div>'; $('bcSearch').value = ''; loadApprovedCarriers(); }
-          catch (e) { alert(e.message); }
+          await addWithAuthority('/api/brokers/my-carriers', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address },
+            () => { $('bcResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier approved ✓</div>'; $('bcSearch').value = ''; loadApprovedCarriers(); });
         });
       } else {
         box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY).' : 'No FMCSA match for that carrier.') + '</div>';
@@ -2753,7 +2755,7 @@
       if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers or brokers yet. Tap “＋ Add a carrier or broker” to look one up on FMCSA and save it.</div>'; return; }
       box.innerHTML = '<table><thead><tr><th>Company</th><th>Type</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr>
-          <td><b>${esc(c.name)}</b></td>
+          <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td>${c.kind === 'broker' ? '<span class="chip" style="background:var(--violet-soft,rgba(169,139,255,.18));color:var(--violet,#a98bff);">Broker</span>' : '<span class="chip signed">Carrier</span>'}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
@@ -2770,9 +2772,13 @@
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
         // Offer "Add as carrier" / "Add as broker" from the company's FMCSA authority (both when unknown or it holds both).
-        const known = (c) => c.authCarrier !== undefined || c.authBroker !== undefined;
-        const addBtns = (c, i) => [(!known(c) || c.authCarrier) ? `<button class="ccrAdd" data-i="${i}" data-kind="carrier" style="padding:6px 10px;font-size:12px;">Add as carrier</button>` : '',
-          (!known(c) || c.authBroker) ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="broker" style="padding:6px 10px;font-size:12px;margin-left:6px;">Add as broker</button>` : ''].join('') || '<span class="sub" style="font-size:12px;">No active authority</span>';
+        // Active authority → "Add as carrier/broker". Otherwise admins get an "anyway" button (confirmed, then flagged).
+        const addBtn = (c, i, kind) => {
+          const st = authStateOf(c, kind), noun = kind === 'broker' ? 'broker' : 'carrier', sty = 'padding:6px 10px;font-size:12px;margin-left:6px;';
+          if (st === 'active') return `<button class="ccrAdd${kind === 'broker' ? ' ghost' : ''}" data-i="${i}" data-kind="${kind}" style="${sty}">Add as ${noun}</button>`;
+          return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — admins can add it with a warning">Add as ${noun} anyway</button>` : '';
+        };
+        const addBtns = (c, i) => (addBtn(c, i, 'carrier') + addBtn(c, i, 'broker')) || '<span class="sub" style="font-size:12px;">No active authority — an admin can add it with a warning</span>';
         box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
@@ -2780,8 +2786,7 @@
             <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
-          try { await api('/api/carriers/roster', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, kind: b.dataset.kind }) }); $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">' + (b.dataset.kind === 'broker' ? 'Broker' : 'Carrier') + ' saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); }
-          catch (e) { alert(e.message); }
+          await addWithAuthority('/api/carriers/roster', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, kind: b.dataset.kind }, () => { $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">' + (b.dataset.kind === 'broker' ? 'Broker' : 'Carrier') + ' saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); });
         });
       } else {
         box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet.' : 'No FMCSA match for that carrier.') + '</div>';
@@ -3044,14 +3049,55 @@
     if (dashWelcomeDismissed() || (user && user.role === 'superadmin')) { w.classList.add('hide'); return; }
     w.classList.remove('hide');
   }
-  // FMCSA operating authority from a lookup result: Carrier (common/contract), Broker, both, or not reported.
-  function fmcsaAuthChip(c) {
-    if (c.authCarrier === undefined && c.authBroker === undefined) return '<span class="chip received" title="FMCSA didn’t report authority for this company">Not reported</span>';
-    if (c.authCarrier && c.authBroker) return '<span class="chip prepared" title="Active carrier (common/contract) and broker authority">Carrier + Broker</span>';
-    if (c.authCarrier) return '<span class="chip signed" title="Active common or contract carrier authority">Carrier only</span>';
-    if (c.authBroker) return '<span class="chip" style="background:var(--violet-soft,rgba(169,139,255,.18));color:var(--violet,#a98bff);" title="Active broker authority, no carrier authority">Broker only</span>';
-    return '<span class="chip failed" title="No active carrier or broker authority on FMCSA">No active authority</span>';
+  // FMCSA operating authority from a lookup result, per type (carrier = common/contract, broker): Active, Pending,
+  // Inactive / revoked, or none on file — or "Couldn't check" when FMCSA didn't answer. Plus a link to FMCSA's own page.
+  const AUTH_LABEL = { active: 'Active', pending: 'Pending', inactive: 'Inactive / revoked', none: 'None on file' };
+  function authStateOf(c, kind) {
+    if (c.authState && c.authState[kind]) return c.authState[kind];
+    if (c.authCarrier === undefined && c.authBroker === undefined) return 'unknown';
+    return (kind === 'broker' ? c.authBroker : c.authCarrier) ? 'active' : 'none';
   }
+  function saferLink(c) {
+    const d = String(c.dotNumber || '').replace(/\D/g, '');
+    return d ? `<a href="https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${d}" target="_blank" rel="noopener" style="font-size:11.5px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap;">View on FMCSA ↗</a>` : '';
+  }
+  function fmcsaAuthChip(c) {
+    const cs = authStateOf(c, 'carrier'), bs = authStateOf(c, 'broker');
+    if (cs === 'unknown') return '<span class="chip received" title="FMCSA didn’t answer — look it up again in a minute">Couldn’t check — try again</span><div style="margin-top:3px;">' + saferLink(c) + '</div>';
+    const tone = { active: 'signed', pending: 'prepared', inactive: 'failed', none: 'received' };
+    const row = (lbl, st) => `<div style="margin:2px 0;"><span class="chip ${tone[st] || 'received'}" style="font-size:11px;">${lbl}: ${AUTH_LABEL[st] || st}</span></div>`;
+    return row('Carrier', cs) + row('Broker', bs) + '<div style="margin-top:3px;">' + saferLink(c) + '</div>';
+  }
+  // Warning on a saved carrier/broker that an admin added without active FMCSA authority (cleared once it's active).
+  function authWarnHtml(c) {
+    return c && c.authWarning ? `<div style="margin-top:3px;font-size:12px;font-weight:600;color:var(--warn);" title="Added by an admin override. HaulProof re-checks FMCSA weekly and clears this once the authority is active.">⚠ ${esc(c.authWarning)} <button type="button" class="ghost authRecheck" data-id="${c.id}" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span></div>` : '';
+  }
+  // One handler for every "Check FMCSA now" button (lists and the load page): re-check, then refresh what's on screen.
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest && e.target.closest('.authRecheck'); if (!b) return;
+    const msg = b.parentNode.querySelector('.authRecheckMsg'); b.disabled = true; const t = b.textContent; b.textContent = 'Checking…';
+    try {
+      const r = await api('/api/carriers/' + b.dataset.id + '/recheck-authority', { method: 'POST' });
+      if (msg) msg.textContent = r.authWarning ? 'Still not active (' + r.state + ').' : '✓ Active on FMCSA — warning cleared.';
+      if (!r.authWarning) setTimeout(() => { try { loadCustCarriers(); } catch (_) {} try { loadApprovedCarriers(); } catch (_) {} try { if (curLoad && curLoad.id) openLoad(curLoad.id); } catch (_) {} }, 900);
+    } catch (err) { if (msg) msg.textContent = err.message; }
+    b.disabled = false; b.textContent = t;
+  });
+  // Save a company as a carrier/broker. Without active authority an admin confirms an override (the company then
+  // shows a warning until FMCSA shows it active); anyone else is told why it can't be added.
+  async function addWithAuthority(url, body, onDone) {
+    const send = async (override) => {
+      const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(Object.assign({}, body, override ? { override: true } : {})) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) return onDone(j);
+      if (j.code === 'authority' && j.canOverride && !override) {
+        return confirmDialog({ title: 'Add without active authority?', okLabel: 'Add anyway', message: j.error, onOk: () => send(true).catch(e => alert(e.message)) });
+      }
+      throw new Error(j.error || res.statusText);
+    };
+    try { await send(false); } catch (e) { alert(e.message); }
+  }
+  function canOverrideAuth() { return !!(user && (user.role === 'admin' || user.role === 'superadmin')); }
   // ---- Dashboard home + Loads filters. Each load falls in one bucket: needs setup → done → on the road → ready
   //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
   function loadCat(l) {
@@ -5712,8 +5758,10 @@
     // carrier. The broker's job here is to ADD a carrier/driver, not to tear down what the customer set up — so
     // a broker (and a carrier) never see the unassign controls. Owner/super still do.
     const canUnassign = !isBrokerUser() && !isCarrierUser();
-    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + (canUnassign ? unassignBtn('broker') : ''));
-    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + (canUnassign ? unassignBtn('carrier') : ''));
+    const warn = (w, id) => w ? ' <span style="color:var(--warn);font-weight:600;font-size:12.5px;" title="Added by an admin override — HaulProof re-checks FMCSA weekly">⚠ ' + esc(w)
+      + (id ? ' <button type="button" class="ghost authRecheck" data-id="' + id + '" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span>' : '') + '</span>' : '';
+    if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + warn(curLoad.brokerAuthWarning, curLoad.brokerId) + (canUnassign ? unassignBtn('broker') : ''));
+    if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + warn(curLoad.carrierAuthWarning, curLoad.carrierId) + (canUnassign ? unassignBtn('carrier') : ''));
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
   }

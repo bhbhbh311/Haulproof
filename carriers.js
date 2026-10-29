@@ -6,7 +6,7 @@ const { requireAuth, requireAdmin, createUser } = require('./auth');
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const router = express.Router();
-const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services/';
+const FMCSA_BASE = process.env.FMCSA_BASE || 'https://mobile.fmcsa.dot.gov/qc/services/';   // overridable for tests
 const WEBKEY = (process.env.FMCSA_WEBKEY || '').trim();
 
 function newDeviceKey() { return 'dk_' + crypto.randomBytes(24).toString('hex'); }
@@ -48,6 +48,67 @@ function upsertBrokerOrg({ name, mcNumber, dotNumber, verified, allowedToOperate
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified ? 1 : 0, allowedToOperate || null, String(address || '').trim() || null, Date.now());
   return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id);
 }
+
+// ---- Authority gate for saving a company as a carrier or broker. Active authority of that type → saved plainly.
+// Anything else (pending, inactive, none on file, or FMCSA couldn't be checked) needs an admin override, and the
+// company then carries a warning until a later check finds the authority active (see recheckAuthority). ----
+const AUTH_WORDS = { pending: 'is pending', inactive: 'is inactive or revoked', none: 'isn’t on file', unknown: 'couldn’t be checked' };
+function authWarningText(kind, state) { return 'FMCSA ' + (kind === 'broker' ? 'broker' : 'carrier') + ' authority ' + (AUTH_WORDS[state] || AUTH_WORDS.unknown); }
+async function authorityState(kind, dotNumber) {
+  const d = String(dotNumber || '').replace(/\D/g, '');
+  if (!d) return 'unknown';
+  let a = null; try { a = await fetchAuthority(d); } catch (e) { a = null; }
+  if (!a) return 'unknown';
+  return (a.state && a.state[kind]) || (a[kind] ? 'active' : 'none');
+}
+// Returns { ok, warning } or { ok:false, status, body } for the route to send.
+async function authorityGate(req, kind, dotNumber, name, override) {
+  const state = await authorityState(kind, dotNumber);
+  if (state === 'active') return { ok: true, warning: null };
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  const warning = authWarningText(kind, state);
+  if (isAdmin && override) return { ok: true, warning };
+  return { ok: false, status: 409, body: { code: 'authority', state, canOverride: isAdmin,
+    error: (name || 'This company') + ': ' + warning + '.' + (isAdmin ? ' You can add it anyway — it will show a warning until FMCSA shows the authority as active.' : ' Ask an admin if it should be added anyway.') } };
+}
+function setAuthWarning(orgId, warning) {
+  try { db.prepare(`UPDATE orgs SET authWarning = ?, authCheckedAt = ? WHERE id = ?`).run(warning || null, Date.now(), orgId); } catch (e) {}
+}
+// Re-check flagged companies against FMCSA once a week each (a daily timer picks up the ones last checked over 7
+// days ago, so restarts don't add checks): clear the warning once the authority is active.
+const WEEK = 7 * 24 * 3600000;
+async function recheckAuthority() {
+  if (!WEBKEY) return;
+  const rows = db.prepare(`SELECT id, kind, dotNumber, authWarning FROM orgs WHERE authWarning IS NOT NULL AND dotNumber IS NOT NULL AND kind IN ('carrier','broker')
+    AND COALESCE(authCheckedAt,0) < ? ORDER BY COALESCE(authCheckedAt,0) LIMIT 100`).all(Date.now() - WEEK);
+  for (const o of rows) {
+    const state = await authorityState(o.kind, o.dotNumber);
+    if (state === 'unknown') continue;   // FMCSA didn't answer — keep the old warning, try again next time
+    setAuthWarning(o.id, state === 'active' ? null : authWarningText(o.kind, state));
+    if (state === 'active') console.log('[authority] ' + o.id + ' now active — warning cleared');
+  }
+}
+function startAuthorityRecheck() { setTimeout(() => recheckAuthority().catch(() => {}), 120000).unref(); setInterval(() => recheckAuthority().catch(() => {}), 24 * 3600000).unref(); }
+
+// "Check FMCSA now" on a flagged carrier/broker — anyone who works with it, at most once an hour per company.
+router.post('/:id/recheck-authority', requireAuth, async (req, res) => {
+  const o = db.prepare(`SELECT * FROM orgs WHERE id = ? AND kind IN ('carrier','broker')`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Company not found' });
+  const linked = req.user.role === 'superadmin' || req.user.orgId === o.id
+    || db.prepare(`SELECT 1 FROM broker_carriers WHERE brokerId = ? AND carrierId = ?`).get(req.user.orgId || '', o.id)
+    || db.prepare(`SELECT 1 FROM loads WHERE (orgId = ? OR brokerId = ?) AND (carrierId = ? OR brokerId = ?) LIMIT 1`).get(req.user.orgId || '', req.user.orgId || '', o.id, o.id);
+  if (!linked) return res.status(404).json({ error: 'Company not found' });
+  if (!o.authWarning) return res.json({ ok: true, authWarning: null, state: 'active' });
+  if (o.authCheckedAt && Date.now() - o.authCheckedAt < 3600000) {
+    const mins = Math.ceil((3600000 - (Date.now() - o.authCheckedAt)) / 60000);
+    return res.status(429).json({ error: 'Checked with FMCSA less than an hour ago — try again in ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.' });
+  }
+  const state = await authorityState(o.kind, o.dotNumber);
+  if (state === 'unknown') return res.status(502).json({ error: 'FMCSA didn’t answer — try again later.' });
+  const warning = state === 'active' ? null : authWarningText(o.kind, state);
+  setAuthWarning(o.id, warning);
+  res.json({ ok: true, state, authWarning: warning });
+});
 
 // Pull a carrier object out of QCMobile's response (content is an object for id lookups, array for name).
 function pickCarriers(json) {
@@ -97,21 +158,28 @@ async function fetchAuthority(dot) {
     const json = await r.json();
     const arr = Array.isArray(json.content) ? json.content : (json.content ? [json.content] : []);
     let broker = false, common = false, contract = false, sawAny = false;
-    // The three status fields can sit at the top of each record or nested — scan recursively. "A" = active.
+    // Inactive ("I") and pending flags too, so a lookup can say Active / Pending / Inactive / none for each type.
+    const inactive = { carrier: false, broker: false }, pending = { carrier: false, broker: false };
+    // The status fields can sit at the top of each record or nested — scan recursively. "A" = active, "I" = inactive.
     const scan = (o) => {
       if (!o || typeof o !== 'object') return;
       for (const k in o) {
         const v = o[k];
         if (v && typeof v === 'object') { scan(v); continue; }
-        const key = k.toLowerCase(), act = String(v == null ? '' : v).toUpperCase() === 'A';
-        if (key === 'brokerauthoritystatus') { sawAny = true; if (act) broker = true; }
-        else if (key === 'commonauthoritystatus') { sawAny = true; if (act) common = true; }
-        else if (key === 'contractauthoritystatus') { sawAny = true; if (act) contract = true; }
+        const key = k.toLowerCase(), val = String(v == null ? '' : v).toUpperCase(), act = val === 'A';
+        const type = key.indexOf('broker') === 0 ? 'broker' : (key.indexOf('common') === 0 || key.indexOf('contract') === 0) ? 'carrier' : null;
+        if (key === 'brokerauthoritystatus') { sawAny = true; if (act) broker = true; else if (val === 'I') inactive.broker = true; }
+        else if (key === 'commonauthoritystatus') { sawAny = true; if (act) common = true; else if (val === 'I') inactive.carrier = true; }
+        else if (key === 'contractauthoritystatus') { sawAny = true; if (act) contract = true; else if (val === 'I') inactive.carrier = true; }
+        else if (type && key.indexOf('pending') >= 0 && (val === 'Y' || val === 'A')) { sawAny = true; pending[type] = true; }
+        else if (type && key.indexOf('revocation') >= 0 && (val === 'Y' || val === 'A')) { sawAny = true; inactive[type] = true; }
       }
     };
     arr.forEach(scan);
-    if (!sawAny) return null;
-    return { broker, carrier: (common || contract) };
+    if (!sawAny) return arr.length ? { broker: false, carrier: false, state: { carrier: 'none', broker: 'none' } } : null;
+    const carrier = common || contract;
+    const stateOf = (activeNow, t) => activeNow ? 'active' : pending[t] ? 'pending' : inactive[t] ? 'inactive' : 'none';
+    return { broker, carrier, state: { carrier: stateOf(carrier, 'carrier'), broker: stateOf(broker, 'broker') } };
   } catch (e) { return null; }
 }
 
@@ -136,7 +204,7 @@ async function fmcsaLookup({ mc, dot, name }) {
       if (c.dotNumber) {
         const a = await fetchAuthority(c.dotNumber);
         // null = FMCSA didn't tell us; leave the flags undefined so the UI/rules treat it as "unknown".
-        if (a) { c.authBroker = a.broker; c.authCarrier = a.carrier; }
+        if (a) { c.authBroker = a.broker; c.authCarrier = a.carrier; c.authState = a.state; }
       }
     }));
     return { configured: true, results: carriers };
@@ -202,7 +270,7 @@ router.post('/:id/active', requireAuth, requireAdmin, (req, res) => {
 });
 function carrierOut(o) {
   return { id: o.id, name: o.name, mcNumber: o.mcNumber, dotNumber: o.dotNumber, fmcsaVerified: !!o.fmcsaVerified,
-    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active };
+    allowedToOperate: o.allowedToOperate, address: o.address, contactPhone: o.contactPhone, active: !!o.active, authWarning: o.authWarning || null };
 }
 
 // Save a carrier into the registry (from an FMCSA result, or an admin override for one FMCSA didn't return).
@@ -273,7 +341,7 @@ router.get('/roster', requireAuth, (req, res) => {
     WHERE bc.brokerId = ? AND orgs.active = 1 ORDER BY orgs.name`).all(org);
   res.json({ carriers: rows.map(o => Object.assign(carrierOut(o), { kind: o.kind === 'broker' ? 'broker' : 'carrier' })) });
 });
-router.post('/roster', requireAuth, (req, res) => {
+router.post('/roster', requireAuth, async (req, res) => {
   const org = rosterOrg(req);
   if (!org) return res.status(403).json({ error: 'No organization on this login' });
   const b = req.body || {};
@@ -285,11 +353,15 @@ router.post('/roster', requireAuth, (req, res) => {
   // A customer can also save the brokers it hands loads to (kind: 'broker'); a broker's own roster is carriers only.
   const asBroker = b.kind === 'broker';
   if (asBroker && req.user.orgKind === 'broker') return res.status(400).json({ error: 'Your approved list is for carriers' });
+  const gate = await authorityGate(req, asBroker ? 'broker' : 'carrier', b.dotNumber, name, !!b.override);
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   const carrier = asBroker
     ? upsertBrokerOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address })
     : upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(org, carrier.id, Date.now());
-  res.status(201).json({ carrier: Object.assign(carrierOut(carrier), { kind: asBroker ? 'broker' : 'carrier' }) });
+  setAuthWarning(carrier.id, gate.warning);
+  const saved = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(carrier.id);
+  res.status(201).json({ carrier: Object.assign(carrierOut(saved), { kind: asBroker ? 'broker' : 'carrier' }) });
 });
 router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   const org = rosterOrg(req);
@@ -298,4 +370,4 @@ router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut };
+module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, startAuthorityRecheck, recheckAuthority };
