@@ -32,6 +32,23 @@ function upsertCarrierOrg({ name, mcNumber, dotNumber, verified, allowedToOperat
   return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id);
 }
 
+// The same for a broker company (a customer saving a broker it works with). De-dupes on DOT# then MC#.
+function upsertBrokerOrg({ name, mcNumber, dotNumber, verified, allowedToOperate, address }) {
+  name = String(name || '').trim(); mcNumber = String(mcNumber || '').trim(); dotNumber = String(dotNumber || '').trim();
+  let existing = null;
+  if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND dotNumber = ?`).get(dotNumber);
+  if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND mcNumber = ?`).get(mcNumber);
+  if (existing) {
+    if (verified) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, address=? WHERE id=?`).run(allowedToOperate || existing.allowedToOperate, (existing.address || address) || null, existing.id);
+    return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id);
+  }
+  const id = crypto.randomUUID();
+  db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, address, active, createdAt)
+              VALUES (?,?, 'broker', ?,?,?,?,?,?,1,?)`)
+    .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified ? 1 : 0, allowedToOperate || null, String(address || '').trim() || null, Date.now());
+  return db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id);
+}
+
 // Pull a carrier object out of QCMobile's response (content is an object for id lookups, array for name).
 function pickCarriers(json) {
   if (!json || !json.content) return [];
@@ -254,7 +271,7 @@ router.get('/roster', requireAuth, (req, res) => {
   if (!org) return res.json({ carriers: [] });
   const rows = db.prepare(`SELECT orgs.* FROM broker_carriers bc JOIN orgs ON orgs.id = bc.carrierId
     WHERE bc.brokerId = ? AND orgs.active = 1 ORDER BY orgs.name`).all(org);
-  res.json({ carriers: rows.map(carrierOut) });
+  res.json({ carriers: rows.map(o => Object.assign(carrierOut(o), { kind: o.kind === 'broker' ? 'broker' : 'carrier' })) });
 });
 router.post('/roster', requireAuth, (req, res) => {
   const org = rosterOrg(req);
@@ -265,9 +282,14 @@ router.post('/roster', requireAuth, (req, res) => {
   if (!b.fmcsaVerified && !(req.user.role === 'admin' || req.user.role === 'superadmin')) {
     return res.status(403).json({ error: 'Only an admin can add a carrier FMCSA did not verify' });
   }
-  const carrier = upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
+  // A customer can also save the brokers it hands loads to (kind: 'broker'); a broker's own roster is carriers only.
+  const asBroker = b.kind === 'broker';
+  if (asBroker && req.user.orgKind === 'broker') return res.status(400).json({ error: 'Your approved list is for carriers' });
+  const carrier = asBroker
+    ? upsertBrokerOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address })
+    : upsertCarrierOrg({ name, mcNumber: b.mcNumber, dotNumber: b.dotNumber, verified: !!b.fmcsaVerified, allowedToOperate: b.allowedToOperate, address: b.address });
   db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(org, carrier.id, Date.now());
-  res.status(201).json({ carrier: carrierOut(carrier) });
+  res.status(201).json({ carrier: Object.assign(carrierOut(carrier), { kind: asBroker ? 'broker' : 'carrier' }) });
 });
 router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   const org = rosterOrg(req);

@@ -1203,10 +1203,10 @@
         <!-- customer: quick-pick from the carriers you've saved (your Carriers roster). FMCSA lookup below adds new ones. -->
         <div id="ldRosterWrap" class="hide" style="margin-top:8px;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-            <div style="flex:1;min-width:220px;"><label>Assign one of your saved carriers</label><select id="ldRosterSel"></select></div>
+            <div style="flex:1;min-width:220px;"><label id="ldRosterLbl">Assign one of your saved carriers</label><select id="ldRosterSel"></select></div>
             <button id="ldRosterBtn" type="button">Assign carrier</button>
           </div>
-          <p class="sub" style="margin-top:8px;">Not in the list? Look one up on FMCSA below — it’ll be saved to your Carriers for next time.</p>
+          <p class="sub" style="margin-top:8px;">Not in the list? Look one up on FMCSA below, or save it under Carriers / Brokers for next time.</p>
         </div>
         <!-- broker user: pick a carrier from the approved roster -->
         <div id="ldBrokerAssign" class="hide" style="margin-top:8px;">
@@ -1281,12 +1281,12 @@
     <!-- CARRIERS ROSTER (customer) — "the carriers you work with", saved from FMCSA and reusable on loads -->
     <div class="card hide" id="custCarriersCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">Carriers</h1><p class="sub" style="margin-bottom:0;">The carriers you work with — verified on FMCSA. Save them here, then pick one when you assign a load.</p></div>
-        <button class="ghost" id="ccrToggle" type="button">＋ Add a carrier</button>
+        <div><h1 style="margin-bottom:0;">Carriers &amp; brokers</h1><p class="sub" style="margin-bottom:0;">The carriers and brokers you work with — verified on FMCSA. Save them here, then pick one when you assign a load.</p></div>
+        <button class="ghost" id="ccrToggle" type="button">＋ Add a carrier or broker</button>
       </div>
       <div id="ccrForm" class="hide" style="margin-top:16px;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-          <div style="flex:1;min-width:180px;"><label>Find on FMCSA</label><input id="ccrSearch" placeholder="Carrier name, MC#, or DOT#"></div>
+          <div style="flex:1;min-width:180px;"><label>Find on FMCSA</label><input id="ccrSearch" placeholder="Carrier or broker name, MC#, or DOT#"></div>
           <div><label>By</label><select id="ccrBy"><option value="name">Name</option><option value="mc">MC#</option><option value="dot">DOT#</option></select></div>
           <button id="ccrLookup" type="button">Look up</button>
         </div>
@@ -2124,7 +2124,7 @@
     { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
     { key:'drivers',   label:'Drivers',     cards:['driversCard','driverCard'] },
-    { key:'custcarriers', label:'Carriers', cards:['custCarriersCard'] },
+    { key:'custcarriers', label:'Carriers / Brokers', cards:['custCarriersCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
     { key:'settings',  label:'Settings',   cards:['settingsCard','aiCreditCard','aiConnCard'] },
@@ -2733,7 +2733,7 @@
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;"><button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button></td></tr>`).join('') + '</tbody></table>';
+            <td style="text-align:right;">${(c.authBroker && c.authCarrier === false) ? '<span class="sub" style="font-size:12px;" title="FMCSA shows broker authority only — it can’t haul your loads">Broker only — can’t haul</span>' : `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`}</td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
           try { await api('/api/brokers/my-carriers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) }); $('bcResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier approved ✓</div>'; $('bcSearch').value = ''; loadApprovedCarriers(); }
@@ -2750,10 +2750,11 @@
     const box = $('ccrList'); if (!box) return;
     try {
       const r = await api('/api/carriers/roster');
-      if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers yet. Tap “＋ Add a carrier” to look one up on FMCSA and save it.</div>'; return; }
-      box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
+      if (!r.carriers || !r.carriers.length) { box.innerHTML = '<div class="empty">No carriers or brokers yet. Tap “＋ Add a carrier or broker” to look one up on FMCSA and save it.</div>'; return; }
+      box.innerHTML = '<table><thead><tr><th>Company</th><th>Type</th><th>MC / DOT</th><th>FMCSA</th><th></th></tr></thead><tbody>' +
         r.carriers.map(c => `<tr>
           <td><b>${esc(c.name)}</b></td>
+          <td>${c.kind === 'broker' ? '<span class="chip" style="background:var(--violet-soft,rgba(169,139,255,.18));color:var(--violet,#a98bff);">Broker</span>' : '<span class="chip signed">Carrier</span>'}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td>${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}</td>
           <td style="text-align:right;"><button class="ghost ccrRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
@@ -2768,14 +2769,18 @@
     try {
       const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
       if (r.fmcsa && r.fmcsa.length) {
-        box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
+        // Offer "Add as carrier" / "Add as broker" from the company's FMCSA authority (both when unknown or it holds both).
+        const known = (c) => c.authCarrier !== undefined || c.authBroker !== undefined;
+        const addBtns = (c, i) => [(!known(c) || c.authCarrier) ? `<button class="ccrAdd" data-i="${i}" data-kind="carrier" style="padding:6px 10px;font-size:12px;">Add as carrier</button>` : '',
+          (!known(c) || c.authBroker) ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="broker" style="padding:6px 10px;font-size:12px;margin-left:6px;">Add as broker</button>` : ''].join('') || '<span class="sub" style="font-size:12px;">No active authority</span>';
+        box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
-            <td style="text-align:right;"><button class="ccrAdd" data-i="${i}" style="padding:6px 10px;font-size:12px;">Add</button></td></tr>`).join('') + '</tbody></table>';
+            <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>';
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
-          try { await api('/api/carriers/roster', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) }); $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); }
+          try { await api('/api/carriers/roster', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, kind: b.dataset.kind }) }); $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">' + (b.dataset.kind === 'broker' ? 'Broker' : 'Carrier') + ' saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); }
           catch (e) { alert(e.message); }
         });
       } else {
@@ -5827,22 +5832,27 @@
     $('ldCarSearch').placeholder = mode === 'broker' ? 'Broker name, MC#, or DOT#' : 'Carrier name, MC#, or DOT#';
     $('ldCarResults').innerHTML = ''; $('ldCarSearch').value = '';
     // Customer: show the saved-carriers quick-pick when assigning a carrier (not when handing to a broker).
-    if ($('ldRosterWrap')) $('ldRosterWrap').classList.toggle('hide', !(mode === 'carrier' && isCustomerUser()));
+    if ($('ldRosterWrap')) $('ldRosterWrap').classList.toggle('hide', !isCustomerUser());
+    if (isCustomerUser()) fillRosterSelect();
   }
   // Customer: fill the quick-pick with the carriers they've saved to their roster.
   async function fillRosterSelect() {
     const sel = $('ldRosterSel'); if (!sel) return;
     try {
       const r = await api('/api/carriers/roster');
-      if (!r.carriers || !r.carriers.length) sel.innerHTML = '<option value="">— no saved carriers yet —</option>';
-      else sel.innerHTML = '<option value="">— choose a saved carrier —</option>' + r.carriers.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
+      const want = ldMode === 'broker' ? 'broker' : 'carrier', noun = want === 'broker' ? 'broker' : 'carrier';
+      if ($('ldRosterLbl')) $('ldRosterLbl').textContent = 'Assign one of your saved ' + noun + 's';
+      if ($('ldRosterBtn')) $('ldRosterBtn').textContent = want === 'broker' ? 'Hand to broker' : 'Assign carrier';
+      const list = (r.carriers || []).filter(c => (c.kind || 'carrier') === want);
+      if (!list.length) sel.innerHTML = `<option value="">— no saved ${noun}s yet —</option>`;
+      else sel.innerHTML = `<option value="">— choose a saved ${noun} —</option>` + list.map(c => `<option value="${c.id}">${esc(c.name)}${c.mcNumber ? ' (MC ' + esc(c.mcNumber) + ')' : ''}</option>`).join('');
     } catch (e) { sel.innerHTML = '<option value="">' + e.message + '</option>'; }
-    ssApply(sel, 'Type to search saved carriers…');
+    ssApply(sel, ldMode === 'broker' ? 'Type to search saved brokers…' : 'Type to search saved carriers…');
   }
   if ($('ldRosterBtn')) $('ldRosterBtn').onclick = async () => {
     const carrierId = $('ldRosterSel') ? $('ldRosterSel').value : '';
-    if (!carrierId) { alert('Pick a saved carrier, or look one up on FMCSA below.'); return; }
-    try { await assignCarrierId(carrierId); } catch (e) { alert(e.message); }
+    if (!carrierId) { alert(ldMode === 'broker' ? 'Pick a saved broker, or look one up on FMCSA below.' : 'Pick a saved carrier, or look one up on FMCSA below.'); return; }
+    try { if (ldMode === 'broker') await assignBrokerId(carrierId); else await assignCarrierId(carrierId); } catch (e) { alert(e.message); }
   };
   $('ldModeCarrier').onclick = () => setAssignMode('carrier');
   $('ldModeBroker').onclick = () => setAssignMode('broker');
