@@ -2374,8 +2374,8 @@
       const r = await api('/api/backup/status'), L = r.last || {};
       const when = (t) => t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
       const local = L.local && L.local.file ? '✓ server copy ' + when(L.at) : (L.local && L.local.error ? '⚠ ' + L.local.error : 'first run tonight');
-      const off = !r.offsiteConfigured ? '⚠ OneDrive not set up yet — copies stay on the Render disk only'
-        : (L.offsite && L.offsite.failed ? '⚠ OneDrive: ' + L.offsite.failed + ' file(s) failed — ' + (L.offsite.error || '') : r.lastOffsiteOk ? '✓ OneDrive (' + r.onedriveUser + ') ' + when(r.lastOffsiteOk) : 'OneDrive (' + r.onedriveUser + ') — first upload tonight');
+      const off = !r.offsiteConfigured ? '⚠ Off-site backup not set up yet — copies stay on the Render disk only'
+        : (L.offsite && L.offsite.failed ? '⚠ Off-site: ' + L.offsite.failed + ' file(s) failed — ' + (L.offsite.error || '') : r.lastOffsiteOk ? '✓ ' + r.onedriveUser + ' ' + when(r.lastOffsiteOk) : r.onedriveUser + ' — first upload tonight');
       $('backupText').textContent = local + ' · ' + off;
       box.classList.remove('hide');
     } catch (e) {}
