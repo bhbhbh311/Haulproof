@@ -175,6 +175,7 @@
   #themePill{background:#ffc94d;border-color:#ffc94d;color:#3a2600;box-shadow:0 0 0 3px rgba(255,201,77,.25);}
   #themePill .pi{font-size:16px;line-height:1;}
   html[data-theme="light"] #themePill{background:#1d2f5c;border-color:#1d2f5c;color:#ffffff;box-shadow:none;}
+  @keyframes spin{to{transform:rotate(360deg)}}
   .dayBtn{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;margin:0 0 14px;padding:11px 14px;border-radius:12px;border:2px solid #ffc94d;background:rgba(255,201,77,.16);color:var(--ink);font:700 15px/1.2 inherit;font-family:inherit;text-align:left;cursor:pointer;}
   .dayBtn .dayIco{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#ffc94d;color:#3a2600;font-size:17px;flex:none;}
   html[data-theme="light"] .dayBtn{border-color:#1d2f5c;background:#eef2fb;}
@@ -1461,19 +1462,35 @@ window.__startApp=function(){
   // Which load cards the driver has opened (by load key) — kept across the re-render after each check-in/pickup.
   var _openLoads={};
   // Fetch loads dispatch assigned to THIS driver and show them at the top of the route.
+  // "Your loads" never just vanishes: while it loads, when there are none, or when dispatch can't be reached, the card
+  // says so (keeping the last list on screen if there was one).
+  function myLoadsNote(msg, sub){
+    var card=$("myLoadsCard"); if(!card) return;
+    if(_lastMyLoads.length && sub!=="empty"){ return; }   // keep showing the last loads we had
+    card.classList.remove("hide"); $("myLoadsCount").textContent="";
+    $("myLoadsList").innerHTML='<div style="padding:14px 4px;text-align:center;color:var(--muted);font-size:14.5px;line-height:1.45;">'+msg+'</div>';
+  }
   async function loadMyLoads(){
     var card=$("myLoadsCard"); if(!card) return;
     var key=currentKey(), o=serverOrigin();
-    if(!key || !o || !online()){ card.classList.add("hide"); return; }
+    if(!key || !o){ card.classList.add("hide"); return; }
+    if(!online()){ myLoadsNote("📶 You're offline — your loads will show again when you have signal."); return; }
+    if(!_lastMyLoads.length) myLoadsNote('<span class="spin" style="display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px;"></span>Getting your loads…');
     try{
       var hdr={"X-Api-Key":key}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
       var r=await fetch(driverApi("/my-loads"),{headers:hdr});
-      if(!r.ok){ card.classList.add("hide"); return; }
+      if(!r.ok){ updatingNote(); return; }
       var _j=(await r.json())||{}; if(_j.uiFlags) saveUiFlags(_j.uiFlags);
       var loads=_j.loads||[];
-      if(!loads.length){ card.classList.add("hide"); return; }
+      if(!loads.length){ _lastMyLoads=[]; myLoadsNote("<b>No loads assigned right now.</b><br>When dispatch sends you a load, it shows up here.", "empty"); return; }
       renderMyLoads(loads);
-    }catch(e){ card.classList.add("hide"); }
+    }catch(e){ updatingNote(); }
+  }
+  // The server didn't answer (most often HaulProof restarting for an update, ~1 minute): say so, and try again shortly.
+  var _loadsRetry=null;
+  function updatingNote(){
+    myLoadsNote('<span style="display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px;"></span><b>HaulProof is updating</b> — your loads will be back in a moment.');
+    clearTimeout(_loadsRetry); _loadsRetry=setTimeout(function(){ loadMyLoads(); }, 15000);
   }
   var _lastMyLoads=[];
   // Draw the "Your loads" cards. Opening/closing a card just redraws from the last fetch (no network round trip).
@@ -4056,7 +4073,12 @@ if(window.__LIBS) window.__startApp();
     if(s && !s.classList.contains("hide")) return true;   // split-into-stops sheet open
     return false;
   }
-  function tryReload(){ if(pending && !reloading && !busy()){ reloading=true; try{ location.reload(); }catch(e){} } }
+  // Tell the driver what's happening, then reload onto the new version.
+  function tryReload(){ if(pending && !reloading && !busy()){ reloading=true;
+    try{ var n=document.createElement("div"); n.setAttribute("role","status");
+      n.style.cssText="position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 74px);z-index:99999;background:#1f5ad6;color:#fff;font:700 15px/1.35 system-ui,sans-serif;padding:13px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);text-align:center;";
+      n.textContent="Updating HaulProof — back in a moment…"; document.body.appendChild(n); }catch(e){}
+    setTimeout(function(){ try{ location.reload(); }catch(e){} }, 900); } }
   navigator.serviceWorker.addEventListener("controllerchange", function(){
     if(!hadController){ hadController=true; return; }      // first install on this phone is not an update
     pending=true; tryReload();
