@@ -5,7 +5,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { requireAuth, requireAdmin, createUser } = require('./auth');
-const { fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning } = require('./carriers');
+const { fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, isHaulProof } = require('./carriers');
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const router = express.Router();
@@ -35,7 +35,7 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 // Save a broker (from an FMCSA result, or an admin override). Optionally create its first admin login.
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const b = req.body || {};
   const name = (b.name || '').trim();
   const mcNumber = (b.mcNumber || '').trim();
@@ -43,18 +43,23 @@ router.post('/', requireAuth, (req, res) => {
   const verified = b.fmcsaVerified ? 1 : 0;
   if (!name) return res.status(400).json({ error: 'Broker name is required' });
   if (!verified && !isAdmin(req)) return res.status(403).json({ error: 'Only an admin can add a broker that FMCSA did not verify' });
+  // Legal rule: without active FMCSA broker authority, only HaulProof can add it (flagged with a warning).
+  const gate = await authorityGate(req, 'broker', dotNumber, name, !!b.override || isHaulProof(req));
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   let existing = null;
   if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND dotNumber = ?`).get(dotNumber);
   if (!existing && mcNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='broker' AND mcNumber = ?`).get(mcNumber);
   if (existing) {
     if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
+    setAuthWarning(existing.id, gate.warning);
     return res.json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
               VALUES (?,?, 'broker', ?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
+  setAuthWarning(id, gate.warning);
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
   if (adminEmail) {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Only an admin can create a broker login' });

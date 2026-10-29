@@ -113,6 +113,15 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
   if (r.status === 'granted') return res.status(400).json({ error: 'This request was already granted' });
   const b = req.body || {};
   try {
+    if (r.kind === 'authority') {
+      // A company asked HaulProof to approve a carrier/broker without active FMCSA authority.
+      const o = require('./carriers').grantAuthorityRequest(r);
+      db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), o.id, r.id);
+      pushThread(r, 'admin', 'Approved by HaulProof — ' + r.company + ' was added to your ' + (r.orgType === 'broker' ? 'brokers' : 'carriers') + ' with an authority warning.');
+      sendMail({ to: r.email, subject: 'HaulProof approved ' + r.company,
+        text: 'HaulProof approved adding ' + r.company + ' as a ' + (r.orgType || 'carrier') + '. It shows a warning until FMCSA lists the authority as active.' });
+      return res.json({ ok: true, kind: 'authority', company: r.company });
+    }
     if (r.kind === 'company') {
       const orgType = ORG_TYPES.includes(b.orgType) ? b.orgType : (r.orgType || 'customer');
       const name = (b.company || r.company || r.contactName).trim();

@@ -61,15 +61,18 @@ async function authorityState(kind, dotNumber) {
   if (!a) return 'unknown';
   return (a.state && a.state[kind]) || (a[kind] ? 'active' : 'none');
 }
+// Only HaulProof may override (legal exposure): the master admin, or the master working in a company as HaulProof Help.
+// Everyone else can ask HaulProof to approve it (POST /authority-request), which lands in the master's Requests inbox.
+function isHaulProof(req) { return req.user.role === 'superadmin' || /^haulproofhelp\+/i.test(req.user.email || ''); }
 // Returns { ok, warning } or { ok:false, status, body } for the route to send.
 async function authorityGate(req, kind, dotNumber, name, override) {
   const state = await authorityState(kind, dotNumber);
   if (state === 'active') return { ok: true, warning: null };
-  const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+  const hp = isHaulProof(req);
   const warning = authWarningText(kind, state);
-  if (isAdmin && override) return { ok: true, warning };
-  return { ok: false, status: 409, body: { code: 'authority', state, canOverride: isAdmin,
-    error: (name || 'This company') + ': ' + warning + '.' + (isAdmin ? ' You can add it anyway — it will show a warning until FMCSA shows the authority as active.' : ' Ask an admin if it should be added anyway.') } };
+  if (hp && override) return { ok: true, warning };
+  return { ok: false, status: 409, body: { code: 'authority', state, warning, canOverride: hp, canRequest: !hp,
+    error: (name || 'This company') + ': ' + warning + '.' + (hp ? ' You can add it anyway — it will show a warning until FMCSA shows the authority as active.' : ' Only HaulProof can approve it — send it to HaulProof for approval.') } };
 }
 function setAuthWarning(orgId, warning) {
   try { db.prepare(`UPDATE orgs SET authWarning = ?, authCheckedAt = ? WHERE id = ?`).run(warning || null, Date.now(), orgId); } catch (e) {}
@@ -89,6 +92,44 @@ async function recheckAuthority() {
   }
 }
 function startAuthorityRecheck() { setTimeout(() => recheckAuthority().catch(() => {}), 120000).unref(); setInterval(() => recheckAuthority().catch(() => {}), 24 * 3600000).unref(); }
+
+// "Ask HaulProof to approve": a company that wants to save a carrier/broker without active authority sends it to the
+// master admin's Requests inbox; granting it there adds it to their list with the warning.
+router.post('/authority-request', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim(), kind = b.kind === 'broker' ? 'broker' : 'carrier';
+  const list = req.user.orgKind === 'broker' ? 'approved' : 'roster';
+  if (!name || !req.user.orgId) return res.status(400).json({ error: 'Pick the company to ask about' });
+  if (list === 'approved' && kind === 'broker') return res.status(400).json({ error: 'Your approved list is for carriers' });
+  const state = await authorityState(kind, b.dotNumber);
+  if (state === 'active') return res.status(400).json({ error: 'FMCSA shows this authority as active — you can add it directly.' });
+  const dup = db.prepare(`SELECT id FROM access_requests WHERE kind = 'authority' AND status = 'pending' AND requestOrgId = ? AND COALESCE(dotNumber,'') = ? AND orgType = ?`).get(req.user.orgId, String(b.dotNumber || ''), kind);
+  if (dup) return res.json({ ok: true, alreadyAsked: true });
+  const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(req.user.orgId) || {};
+  const reason = String(b.reason || '').trim().slice(0, 500);
+  const id = crypto.randomUUID();
+  db.prepare(`INSERT INTO access_requests (id, code, kind, orgType, contactName, email, company, mcNumber, dotNumber, targetCompany, note, status, thread, requestOrgId, requestList, address, createdAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending','[]',?,?,?,?)`)
+    .run(id, crypto.randomBytes(4).toString('hex').toUpperCase(), 'authority', kind, req.user.name || req.user.email, req.user.email, name,
+      String(b.mcNumber || '').trim() || null, String(b.dotNumber || '').trim() || null, org.name || null,
+      authWarningText(kind, state) + (reason ? ' — ' + reason : ''), req.user.orgId, list, String(b.address || '').trim() || null, Date.now());
+  try {
+    const { sendMail, helpEmail } = require('./mailer');
+    sendMail({ to: helpEmail(), subject: 'HaulProof: approval needed — ' + name + ' as ' + kind,
+      text: (org.name || 'A company') + ' (' + req.user.email + ') wants to add ' + name + (b.dotNumber ? ' (DOT ' + b.dotNumber + ')' : '') + ' as a ' + kind + '.\n' + authWarningText(kind, state) + '.' + (reason ? '\nTheir note: ' + reason : '') + '\n\nReview it under Requests in HaulProof.' });
+  } catch (e) {}
+  res.status(201).json({ ok: true });
+});
+// Called when the master grants an authority request: save the company to the asker's list, flagged.
+function grantAuthorityRequest(r) {
+  const kind = r.orgType === 'broker' ? 'broker' : 'carrier';
+  const o = kind === 'broker'
+    ? upsertBrokerOrg({ name: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, verified: true, address: r.address })
+    : upsertCarrierOrg({ name: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, verified: true, address: r.address });
+  db.prepare(`INSERT OR IGNORE INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)`).run(r.requestOrgId, o.id, Date.now());
+  setAuthWarning(o.id, String(r.note || '').split(' — ')[0] || authWarningText(kind, 'unknown'));
+  return o;
+}
 
 // "Check FMCSA now" on a flagged carrier/broker — anyone who works with it, at most once an hour per company.
 router.post('/:id/recheck-authority', requireAuth, async (req, res) => {
@@ -307,6 +348,10 @@ router.post('/', requireAuth, async (req, res) => {
   if (!verified && !(req.user.role === 'admin' || req.user.role === 'superadmin')) {
     return res.status(403).json({ error: 'Only an admin can add a carrier that FMCSA did not verify' });
   }
+  // Legal rule: a carrier without active FMCSA carrier authority is only added with HaulProof's approval (HaulProof's
+  // own logins pass, flagged with a warning; everyone else gets the "send to HaulProof for approval" answer).
+  const gate = await authorityGate(req, 'carrier', dotNumber, name, !!b.override || isHaulProof(req));
+  if (!gate.ok) return res.status(gate.status).json(gate.body);
   // De-dupe on DOT# (preferred) or MC#.
   let existing = null;
   if (dotNumber) existing = db.prepare(`SELECT * FROM orgs WHERE kind='carrier' AND dotNumber = ?`).get(dotNumber);
@@ -315,27 +360,14 @@ router.post('/', requireAuth, async (req, res) => {
     // Refresh verification snapshot if this call carries a verified result.
     if (verified && (req.user.role === 'superadmin' || req.user.orgId === existing.id)) db.prepare(`UPDATE orgs SET fmcsaVerified=1, allowedToOperate=?, name=?, address=? WHERE id=?`)
       .run(b.allowedToOperate || existing.allowedToOperate, name, (b.address || existing.address) || null, existing.id);
+    setAuthWarning(existing.id, gate.warning);
     return res.json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(existing.id)) });
-  }
-  // Authority rule: a company with FMCSA BROKER authority but NO carrier (common/contract) authority may not be
-  // added as a carrier — it can only broker loads. Use the flags the lookup already carried when present;
-  // otherwise re-check FMCSA by DOT. Unknown authority never blocks the add (fail-open on an FMCSA hiccup).
-  let auth = null;
-  if (b.authBroker !== undefined || b.authCarrier !== undefined) auth = { broker: !!b.authBroker, carrier: !!b.authCarrier };
-  else if (dotNumber) { try { auth = await fetchAuthority(dotNumber); } catch (e) { auth = null; } }
-  if (auth && auth.broker && !auth.carrier) {
-    // Broker-only companies normally can't be carriers — but an admin can override and add it anyway
-    // (confirmed in the UI), so a company you work through can still be assigned as a carrier when needed.
-    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
-    if (!(isAdmin && b.override)) {
-      return res.status(409).json({ code: 'broker_only', canOverride: isAdmin,
-        error: name + ' holds FMCSA Broker authority only — it should be added as a Broker, not a Carrier.' });
-    }
   }
   const id = crypto.randomUUID();
   db.prepare(`INSERT INTO orgs (id, name, kind, deviceKey, mcNumber, dotNumber, fmcsaVerified, allowedToOperate, contactPhone, address, active, createdAt)
               VALUES (?,?, 'carrier', ?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
+  setAuthWarning(id, gate.warning);
   // Optionally create the carrier's first admin login (master/customer admin only).
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
   if (adminEmail) {
@@ -392,4 +424,4 @@ router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, startAuthorityRecheck, recheckAuthority };
+module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, startAuthorityRecheck, recheckAuthority, grantAuthorityRequest, isHaulProof };

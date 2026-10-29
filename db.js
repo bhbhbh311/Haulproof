@@ -454,6 +454,10 @@ addColumn('login_links', 'pendingReset', 'INTEGER');
 // A carrier/broker an admin added without active FMCSA authority carries a warning until a later check finds it active.
 addColumn('orgs', 'authWarning', 'TEXT');        // e.g. "No carrier authority on file with FMCSA" — NULL when verified active
 addColumn('orgs', 'authCheckedAt', 'INTEGER');   // last FMCSA authority check
+// "Ask HaulProof to approve": a company asking to save a carrier/broker without active FMCSA authority (kind='authority').
+addColumn('access_requests', 'requestOrgId', 'TEXT');   // the company asking
+addColumn('access_requests', 'requestList', 'TEXT');    // where it goes: 'roster' (customer carriers/brokers) or 'approved' (broker's carriers)
+addColumn('access_requests', 'address', 'TEXT');
 // "Send to driver again": a signed stop can be redone. The clean unsigned original is kept with the signed copy so a
 // redo starts from it; while both signed copies exist dispatch picks one (pickPending) and the other becomes 'not_used'.
 addColumn('pods', 'originalFile', 'TEXT');        // the unsigned original this signed copy was made from (kept for a redo)

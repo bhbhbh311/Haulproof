@@ -2493,7 +2493,8 @@
   function reqRowHtml(x, orgs){
     const when = x.createdAt ? new Date(x.createdAt).toLocaleString() : '';
     const statusChip = '<span class="chip '+(x.status==='granted'?'signed':x.status==='denied'?'received':'prepared')+'">'+(x.status==='granted'?'Approved':x.status==='denied'?'Denied':'Pending')+'</span>';
-    const what = x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
+    const what = x.kind==='authority' ? ('wants <b>'+esc(x.company||'')+'</b> as a '+esc(x.orgType||'carrier')+' — no active FMCSA authority'+(x.targetCompany?' · for '+esc(x.targetCompany):''))
+      : x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
     const thread = (x.thread||[]).map(m=>'<div style="font-size:12px;margin:2px 0;color:var(--muted);"><b>'+(m.from==='admin'?'You':'Them')+':</b> '+esc(m.text)+'</div>').join('');
     let actions = '';
     if (x.status==='pending'){
@@ -2501,7 +2502,8 @@
       if (x.kind==='driver'){
         grant = '<select class="reqOrg" data-id="'+x.id+'" style="font-size:12px;padding:4px 6px;"><option value="">— company —</option>'+orgs.map(o=>'<option value="'+o.id+'">'+esc(o.name)+' ('+o.kind+')</option>').join('')+'</select> <button class="reqGrant" data-id="'+x.id+'" data-kind="driver" style="padding:5px 11px;font-size:12px;">Grant</button>';
       } else {
-        grant = '<button class="reqGrant" data-id="'+x.id+'" data-kind="company" style="padding:5px 11px;font-size:12px;">Grant</button>';
+        grant = '<button class="reqGrant" data-id="'+x.id+'" data-kind="'+(x.kind==='authority'?'authority':'company')+'" style="padding:5px 11px;font-size:12px;">'+(x.kind==='authority'?'Approve (adds it with a warning)':'Grant')+'</button>'
+          + (x.kind==='authority' && x.dotNumber ? ' <a href="https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string='+encodeURIComponent(x.dotNumber)+'" target="_blank" rel="noopener" style="font-size:12px;font-weight:600;">View on FMCSA ↗</a>' : '');
       }
       actions = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'+grant+
         '<button class="ghost reqReply" data-id="'+x.id+'" style="padding:5px 11px;font-size:12px;">Reply</button>'+
@@ -2522,7 +2524,8 @@
       if (b.dataset.kind==='driver'){ const sel=box.querySelector('.reqOrg[data-id="'+id+'"]'); if(!sel.value){ msg.style.color='var(--danger)'; msg.textContent='Pick a company first'; return; } body.targetOrgId=sel.value; }
       msg.style.color='var(--muted)'; msg.textContent='Granting…';
       try { const r = await api('/api/requests/'+id+'/grant', {method:'POST', body: JSON.stringify(body)});
-        if (r.kind==='company') alert('Account created.\n\nLogin: '+r.adminEmail+'\nTemporary password: '+r.adminPassword+'\n\n(Also emailed to them.)');
+        if (r.kind==='authority') alert('Approved — '+r.company+' was added to their list with an authority warning.');
+        else if (r.kind==='company') alert('Account created.\n\nLogin: '+r.adminEmail+'\nTemporary password: '+r.adminPassword+'\n\n(Also emailed to them.)');
         else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\nPIN: '+r.pin+'\n\n(Also emailed to them.)');
         loadRequests();
         // Refresh the management lists + tab counts so a just-granted account shows up right away (no stale count).
@@ -2735,7 +2738,8 @@
             <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;">${authStateOf(c, 'carrier') === 'active' ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
               : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="No active carrier authority on FMCSA — approve it with a warning">Approve anyway</button>`
-              : '<span class="sub" style="font-size:12px;" title="No active carrier authority on FMCSA">No carrier authority — ask an admin</span>'}</td></tr>`).join('') + '</tbody></table>';
+              : `<button class="bcAsk ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="No active carrier authority on FMCSA — only HaulProof can approve it">Ask HaulProof</button>`}</td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.bcAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], 'carrier'));
         box.querySelectorAll('.bcApprove').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
           await addWithAuthority('/api/brokers/my-carriers', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address },
@@ -2776,14 +2780,16 @@
         const addBtn = (c, i, kind) => {
           const st = authStateOf(c, kind), noun = kind === 'broker' ? 'broker' : 'carrier', sty = 'padding:6px 10px;font-size:12px;margin-left:6px;';
           if (st === 'active') return `<button class="ccrAdd${kind === 'broker' ? ' ghost' : ''}" data-i="${i}" data-kind="${kind}" style="${sty}">Add as ${noun}</button>`;
-          return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — admins can add it with a warning">Add as ${noun} anyway</button>` : '';
+          return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — HaulProof can add it with a warning">Add as ${noun} anyway</button>`
+            : `<button class="ccrAsk ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="No active ${noun} authority on FMCSA — only HaulProof can approve it">Ask HaulProof (${noun})</button>`;
         };
-        const addBtns = (c, i) => (addBtn(c, i, 'carrier') + addBtn(c, i, 'broker')) || '<span class="sub" style="font-size:12px;">No active authority — an admin can add it with a warning</span>';
+        const addBtns = (c, i) => addBtn(c, i, 'carrier') + addBtn(c, i, 'broker');
         box.innerHTML = '<table><thead><tr><th>Company</th><th>MC / DOT</th><th>Authority</th><th>Allowed</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${fmcsaAuthChip(c)}</td><td>${c.allowedToOperate === 'Y' ? '<span class="chip signed">Yes</span>' : '<span class="chip received">' + (esc(c.allowedToOperate) || '?') + '</span>'}</td>
             <td style="text-align:right;white-space:nowrap;">${addBtns(c, i)}</td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('.ccrAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], b.dataset.kind));
         box.querySelectorAll('.ccrAdd').forEach(b => b.onclick = async () => {
           const c = r.fmcsa[+b.dataset.i];
           await addWithAuthority('/api/carriers/roster', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, kind: b.dataset.kind }, () => { $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">' + (b.dataset.kind === 'broker' ? 'Broker' : 'Carrier') + ' saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); });
@@ -3085,7 +3091,7 @@
   });
   // Save a company as a carrier/broker. Without active authority an admin confirms an override (the company then
   // shows a warning until FMCSA shows it active); anyone else is told why it can't be added.
-  async function addWithAuthority(url, body, onDone) {
+  async function addWithAuthority(url, body, onDone, kind) {
     const send = async (override) => {
       const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(Object.assign({}, body, override ? { override: true } : {})) });
       const j = await res.json().catch(() => ({}));
@@ -3093,11 +3099,24 @@
       if (j.code === 'authority' && j.canOverride && !override) {
         return confirmDialog({ title: 'Add without active authority?', okLabel: 'Add anyway', message: j.error, onOk: () => send(true).catch(e => alert(e.message)) });
       }
+      if (j.code === 'authority' && j.canRequest) return askHaulProofApproval(body, kind || body.kind || 'carrier');
       throw new Error(j.error || res.statusText);
     };
     try { await send(false); } catch (e) { alert(e.message); }
   }
-  function canOverrideAuth() { return !!(user && (user.role === 'admin' || user.role === 'superadmin')); }
+  // Only HaulProof may add a company without active authority: the master admin, or the master working as HaulProof Help.
+  function canOverrideAuth() { return !!(user && (user.role === 'superadmin' || /^haulproofhelp\+/i.test(user.email || ''))); }
+  // Everyone else sends it to HaulProof for approval (lands in the master admin's Requests inbox).
+  function askHaulProofApproval(c, kind) {
+    const noun = kind === 'broker' ? 'broker' : 'carrier';
+    choiceDialog({ title: 'Ask HaulProof to approve ' + (c.name || 'this company') + '?',
+      message: 'FMCSA doesn’t show active ' + noun + ' authority for this company, so only HaulProof can approve adding it. If approved, it’s added to your list with a warning until FMCSA shows the authority as active.',
+      extraHtml: '<label style="display:block;font-size:13px;font-weight:600;color:var(--muted);">Why do you need it? (optional)<textarea id="ahReason" rows="3" style="display:block;width:100%;margin-top:4px;padding:8px;font:inherit;"></textarea></label>',
+      choices: [{ label: 'Send for approval', run: async () => {
+        const r = await api('/api/carriers/authority-request', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, address: c.address, kind, reason: $('ahReason') ? $('ahReason').value : '' }) });
+        alert(r.alreadyAsked ? 'You already asked HaulProof about this one — it’s waiting for approval.' : 'Sent to HaulProof for approval. You’ll get an email when it’s decided.');
+      } }] });
+  }
   // ---- Dashboard home + Loads filters. Each load falls in one bucket: needs setup → done → on the road → ready
   //      for the driver → open (no paperwork released yet). Failed emails and "no driver" are flags on top. ----
   function loadCat(l) {
@@ -5927,10 +5946,8 @@
     curLoad = r.load; renderCarrierNow(); applyAssignVisibility(); $('ldCarResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Handed to broker ✓ — they’ll assign the carrier.</div>'; loadHistory(curLoad.id);
   }
   async function assignBrokerFromFmcsa(c) {
-    try {
-      const br = await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address }) });
-      await assignBrokerId(br.broker.id);
-    } catch (e) { alert(e.message); }
+    await addWithAuthority('/api/brokers', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address },
+      async (j) => { try { await assignBrokerId(j.broker.id); } catch (e) { alert(e.message); } }, 'broker');
   }
   // Prompt before leaving an edit with unsaved changes; run `proceed` once it's safe to go.
   function ldGuardLeave(proceed) {
@@ -6040,24 +6057,10 @@
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
-  async function assignFromFmcsa(c, override) {
-    try {
-      // Raw fetch (not api()) so we can read the broker-only response and offer an admin override.
-      const res = await fetch('/api/carriers', { method: 'POST', credentials: 'include',
-        headers: Object.assign({ 'Content-Type': 'application/json' }, (token ? { Authorization: 'Bearer ' + token } : {})),
-        body: JSON.stringify({ name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, override: !!override }) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (body.code === 'broker_only' && body.canOverride && !override) {
-          confirmDialog({ title: 'Broker authority only',
-            message: (c.name || 'This company') + ' holds FMCSA Broker authority only — it should normally be added as a Broker. Add it as a Carrier anyway?',
-            okLabel: 'Add as carrier anyway', onOk: () => assignFromFmcsa(c, true) });
-          return;
-        }
-        throw new Error(body.error || 'Could not add carrier');
-      }
-      await assignCarrierId(body.carrier.id);
-    } catch (e) { alert(e.message); }
+  // Without active FMCSA carrier authority only HaulProof can add it (override confirm); others are offered "Ask HaulProof".
+  async function assignFromFmcsa(c) {
+    await addWithAuthority('/api/carriers', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address },
+      async (j) => { try { await assignCarrierId(j.carrier.id); } catch (e) { alert(e.message); } }, 'carrier');
   }
   async function assignCarrierId(carrierId) {
     const r = await api('/api/loads/' + curLoad.id + '/assign-carrier', { method: 'POST', body: JSON.stringify({ carrierId }) });
