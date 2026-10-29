@@ -627,7 +627,7 @@
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
     if(!buf) return;
-    return pdfjsLib.getDocument({data:buf}).promise;
+    return pdfjsLib.getDocument({data:buf,isEvalSupported:false}).promise;
   }).then(function(pdf){
     if(!pdf) return;
     _pdf=pdf; return pdf.getPage(1).then(function(pg1){ var v=pg1.getViewport({scale:1}); _pdfAspect=v.height/v.width; return renderPages(true); });
@@ -1376,7 +1376,7 @@
     $('#cropModal').style.display='flex';
     fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){ if(!r.ok) throw new Error('Could not open that document.'); return r.arrayBuffer(); }).then(function(buf){
       _cropBuf=buf; try{ pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.js'; }catch(e){}
-      return pdfjsLib.getDocument({data:buf.slice(0)}).promise;
+      return pdfjsLib.getDocument({data:buf.slice(0),isEvalSupported:false}).promise;
     }).then(function(pdf){ _cropPdf=pdf; $('#cropCount').textContent='· '+pdf.numPages+' page'+(pdf.numPages===1?'':'s'); return cropThumbs(); })
       .then(function(){ return cropShow(0); })
       .catch(function(e){ $('#cropThumbs').innerHTML=''; $('#cropMsg').style.color='#c0392b'; $('#cropMsg').textContent=e.message||'Could not load.'; });

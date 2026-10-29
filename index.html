@@ -4729,7 +4729,7 @@
       try {
         const resp = await fetch(p.fileUrl, { credentials: 'include' }); if (!resp.ok) throw 0;
         const buf = await resp.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
         _pageCountCache[p.id] = pdf.numPages; apply(p, pdf.numPages);
       } catch (e) { const b = btns[p.id]; if (b) b.style.display = ''; }   // unreadable → leave Split available
     }
@@ -5106,7 +5106,7 @@
       const outBytes = await out.save();
       _splitBuf = outBytes;
       _splitDirty = true;   // the document was cropped — the save must persist these bytes, not just retag the stop
-      _splitPdf = await pdfjsLib.getDocument({ data: outBytes.slice(0) }).promise;
+      _splitPdf = await pdfjsLib.getDocument({ data: outBytes.slice(0), isEvalSupported: false }).promise;
       const prev = {}; _splitInputs.forEach(it => { prev[it.pageIdx] = it.inp.value; });
       await buildSplitGrid(null, prev);
       ov.style.display = 'none';
@@ -5127,7 +5127,7 @@
       if (!resp.ok) throw new Error('Could not open that document.');
       _splitBuf = await resp.arrayBuffer();
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)) }).promise;
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(_splitBuf.slice(0)), isEvalSupported: false }).promise;
       _splitPdf = pdf;
       if ($('splitSub')) $('splitSub').textContent = pdf.numPages === 1
         ? 'Look the document over. Tap “✂ Crop this page” to trim a bad photo, and set its stop number below if it isn’t Stop 1. Then tap “Save & continue.”'
@@ -5232,7 +5232,7 @@
       if (!resp.ok) throw new Error('Could not open that document.');
       _cropBuf = await resp.arrayBuffer();
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.js'; } catch (e) {}
-      _cropPdf = await pdfjsLib.getDocument({ data: new Uint8Array(_cropBuf.slice(0)) }).promise;
+      _cropPdf = await pdfjsLib.getDocument({ data: new Uint8Array(_cropBuf.slice(0)), isEvalSupported: false }).promise;
       if ($('cropCount')) $('cropCount').textContent = '· ' + _cropPdf.numPages + ' page' + (_cropPdf.numPages === 1 ? '' : 's');
       await renderCropThumbs();
       await showCropPage(0);
@@ -6035,7 +6035,7 @@
     for (let fi = 0; fi < files.length; fi++) {
       let buf; try { buf = await files[fi].arrayBuffer(); } catch (e) { continue; }
       ldFileBufs[fi] = buf;
-      let pdf; try { pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise; } catch (e) { continue; }
+      let pdf; try { pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)), isEvalSupported: false }).promise; } catch (e) { continue; }
       for (let pi = 0; pi < pdf.numPages; pi++) {
         const page = await pdf.getPage(pi + 1);
         const vp0 = page.getViewport({ scale: 1 }); const vp = page.getViewport({ scale: 100 / vp0.width });

@@ -1382,7 +1382,7 @@ window.__startApp=function(){
       var cap=document.createElement("div"); cap.style.cssText="font-size:13px;font-weight:700;color:var(--bad);text-align:center;"; cap.textContent="Page "+((_reup.page)||1)+" — the one to re-shoot";
       box.appendChild(cap);
       try{ pdfjsLib.GlobalWorkerOptions.workerSrc="/vendor/pdf.worker.js"; }catch(e){}
-      var pdf=await pdfjsLib.getDocument({data:_reup.orig.slice(0)}).promise;   // slice: keep _reup.orig intact for the rebuild
+      var pdf=await pdfjsLib.getDocument({data:_reup.orig.slice(0),isEvalSupported:false}).promise;   // slice: keep _reup.orig intact for the rebuild
       var idx=Math.max(1, Math.min(pdf.numPages, _reup.page||1));
       var page=await pdf.getPage(idx);
       var vp0=page.getViewport({scale:1});
@@ -1579,7 +1579,7 @@ window.__startApp=function(){
     refreshActive(); $("banner").classList.add("on"); updateProgress(); window.scrollTo(0,0);
   }
   async function renderPagesTemplate(bytes, tpl){
-    var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
+    var doc=await pdfjsLib.getDocument({data:bytes.slice(0),isEvalSupported:false}).promise;
     var wrapW=Math.min(760, (($("pages").clientWidth||document.querySelector("main").clientWidth)-4));
     for(var n=1;n<=doc.numPages;n++){
       var page=await doc.getPage(n), base=page.getViewport({scale:1});
@@ -2891,7 +2891,7 @@ window.__startApp=function(){
     $("stopSplit").classList.remove("hide");
     _ssThumbs=[];
     try{
-      var doc=await pdfjsLib.getDocument({data:origBytes.slice(0)}).promise;
+      var doc=await pdfjsLib.getDocument({data:origBytes.slice(0),isEvalSupported:false}).promise;
       _ssPdf=doc;   // keep the doc so "tap to enlarge" can render a full-resolution page, not the tiny thumbnail
       _ssAssign=[]; for(var i=0;i<doc.numPages;i++) _ssAssign.push(1); _ssCount=1;
       _ssConsignee={ 1: ($("consName")&&$("consName").value.trim())||"" };   // prefill Stop 1 with any consignee typed on the build screen
@@ -2985,7 +2985,7 @@ window.__startApp=function(){
   if($("stopSplitCancel")) $("stopSplitCancel").addEventListener("click", function(){ $("stopSplit").classList.add("hide"); });
   if($("stopSplitDone")) $("stopSplitDone").addEventListener("click", confirmStopSplit);
   async function renderPages(bytes){
-    var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
+    var doc=await pdfjsLib.getDocument({data:bytes.slice(0),isEvalSupported:false}).promise;
     var wrapW=Math.min(760, (($("pages").clientWidth||document.querySelector("main").clientWidth)-4));
     var stopSeen={};   // running page-within-stop counter for nicer labels
     for(var n=1;n<=doc.numPages;n++){
@@ -3783,7 +3783,7 @@ window.__startApp=function(){
     $("pdfViewer").classList.add("on"); $("pdfViewer").setAttribute("aria-hidden","false");
     try{
       var bytes=await getBytes(); pvBytes=bytes;
-      var doc=await pdfjsLib.getDocument({data:bytes.slice(0)}).promise;
+      var doc=await pdfjsLib.getDocument({data:bytes.slice(0),isEvalSupported:false}).promise;
       body.innerHTML="";
       var wrapW=Math.min(760,(body.clientWidth||window.innerWidth)-28), dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
       for(var n=1;n<=doc.numPages;n++){
