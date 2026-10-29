@@ -2997,6 +2997,7 @@
     // Part-way through a multi-stop load → show progress instead of a flat "Ready to sign".
     if (l.stopsDone > 0 && l.stopsTotal > 0) return '<span class="chip prepared">' + l.stopsDone + ' of ' + l.stopsTotal + ' stops signed</span>';
     if (l.readyToSign) return '<span class="chip prepared">Ready to sign</span>';
+    if (noDriver(l)) return '<span class="chip received" style="background:var(--warn-soft);color:var(--warn);">Open · No driver</span>';
     const t = l.lastEvent && l.lastEvent.type;
     const map = { created: ['received', 'Open'], document_uploaded: ['prepared', 'Doc uploaded'], prepared: ['prepared', 'Ready to sign'],
       broker_assigned: ['prepared', 'With broker'], carrier_assigned: ['prepared', 'Carrier assigned'], driver_assigned: ['prepared', 'Driver assigned'],
@@ -3225,7 +3226,8 @@
         ? `${all.length} archived load${all.length === 1 ? '' : 's'} · hidden from your list only`
         : (q
           ? `${all.length} match${all.length === 1 ? '' : 'es'} for "${esc(q)}"`
-          : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' needing action' : ' · all signed ✓'}${all.length > showing.length ? ' · most recent shown — search above to find older ones' : ''}`);
+          : _loadFilter === 'attn' ? `${showing.length} load${showing.length === 1 ? ' needs' : 's need'} attention — the same list as on the Dashboard`
+          : `${showing.length} load${showing.length === 1 ? '' : 's'}${needAction ? ' · ' + needAction + ' not finished yet' : ' · all signed ✓'}${all.length > showing.length ? ' · most recent shown — search above to find older ones' : ''}`);
       const heading = `<div class="sub" style="margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><span>${headText}</span>${rightLinks ? '<span style="display:flex;gap:10px;align-items:center;">' + rightLinks + '</span>' : ''}</div>`;
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       // Tick boxes for deleting several loads at once (anyone allowed to delete loads).
