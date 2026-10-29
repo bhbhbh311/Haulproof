@@ -2745,13 +2745,13 @@
     const val = $('bcSearch').value.trim(), by = $('bcBy').value; if (!val) return;
     const box = $('bcResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
     try {
-      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      const [r, onList] = await Promise.all([api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val)), savedKeys('/api/brokers/my-carriers')]);
       if (r.fmcsa && r.fmcsa.length) {
         box.innerHTML = '<table><thead><tr><th>Carrier</th><th>MC / DOT</th><th>FMCSA snapshot</th><th>HaulProof check</th><th></th></tr></thead><tbody>' +
           r.fmcsa.map((c, i) => `<tr><td><b>${esc(c.name)}</b><div style="color:var(--muted);font-size:12px;">${esc(c.address)}</div></td>
             <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
             <td>${fmcsaSnapHtml(c)}</td><td>${fmcsaVerdictHtml(c, ['carrier'])}</td>
-            <td style="text-align:right;">${fmcsaOk(c, 'carrier') ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
+            <td style="text-align:right;">${onList(c, 'carrier') ? onListChip('') : fmcsaOk(c, 'carrier') ? `<button class="bcApprove" data-i="${i}" style="padding:6px 10px;font-size:12px;">Approve</button>`
               : canOverrideAuth() ? `<button class="bcApprove ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — approve it with a warning">Approve anyway</button>`
               : `<button class="bcAsk ghost" data-i="${i}" style="padding:6px 10px;font-size:12px;color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean — only HaulProof can approve it">Ask HaulProof</button>`}</td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.bcAsk').forEach(b => b.onclick = () => askHaulProofApproval(r.fmcsa[+b.dataset.i], 'carrier'));
@@ -2788,12 +2788,13 @@
     const val = $('ccrSearch').value.trim(), by = $('ccrBy').value; if (!val) return;
     const box = $('ccrResults'); box.innerHTML = '<div class="sub">Checking FMCSA…</div>';
     try {
-      const r = await api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val));
+      const [r, onList] = await Promise.all([api('/api/carriers/lookup?' + by + '=' + encodeURIComponent(val)), savedKeys('/api/carriers/roster')]);
       if (r.fmcsa && r.fmcsa.length) {
         // Offer "Add as carrier" / "Add as broker" from the company's FMCSA authority (both when unknown or it holds both).
         // Active authority → "Add as carrier/broker". Otherwise admins get an "anyway" button (confirmed, then flagged).
         const addBtn = (c, i, kind) => {
           const noun = kind === 'broker' ? 'broker' : 'carrier', sty = 'padding:6px 10px;font-size:12px;margin-left:6px;';
+          if (onList(c, kind)) return onListChip(noun);
           if (fmcsaOk(c, kind)) return `<button class="ccrAdd${kind === 'broker' ? ' ghost' : ''}" data-i="${i}" data-kind="${kind}" style="${sty}">Add as ${noun}</button>`;
           return canOverrideAuth() ? `<button class="ccrAdd ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean as a ${noun}: ${esc(fmcsaProblemsOf(c, kind).join('; '))} — HaulProof can add it with a warning">Add as ${noun} anyway</button>`
             : `<button class="ccrAsk ghost" data-i="${i}" data-kind="${kind}" style="${sty}color:var(--warn);border-color:var(--warn);" title="FMCSA snapshot isn’t clean as a ${noun}: ${esc(fmcsaProblemsOf(c, kind).join('; '))} — only HaulProof can approve it">Ask HaulProof (${noun})</button>`;
@@ -3117,6 +3118,13 @@
     if (snap.powerUnits != null || snap.drivers != null) rows.push(['Fleet', (snap.powerUnits != null ? snap.powerUnits + ' power unit' + (snap.powerUnits === 1 ? '' : 's') : '') + (snap.powerUnits != null && snap.drivers != null ? ' · ' : '') + (snap.drivers != null ? snap.drivers + ' driver' + (snap.drivers === 1 ? '' : 's') : ''), null]);
     return rows;
   }
+  // Already saved to this company's list? (so lookups show "On your list" instead of offering to add it again)
+  async function savedKeys(url) {
+    const set = new Set();
+    try { ((await api(url)).carriers || []).forEach(c => { const k = c.kind === 'broker' ? 'broker' : 'carrier'; if (c.dotNumber) set.add(k + '|d' + String(c.dotNumber).replace(/\D/g, '')); if (c.mcNumber) set.add(k + '|m' + String(c.mcNumber).replace(/\D/g, '')); }); } catch (e) {}
+    return (c, kind) => (c.dotNumber && set.has(kind + '|d' + String(c.dotNumber).replace(/\D/g, ''))) || (c.mcNumber && set.has(kind + '|m' + String(c.mcNumber).replace(/\D/g, '')));
+  }
+  const onListChip = (noun) => `<span class="chip signed" style="font-size:12px;margin-left:6px;">✓ On your list${noun ? ' as ' + noun : ''}</span>`;
   // HaulProof's call per type, from the snapshot: OK to add, or needs HaulProof's approval (and why, on hover).
   // Replaces FMCSA's raw "allowed to operate" flag, which says Y even when the authority or insurance isn't there.
   function fmcsaVerdictHtml(c, kinds) {
@@ -3149,7 +3157,7 @@
         : (snap && snap.checked && kind ? `<div style="margin-bottom:10px;font-size:13px;font-weight:600;color:var(--ok);">✓ Nothing FMCSA reports blocks this company as a ${kind === 'broker' ? 'broker' : 'carrier'}.</div>` : ''))
       + '<table style="width:100%;font-size:13px;"><tbody>' + rows.map(r => `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;white-space:nowrap;">${esc(r[0])}</td><td style="padding:4px 0;">${r[2] ? `<span class="chip ${r[2]}" style="font-size:11.5px;">${esc(r[1])}</span>` : esc(r[1])}</td></tr>`).join('')
       + (snap && snap.crashes != null ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">Crashes (24 mo)</td><td>${esc(String(snap.crashes))}</td></tr>` : '')
-      + (snap && (snap.driverOosRate != null || snap.vehicleOosRate != null) ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">Inspection OOS rate</td><td>${snap.driverOosRate != null ? 'Driver ' + esc(String(snap.driverOosRate)) + '%' : ''}${snap.driverOosRate != null && snap.vehicleOosRate != null ? ' · ' : ''}${snap.vehicleOosRate != null ? 'Vehicle ' + esc(String(snap.vehicleOosRate)) + '%' : ''}</td></tr>` : '')
+      + (snap && (snap.driverOosRate != null || snap.vehicleOosRate != null) ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">Inspection OOS rate</td><td>${snap.driverOosRate != null ? 'Driver ' + esc(String(Math.round(snap.driverOosRate * 10) / 10)) + '%' : ''}${snap.driverOosRate != null && snap.vehicleOosRate != null ? ' · ' : ''}${snap.vehicleOosRate != null ? 'Vehicle ' + esc(String(Math.round(snap.vehicleOosRate * 10) / 10)) + '%' : ''}</td></tr>` : '')
       + (snap && snap.mcs150Outdated ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;">MCS-150</td><td><span class="chip prepared" style="font-size:11.5px;">Out of date</span></td></tr>` : '')
       + '</tbody></table>'
       + '<div style="margin-top:8px;">' + saferLink(c) + '</div>' + fmcsaDisclaimerHtml(snap && snap.checked ? snap.at : null);
