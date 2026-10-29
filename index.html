@@ -4265,7 +4265,7 @@
     }
     const po = curLoad.poNumber || 'this load';
     if (!confirm('Remove load PO ' + po + ' and all of its documents?')) return;
-    if (!confirm('Are you sure? This permanently deletes the load and its documents and cannot be undone.')) return;
+    if (!confirm('Delete this load and its documents? An admin can restore it from the Recovery bin for up to a year.')) return;
     (async () => {
       try {
         await api('/api/loads/' + curLoad.id, { method: 'DELETE' });
