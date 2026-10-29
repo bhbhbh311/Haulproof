@@ -3393,6 +3393,10 @@
   //  entry on the upload card below, which creates the load and optionally files the BOL in one step.)
   $('lSearchBtn').onclick = () => { _loadsShown = 10; loadLoads(); };
   $('lSearch') && $('lSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { _loadsShown = 10; loadLoads(); } });
+  // Every FMCSA search box: Enter runs its Look up button.
+  [['acSearch','acLookup'],['abSearch','abLookup'],['cmpSearch','cmpLookup'],['ldCarSearch','ldCarLookup'],['bcSearch','bcLookup'],['ccrSearch','ccrLookup']].forEach(([inp, btn]) => {
+    if ($(inp)) $(inp).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); if ($(btn)) $(btn).click(); } });
+  });
   // Record the last keystroke in the search box so auto-refresh can stay live on a FILTERED view (the common
   // case: watching one PO) without re-querying out from under someone who's still typing.
   $('lSearch') && $('lSearch').addEventListener('input', function () { _lSearchTypedAt = Date.now(); });
