@@ -19,7 +19,8 @@ const { db } = require('./db');
 // "Require" implies "allow". All OFF by default (pickup stays a one-tap GPS+time stamp; delivery takes no photos).
 // stopTimes: when ON, drivers get Check in / Check out at the pickup and each delivery stop (time on site); the
 // check-out also records itself at "Pickup complete" and when a stop's documents are sent. OFF by default.
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
+// monthlyReport: email this company's admins a summary of last month on the 1st (ON by default; turn off in Settings).
+const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false, monthlyReport: true };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).

@@ -792,6 +792,15 @@
       <div id="statsGrid" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
         <div class="empty" style="grid-column:1/-1;">Loading…</div>
       </div>
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line);">
+        <h2 style="margin:0 0 4px;font-size:15px;">Monthly summary emails</h2>
+        <p class="sub" style="margin:0 0 10px;">Each company's admins get last month's summary on the 1st (unless they turned it off in Settings). Preview one, or email it to yourself.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;max-width:760px;">
+          <div style="flex:1;min-width:220px;"><label for="msOrg">Company</label><select id="msOrg"><option value="">Loading…</option></select></div>
+          <button class="ghost" id="msPreview" type="button">Preview</button><button class="ghost" id="msSend" type="button">Email me a test</button>
+        </div>
+        <div id="msOut" style="margin-top:10px;"></div>
+      </div>
       <!-- Staged rollout: grant a login "tester" access so it can toggle on the not-yet-rolled-out sections. -->
       <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line);">
         <h2 style="margin:0 0 4px;font-size:15px;">Tester access</h2>
@@ -1076,6 +1085,7 @@
           <button type="button" class="ghost hide" id="homeAttn">Needs attention</button>
         </div>
       </div>
+      <div id="homeSetup" class="hide"></div>
       <div class="htiles" id="homeTiles"></div>
       <div class="hpanels">
         <div class="hpanel"><h2>Needs attention</h2><div id="homeCarAlerts"></div><div id="homeAttnList"><div class="hempty">Loading…</div></div></div>
@@ -1591,6 +1601,16 @@
             </div>
           </div>
         </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
+          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Monthly summary</div>
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_monthlyReport"><span class="hp-track"></span></label>
+            <div style="font-size:14px;">
+              <div><b>Email admins a monthly summary</b><span id="ft_monthlyReport_state" class="hp-switch-state"></span></div>
+              <div style="color:var(--muted);margin-top:3px;">On the 1st of each month: loads delivered, documents signed and emailed, drivers active, carriers re-checked with FMCSA, and anything worth a look.</div>
+            </div>
+          </div>
+        </div>
         <div id="brokerDriversSetting" class="hide" style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
           <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Brokers</div>
           <div style="display:flex;align-items:flex-start;gap:12px;">
@@ -1938,7 +1958,7 @@
       CUSTOMER_CARDS.concat(['receiversCard']).forEach(id => show(id, false));
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
-      show('statsCard', true); loadStats();
+      show('statsCard', true); loadStats(); loadMonthlyPicker();
       show('allLoginsCard', true); loadAllLogins();
       show('aiUsageCard', true); loadAiUsage();
       show('optoutsCard', true); loadOptouts();
@@ -3313,7 +3333,7 @@
       </div>
       <div id="impStep2" class="hide" style="margin-top:16px;"></div>`;
     ov.classList.remove('hide');
-    $('impClose').onclick = () => ov.classList.add('hide');
+    $('impClose').onclick = () => { ov.classList.add('hide'); try { loadSetupStatus(true); } catch (e) {} };
     $('impTpl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['MC,DOT,Type\n392354,,carrier\n,2214746,' + (broker ? 'carrier' : 'broker') + '\n'], { type: 'text/csv' })); a.download = 'haulproof-carriers-template.csv'; a.click(); };
     const count = () => { const n = impParseNumbers($('impText').value, $('impBare').value).length + (_imp.fileRows ? _imp.fileRows.length : 0); $('impCount').textContent = n ? n + ' row' + (n === 1 ? '' : 's') + ' found · nothing is saved until you confirm on the next screen' : 'Nothing is saved until you confirm on the next screen.'; };
     $('impText').oninput = count; $('impBare').onchange = count;
@@ -3526,6 +3546,66 @@
       try { await api('/api/carriers/alerts/' + b.dataset.id + '/ack', { method: 'POST' }); _carAlerts = _carAlerts.filter(x => x.id !== b.dataset.id); drawCarrierAlerts(); } catch (e) { alert(e.message); b.disabled = false; }
     });
   }
+
+  // ---- "Set up your account" (Dashboard, company admins): team logins → drivers → carriers & brokers, each by
+  //      spreadsheet or one at a time. Hides once everything's done, or when they choose "Hide this". ----
+  let _setupAt = 0;
+  async function loadSetupStatus(force) {
+    const box = $('homeSetup'); if (!box || !user || !user.orgId || user.role !== 'admin') { if (box) box.classList.add('hide'); return; }
+    if (!force && Date.now() - _setupAt < 30000) return;
+    _setupAt = Date.now();
+    let st; try { st = await api('/api/growth/setup-status'); } catch (e) { return; }
+    const hiddenKey = 'hp_setup_hidden_' + user.orgId;
+    let hidden = false; try { hidden = localStorage.getItem(hiddenKey) === '1'; } catch (e) {}
+    const steps = [
+      { k: 'team', n: 'Team logins', done: st.steps.team, sum: st.team > 1 ? st.team + ' people can sign in.' : 'Add the people who dispatch, sell or run the account. Each gets a link to pick a password.', imp: () => openImport('team'), one: () => selectTab('team') },
+      { k: 'drivers', n: 'Drivers', done: st.steps.drivers, sum: st.drivers ? st.drivers + ' driver' + (st.drivers === 1 ? '' : 's') + ' added — each has a personal link for their phone.' : 'Add your drivers. Each gets a personal link — they set their own PIN on first use.', imp: () => openImport('driver'), one: () => selectTab('drivers') },
+    ];
+    if (st.steps.carriers !== null) steps.push({ k: 'carriers', n: st.kind === 'broker' ? 'Approved carriers' : 'Carriers & brokers you work with', done: st.steps.carriers,
+      sum: st.carriers ? st.carriers + ' saved — HaulProof re-checks them with FMCSA weekly.' : 'Upload your carrier list (MC# or DOT#). HaulProof checks each with FMCSA, then re-checks them weekly.',
+      imp: () => openCarrierImport(), one: () => selectTab(st.kind === 'broker' ? 'approvedcarriers' : 'custcarriers') });
+    const nDone = steps.filter(x => x.done).length;
+    if (hidden || nDone === steps.length) { box.classList.add('hide'); return; }
+    const next = steps.findIndex(x => !x.done);
+    box.innerHTML = `<div class="hpanel" style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div><h2 style="margin:0 0 2px;">Set up ${esc(st.name || 'your account')}</h2><div class="sub" style="font-size:13px;">Upload a spreadsheet for each — or add them one at a time. Nothing is saved until you confirm.</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="ghost" id="suTpl" style="padding:6px 10px;font-size:12.5px;">⬇ Templates</button><button type="button" class="ghost" id="suHide" style="padding:6px 10px;font-size:12.5px;">Hide this</button></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:12px 0;"><div style="flex:1;height:8px;border-radius:4px;background:var(--line);"><div style="height:8px;border-radius:4px;background:var(--primary);width:${Math.round(100 * nDone / steps.length)}%;"></div></div><span class="sub" style="font-size:12.5px;">${nDone} of ${steps.length} done</span></div>
+      ${steps.map((x, i) => `<div class="hli" style="align-items:center;${i === next ? 'border:1px solid var(--primary);border-radius:12px;padding:10px;' : ''}">
+        <span class="dot" style="background:${x.done ? 'var(--ok)' : i === next ? 'var(--primary)' : 'var(--line)'}"></span>
+        <div class="t"><b>${i + 1} · ${esc(x.n)}</b>${x.done ? ' <span class="chip signed" style="font-size:11px;">Done</span>' : ''}<div class="s">${esc(x.sum)}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;"><button type="button" class="${x.done ? 'ghost' : ''} suImp" data-i="${i}" style="padding:6px 10px;font-size:12.5px;">${x.done ? 'Import more' : 'Import a list'}</button><button type="button" class="ghost suOne" data-i="${i}" style="padding:6px 10px;font-size:12.5px;">Add one</button></div></div>`).join('')}
+      <div class="sub" style="font-size:12.5px;margin-top:10px;">Have your own AI assistant? Connect it to HaulProof (Settings → AI connections) and hand it your spreadsheets — it shows you each list to confirm first.</div></div>`;
+    box.classList.remove('hide');
+    box.querySelectorAll('.suImp').forEach(b => b.onclick = () => steps[+b.dataset.i].imp());
+    box.querySelectorAll('.suOne').forEach(b => b.onclick = () => steps[+b.dataset.i].one());
+    $('suHide').onclick = () => { try { localStorage.setItem(hiddenKey, '1'); } catch (e) {} box.classList.add('hide'); };
+    $('suTpl').onclick = () => {
+      const files = [[IMPORT_KINDS.team.tplName, IMPORT_KINDS.team.tpl], [IMPORT_KINDS.driver.tplName, IMPORT_KINDS.driver.tpl]];
+      if (st.steps.carriers !== null) files.push(['haulproof-carriers-template.csv', 'MC,DOT,Type\n392354,,carrier\n,2214746,' + (st.kind === 'broker' ? 'carrier' : 'broker') + '\n']);
+      files.forEach((f, i) => setTimeout(() => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([f[1]], { type: 'text/csv' })); a.download = f[0]; document.body.appendChild(a); a.click(); a.remove(); }, i * 400));
+    };
+  }
+  // Master: monthly summary preview / test email.
+  async function loadMonthlyPicker() {
+    const sel = $('msOrg'); if (!sel) return;
+    try {
+      const [c, b, k] = await Promise.all([api('/api/orgs'), api('/api/brokers').catch(() => ({})), api('/api/carriers').catch(() => ({}))]);
+      const list = (c.orgs || []).map(o => [o, '']).concat((b.brokers || []).map(o => [o, ' (broker)'])).concat((k.carriers || []).map(o => [o, ' (carrier)']));
+      sel.innerHTML = list.map(([o, t]) => `<option value="${esc(o.id)}">${esc(o.name)}${t}</option>`).join(''); } catch (e) { sel.innerHTML = '<option value="">' + esc(e.message) + '</option>'; }
+  }
+  if ($('msPreview')) $('msPreview').onclick = async () => {
+    try { const r = await api('/api/growth/monthly-preview?orgId=' + encodeURIComponent($('msOrg').value));
+      $('msOut').innerHTML = '<div class="sub" style="font-size:12.5px;margin-bottom:6px;">Subject: <b>' + esc(r.subject) + '</b></div><div style="background:#fff;border-radius:10px;padding:16px;max-height:520px;overflow:auto;">' + r.html + '</div>'; }
+    catch (e) { $('msOut').innerHTML = '<div class="umsg-err">' + esc(e.message) + '</div>'; }
+  };
+  if ($('msSend')) $('msSend').onclick = async () => {
+    try { const r = await api('/api/growth/monthly-send-test', { method: 'POST', body: JSON.stringify({ orgId: $('msOrg').value }) });
+      $('msOut').innerHTML = '<div class="umsg-ok">' + (r.sent ? 'Sent to ' + esc(user.email) + ' ✓' : esc(r.skipped || 'Not sent')) + '</div>'; }
+    catch (e) { $('msOut').innerHTML = '<div class="umsg-err">' + esc(e.message) + '</div>'; }
+  };
   function renderHome(loads) {
     if (!$('homeCard') || $('homeCard').classList.contains('hide')) return;
     const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), week0 = Date.now() - 7 * 86400000;
@@ -3534,6 +3614,7 @@
     const failed = loads.filter(l => l.emailFailed > 0), nodrv = loads.filter(noDriver), picks = loads.filter(l => l.pickPending > 0);
     const doneWeek = loads.filter(l => loadCat(l) === 'done' && l.lastSignedAt && l.lastSignedAt >= week0);
     const signedToday = loads.filter(l => l.lastSignedAt && l.lastSignedAt >= day0);
+    loadSetupStatus();
     const carAlerts = _carAlerts.filter(a => a.type === 'flagged');
     const attnN = setup.length + failed.length + nodrv.length + picks.length + carAlerts.length;
     loadCarrierAlerts(loads);
@@ -5851,7 +5932,7 @@
   // ---- "Simplify the app" field toggles (Team logins card) ----
   // A checked box = the field is SHOWN. Loads the org's current flags into the checkboxes.
   function renderFieldToggles() {
-    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto', ft_stopTimes: 'stopTimes' };
+    const map = { ft_loadNumber: 'loadNumber', ft_receiver: 'receiver', ft_salesRep: 'salesRep', ft_customer: 'customer', ft_auditTrail: 'auditTrail', ft_allowBrokerDrivers: 'allowBrokerDrivers', ft_allowPickupPhoto: 'allowPickupPhoto', ft_requirePickupPhoto: 'requirePickupPhoto', ft_allowDeliveryPhoto: 'allowDeliveryPhoto', ft_requireDeliveryPhoto: 'requireDeliveryPhoto', ft_stopTimes: 'stopTimes', ft_monthlyReport: 'monthlyReport' };
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
     renderPhotoSegs();
@@ -5872,7 +5953,7 @@
     renderPhotoSegs();
   }); });
   // All Simplify-the-app toggle switches, so each can show its ON / OFF word and get a live change listener.
-  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto','ft_stopTimes'];
+  var _ftSwitchIds = ['ft_loadNumber','ft_receiver','ft_salesRep','ft_customer','ft_auditTrail','ft_allowBrokerDrivers','ft_allowPickupPhoto','ft_requirePickupPhoto','ft_allowDeliveryPhoto','ft_requireDeliveryPhoto','ft_stopTimes','ft_monthlyReport'];
   // Reflect each switch's position as an ON / OFF word beside it, in the switch's color.
   function updSwitchStates() {
     _ftSwitchIds.forEach(function(id){
@@ -5894,6 +5975,7 @@
       allowDeliveryPhoto: !!($('ft_allowDeliveryPhoto') && $('ft_allowDeliveryPhoto').checked),
       requireDeliveryPhoto: !!($('ft_requireDeliveryPhoto') && $('ft_requireDeliveryPhoto').checked),
       stopTimes: !!($('ft_stopTimes') && $('ft_stopTimes').checked),
+      monthlyReport: !!($('ft_monthlyReport') && $('ft_monthlyReport').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';
     try {
@@ -7746,7 +7828,7 @@
   if($('mcCustImportBtn')) $('mcCustImportBtn').onclick=function(){ openImport('customer'); };
   if($('teamImportBtn')) $('teamImportBtn').onclick=function(){ openImport('team'); };
   if($('drvImportBtn')) $('drvImportBtn').onclick=function(){ openImport('driver'); };
-  if($('genImpClose')) $('genImpClose').onclick=function(){ $('genImportModal').classList.add('hide'); };
+  if($('genImpClose')) $('genImpClose').onclick=function(){ $('genImportModal').classList.add('hide'); try{ loadSetupStatus(true); }catch(e){} };
   if($('genImportModal')) $('genImportModal').addEventListener('click',function(e){ if(e.target===$('genImportModal')) $('genImportModal').classList.add('hide'); });
   if($('genImpText')) $('genImpText').addEventListener('input', _impCountShow);
   if($('genImpFile')) $('genImpFile').addEventListener('change',function(e){ var f=e.target.files&&e.target.files[0]; if(!f) return; var rd=new FileReader(); rd.onload=function(){ $('genImpText').value=rd.result; _impCountShow(); }; rd.readAsText(f); });
