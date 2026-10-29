@@ -202,7 +202,8 @@ router.post('/:id/recheck-authority', requireAuth, async (req, res) => {
   if (!linked) return res.status(404).json({ error: 'Company not found' });
   if (o.authCheckedAt && Date.now() - o.authCheckedAt < 3600000) {
     const mins = Math.ceil((3600000 - (Date.now() - o.authCheckedAt)) / 60000);
-    return res.status(429).json({ error: 'Checked with FMCSA less than an hour ago — try again in ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.' });
+    const ago = Math.max(1, Math.floor((Date.now() - o.authCheckedAt) / 60000));
+    return res.status(429).json({ error: 'FMCSA was checked ' + ago + ' minute' + (ago === 1 ? '' : 's') + ' ago — what’s shown is current. You can check again in ' + mins + ' minute' + (mins === 1 ? '' : 's') + '.' });
   }
   const { snap, problems } = await fmcsaEligibility(o.kind, o.dotNumber);
   if (!snap.checked) return res.status(502).json({ error: 'FMCSA didn’t answer — try again later.' });
@@ -312,7 +313,7 @@ async function fmcsaLookup({ mc, dot, name }) {
     // Keep the list short so the follow-up MC# lookups stay quick.
     const raw = pickCarriers(json).slice(0, 15);
     // Diagnostic: which authority/status fields FMCSA's company record carries (field names and values only).
-    try { raw.slice(0, 4).forEach(x => console.log('[fmcsa] record dot=' + x.dotNumber + ' ' + JSON.stringify(Object.fromEntries(Object.entries(x).filter(([k]) => /authority|broker|common|contract|status/i.test(k)))))); } catch (e) {}
+    try { raw.slice(0, 4).forEach(x => console.log('[fmcsa] record dot=' + x.dotNumber + ' ' + JSON.stringify(Object.fromEntries(Object.entries(x).filter(([k]) => /authority|broker|common|contract|status|insurance|bond|bipd|cargo|oos|safety|rating|allowed|powerunit|drivers|crash|mcs150/i.test(k)))))); } catch (e) {}
     const carriers = raw.map(c => normalize(c, mc));
     // Fill in the MC# from the docket sub-record wherever we don't already have one.
     // A few companies at a time (not all ~30 requests at once) so FMCSA doesn't throttle the lookup.
