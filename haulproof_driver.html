@@ -175,6 +175,10 @@
   #themePill{background:#ffc94d;border-color:#ffc94d;color:#3a2600;box-shadow:0 0 0 3px rgba(255,201,77,.25);}
   #themePill .pi{font-size:16px;line-height:1;}
   html[data-theme="light"] #themePill{background:#1d2f5c;border-color:#1d2f5c;color:#ffffff;box-shadow:none;}
+  .dayBtn{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;margin:0 0 14px;padding:11px 14px;border-radius:12px;border:2px solid #ffc94d;background:rgba(255,201,77,.16);color:var(--ink);font:700 15px/1.2 inherit;font-family:inherit;text-align:left;cursor:pointer;}
+  .dayBtn .dayIco{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#ffc94d;color:#3a2600;font-size:17px;flex:none;}
+  html[data-theme="light"] .dayBtn{border-color:#1d2f5c;background:#eef2fb;}
+  html[data-theme="light"] .dayBtn .dayIco{background:#1d2f5c;color:#fff;}
   .themeTip{position:fixed;z-index:9999;background:#ffc94d;color:#3a2600;font:700 13px/1.3 system-ui,sans-serif;padding:8px 12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.3);max-width:220px;}
   .themeTip:before{content:"";position:absolute;top:-6px;left:var(--ax,20px);border:6px solid transparent;border-top:0;border-bottom-color:#ffc94d;}
   .pullrow{display:flex;gap:8px;align-items:center;}
@@ -489,6 +493,7 @@
         <button class="wclose" id="welcomeClose" type="button" aria-label="Dismiss">×</button>
       </div>
     </div>
+    <button class="dayBtn" id="dayBtn" type="button"><span class="dayIco" id="dayIco" aria-hidden="true">☀</span><span id="dayTxt">Bright sun? Switch to Daylight mode</span></button>
     <h1>Today's route</h1>
     <p class="sub">See your loads below, or upload a document from your phone.</p>
     <button class="locpill" id="locPill" type="button" aria-live="polite" style="display:none;width:100%;box-sizing:border-box;text-align:left;border:1px solid var(--warn-line);border-radius:12px;padding:11px 13px;margin-bottom:12px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;line-height:1.35;-webkit-tap-highlight-color:transparent;"></button>
@@ -4071,10 +4076,15 @@ if(window.__LIBS) window.__startApp();
   var btn=document.getElementById('themePill'); if(!btn) return;
   function paint(){ var light=document.documentElement.getAttribute('data-theme')==='light';
     document.getElementById('themeIco').textContent=light?'☾':'☀'; document.getElementById('themeTxt').textContent=light?'Navy':'Daylight';
-    btn.title=light?'Switch back to the navy look':'Switch to the bright Daylight look (easier to read in sun)'; }
-  btn.addEventListener('click',function(){ var light=document.documentElement.getAttribute('data-theme')!=='light';
+    btn.title=light?'Switch back to the navy look':'Switch to the bright Daylight look (easier to read in sun)';
+    // The bigger button at the top of the route screen says the same, in words.
+    var di=document.getElementById('dayIco'), dt=document.getElementById('dayTxt');
+    if(di) di.textContent=light?'☾':'☀'; if(dt) dt.textContent=light?'Back to the navy look':'Bright sun? Switch to Daylight mode'; }
+  function toggle(){ var light=document.documentElement.getAttribute('data-theme')!=='light';
     if(light) document.documentElement.setAttribute('data-theme','light'); else document.documentElement.removeAttribute('data-theme');
-    try{ localStorage.setItem('hp_theme', light?'light':'navy'); }catch(e){} paint(); hideTip(); });
+    try{ localStorage.setItem('hp_theme', light?'light':'navy'); }catch(e){} paint(); hideTip(); }
+  btn.addEventListener('click',toggle);
+  var dayBtn=document.getElementById('dayBtn'); if(dayBtn) dayBtn.addEventListener('click',toggle);
   paint();
   // One-time tip pointing at the button, the first time this phone opens the app.
   var tip=null;
