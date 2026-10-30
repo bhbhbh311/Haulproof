@@ -68,8 +68,14 @@ function referralStats(orgId) {
 }
 function tick() { try { processReferrals(); applyCredits(); } catch (e) { console.error('referrals', e.message); } }
 function startReferralTimer() { setTimeout(tick, 60000).unref(); setInterval(tick, 6 * 3600000).unref(); }
-// Show Me Trucking is HaulProof's own test account: never billed (same rule as its AI plan).
-try { db.prepare(`UPDATE orgs SET billingPlan = 'free' WHERE billingPlan IS NULL AND UPPER(name) LIKE 'SHOW ME TRUCKING%'`).run(); } catch (e) {}
+// Launch: every company that existed before billing started (Oct 30, 2026) was only ever used for testing, so
+// they all start a fresh 60-day free trial ending Dec 29, 2026. Runs once — it only touches companies with no trial
+// date that were never set to Paid; companies created later get their own 60 days from sign-up.
+try {
+  db.prepare(`UPDATE orgs SET billingPlan = 'trial', trialEndsAt = ? WHERE createdAt < ? AND trialEndsAt IS NULL AND paidSince IS NULL
+      AND (billingPlan IS NULL OR billingPlan IN ('trial','free'))`)
+    .run(new Date(2026, 11, 29, 23, 59).getTime(), new Date(2026, 9, 31).getTime());
+} catch (e) {}
 
 function billingOf(o, now) {
   now = now || Date.now();
