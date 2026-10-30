@@ -168,6 +168,14 @@ addColumn('orgs',  'aiPricePerDocUsd', 'REAL');
 // 'unlimited' = internal / test account (never capped or charged), 'off'. aiFreeCreditUsd NULL means the default $10.
 addColumn('orgs',  'aiPlan', 'TEXT');
 addColumn('orgs',  'aiFreeCreditUsd', 'REAL');
+// Subscription (what HaulProof charges the company each month; tracked here, collected outside the app).
+// billingPlan: 'trial' | 'paid' | 'free' (no charge, e.g. our own/test accounts) | 'paused'. NULL = trial from createdAt.
+addColumn('orgs',  'billingPlan', 'TEXT');
+addColumn('orgs',  'trialEndsAt', 'INTEGER');      // NULL = createdAt + the default trial length
+addColumn('orgs',  'priceUsd', 'REAL');            // monthly price; NULL = the default
+addColumn('orgs',  'includedDrivers', 'INTEGER');  // drivers included in the price; NULL = the default
+addColumn('orgs',  'extraDriverUsd', 'REAL');      // per active driver over the included number; NULL = the default
+addColumn('orgs',  'billingNote', 'TEXT');
 addColumn('orgs',  'aiRequestedAt', 'INTEGER');        // when the company admin last asked for more AI
 addColumn('pods',  'emailStatus', 'TEXT');
 addColumn('pods',  'emailError', 'TEXT');

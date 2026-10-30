@@ -217,6 +217,7 @@ app.use('/api/receivers', receiversRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/trash', trashRouter);
 app.use('/api/backup', require('./backup').router);
+app.use('/api/billing', require('./billing').router);   // master admin: plans & billing
 app.use('/api/growth', require('./growth').router);   // account setup checklist, monthly summary preview   // master admin: nightly backup status, run now, download the database
 
 // --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
@@ -305,6 +306,7 @@ app.get('/api/stats/summary', requireAuth, requireSuper, (_req, res) => {
       authorityRequests: n(`SELECT COUNT(*) c FROM access_requests WHERE status = 'pending' AND kind = 'authority'`),
       accessRequests: n(`SELECT COUNT(*) c FROM access_requests WHERE status = 'pending' AND COALESCE(kind,'') != 'authority'`),
     },
+    billing: (() => { try { return require('./billing').summary(); } catch (e) { return null; } })(),
     companies,
   });
 });

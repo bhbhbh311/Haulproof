@@ -782,6 +782,16 @@
         <div class="hpanel"><h2>Companies this week</h2><div id="shCos"><div class="hempty">Loading…</div></div></div>
       </div>
     </div>
+    <!-- PLANS & BILLING (master admin): each company's subscription — free trial, paid or free — and this month's bill. -->
+    <div class="card hide" id="billingCard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">Plans &amp; billing</h1><p class="sub" style="margin-bottom:0;" id="blDefaults">Each company's plan and what it owes this month.</p></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="search" id="blSearch" placeholder="Search companies…" style="width:220px;font-size:14px;padding:8px 10px;"><button class="ghost" id="blRefresh" type="button">Refresh</button></div>
+      </div>
+      <div id="blSummary" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;"></div>
+      <style>#blTable th,#blTable td{padding:10px 7px;} #blTable th{font-size:11px;} #blTable td:first-child{min-width:170px;}</style><div id="blTable" style="margin-top:14px;overflow-x:auto;"><div class="empty">Loading…</div></div>
+      <p class="sub" style="margin:10px 0 0;font-size:12.5px;">HaulProof keeps track of plans here; it doesn't charge cards. Send invoices (or set up a card processor) for the <b>Bills this month</b> amounts. AI charges come from the AI usage &amp; cost card.</p>
+    </div>
     <!-- ALL LOGINS (master admin): every login in every company, for cleaning up test logins. -->
     <div class="card hide" id="allLoginsCard">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -1965,7 +1975,7 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['superHomeCard','statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','okListCard','custManageCard','requestsCard'];
+    const SUPER_CARDS = ['superHomeCard','billingCard','statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','okListCard','custManageCard','requestsCard'];
     show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     const roles = (u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : []);
     const pureReceiver = u.role !== 'superadmin' && roles.indexOf('receiver') > -1 && !['customer','carrier','broker'].some(r => roles.indexOf(r) > -1);
@@ -1976,6 +1986,7 @@
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
       show('superHomeCard', true); loadSuperHome();
+      show('billingCard', true); loadBilling();
       show('statsCard', true); loadStats(); loadMonthlyPicker();
       show('allLoginsCard', true); loadAllLogins();
       show('aiUsageCard', true); loadAiUsage();
@@ -2188,7 +2199,7 @@
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
-    { key:'dashboard', label:'Dashboard',   cards:['superHomeCard','statsCard','allLoginsCard','aiUsageCard','optoutsCard'] },
+    { key:'dashboard', label:'Dashboard',   cards:['superHomeCard','billingCard','statsCard','allLoginsCard','aiUsageCard','optoutsCard'] },
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
@@ -2509,12 +2520,13 @@
     let r; try { r = await api('/api/stats/summary'); } catch (e) { $('shLine').textContent = 'Could not load the summary — ' + e.message; return; }
     const t = r.today || {}, a = r.attention || {}, ef = a.emailFailed || [], ca = a.carrierAlerts || [];
     const reqs = (a.authorityRequests || 0) + (a.accessRequests || 0);
-    const attnN = ef.length + (a.needsSetupCount || 0) + ca.length + reqs;
+    const attnN = ef.length + (a.needsSetupCount || 0) + ca.length + reqs + ((r.billing && r.billing.ended) || []).length + ((r.billing && r.billing.endingSoon) || []).length;
     const now = new Date(), h = now.getHours(), first = ((user && user.name) || '').trim().split(/\s+/)[0] || '';
     $('shHello').textContent = (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
     $('shLine').textContent = [now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
       t.onRoad + ' on the road', t.activeCompanies + (t.activeCompanies === 1 ? ' company' : ' companies') + ' active this week',
-      attnN ? attnN + (attnN === 1 ? ' thing needs' : ' things need') + ' attention' : 'nothing needs attention ✓'].join(' · ');
+      attnN ? attnN + (attnN === 1 ? ' thing needs' : ' things need') + ' attention' : 'nothing needs attention ✓']
+      .concat(r.billing ? [money(r.billing.monthlyUsd) + '/mo from ' + r.billing.paying + ' paying'] : []).join(' · ');
     $('shReq').textContent = 'Requests' + (reqs ? ' (' + reqs + ')' : '');
     const tiles = [
       ['road', t.onRoad, 'On the road', 'var(--warn)'],
@@ -2538,6 +2550,9 @@
     ca.forEach(c => items.push(['var(--bad)', `<b>⚠ ${esc(c.name || 'Carrier')}</b>` + co(c.owners.join(', ')), esc(c.problems || 'Changed on FMCSA') + (c.onRoad ? ' · ' + c.onRoad + ' load' + (c.onRoad === 1 ? '' : 's') + ' on the road (not cancelled)' : ''), 'OK list', 'ghost shGo', 'oklist']));
     ef.forEach(f => items.push(['var(--bad)', `<b>Email failed</b> · ${esc(f.po || 'Load')}` + co(f.orgName), 'The signed copy didn\'t reach ' + (f.to === 1 ? '1 address' : f.to + ' addresses'), 'Retry email', 'ghost btn-danger shRetry', f.loadId]));
     (a.needsSetup || []).forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${esc(l.po || 'Load')}` + co(l.orgName), 'The driver can\'t sign until it\'s set up', 'Set up', 'shOpen', l.id]));
+    const bl = r.billing || {};
+    (bl.ended || []).forEach(t => items.push(['var(--warn)', `<b>Free trial ended</b> · ${esc(t.name)}`, 'Ended ' + (-t.daysLeft) + ' day' + (t.daysLeft === -1 ? '' : 's') + ' ago — switch them to Paid, extend, or make them Free', 'Plans', 'ghost shPlans', '']));
+    (bl.endingSoon || []).forEach(t => items.push(['var(--side-muted)', `<b>Free trial ends ${t.daysLeft === 0 ? 'today' : 'in ' + t.daysLeft + ' day' + (t.daysLeft === 1 ? '' : 's')}</b> · ${esc(t.name)}`, 'Time to talk about the paid plan', 'Plans', 'ghost shPlans', '']));
     if (a.accessRequests) items.push(['var(--warn)', `<b>${a.accessRequests} access request${a.accessRequests === 1 ? '' : 's'}</b>`, 'Companies or drivers asking to join', 'Review', 'ghost shGo', 'requests']);
     const shown = items.slice(0, 10);
     $('shAttn').innerHTML = shown.length
@@ -2545,6 +2560,7 @@
         + (items.length > shown.length ? `<div class="hempty">+ ${items.length - shown.length} more</div>` : '')
       : '<div class="hempty">All caught up — nothing needs attention across HaulProof.</div>';
     $('shAttn').querySelectorAll('.shGo').forEach(b => b.onclick = () => selectTab(b.dataset.id));
+    $('shAttn').querySelectorAll('.shPlans').forEach(b => b.onclick = () => { const c = $('billingCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     $('shAttn').querySelectorAll('.shOpen').forEach(b => b.onclick = () => openLoadFromDash(b.dataset.id));
     $('shAttn').querySelectorAll('.shRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));
     const cos = r.companies || [];
@@ -2553,6 +2569,48 @@
         + '</div></div></div>').join('')
       : '<div class="hempty">No loads in the last week.</div>';
   }
+  // Plans & billing: one row per company — plan, trial end, price, drivers, and this month's bill. Edits save on change.
+  async function loadBilling(){
+    const box = $('blTable'); if (!box) return;
+    let r; try { r = await api('/api/billing'); } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message || 'Could not load plans') + '</div>'; return; }
+    const d = r.defaults || {}, sm = r.summary || {}, rows = r.orgs || [];
+    $('blDefaults').innerHTML = 'New companies start on a <b>' + d.trialDays + '-day free trial</b>, then <b>' + money(d.priceUsd) + '/month</b> for up to ' + d.includedDrivers + ' drivers'
+      + (d.extraDriverUsd ? ' plus ' + money(d.extraDriverUsd) + ' per extra driver' : '') + '. Change any company below.';
+    const tile = (v, l, c) => '<div style="background:var(--card2,var(--sunk));border:1px solid var(--line);border-radius:12px;padding:12px 14px;"><div style="font-size:22px;font-weight:800;line-height:1;' + (c ? 'color:' + c + ';' : '') + '">' + v + '</div><div style="font-size:12px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.03em;">' + l + '</div></div>';
+    $('blSummary').innerHTML = tile(money(sm.monthlyUsd || 0), 'Billed this month', 'var(--ok)') + tile(sm.paying || 0, 'Paying') + tile(sm.onTrial || 0, 'On free trial')
+      + tile((sm.endingSoon || []).length, 'Trials ending ≤ 14 days', (sm.endingSoon || []).length ? 'var(--warn)' : null) + tile((sm.ended || []).length, 'Trials ended', (sm.ended || []).length ? 'var(--danger)' : null);
+    if (!rows.length) { box.innerHTML = '<div class="empty">No companies yet.</div>'; return; }
+    const ymd = ts => { if (!ts) return ''; const x = new Date(ts); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+    const inp = (cls, v, w, step, ph) => '<input class="' + cls + '" type="number" min="0" step="' + step + '" value="' + (v != null ? v : '') + '"' + (ph ? ' placeholder="' + ph + '"' : '') + ' style="width:' + w + 'px;font-size:13px;padding:6px 8px;">';
+    box.innerHTML = '<table><thead><tr><th>Company</th><th>Plan</th><th>Trial ends</th><th>Price / month</th><th>Drivers</th><th>Included</th><th>$ / extra driver</th><th>AI charges</th><th>Bills this month</th></tr></thead><tbody>'
+      + rows.map(o => {
+        const trialTxt = o.plan === 'trial' ? (o.trialDaysLeft < 0 ? '<div style="color:var(--danger);font-size:11.5px;font-weight:700;margin-top:3px;">Ended ' + (-o.trialDaysLeft) + 'd ago</div>' : '<div style="color:' + (o.trialDaysLeft <= 14 ? 'var(--warn)' : 'var(--muted)') + ';font-size:11.5px;margin-top:3px;">' + o.trialDaysLeft + ' days left</div>') : '';
+        return '<tr data-org="' + esc(o.orgId) + '">'
+          + '<td><b>' + esc(o.name) + '</b> <span style="color:var(--muted);font-size:12px;">' + esc(o.kind || '') + '</span>' + (o.lastLoadAt ? '<div style="color:var(--muted);font-size:11.5px;">Last load ' + new Date(o.lastLoadAt).toLocaleDateString() + '</div>' : '<div style="color:var(--muted);font-size:11.5px;">No loads yet</div>')
+            + '<input class="blNote" type="text" value="' + esc(o.note || '') + '" placeholder="Note (e.g. invoiced monthly)" style="width:100%;min-width:150px;font-size:12px;padding:5px 7px;margin-top:5px;"></td>'
+          + '<td><select class="blPlan" style="width:auto;font-size:13px;padding:6px 8px;">' + [['trial', 'Free trial'], ['paid', 'Paid'], ['free', 'Free (no charge)'], ['paused', 'Paused']].map(x => '<option value="' + x[0] + '"' + (o.plan === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select></td>'
+          + '<td>' + (o.plan === 'trial' ? '<input class="blTrial" type="date" value="' + ymd(o.trialEndsAt) + '" style="width:auto;font-size:13px;padding:6px 8px;">' + trialTxt : '<span style="color:var(--muted);">—</span>') + '</td>'
+          + '<td>' + inp('blPrice', o.priceUsd, 80, '1') + '</td>'
+          + '<td>' + o.drivers + (o.overDrivers ? '<div style="color:var(--warn);font-size:11.5px;">+' + o.overDrivers + ' over</div>' : '') + '</td>'
+          + '<td>' + inp('blIncl', o.includedDrivers, 64, '1') + '</td>'
+          + '<td>' + inp('blExtra', o.extraDriverUsd, 72, '0.5') + '</td>'
+          + '<td>' + money(o.aiChargeUsd) + '</td>'
+          + '<td style="font-weight:800;color:' + (o.monthUsd > 0 ? 'var(--ok)' : 'var(--muted)') + ';">' + money(o.monthUsd) + (o.plan !== 'paid' && o.plan !== 'free' && o.plan !== 'paused' ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + money(o.priceUsd + o.overDrivers * o.extraDriverUsd) + ' once paid</div>' : '') + '</td>'
+          + '</tr>';
+      }).join('') + '</tbody></table>';
+    filterBilling();
+    const save = async (tr, body) => { try { await api('/api/billing/org/' + encodeURIComponent(tr.dataset.org), { method: 'PUT', body: JSON.stringify(body) }); loadBilling(); loadSuperHome(); } catch (e) { alert(e.message || 'Could not save'); } };
+    box.querySelectorAll('tr[data-org]').forEach(tr => {
+      const on = (cls, key) => { const el = tr.querySelector('.' + cls); if (el) el.onchange = () => save(tr, { [key]: el.value }); };
+      on('blPlan', 'plan'); on('blTrial', 'trialEndsAt'); on('blPrice', 'priceUsd'); on('blIncl', 'includedDrivers'); on('blExtra', 'extraDriverUsd'); on('blNote', 'note');
+    });
+  }
+  function filterBilling(){
+    const q = ($('blSearch') ? $('blSearch').value : '').trim().toLowerCase();
+    document.querySelectorAll('#blTable tbody tr').forEach(tr => { tr.style.display = !q || tr.textContent.toLowerCase().indexOf(q) > -1 || ((tr.querySelector('.blNote') || {}).value || '').toLowerCase().indexOf(q) > -1 ? '' : 'none'; });
+  }
+  if ($('blSearch')) $('blSearch').addEventListener('input', filterBilling);
+  if ($('blRefresh')) $('blRefresh').onclick = loadBilling;
   // Open a load from the master Dashboard; Back returns to the Dashboard.
   function openLoadFromDash(loadId) {
     if (!loadId) return;
