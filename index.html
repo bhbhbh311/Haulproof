@@ -764,7 +764,24 @@
       <button type="button" class="ghost" id="backupNow" style="padding:3px 10px;font-size:12px;">Back up now</button>
     </div>
 
-    <!-- DASHBOARD SUMMARY (super-admin only): at-a-glance counts across the whole system. -->
+    <!-- MASTER DASHBOARD SUMMARY (super-admin only): today across every company and what needs attention — the master
+         version of a company's Dashboard. -->
+    <div class="hide" id="superHomeCard" style="margin-bottom:16px;">
+      <div class="hhero">
+        <h1 id="shHello">Welcome</h1>
+        <p id="shLine">Loading…</p>
+        <div class="hbtns">
+          <button type="button" id="shReq">Requests</button>
+          <button type="button" class="ghost" id="shOk">FMCSA OK list</button>
+          <button type="button" class="ghost" id="shRefresh">Refresh</button>
+        </div>
+      </div>
+      <div class="htiles" id="shTiles"></div>
+      <div class="hpanels">
+        <div class="hpanel"><h2>Needs attention</h2><div id="shAttn"><div class="hempty">Loading…</div></div></div>
+        <div class="hpanel"><h2>Companies this week</h2><div id="shCos"><div class="hempty">Loading…</div></div></div>
+      </div>
+    </div>
     <!-- ALL LOGINS (master admin): every login in every company, for cleaning up test logins. -->
     <div class="card hide" id="allLoginsCard">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -786,7 +803,7 @@
     </div>
     <div class="card hide" id="statsCard">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">Dashboard</h1><p class="sub" style="margin-bottom:0;">Everything on HaulProof at a glance.</p></div>
+        <div><h1 style="margin-bottom:0;">Totals &amp; tools</h1><p class="sub" style="margin-bottom:0;">Everything on HaulProof, all time.</p></div>
         <button class="ghost" id="statsRefresh" type="button">Refresh</button>
       </div>
       <div id="statsGrid" style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
@@ -1948,7 +1965,7 @@
     $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
     const show = (id, on) => $(id) && $(id).classList.toggle('hide', !on);
     const CUSTOMER_CARDS = ['uploadCard','findCard','resultsCard','loadsCard','loadDetailCard','driverCard','teamCard','driversCard','offeredCard','brokerCarriersCard'];
-    const SUPER_CARDS = ['statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','okListCard','custManageCard','requestsCard'];
+    const SUPER_CARDS = ['superHomeCard','statsCard','aiUsageCard','optoutsCard','customersCard','carriersCard','brokersCard','okListCard','custManageCard','requestsCard'];
     show('inviteCard', true); loadInviteLink();   // everyone can share the request link
     const roles = (u.orgRoles && u.orgRoles.length) ? u.orgRoles : (u.orgKind ? [u.orgKind] : []);
     const pureReceiver = u.role !== 'superadmin' && roles.indexOf('receiver') > -1 && !['customer','carrier','broker'].some(r => roles.indexOf(r) > -1);
@@ -1958,6 +1975,7 @@
       CUSTOMER_CARDS.concat(['receiversCard']).forEach(id => show(id, false));
       show('receivedCard', true); loadReceived();
     } else if (u.role === 'superadmin') {
+      show('superHomeCard', true); loadSuperHome();
       show('statsCard', true); loadStats(); loadMonthlyPicker();
       show('allLoginsCard', true); loadAllLogins();
       show('aiUsageCard', true); loadAiUsage();
@@ -2170,7 +2188,7 @@
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
-    { key:'dashboard', label:'Dashboard',   cards:['statsCard','allLoginsCard','aiUsageCard','optoutsCard'] },
+    { key:'dashboard', label:'Dashboard',   cards:['superHomeCard','statsCard','allLoginsCard','aiUsageCard','optoutsCard'] },
     { key:'customers', label:'Customers',   cards:['customersCard'] },
     { key:'carriers',  label:'Carriers',    cards:['carriersCard'] },
     { key:'brokers',   label:'Brokers',     cards:['brokersCard'] },
@@ -2484,6 +2502,67 @@
     } catch (e) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Could not load dashboard.</div>'; }
   }
   if ($('statsRefresh')) $('statsRefresh').onclick = loadStats;
+
+  // Master Dashboard summary: today across every company, what needs attention, and who's busy this week.
+  async function loadSuperHome(){
+    if (!$('superHomeCard')) return;
+    let r; try { r = await api('/api/stats/summary'); } catch (e) { $('shLine').textContent = 'Could not load the summary — ' + e.message; return; }
+    const t = r.today || {}, a = r.attention || {}, ef = a.emailFailed || [], ca = a.carrierAlerts || [];
+    const reqs = (a.authorityRequests || 0) + (a.accessRequests || 0);
+    const attnN = ef.length + (a.needsSetupCount || 0) + ca.length + reqs;
+    const now = new Date(), h = now.getHours(), first = ((user && user.name) || '').trim().split(/\s+/)[0] || '';
+    $('shHello').textContent = (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening') + (first ? ', ' + first : '');
+    $('shLine').textContent = [now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+      t.onRoad + ' on the road', t.activeCompanies + (t.activeCompanies === 1 ? ' company' : ' companies') + ' active this week',
+      attnN ? attnN + (attnN === 1 ? ' thing needs' : ' things need') + ' attention' : 'nothing needs attention ✓'].join(' · ');
+    $('shReq').textContent = 'Requests' + (reqs ? ' (' + reqs + ')' : '');
+    const tiles = [
+      ['road', t.onRoad, 'On the road', 'var(--warn)'],
+      ['', t.signed, 'Signed · last 24h', 'var(--ok)'],
+      ['', t.loads, 'New loads · last 24h', 'var(--primary)'],
+      ['', t.uploads, 'Driver uploads · last 24h', 'var(--side-muted)'],
+      ['mail', ef.length, 'Email failed', 'var(--bad)'],
+      ['setup', a.needsSetupCount || 0, 'Needs signature setup', 'var(--violet)'],
+      ['car', ca.length, 'Carrier alerts', 'var(--bad)'],
+      ['req', reqs, 'Pending requests', 'var(--warn)'],
+    ];
+    $('shTiles').innerHTML = tiles.map(x => `<button type="button" class="htile${x[1] ? '' : ' zero'}" style="--c:${x[3]}" data-f="${x[0]}"><div class="v">${x[1] || 0}</div><div class="l">${x[2]}</div></button>`).join('');
+    $('shTiles').querySelectorAll('.htile').forEach(b => b.onclick = () => {
+      const f = b.dataset.f;
+      if (f === 'req') selectTab('requests'); else if (f === 'car') selectTab('oklist');
+      else if (f) { const el = $('shAttn'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    });
+    const co = (n) => n ? ' <span style="color:var(--muted);font-weight:400;">· ' + esc(n) + '</span>' : '';
+    const items = [];
+    if (a.authorityRequests) items.push(['var(--bad)', `<b>${a.authorityRequests} carrier approval${a.authorityRequests === 1 ? '' : 's'} waiting on you</b>`, 'Flagged on FMCSA — only HaulProof can approve these', 'Review', 'shGo', 'requests']);
+    ca.forEach(c => items.push(['var(--bad)', `<b>⚠ ${esc(c.name || 'Carrier')}</b>` + co(c.owners.join(', ')), esc(c.problems || 'Changed on FMCSA') + (c.onRoad ? ' · ' + c.onRoad + ' load' + (c.onRoad === 1 ? '' : 's') + ' on the road (not cancelled)' : ''), 'OK list', 'ghost shGo', 'oklist']));
+    ef.forEach(f => items.push(['var(--bad)', `<b>Email failed</b> · ${esc(f.po || 'Load')}` + co(f.orgName), 'The signed copy didn\'t reach ' + (f.to === 1 ? '1 address' : f.to + ' addresses'), 'Retry email', 'ghost btn-danger shRetry', f.loadId]));
+    (a.needsSetup || []).forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${esc(l.po || 'Load')}` + co(l.orgName), 'The driver can\'t sign until it\'s set up', 'Set up', 'shOpen', l.id]));
+    if (a.accessRequests) items.push(['var(--warn)', `<b>${a.accessRequests} access request${a.accessRequests === 1 ? '' : 's'}</b>`, 'Companies or drivers asking to join', 'Review', 'ghost shGo', 'requests']);
+    const shown = items.slice(0, 10);
+    $('shAttn').innerHTML = shown.length
+      ? shown.map(i => `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]}" data-id="${esc(i[5] || '')}">${i[3]}</button></div>`).join('')
+        + (items.length > shown.length ? `<div class="hempty">+ ${items.length - shown.length} more</div>` : '')
+      : '<div class="hempty">All caught up — nothing needs attention across HaulProof.</div>';
+    $('shAttn').querySelectorAll('.shGo').forEach(b => b.onclick = () => selectTab(b.dataset.id));
+    $('shAttn').querySelectorAll('.shOpen').forEach(b => b.onclick = () => openLoadFromDash(b.dataset.id));
+    $('shAttn').querySelectorAll('.shRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));
+    const cos = r.companies || [];
+    $('shCos').innerHTML = cos.length ? cos.map(c => `<div class="hli"><span class="dot" style="background:${c.attention ? 'var(--bad)' : c.road ? 'var(--warn)' : 'var(--ok)'}"></span><div class="t"><b>${esc(c.name)}</b><div class="s">`
+        + [c.loads + ' new load' + (c.loads === 1 ? '' : 's'), c.signed + ' delivered', c.road ? c.road + ' on the road' : '', c.attention ? c.attention + ' need' + (c.attention === 1 ? 's' : '') + ' attention' : ''].filter(Boolean).join(' · ')
+        + '</div></div></div>').join('')
+      : '<div class="hempty">No loads in the last week.</div>';
+  }
+  // Open a load from the master Dashboard; Back returns to the Dashboard.
+  function openLoadFromDash(loadId) {
+    if (!loadId) return;
+    TAB_DEFS.forEach(t => { if (t.key === 'dashboard') t.cards.forEach(c => { const el = $(c); if (el) el.classList.add('tabhidden'); }); });
+    $('loadDetailCard').classList.remove('hide', 'tabhidden');
+    openLoad(loadId, { back: () => { $('loadDetailCard').classList.add('hide'); selectTab('dashboard'); } });
+  }
+  if ($('shRefresh')) $('shRefresh').onclick = () => { loadSuperHome(); loadStats(); };
+  if ($('shReq')) $('shReq').onclick = () => selectTab('requests');
+  if ($('shOk')) $('shOk').onclick = () => selectTab('oklist');
 
   // Master-admin: grant/revoke tester access by email (reveals the not-yet-rolled-out sections to that login).
   async function setBeta(on){

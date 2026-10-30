@@ -248,6 +248,67 @@ app.get('/api/stats', requireAuth, requireSuper, (_req, res) => {
   });
 });
 
+// Master-Admin "at a glance": today's activity and what needs attention across every company (the master version of a
+// company's Dashboard). Super-admin only.
+app.get('/api/stats/summary', requireAuth, requireSuper, (_req, res) => {
+  const q = (sql, ...a) => { try { return db.prepare(sql).all(...a); } catch (e) { return []; } };
+  const n = (sql, ...a) => { const r = q(sql, ...a)[0]; return r ? Number(Object.values(r)[0]) || 0 : 0; };
+  const now = Date.now(), day = now - 864e5, week = now - 7 * 864e5, month = now - 30 * 864e5;
+  // Recent loads with their stop counts — the same "on the road / needs setup / done" rules the company Dashboard uses.
+  const loads = q(`SELECT l.id, l.orgId, l.poNumber, l.loadNumber, l.pickedUpAt, l.createdAt, o.name AS orgName,
+      (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status NOT IN ('parked','not_used')) AS total,
+      (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS done,
+      (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status = 'awaiting_build') AS setup,
+      (SELECT MAX(signedAt) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS lastSigned
+    FROM loads l LEFT JOIN orgs o ON o.id = l.orgId WHERE l.createdAt >= ?`, month);
+  const isDone = l => l.total > 0 && l.done >= l.total;
+  const onRoad = loads.filter(l => !isDone(l) && !l.setup && (l.pickedUpAt || l.done > 0));
+  const setup = loads.filter(l => l.setup > 0);
+  const failed = q(`SELECT p.loadId, p.emailFailedTo, l.poNumber, l.loadNumber, o.name AS orgName FROM pods p
+      LEFT JOIN loads l ON l.id = p.loadId LEFT JOIN orgs o ON o.id = COALESCE(l.orgId, p.orgId)
+    WHERE p.emailFailedTo IS NOT NULL AND p.emailFailedTo NOT IN ('', '[]') AND COALESCE(p.signedAt, p.uploadedAt, 0) >= ?
+    ORDER BY p.signedAt DESC`, month);
+  const failedLoads = []; const seenF = {};
+  failed.forEach(f => { const k = f.loadId || f.poNumber; if (seenF[k]) return; seenF[k] = 1;
+    let to = []; try { to = JSON.parse(f.emailFailedTo); } catch (e) {}
+    failedLoads.push({ loadId: f.loadId, po: f.poNumber || f.loadNumber || '', orgName: f.orgName || '', to: to.length }); });
+  // Flagged carriers nobody has dismissed yet — one row per carrier, with the companies that use it.
+  const alerts = {}; q(`SELECT a.carrierId, a.carrierName, a.problems, a.loads, o.name AS ownerName FROM carrier_alerts a
+      LEFT JOIN orgs o ON o.id = a.ownerOrgId WHERE a.type = 'flagged' AND a.ackAt IS NULL ORDER BY a.createdAt DESC`).forEach(a => {
+    const c = alerts[a.carrierId] = alerts[a.carrierId] || { name: a.carrierName, problems: a.problems, owners: [], onRoad: 0 };
+    if (a.ownerName && c.owners.indexOf(a.ownerName) < 0) c.owners.push(a.ownerName);
+    try { c.onRoad += JSON.parse(a.loads || '[]').filter(l => l.onRoad).length; } catch (e) {} });
+  // Per-company activity this week, busiest first.
+  const byOrg = {};
+  loads.forEach(l => { if (!l.orgId) return; const o = byOrg[l.orgId] = byOrg[l.orgId] || { name: l.orgName || '?', loads: 0, signed: 0, road: 0, attention: 0 };
+    if (l.createdAt >= week) o.loads++;
+    if (l.lastSigned && l.lastSigned >= week) o.signed++;
+    if (onRoad.indexOf(l) >= 0) o.road++;
+    if (l.setup > 0) o.attention++; });
+  failedLoads.forEach(f => { const l = loads.find(x => x.id === f.loadId); if (l && byOrg[l.orgId]) byOrg[l.orgId].attention++; });
+  const companies = Object.keys(byOrg).map(k => byOrg[k]).filter(o => o.loads || o.signed || o.road || o.attention)
+    .sort((a, b) => (b.attention - a.attention) || (b.loads - a.loads) || (b.road - a.road)).slice(0, 10);
+  const lite = l => ({ id: l.id, po: l.poNumber || l.loadNumber || '', orgName: l.orgName || '' });
+  res.json({
+    today: {
+      loads:   n(`SELECT COUNT(*) c FROM loads WHERE createdAt >= ?`, day),
+      uploads: n(`SELECT COUNT(*) c FROM pods WHERE uploadedAt >= ?`, day),
+      signed:  n(`SELECT COUNT(*) c FROM pods WHERE status IN ('signed','emailed') AND signedAt >= ?`, day),
+      onRoad:  onRoad.length,
+      activeCompanies: n(`SELECT COUNT(DISTINCT orgId) c FROM loads WHERE createdAt >= ?`, week),
+      newCompanies: n(`SELECT COUNT(*) c FROM orgs WHERE createdAt >= ? AND kind IN ('customer','carrier','broker')`, week),
+    },
+    attention: {
+      emailFailed: failedLoads.slice(0, 20),
+      needsSetup: setup.slice(0, 20).map(lite), needsSetupCount: setup.length,
+      carrierAlerts: Object.keys(alerts).map(k => alerts[k]),
+      authorityRequests: n(`SELECT COUNT(*) c FROM access_requests WHERE status = 'pending' AND kind = 'authority'`),
+      accessRequests: n(`SELECT COUNT(*) c FROM access_requests WHERE status = 'pending' AND COALESCE(kind,'') != 'authority'`),
+    },
+    companies,
+  });
+});
+
 // --- Opt-out (unsubscribe) admin views. Super-admin only. ---
 app.get('/api/optouts', requireAuth, requireSuper, (_req, res) => {
   res.json({ optouts: listOptedOut() });
