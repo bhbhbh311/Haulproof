@@ -217,7 +217,8 @@ app.use('/api/receivers', receiversRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/trash', trashRouter);
 app.use('/api/backup', require('./backup').router);
-app.use('/api/billing', require('./billing').router);   // master admin: plans & billing
+app.use('/api/billing', require('./billing').router);   // master admin: plans & billing; /mine = a company's invite link
+app.use('/api/referral', require('./billing').publicRouter);   // public: who sent this invite link
 app.use('/api/growth', require('./growth').router);   // account setup checklist, monthly summary preview   // master admin: nightly backup status, run now, download the database
 
 // --- Master-Admin dashboard summary: counts across the whole system. Super-admin only. ---
@@ -226,6 +227,7 @@ app.use('/api/growth', require('./growth').router);   // account setup checklist
 try { require('./carriers').startAuthorityRecheck(); } catch (e) { console.error('authority recheck', e.message); }
 try { require('./backup').startNightlyBackup(); } catch (e) { console.error('backup', e.message); }
 try { require('./growth').startMonthlyReports(); } catch (e) { console.error('monthly', e.message); }
+try { require('./billing').startReferralTimer(); } catch (e) { console.error('referrals', e.message); }
 app.post('/api/digest/test', requireAuth, requireSuper, async (_req, res) => {
   try { const r = await digest.sendNow(); res.json({ ok: true, to: digest.RECIPIENT, sent: !!(r && (r.sent || r.simulated)), simulated: !!(r && r.simulated), error: r && r.error || null }); }
   catch (e) { res.status(500).json({ error: e.message }); }

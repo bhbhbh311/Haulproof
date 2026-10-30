@@ -176,6 +176,17 @@ addColumn('orgs',  'priceUsd', 'REAL');            // monthly price; NULL = the 
 addColumn('orgs',  'includedDrivers', 'INTEGER');  // drivers included in the price; NULL = the default
 addColumn('orgs',  'extraDriverUsd', 'REAL');      // per active driver over the included number; NULL = the default
 addColumn('orgs',  'billingNote', 'TEXT');
+addColumn('orgs',  'paidSince', 'INTEGER');          // first switched to Paid (starts the referral clock)
+// Referrals: every company has a permanent invite link (?ref=referralCode). A company that joins through it is
+// tagged referredBy; 30 days after it goes Paid, the inviter earns one free month (a row in referral_credits).
+addColumn('orgs',  'referralCode', 'TEXT');
+addColumn('orgs',  'referredBy', 'TEXT');
+addColumn('orgs',  'referralRewardedAt', 'INTEGER');
+addColumn('access_requests', 'refOrgId', 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS referral_credits (
+  id TEXT PRIMARY KEY, orgId TEXT NOT NULL, fromOrgId TEXT, earnedAt INTEGER NOT NULL, usedMonth TEXT
+)`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_refcode ON orgs(referralCode)`);
 addColumn('orgs',  'aiRequestedAt', 'INTEGER');        // when the company admin last asked for more AI
 addColumn('pods',  'emailStatus', 'TEXT');
 addColumn('pods',  'emailError', 'TEXT');

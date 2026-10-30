@@ -1679,6 +1679,13 @@
     </div>
 
     <!-- Settings tab: the account's toggles (Simplify + Brokers) relocate here from the Team card on load. -->
+    <!-- Settings tab: this company's permanent invite link — a free month for every company that joins through it. -->
+    <div class="card hide" id="referCard">
+      <h1>🎁 Invite a company, get a free month</h1>
+      <p class="sub" style="margin-bottom:10px;">Share your link with another trucking company, shipper or broker. When a company that joins through it has been on a paid plan for a month, you get a <b>free month</b> of HaulProof. There's no limit: every company you bring in earns another one, and your link never expires.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;max-width:720px;"><input id="refLink" readonly style="flex:1;min-width:220px;font-size:14px;"><button type="button" id="refCopy">Copy link</button><button type="button" class="ghost" id="refEmail">Email it</button><span id="refMsg" class="sub" style="margin:0;"></span></div>
+      <div id="refStats" style="margin-top:14px;"></div>
+    </div>
     <div class="card hide" id="settingsCard">
       <h1>Settings</h1>
       <p class="sub">Turn the app's optional fields on or off, and control what brokers can do on your account. Changes apply to everyone on this account.</p>
@@ -2071,6 +2078,7 @@
       // Anyone with a company login can connect an AI app (it acts as them), so this card isn't admin-only.
       show('aiConnCard', u.role !== 'superadmin' && !!u.orgId);
       show('aiCreditCard', u.role !== 'superadmin' && !!u.orgId);
+      if (u.role !== 'superadmin' && !!u.orgId && !pureReceiver) loadReferral(); else show('referCard', false);
       if (u.role !== 'superadmin' && !!u.orgId) loadAiPromo(); else show('aiPromoCard', false);
     } catch(e){}
     show('homeCard', !pureReceiver && u.role !== 'superadmin' && !!$('loadsCard') && !$('loadsCard').classList.contains('hide'));
@@ -2195,7 +2203,7 @@
     { key:'custcarriers', label:'Carriers / Brokers', cards:['custCarriersCard'] },
     { key:'approvedcarriers', label:'Approved carriers', cards:['brokerCarriersCard'] },
     { key:'team',      label:'Team logins', cards:['teamCard'] },
-    { key:'settings',  label:'Settings',   cards:['settingsCard','aiCreditCard','aiConnCard'] },
+    { key:'settings',  label:'Settings',   cards:['referCard','settingsCard','aiCreditCard','aiConnCard'] },
     { key:'mycustomers', label:'Customers', cards:['myCustomersCard'] },
     // Super-admin management: each company type is its own top tab (click straight to what you want),
     // and the drill-in "Manage" view (custManageCard) lives in whichever of them you opened it from.
@@ -2347,6 +2355,22 @@
     $('aiPromoSteps').classList.remove('hide'); $('aiPromoHow').textContent = 'How to connect ▴';
   };
   // Company side of the AI credit: a meter for the free trial, the plan otherwise, and "Request more AI".
+  // Invite a company: this company's permanent referral link and what it has earned.
+  async function loadReferral(){
+    let r; try { r = await api('/api/billing/mine'); } catch (e) { $('referCard').classList.add('hide'); return; }
+    if (!r.applies) { $('referCard').classList.add('hide'); return; }
+    $('referCard').classList.remove('hide');
+    $('refLink').value = r.link;
+    $('refCopy').onclick = async () => { const ok = await copyText(r.link); $('refMsg').textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => $('refMsg').textContent = '', 1800); };
+    $('refEmail').onclick = () => { location.href = 'mailto:?subject=' + encodeURIComponent('Try HaulProof for your delivery paperwork') + '&body=' + encodeURIComponent('We use HaulProof for signed delivery paperwork: drivers sign on their phone and customers get the signed copy by email right away.\n\nSign up here and start with a free trial:\n' + r.link); };
+    $('refStats').innerHTML = '<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:14px;">'
+      + '<div><b style="font-size:20px;">' + r.invited.length + '</b> <span class="sub" style="margin:0;">compan' + (r.invited.length === 1 ? 'y' : 'ies') + ' invited</span></div>'
+      + '<div><b style="font-size:20px;">' + r.earned + '</b> <span class="sub" style="margin:0;">free month' + (r.earned === 1 ? '' : 's') + ' earned</span></div>'
+      + '<div><b style="font-size:20px;">' + r.left + '</b> <span class="sub" style="margin:0;">waiting to be used</span></div>'
+      + (r.freeThisMonth ? '<div style="color:var(--ok);font-weight:700;">🎉 This month is free</div>' : '') + '</div>'
+      + (r.invited.length ? '<div style="margin-top:10px;">' + r.invited.map(i => '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;"><span><b>' + esc(i.name) + '</b> <span class="sub" style="margin:0;">joined ' + new Date(i.joinedAt).toLocaleDateString() + '</span></span>'
+          + (i.status === 'earned' ? '<span class="chip signed">Free month earned</span>' : i.status === 'paying' ? '<span class="chip received">Paying · free month ' + (i.earnsOn ? new Date(i.earnsOn).toLocaleDateString() : 'soon') + '</span>' : '<span class="chip prepared">On free trial</span>') + '</div>').join('') + '</div>' : '');
+  }
   async function loadAiCredit(){
     const box = $('aiCreditBox'); if (!box) return;
     try {
@@ -2587,7 +2611,9 @@
         const trialTxt = o.plan === 'trial' ? (o.trialDaysLeft < 0 ? '<div style="color:var(--danger);font-size:11.5px;font-weight:700;margin-top:3px;">Ended ' + (-o.trialDaysLeft) + 'd ago</div>' : '<div style="color:' + (o.trialDaysLeft <= 14 ? 'var(--warn)' : 'var(--muted)') + ';font-size:11.5px;margin-top:3px;">' + o.trialDaysLeft + ' days left</div>') : '';
         return '<tr data-org="' + esc(o.orgId) + '">'
           + '<td><b>' + esc(o.name) + '</b> <span style="color:var(--muted);font-size:12px;">' + esc(o.kind || '') + '</span>' + (o.lastLoadAt ? '<div style="color:var(--muted);font-size:11.5px;">Last load ' + new Date(o.lastLoadAt).toLocaleDateString() + '</div>' : '<div style="color:var(--muted);font-size:11.5px;">No loads yet</div>')
-            + '<input class="blNote" type="text" value="' + esc(o.note || '') + '" placeholder="Note (e.g. invoiced monthly)" style="width:100%;min-width:150px;font-size:12px;padding:5px 7px;margin-top:5px;"></td>'
+            + (o.invitedBy ? '<div style="color:var(--ok);font-size:11.5px;">🎁 Invited by ' + esc(o.invitedBy) + '</div>' : '')
+          + (o.invitedCount || o.freeMonthsLeft ? '<div style="color:var(--muted);font-size:11.5px;">Invited ' + o.invitedCount + (o.freeMonthsLeft ? ' · <b style="color:var(--ok);">' + o.freeMonthsLeft + ' free month' + (o.freeMonthsLeft === 1 ? '' : 's') + ' waiting</b>' : '') + '</div>' : '')
+          + '<input class="blNote" type="text" value="' + esc(o.note || '') + '" placeholder="Note (e.g. invoiced monthly)" style="width:100%;min-width:150px;font-size:12px;padding:5px 7px;margin-top:5px;"></td>'
           + '<td><select class="blPlan" style="width:auto;font-size:13px;padding:6px 8px;">' + [['trial', 'Free trial'], ['paid', 'Paid'], ['free', 'Free (no charge)'], ['paused', 'Paused']].map(x => '<option value="' + x[0] + '"' + (o.plan === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select></td>'
           + '<td>' + (o.plan === 'trial' ? '<input class="blTrial" type="date" value="' + ymd(o.trialEndsAt) + '" style="width:auto;font-size:13px;padding:6px 8px;">' + trialTxt : '<span style="color:var(--muted);">—</span>') + '</td>'
           + '<td>' + inp('blPrice', o.priceUsd, 80, '1') + '</td>'
@@ -2595,7 +2621,7 @@
           + '<td>' + inp('blIncl', o.includedDrivers, 64, '1') + '</td>'
           + '<td>' + inp('blExtra', o.extraDriverUsd, 72, '0.5') + '</td>'
           + '<td>' + money(o.aiChargeUsd) + '</td>'
-          + '<td style="font-weight:800;color:' + (o.monthUsd > 0 ? 'var(--ok)' : 'var(--muted)') + ';">' + money(o.monthUsd) + (o.plan !== 'paid' && o.plan !== 'free' && o.plan !== 'paused' ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + money(o.priceUsd + o.overDrivers * o.extraDriverUsd) + ' once paid</div>' : '') + '</td>'
+          + '<td style="font-weight:800;color:' + (o.monthUsd > 0 ? 'var(--ok)' : 'var(--muted)') + ';">' + money(o.monthUsd) + (o.referralCredit ? '<div style="color:var(--ok);font-size:11.5px;font-weight:700;">🎁 Free month (referral)</div>' : '') + (o.plan !== 'paid' && o.plan !== 'free' && o.plan !== 'paused' ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + money(o.priceUsd + o.overDrivers * o.extraDriverUsd) + ' once paid</div>' : '') + '</td>'
           + '</tr>';
       }).join('') + '</tbody></table>';
     filterBilling();
@@ -2698,7 +2724,7 @@
     const when = x.createdAt ? new Date(x.createdAt).toLocaleString() : '';
     const statusChip = '<span class="chip '+(x.status==='granted'?'signed':x.status==='denied'?'received':'prepared')+'">'+(x.status==='granted'?'Approved':x.status==='denied'?'Denied':'Pending')+'</span>';
     const what = x.kind==='authority' ? ('wants <b>'+esc(x.company||'')+'</b> as a '+esc(x.orgType||'carrier')+' — no active FMCSA authority'+(x.targetCompany?' · for '+esc(x.targetCompany):''))
-      : x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
+      : x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')+(x.invitedBy?' <span class="chip signed" style="font-size:11px;">🎁 Invited by '+esc(x.invitedBy)+'</span>':'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
     const thread = (x.thread||[]).map(m=>'<div style="font-size:12px;margin:2px 0;color:var(--muted);"><b>'+(m.from==='admin'?'You':'Them')+':</b> '+esc(m.text)+'</div>').join('');
     let actions = '';
     if (x.status==='pending'){

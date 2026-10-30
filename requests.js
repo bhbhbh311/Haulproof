@@ -21,7 +21,8 @@ function reqOut(r) {
   return { id: r.id, code: r.code, kind: r.kind, orgType: r.orgType, contactName: r.contactName, email: r.email,
     phone: r.phone, company: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, targetCompany: r.targetCompany,
     note: r.note, status: r.status, thread: parseThread(r.thread), createdOrgId: r.createdOrgId, createdDriverId: r.createdDriverId,
-    createdAt: r.createdAt, decidedAt: r.decidedAt };
+    createdAt: r.createdAt, decidedAt: r.decidedAt,
+    invitedBy: r.refOrgId ? ((db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(r.refOrgId) || {}).name || null) : null };
 }
 function pushThread(r, from, text) {
   const th = parseThread(r.thread); th.push({ from, text, at: Date.now() });
@@ -40,10 +41,12 @@ router.post('/', express.json(), async (req, res) => {
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email is required' });
   const orgType = kind === 'company' ? (ORG_TYPES.includes(b.orgType) ? b.orgType : 'customer') : null;
   const id = crypto.randomUUID(), code = newCode();
+  const refOrg = kind === 'company' && b.ref ? db.prepare(`SELECT id FROM orgs WHERE referralCode = ?`).get(String(b.ref).trim().toUpperCase()) : null;
   db.prepare(`INSERT INTO access_requests (id, code, kind, orgType, contactName, email, phone, company, mcNumber, dotNumber, targetCompany, note, status, thread, createdAt)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending', '[]', ?)`)
     .run(id, code, kind, orgType, contactName, email, phone || null, company || null,
       (b.mcNumber || '').trim() || null, (b.dotNumber || '').trim() || null, (b.targetCompany || '').trim() || null, (b.note || '').trim() || null, Date.now());
+  if (refOrg) db.prepare(`UPDATE access_requests SET refOrgId = ? WHERE id = ?`).run(refOrg.id, id);
   // Let the Master Admin know a request came in.
   sendMail({ to: adminEmails(), subject: 'New HaulProof access request',
     text: `${contactName} (${email}${phone ? ', ' + phone : ''}) requested ${kind === 'company' ? 'a ' + orgType + ' account' : 'driver access'}${company ? ' — ' + company : ''}${b.targetCompany ? ' (join ' + b.targetCompany + ')' : ''}.\n\nReview it in the Master Admin portal → Access requests.` });
@@ -154,6 +157,7 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
          VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`)
         .run(orgId, name, newDeviceKey(), orgType, JSON.stringify([orgType]), parentId, r.contactName, adminEmail, r.phone || null, r.mcNumber || null, r.dotNumber || null, Date.now());
       createUser({ email: adminEmail, name: r.contactName, role: 'admin', password: adminPassword, orgId });
+      if (r.refOrgId && r.refOrgId !== orgId) db.prepare(`UPDATE orgs SET referredBy = ? WHERE id = ?`).run(r.refOrgId, orgId);   // joined through a referral link
       db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), orgId, r.id);
       pushThread(r, 'admin', `Approved — ${orgType} account "${name}" created; login emailed.`);
       sendMail({ to: r.email, subject: 'Your HaulProof account is ready',

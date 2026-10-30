@@ -48,6 +48,7 @@
   <!-- REQUEST FORM -->
   <div class="card" id="formCard">
     <h1>Request access</h1>
+    <div id="refBanner" class="hide" style="margin:6px 0 12px;padding:10px 14px;border-radius:10px;border:1px solid rgba(61,151,61,.45);background:rgba(61,151,61,.12);font-size:14px;"></div>
     <p class="sub">Tell us who you are and we'll get you set up. You'll get a confirmation code to check your status.</p>
     <div class="seg" id="kindSeg">
       <button type="button" data-kind="company" class="on">I'm a company</button>
@@ -113,7 +114,7 @@
   $('submitBtn').addEventListener('click',function(){
     var m=$('formMsg'); m.className='msg'; m.textContent='';
     var body={ kind:kind, orgType:orgType, company:$('company').value, mcNumber:$('mc').value, dotNumber:$('dot').value,
-      targetCompany:$('targetCompany').value, contactName:$('contactName').value, email:$('email').value, phone:$('phone').value, note:$('note').value };
+      targetCompany:$('targetCompany').value, contactName:$('contactName').value, email:$('email').value, phone:$('phone').value, note:$('note').value, ref:window.__ref||'' };
     if(!body.contactName.trim()){ m.className='msg err'; m.textContent='Please enter your name.'; return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email.trim())){ m.className='msg err'; m.textContent='Please enter a valid email.'; return; }
     $('submitBtn').disabled=true; $('submitBtn').textContent='Sending…';
@@ -151,6 +152,9 @@
   $('haveCode').addEventListener('click',function(e){ e.preventDefault(); promptCode(); });
   $('stLookup').addEventListener('click',function(e){ e.preventDefault(); promptCode(); });
 
+  // Invite link (?ref=CODE): show who invited them; the request remembers it.
+  (function(){ var r=new URL(location.href).searchParams.get('ref'); if(!r) return; window.__ref=r.trim().toUpperCase();
+    api('/api/referral/'+encodeURIComponent(window.__ref)).then(function(x){ var b=$('refBanner'); b.innerHTML='👋 <b>'+esc(x.name)+'</b> invited you to HaulProof.'; b.classList.remove('hide'); }).catch(function(){ window.__ref=''; }); })();
   // If a code is in the URL, show its status directly.
   (function(){ var c=new URL(location.href).searchParams.get('code'); if(c) showStatus(c.trim().toUpperCase(), false); })();
 </script>
