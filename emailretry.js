@@ -36,7 +36,8 @@ function recordEmailResult(podId, intended, mail, { manual } = {}) {
 // `only`: dispatch picked which of the intended addresses to try (unticked ones drop out of this copy's retries).
 async function resendPod(pod, { manual, actor, only } = {}) {
   const { combinedPodBytes } = require('./pods');   // lazy: pods.js requires this module
-  const to = Array.isArray(only) ? only : (safeJson(pod.emailFailedTo) || safeJson(pod.recipients) || []);
+  // (HaulProof Help logins aren't mailboxes — never retried, and they no longer count as waiting.)
+  const to = (Array.isArray(only) ? only : (safeJson(pod.emailFailedTo) || safeJson(pod.recipients) || [])).filter(e => !/^haulproofhelp\+/i.test(String(e || '')));
   if (!to.length) return { error: 'No recipients on this document' };
   let combined = null; try { combined = await combinedPodBytes(pod); } catch (e) {}
   const mail = await emailPodCopy({ to, pod: { id: pod.id, poNumber: pod.poNumber, loadNumber: pod.loadNumber, consignee: pod.consignee, docType: pod.docType, filename: pod.filename, signedAt: pod.signedAt }, filePath: pod.filepath, contentBytes: combined });
@@ -67,7 +68,19 @@ async function retryDue() {
   } catch (e) { console.error('[email-retry]', e.message); }
   finally { _running = false; }
 }
-function startRetryLoop() { setInterval(retryDue, 5 * 60000).unref(); setTimeout(retryDue, 60000).unref(); }
+// One-time tidy-up: earlier copies listed HaulProof Help logins as recipients. Drop them, and a copy whose only
+// "failed" address was a Help login counts as sent.
+function dropHelpAddresses() {
+  const isHelp = e => /^haulproofhelp\+/i.test(String(e || ''));
+  db.prepare(`SELECT id, recipients, emailFailedTo, emailStatus FROM pods WHERE recipients LIKE '%haulproofhelp+%' OR emailFailedTo LIKE '%haulproofhelp+%'`).all().forEach(p => {
+    const rec = (safeJson(p.recipients) || []).filter(e => !isHelp(e)), failed = (safeJson(p.emailFailedTo) || []).filter(e => !isHelp(e));
+    const done = (p.emailStatus === 'failed' || p.emailStatus === 'partial') && !failed.length;
+    db.prepare(`UPDATE pods SET recipients = ?, emailFailedTo = ?` + (done ? `, emailStatus = 'sent', emailError = NULL, emailNextRetryAt = NULL` : '') + ` WHERE id = ?`)
+      .run(JSON.stringify(rec), failed.length ? JSON.stringify(failed) : null, p.id);
+  });
+}
+function startRetryLoop() {
+  try { dropHelpAddresses(); } catch (e) { console.error('[email-retry] tidy', e.message); } setInterval(retryDue, 5 * 60000).unref(); setTimeout(retryDue, 60000).unref(); }
 
 const router = express.Router();
 router.post('/:id/resend-email', requireAuth, express.json(), async (req, res) => {

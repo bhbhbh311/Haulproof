@@ -4679,7 +4679,7 @@
       + `<label style="display:flex;gap:8px;align-items:center;font-weight:600;font-size:13.5px;margin:0 0 6px;text-transform:none;letter-spacing:normal;color:var(--ink);"><input type="checkbox" id="rtAll" checked> Select all</label>`
       + pods.map(p => {
           const failed = parse(p.emailFailedTo).map(x => x.toLowerCase());
-          const all = Array.from(new Set([...parse(p.recipients), ...parse(p.emailFailedTo)]));
+          const all = Array.from(new Set([...parse(p.recipients), ...parse(p.emailFailedTo)])).filter(e => !/^haulproofhelp\+/i.test(e));   // Help logins aren't mailboxes
           return `<div class="rtPod" data-id="${p.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
             <div style="font-weight:700;margin-bottom:6px;">Stop ${p.stopNumber || 1} · ${esc(p.docType || 'BOL')}${p.emailError ? `<div class="sub rtLast" style="font-weight:400;font-size:12px;margin-top:2px;color:var(--bad);">Last try: ${esc(friendlyMailError(p.emailError))}</div>` : ''}</div>`
             + all.map(e => `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;padding:3px 0;margin:0;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink);"><input type="checkbox" class="rtTo" value="${esc(e)}" checked> ${esc(e)}${failed.indexOf(e.toLowerCase()) >= 0 ? ' <span class="sub rtSt" style="font-size:11.5px;color:var(--bad);">not sent</span>' : ' <span class="sub rtSt" style="font-size:11.5px;">already sent</span>'}</label>`).join('')

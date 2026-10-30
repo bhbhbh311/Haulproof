@@ -66,8 +66,12 @@ function getTransport() {
   return transport;
 }
 
+// The built-in HaulProof Help logins (haulproofhelp+<company>@haulproofepod.com) are sign-in identities, not mailboxes:
+// a signed copy sent to one bounces (550 5.1.10 RecipientNotFound). Never send them document copies.
+const isHelpAddress = (e) => /^haulproofhelp\+/i.test(String(e || '').trim());
 async function emailPodCopy({ to, pod, filePath, contentBytes }) {
-  if (!to || !to.length) return { sent: false, reason: 'no recipients' };
+  to = (to || []).filter(e => !isHelpAddress(e));
+  if (!to.length) return { sent: false, reason: 'no recipients' };
   // Legal/CAN-SPAM: drop anyone who has opted out BEFORE sending. Each remaining recipient gets their
   // own message so their unsubscribe link and List-Unsubscribe header carry a token for their address.
   const { allowed, blocked } = filterOptedOut(to);
