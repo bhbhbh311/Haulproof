@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#1a2f60">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
   /* Same navy look as the HaulProof app (dispatch portal, driver app, help). */
   :root{color-scheme:dark;
@@ -262,6 +262,104 @@
     .ctaband{padding:44px 22px}
     .visual{height:430px}
   }
+
+  /* ===== 2026 refresh: callahantrans.com design language in HaulProof navy + blue ===== */
+  :root{ --ground:#0f1c3a; --panel:#172b58; --panel-2:#1d3569; --dline:rgba(176,201,255,.14); --sky:#8fb6ff; --soft:#c9d6ee; --dim:#a9b8d6; }
+  body{ background:radial-gradient(70% 40% at 85% -5%, rgba(77,141,255,.20), transparent 70%), var(--ground); font-family:"Inter","Public Sans",sans-serif; }
+  h1,h2,h3{ font-family:"Fraunces",Georgia,serif; font-weight:600; letter-spacing:-.01em; }
+  .eyebrow{ font-family:"JetBrains Mono",monospace; font-size:12px; letter-spacing:.16em; color:var(--sky); display:inline-flex; align-items:center; gap:10px; }
+  .eyebrow::before{ content:""; width:22px; height:2px; background:var(--primary); display:inline-block; }
+  .btn{ font-family:"Inter",sans-serif; border-radius:10px; }
+  .btn-primary{ box-shadow:0 8px 24px rgba(77,141,255,.35); }
+  .btn-ghost{ background:rgba(255,255,255,.06); border-color:rgba(232,239,252,.22); }
+  header.nav{ background:rgba(15,28,58,.88); border-bottom:1px solid var(--dline); }
+  .brandmark{ border-radius:50%; box-shadow:0 0 0 2px #fff3, 0 0 16px rgba(77,141,255,.5); }
+  .brand{ font-family:"Fraunces",serif; font-weight:600; letter-spacing:.01em; }
+  .navlinks a.link{ font-weight:500; color:var(--soft); }
+  .navlinks a.link:hover{ color:var(--sky); }
+
+  /* hero panel */
+  .hero{ padding:28px 0 0; overflow:visible; }
+  .hero:before{ display:none; }
+  .hero-panel{ position:relative; border-radius:18px; overflow:hidden; min-height:560px; display:flex; align-items:flex-end; isolation:isolate;
+    border:1px solid rgba(77,141,255,.35); box-shadow:0 0 80px rgba(77,141,255,.14); background:#071026; }
+  .hero-panel::before{ content:""; position:absolute; inset:0; z-index:-1;
+    background:linear-gradient(90deg, rgba(6,12,30,.90) 0%, rgba(6,12,30,.55) 42%, rgba(6,12,30,0) 70%), linear-gradient(180deg, rgba(6,12,30,0) 60%, rgba(6,12,30,.7) 100%); }
+  .fx-night{ position:absolute; inset:0; z-index:-2; } .fx-night canvas{ display:block; }
+  .hero-panel .in{ padding:clamp(22px,4vw,44px); display:flex; flex-direction:column; gap:14px; max-width:600px; position:relative; z-index:1; }
+  .company{ font-family:"JetBrains Mono",monospace; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--sky); font-weight:500; }
+  h1.headline{ font-family:"Fraunces",serif; font-size:clamp(32px,4.2vw,50px); font-weight:600; line-height:1.04; margin:0; color:#f2f6ff; }
+  h1.headline em{ font-style:italic; color:var(--sky); }
+  .subhead{ color:#dbe5f7; font-size:17px; margin:0; max-width:520px; }
+  .herocta{ margin-top:6px; }
+  .hero-panel .visual{ position:absolute; right:clamp(18px,3vw,40px); top:50%; transform:translateY(-50%) scale(.8); transform-origin:right center; width:470px; height:460px; z-index:1; }
+
+  /* logo tile (same build as callahantrans.com, in HaulProof blue) */
+  .lockup{ display:flex; align-items:center; gap:clamp(16px,3vw,26px); align-self:flex-start; }
+  .lk-text{ display:flex; flex-direction:column; line-height:1; padding-left:16px; border-left:2px solid; border-image:linear-gradient(180deg, #8fb6ff, #f2f6ff) 1; }
+  .lk-1{ font-family:"Fraunces",serif; font-weight:600; font-size:clamp(28px,4.6vw,48px); letter-spacing:.08em;
+    background:linear-gradient(100deg, #f2f6ff 0%, #f2f6ff 40%, #b9d1ff 50%, #f2f6ff 60%, #f2f6ff 100%); background-size:250% 100%;
+    -webkit-background-clip:text; background-clip:text; color:transparent; animation:wordshine 6s ease-in-out infinite; }
+  .lk-2{ margin-top:7px; font-family:"Inter",sans-serif; font-weight:600; font-size:clamp(9px,1.3vw,12px); letter-spacing:.28em; color:var(--sky); }
+  .emblem{ --rx:0deg; --ry:0deg; position:relative; width:clamp(110px,16vw,160px); aspect-ratio:1; flex:none; transform:perspective(700px) rotateX(var(--rx)) rotateY(var(--ry)); transition:transform .25s ease-out; transform-style:preserve-3d; }
+  .em-border{ position:absolute; inset:-3px; border-radius:30px; overflow:hidden; filter:drop-shadow(0 0 18px rgba(143,182,255,.35)); }
+  .em-border::before{ content:""; position:absolute; inset:-50%; background:conic-gradient(from 0deg, #8fb6ff, #d6e4ff, #f2f6ff, #8fb6ff 40%, #2f6fe0 60%, #8fb6ff 80%, #d6e4ff, #8fb6ff); animation:spin 8s linear infinite; }
+  .em-tile{ position:absolute; inset:0; border-radius:27px; overflow:hidden; display:grid; place-items:center;
+    background:radial-gradient(120% 90% at 50% 15%, #6a9fff 0%, #2f6fe0 55%, #1f4fb8 100%);
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.45), inset 0 -18px 30px rgba(4,17,46,.35), 0 30px 60px -20px rgba(0,0,0,.8); animation:emglow 3.2s ease-in-out infinite; }
+  .em-tile svg{ position:relative; width:64%; height:auto; filter:drop-shadow(0 8px 10px rgba(4,17,46,.45)); animation:markbob 2.4s ease-in-out infinite; }
+  .em-grid{ position:absolute; inset:0; opacity:.35; background-image:linear-gradient(rgba(255,255,255,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.14) 1px, transparent 1px); background-size:16px 16px;
+    -webkit-mask:radial-gradient(circle at 50% 40%, #000, transparent 70%); mask:radial-gradient(circle at 50% 40%, #000, transparent 70%); }
+  .em-sheen{ position:absolute; top:-40%; bottom:-40%; width:30%; left:-60%; transform:skewX(-18deg); background:linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent); animation:sheen 4s ease-in-out infinite; }
+  .em-beam{ position:absolute; left:50%; top:92%; width:160%; height:70%; transform:translateX(-50%); pointer-events:none; z-index:-1;
+    background:radial-gradient(50% 60% at 50% 0%, rgba(214,228,255,.30), rgba(143,182,255,.12) 45%, transparent 75%); filter:blur(6px); }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @keyframes markbob{ 0%,100%{ transform:translateY(2%); } 50%{ transform:translateY(-2%); } }
+  @keyframes sheen{ 0%,70%{ left:-60%; } 100%{ left:130%; } }
+  @keyframes emglow{ 0%,100%{ box-shadow:inset 0 2px 0 rgba(255,255,255,.45), inset 0 -18px 30px rgba(4,17,46,.35), 0 30px 60px -20px rgba(0,0,0,.8), 0 0 0 rgba(77,141,255,0); }
+    50%{ box-shadow:inset 0 2px 0 rgba(255,255,255,.45), inset 0 -18px 30px rgba(4,17,46,.35), 0 30px 60px -20px rgba(0,0,0,.8), 0 0 40px rgba(143,182,255,.4); } }
+  @keyframes wordshine{ 0%,55%{ background-position:100% 0; } 100%{ background-position:-50% 0; } }
+
+  /* at a glance strip + band */
+  .glance{ padding:20px 0 0; }
+  .stats-grid{ display:grid; grid-template-columns:repeat(4,1fr); background:var(--panel); border:1px solid var(--dline); border-radius:14px; overflow:hidden; }
+  .stat{ padding:22px 24px; border-right:1px solid var(--dline); } .stat:last-child{ border-right:0; }
+  .stat .num{ font-family:"Fraunces",serif; font-weight:700; font-size:28px; color:#f2f6ff; line-height:1.1; }
+  .stat .lbl{ margin-top:6px; font-family:"JetBrains Mono",monospace; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
+  .cover-band{ margin-top:20px; display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; padding:32px clamp(22px,4vw,40px); border-radius:18px;
+    background:radial-gradient(80% 140% at 100% 0%, rgba(143,182,255,.28), transparent 60%), linear-gradient(110deg, var(--panel) 0%, var(--panel) 32%, #2457c4 32%, #4d8dff 100%); border:1px solid rgba(77,141,255,.4); }
+  .cb-1, .cb-2{ font-family:"Fraunces",serif; font-size:clamp(26px,4.4vw,46px); font-weight:700; color:#fff; letter-spacing:-.01em; }
+  .cb-2{ font-weight:700; font-style:italic; color:#e3edff; }
+  .cb-3{ font-family:"JetBrains Mono",monospace; font-size:12.5px; letter-spacing:.12em; text-transform:uppercase; color:#eaf1ff; margin-left:auto; }
+
+  /* sections and cards */
+  section.band{ padding:88px 0; background:transparent !important; border:0 !important; }
+  .sechead{ text-align:left; margin:0 0 48px; }
+  .sechead h2, .spot h2{ font-family:"Fraunces",serif; font-weight:600; }
+  .sechead p, .spot p.lead{ color:var(--dim); }
+  .fgrid{ gap:14px; }
+  .fcard, .step, .whocard{ background:var(--panel); border:1px solid var(--dline); border-radius:14px; box-shadow:none; }
+  .fcard{ border-top:3px solid var(--primary); }
+  .fcard h3, .step h3, .whocard h3{ font-family:"Fraunces",serif; font-weight:600; }
+  .fcard p, .step p, .whocard p{ color:var(--dim); }
+  .spotmedia{ background:linear-gradient(160deg, var(--panel), var(--panel-2)); border:1px solid var(--dline); border-radius:18px; }
+  .ctaband{ border-radius:18px; background:linear-gradient(110deg, #1f4fb8, #4d8dff); }
+  .ctaband h2{ font-family:"Fraunces",serif; font-weight:600; }
+  footer{ background:#0b1530; border-top:1px solid var(--dline); }
+
+  @media (max-width:960px){
+    .hero-panel .visual{ display:none; }
+    .stats-grid{ grid-template-columns:repeat(2,1fr); } .stat:nth-child(2){ border-right:0; } .stat:nth-child(-n+2){ border-bottom:1px solid var(--dline); }
+  }
+  @media (max-width:600px){
+    .hero-panel::before{ background:linear-gradient(180deg, rgba(6,12,30,.15) 0%, rgba(6,12,30,.6) 40%, rgba(6,12,30,.94) 100%); }
+    .hero-panel{ min-height:620px; }
+    .emblem{ width:84px; } .em-border{ border-radius:22px; } .em-tile{ border-radius:19px; }
+    .lk-1{ font-size:26px; letter-spacing:.05em; } .lk-2{ font-size:8.5px; letter-spacing:.14em; white-space:nowrap; } .lockup{ gap:12px; } .lk-text{ padding-left:12px; }
+    .cb-3{ margin-left:0; }
+    .stat{ padding:16px 16px; } .stat .num{ font-size:20px; } .stat .lbl{ font-size:10.5px; }
+  }
+  @media (prefers-reduced-motion: reduce){ .emblem{ transform:none; } .em-border::before, .em-tile, .em-tile svg, .em-sheen, .lk-1{ animation:none; } }
 </style>
 </head>
 <body>
@@ -308,22 +406,20 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div class="wrap herogrid">
-    <div class="herocopy">
-      <span class="pill"><span class="dot"></span>Proof of delivery, the moment the wheels stop</span>
-      <h1 class="headline">Signed BOLs and PODs, <span class="grad">off the dock and into your inbox.</span></h1>
-      <p class="subhead">HaulProof turns every delivery into a signed, time-stamped document your team can see instantly — captured on the driver's phone, no app store required.</p>
-      <div class="herocta">
-        <a class="btn btn-primary btn-lg" href="/request">Request a demo</a>
-        <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+  <div class="wrap">
+    <div class="hero-panel">
+      <div class="fx-night" aria-hidden="true"></div>
+      <div class="in">
+        <div class="lockup" role="img" aria-label="HaulProof"><div class="emblem" id="emblem"><span class="em-border"></span><span class="em-tile"><span class="em-grid"></span><svg viewBox="0 0 24 24" fill="none"><line x1="4" y1="9" x2="8.6" y2="9" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><line x1="3" y1="12.4" x2="7.6" y2="12.4" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".6"/><line x1="4" y1="15.8" x2="8.6" y2="15.8" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/><path d="M9.5 13 L12.5 16.2 L19.5 7.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="em-sheen"></span></span><span class="em-beam"></span></div><div class="lk-text"><span class="lk-1">HAULPROOF</span><span class="lk-2">ELECTRONIC PROOF OF DELIVERY</span></div></div>
+        <div class="company">Proof of delivery, the moment the wheels stop</div>
+        <h1 class="headline">Signed BOLs &amp; PODs,<br><em>off the dock and into your inbox.</em></h1>
+        <p class="subhead">HaulProof turns every delivery into a signed, time-stamped document your team can see instantly &mdash; captured on the driver&rsquo;s phone, no app store required.</p>
+        <div class="herocta">
+          <a class="btn btn-primary btn-lg" href="/request">Request a demo</a>
+          <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+        </div>
       </div>
-      <div class="heronote">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2 2 4-4.5" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="var(--ok)" stroke-width="1.6"/></svg>
-        Multi-stop loads, per-stop signatures, automatic delivery emails, and AI that does the paperwork.
-      </div>
-    </div>
-
-    <!-- HERO VISUAL -->
+      <!-- HERO VISUAL -->
     <div class="visual" aria-hidden="true">
       <div class="doccard floaty">
         <div class="drow">
@@ -362,19 +458,24 @@
         </div>
       </div>
     </div>
+    </div>
   </div>
 </section>
 
-<!-- TRUST -->
-<div class="trust">
-  <div class="wrap trustrow">
-    <span>Built for the whole delivery chain:</span>
-    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 8h11v8H3zM14 11h4l3 3v2h-7z" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Carriers</span>
-    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Brokers</span>
-    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 9l8-5 8 5v9H4z M9 18v-5h6v5" stroke="var(--primary)" stroke-width="1.6" stroke-linejoin="round"/></svg>Shippers</span>
-    <span class="who"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="var(--primary)" stroke-width="1.6"/><path d="M8 9h8M8 13h5" stroke="var(--primary)" stroke-width="1.6" stroke-linecap="round"/></svg>3PLs</span>
+<!-- AT A GLANCE -->
+<section class="glance" aria-label="HaulProof at a glance">
+  <div class="wrap">
+    <div class="stats-grid">
+      <div class="stat"><div class="num">Any phone</div><div class="lbl">No app store, no driver login</div></div>
+      <div class="stat"><div class="num">Per stop</div><div class="lbl">Signature &amp; time stamp</div></div>
+      <div class="stat"><div class="num">Instant</div><div class="lbl">Signed copy emailed</div></div>
+      <div class="stat"><div class="num">AI-ready</div><div class="lbl">Works with your AI assistant</div></div>
+    </div>
+    <div class="cover-band">
+      <span class="cb-1">BUILT FOR</span><span class="cb-2">THE WHOLE CHAIN</span><span class="cb-3">Carriers &middot; Brokers &middot; Shippers &middot; 3PLs</span>
+    </div>
   </div>
-</div>
+</section>
 
 <!-- FEATURES -->
 <section class="band" id="features">
@@ -676,6 +777,128 @@
   // mobile menu: simple smooth-scroll fallback (links already anchor); toggle just scrolls to features
   var mt = document.getElementById('menutoggle');
   if(mt){ mt.addEventListener('click', function(){ var f=document.getElementById('features'); if(f) f.scrollIntoView({behavior:'smooth'}); }); }
+</script>
+<script>
+// Night highway: perspective road with streaking headlights (toward you) and taillights (away), on a canvas behind the hero.
+(function () {
+  var host = document.querySelector('.fx-night');
+  if (!host) return;
+  var c = document.createElement('canvas'); host.appendChild(c);
+  var ctx = c.getContext('2d'), W, H, dpr, vx, vy, cars = [], dash = 0, last = 0;
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function size() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = host.clientWidth; H = host.clientHeight;
+    c.width = W * dpr; c.height = H * dpr; c.style.width = W + 'px'; c.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    vx = W * 0.68; vy = H * 0.36;
+  }
+  // lanes: -2,-1 = oncoming (headlights, toward viewer); 1,2 = outgoing (taillights, away)
+  function spawn(z) {
+    var lane = [-1.9, -1.1, -0.45, 0.45, 1.1, 1.9][Math.floor(Math.random() * 6)];
+    return { lane: lane, z: z === undefined ? Math.random() : z, v: 0.10 + Math.random() * 0.16 };
+  }
+  for (var i = 0; i < 64; i++) cars.push(spawn());
+  // occasional semi pulling away from the viewer down the road
+  var semi = null, semiWait = 2.5;
+  function newSemi() { return { z: 0.8, lane: Math.random() < 0.5 ? 0.32 : 0.62, v: 0.07 + Math.random() * 0.025 }; }
+  function drawSemi(dt) {
+    if (!semi) { if (!still) semiWait -= dt; if (semiWait <= 0 || still) { semi = newSemi(); if (still) semi.z = 0.7; } else return; }
+    if (!still) semi.z -= semi.v * dt;
+    if (semi.z < 0.06) { semi = null; semiWait = 6 + Math.random() * 6; return; }
+    var b = proj(semi.lane, semi.z), w = W * 0.95 * b.s * 0.45 * 0.62, h = w * 1.45;
+    if (w < 1.5) return;
+    var x = b.x - w / 2, y = b.y - h - w * 0.12;
+    ctx.globalCompositeOperation = 'source-over';
+    // shadow on road
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(b.x, b.y, w * 0.62, w * 0.08, 0, 0, 6.283); ctx.fill();
+    // wheels
+    ctx.fillStyle = '#03060f'; ctx.fillRect(x + w * 0.04, y + h, w * 0.26, w * 0.12); ctx.fillRect(x + w * 0.70, y + h, w * 0.26, w * 0.12);
+    // trailer box (rear doors)
+    var tg = ctx.createLinearGradient(x, y, x + w, y);
+    tg.addColorStop(0, '#172d5a'); tg.addColorStop(0.5, '#1e3870'); tg.addColorStop(1, '#152a55');
+    ctx.fillStyle = tg; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(176,201,255,.55)'; ctx.lineWidth = Math.max(0.6, w * 0.02); ctx.strokeRect(x, y, w, h);
+    ctx.beginPath(); ctx.moveTo(b.x, y + h * 0.04); ctx.lineTo(b.x, y + h * 0.96); ctx.stroke();       // door seam
+    ctx.strokeStyle = 'rgba(176,201,255,.25)';
+    for (var k = 1; k < 4; k++) { var bx = x + w * (k / 4); ctx.beginPath(); ctx.moveTo(bx - w * 0.06, y + h * 0.05); ctx.lineTo(bx - w * 0.06, y + h * 0.95); ctx.stroke(); } // lock rods
+    // Callahan green stripe
+    ctx.fillStyle = 'rgba(77,141,255,.85)'; ctx.fillRect(x, y + h * 0.84, w, h * 0.035);
+    // bumper + mud flaps
+    ctx.fillStyle = '#060d22'; ctx.fillRect(x + w * 0.02, y + h + w * 0.01, w * 0.96, w * 0.05);
+    ctx.fillRect(x + w * 0.06, y + h - w * 0.02, w * 0.12, w * 0.16); ctx.fillRect(x + w * 0.82, y + h - w * 0.02, w * 0.12, w * 0.16);
+    // lights (glow)
+    ctx.globalCompositeOperation = 'lighter';
+    function lamp(lx, ly, r, col, a) { var gg = ctx.createRadialGradient(lx, ly, 0, lx, ly, r); gg.addColorStop(0, 'rgba(' + col + ',' + a + ')'); gg.addColorStop(1, 'rgba(' + col + ',0)'); ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(lx, ly, r, 0, 6.283); ctx.fill(); }
+    var r = Math.max(2, w * 0.10), brake = (Math.sin(performance.now() / 900) > 0.92) ? 1 : 0.75;
+    lamp(x + w * 0.09, y + h * 0.9, r * 1.8, '235,60,45', brake); lamp(x + w * 0.91, y + h * 0.9, r * 1.8, '235,60,45', brake);
+    lamp(x + w * 0.09, y + h * 0.9, r * 0.5, '255,200,190', 0.9); lamp(x + w * 0.91, y + h * 0.9, r * 0.5, '255,200,190', 0.9);
+    for (var m = 0; m < 5; m++) lamp(x + w * (0.2 + m * 0.15), y + h * 0.03, r * 0.7, '255,170,40', 0.8);   // amber clearance lights
+    lamp(x + w * 0.02, y + h * 0.03, r * 0.8, '235,60,45', 0.8); lamp(x + w * 0.98, y + h * 0.03, r * 0.8, '235,60,45', 0.8);
+    // headlight wash ahead of the truck on the road
+    lamp(b.x, b.y - w * 0.05, w * 0.9, '232,239,252', 0.06);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  function proj(lane, z) { // z: 0 far .. 1 near
+    var p = Math.pow(z, 2.2);
+    var roadHalf = W * 0.95 * p;
+    return { x: vx + lane * roadHalf * 0.45, y: vy + (H - vy) * p, s: p };
+  }
+  function draw(t) {
+    var dt = Math.min(0.05, (t - last) / 1000 || 0.016); last = t;
+    // sky
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#18305f'); g.addColorStop(0.30, '#1f3b73'); g.addColorStop(0.37, '#2c55a0'); g.addColorStop(0.38, '#0f1d3d'); g.addColorStop(1, '#081127');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // horizon glow (city)
+    var hg = ctx.createRadialGradient(vx, vy, 0, vx, vy, W * 0.55);
+    hg.addColorStop(0, 'rgba(110,160,255,.45)'); hg.addColorStop(0.35, 'rgba(77,141,255,.18)'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hg; ctx.fillRect(0, 0, W, H);
+    // stars
+    ctx.fillStyle = 'rgba(232,239,252,.6)';
+    for (var s = 0; s < 40; s++) { var sx = (s * 97 % W), sy = (s * 53 % (vy * 0.9)); ctx.fillRect(sx, sy, 1, 1); }
+    // road edges
+    ctx.strokeStyle = 'rgba(176,201,255,.25)'; ctx.lineWidth = 1.5;
+    [-2.4, -0.02, 0.02, 2.4].forEach(function (L) { var a = proj(L, 0.02), b = proj(L, 1.2); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); });
+    // center dashes (gold) moving toward viewer
+    if (!still) dash = (dash + dt * 0.55) % 0.1;
+    ctx.strokeStyle = 'rgba(232,239,252,.85)';
+    for (var d = 0; d < 1.2; d += 0.1) {
+      var z1 = d + dash, z2 = z1 + 0.04; if (z1 > 1.2) continue;
+      var p1 = proj(0, z1), p2 = proj(0, Math.min(z2, 1.2));
+      ctx.lineWidth = 1 + p1.s * 6; ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    }
+    // cars as light streaks
+    ctx.globalCompositeOperation = 'lighter';
+    cars.forEach(function (car, i) {
+      var toward = car.lane < 0;
+      if (!still) car.z += (toward ? 1 : -1) * car.v * dt;
+      if (car.z > 1.25 || car.z < 0.02) { cars[i] = spawn(toward ? 0.03 : 1.2); return; }
+      var tail = toward ? -0.2 : 0.2;
+      var a = proj(car.lane, car.z), b = proj(car.lane, Math.max(0.01, car.z + tail));
+      var col = toward ? '232,239,252' : '230,90,70';
+      var lg = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      lg.addColorStop(0, 'rgba(' + col + ',.95)'); lg.addColorStop(1, 'rgba(' + col + ',0)');
+      ctx.strokeStyle = lg; ctx.lineCap = 'round';
+      for (var k = -1; k <= 1; k += 2) { // two lamps per vehicle
+        var off = k * (1.5 + a.s * 10);
+        ctx.lineWidth = 0.8 + a.s * 4; ctx.beginPath(); ctx.moveTo(a.x + off, a.y); ctx.lineTo(b.x + off * 0.6, b.y); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(' + col + ',' + (0.10 + a.s * 0.18) + ')';
+      ctx.beginPath(); ctx.arc(a.x, a.y, 2 + a.s * 12, 0, 6.283); ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    drawSemi(dt);
+    if (!still) requestAnimationFrame(draw);
+  }
+  size(); window.addEventListener('resize', size);
+  requestAnimationFrame(draw);
+})();
+
+(function(){var e=document.getElementById("emblem");if(!e||matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+function tilt(x,y){e.style.setProperty("--rx",(-y*10).toFixed(2)+"deg");e.style.setProperty("--ry",(x*14).toFixed(2)+"deg")}
+addEventListener("pointermove",function(ev){var r=e.getBoundingClientRect();tilt(Math.max(-1,Math.min(1,(ev.clientX-r.left-r.width/2)/400)),Math.max(-1,Math.min(1,(ev.clientY-r.top-r.height/2)/400)))});
+var t=0;(function idle(){t+=.012;if(!matchMedia("(hover:hover)").matches)tilt(Math.sin(t)*.6,Math.cos(t*.8)*.3);requestAnimationFrame(idle)})();})();
 </script>
 </body>
 </html>
