@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* Dark navy theme with HaulProof blue as the one accent (same family as the Callahan FMS design). */
   :root{color-scheme:dark;
@@ -425,6 +425,22 @@
   button.ldf:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
   button.ldf.on{background:var(--primary-soft);color:var(--primary);border-color:transparent;}
   @media (max-width:900px){ .htiles{grid-template-columns:repeat(2,minmax(0,1fr));} .hpanels{grid-template-columns:1fr;} .hhero{padding:18px;} .hhero h1{font-size:24px;} .htile .v{font-size:24px;} button.htile{padding:12px 14px;} .htile .l{font-size:11px;letter-spacing:.05em;} }
+
+  /* ===== 2026 refresh: same design language as haulproofepod.com (serif headings, mono labels, deeper navy) ===== */
+  :root{ --font:"Inter","Public Sans",-apple-system,Segoe UI,Roboto,sans-serif; --display:"Fraunces",Georgia,serif; --sky:#8fb6ff; }
+  body{ background:radial-gradient(70% 40% at 85% -5%, rgba(77,141,255,.16), transparent 70%), #0f1c3a; }
+  h1, h2, .hpanel h2{ font-family:"Fraunces",Georgia,serif; font-weight:600; letter-spacing:-.005em; }
+  .brand{ font-family:"Fraunces",Georgia,serif; font-weight:600; letter-spacing:.01em; }
+  .htile .v{ font-family:"Fraunces",Georgia,serif; font-weight:700; }
+  .htile .l, th, .tabgroup, .rolebadge{ font-family:var(--mono); letter-spacing:.08em; font-weight:500; }
+  .card, .hpanel, button.htile{ background:#172b58; border-color:rgba(176,201,255,.14); border-radius:14px; }
+  .card{ border-top:3px solid var(--primary); }
+  .hhero{ position:relative; overflow:hidden; border-radius:18px; border:1px solid rgba(77,141,255,.35); box-shadow:0 0 60px rgba(77,141,255,.12);
+    background:radial-gradient(60% 120% at 85% 0%, rgba(110,160,255,.28), transparent 60%), linear-gradient(180deg,#0c1836,#081127); }
+  .hhero h1{ font-size:34px; color:#f2f6ff; }
+  .hhero p{ font-family:var(--mono); font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--sky); }
+  button.htile{ border-left:4px solid var(--c); }
+  button, .btn{ border-radius:10px; }
 </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <script src="/vendor/pdf.js"></script>
