@@ -164,7 +164,7 @@ router.get('/microsoft/callback', async (req, res) => {
 
     // Set our own httpOnly session cookie and bounce back to the portal (no token in the URL).
     res.cookie('hp_session', session, {
-      httpOnly: true, sameSite: 'lax', secure: isSecure(), maxAge: 12 * 60 * 60 * 1000, path: '/',
+      httpOnly: true, sameSite: 'lax', secure: isSecure(), maxAge: require('./auth').SESSION_MS, path: '/',
     });
     return res.redirect(`${PORTAL_URL}/?sso=ok`);
   } catch (e) {

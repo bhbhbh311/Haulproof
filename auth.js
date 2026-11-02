@@ -6,6 +6,10 @@ const jwt = require('jsonwebtoken');
 const { db } = require('./db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+// Portal sign-ins stay valid while in use: each one lasts SESSION_DAYS after the last activity (renewed as you work),
+// so people aren't signed out mid-day or by an update. HaulProof Help (support) sign-ins are never renewed.
+const SESSION_DAYS = 7;
+const SESSION_MS = SESSION_DAYS * 24 * 3600 * 1000;
 // Legacy single device key — still honored, and assigned to the default customer on boot.
 const LEGACY_INGEST_KEY = process.env.INGEST_API_KEY || '';
 
@@ -75,7 +79,7 @@ function orgMetaOf(orgId) {
 function signToken(u) {
   const m = orgMetaOf(u.orgId);
   try { if (u.id) db.prepare('UPDATE users SET lastLoginAt = ? WHERE id = ?').run(Date.now(), u.id); } catch (e) {}
-  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId }, JWT_SECRET, { expiresIn: '12h' });
+  return jwt.sign({ sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId }, JWT_SECRET, { expiresIn: SESSION_DAYS + 'd' });
 }
 
 function login(email, password) {
@@ -115,8 +119,19 @@ function requireAuth(req, res, next) {
   const cookieTok = req.cookies ? req.cookies.hp_session : null;
   const token = bearer || cookieTok;
   if (!token) return res.status(401).json({ error: 'Not signed in' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { return res.status(401).json({ error: 'Session expired — sign in again' }); }
+  // An expired copy held by the page falls back to the (renewed) cookie.
+  let payload = null;
+  for (const t of [bearer, cookieTok]) { if (!t) continue; try { payload = jwt.verify(t, JWT_SECRET); break; } catch (e) {} }
+  if (!payload) return res.status(401).json({ error: 'Session expired — sign in again' });
+  req.user = payload;
+  // Renew the cookie session as it's used (at most every 6 hours), except support/help sign-ins.
+  try {
+    if (cookieTok && payload.iat && Date.now() - payload.iat * 1000 > 6 * 3600 * 1000 && !/^haulproofhelp\+/i.test(payload.email || '') && !(req.cookies && req.cookies.hp_super)) {
+      const { iat, exp, nbf, ...claims } = payload;
+      res.cookie('hp_session', jwt.sign(claims, JWT_SECRET, { expiresIn: SESSION_DAYS + 'd' }), { httpOnly: true, sameSite: 'lax', secure: (process.env.PORTAL_URL || '').startsWith('https://'), maxAge: SESSION_MS, path: '/' });
+    }
+  } catch (e) {}
+  next();
 }
 
 // Role helpers.
@@ -210,5 +225,5 @@ module.exports = {
   driverUnlockValue,
   isSuper, requireSuper, requireAdmin, requireDriverManager,
   requireCap, userHasCap, effectiveCaps, ALL_CAPS,
-  JWT_SECRET, LEGACY_INGEST_KEY,
+  JWT_SECRET, LEGACY_INGEST_KEY, SESSION_MS,
 };

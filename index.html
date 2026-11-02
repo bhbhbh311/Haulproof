@@ -2108,6 +2108,8 @@
     refreshAwaitingBadge();
     // Deep link: /?load=<id> (e.g. returning from the signature page) opens that load directly.
     if (DEEP_LOAD) { var _dl = DEEP_LOAD; DEEP_LOAD = null; try { selectTab('documents'); } catch (e) {} openLoad(_dl); }
+    else { try { var _t = sessionStorage.getItem('hp_tab_after_update'); if (_t) { sessionStorage.removeItem('hp_tab_after_update'); selectTab(_t); } } catch (e) {} }
+    startUpdateWatch();
   }
   // Red badge on Documents / Loads showing how many driver uploads are waiting for dispatch to set up.
   async function refreshAwaitingBadge() {
@@ -7335,6 +7337,46 @@
     } catch (e) { $('eoMsg').textContent = e.message; $('eoMsg').className = 'umsg-err'; }
   };
 
+  // Updates: an open portal tab picks up a new build on its own. It reloads (back to the same tab) only when it's safe —
+  // nobody has typed or clicked for 2 minutes, no window is open and no load is mid-edit; otherwise it shows a small
+  // "HaulProof was updated" note with a Refresh button and tries again later.
+  let _build = null, _updatePending = false, _lastAct = Date.now(), _updWatch = false;
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { _lastAct = Date.now(); }, { passive: true, capture: true }));
+  function updateSafeNow() {
+    if (Date.now() - _lastAct < 120000) return false;
+    const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
+    if (document.querySelector('.histOverlay:not(.hide)')) return false;
+    const sw = $('setupWizard'); if (sw && !sw.classList.contains('hide')) return false;
+    const ld = $('loadDetailCard'); if (ld && !ld.classList.contains('hide') && (ld.classList.contains('editing') || (typeof _ldDirty !== 'undefined' && _ldDirty))) return false;
+    return true;
+  }
+  function applyUpdate() {
+    try { const t = document.querySelector('#tabBar .active'); if (t && t.getAttribute('data-tab')) sessionStorage.setItem('hp_tab_after_update', t.getAttribute('data-tab')); } catch (e) {}
+    location.reload();
+  }
+  function showUpdateNote() {
+    if ($('updNote')) return;
+    const n = document.createElement('div'); n.id = 'updNote';
+    n.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:10050;background:#172b58;border:1px solid var(--primary);color:var(--ink);border-radius:12px;padding:12px 14px;box-shadow:0 12px 30px rgba(0,0,0,.45);display:flex;gap:12px;align-items:center;font-size:13.5px;';
+    n.innerHTML = '<span>✨ HaulProof was updated.</span><button type="button" style="padding:6px 12px;font-size:13px;">Refresh</button>';
+    n.querySelector('button').onclick = applyUpdate; document.body.appendChild(n);
+  }
+  async function checkForUpdate() {
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' }); if (!r.ok) return;
+      const v = (await r.json()).portal; if (!v) return;
+      if (_build === null) { _build = v; return; }
+      if (v !== _build) _updatePending = true;
+    } catch (e) { return; }
+    if (_updatePending) { if (updateSafeNow()) applyUpdate(); else showUpdateNote(); }
+  }
+  function startUpdateWatch() {
+    if (_updWatch) return; _updWatch = true;
+    checkForUpdate();
+    setInterval(checkForUpdate, 5 * 60000);
+    setInterval(() => { if (_updatePending && updateSafeNow()) applyUpdate(); }, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+  }
   // Expired sign-in: back to the sign-in screen with a note (once, even if several requests fail together).
   let _expiring = false;
   function sessionExpired() { if (_expiring) return; _expiring = true; user = null; token = null; location.replace('/app?signedout=1'); }

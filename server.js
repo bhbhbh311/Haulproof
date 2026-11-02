@@ -56,7 +56,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!result) return res.status(401).json({ error: 'Wrong email or password' });
   // Also set the session cookie so the portal behaves the same whether you used SSO or a password.
   res.cookie('hp_session', result.token, {
-    httpOnly: true, sameSite: 'lax', secure: SESSION_SECURE, maxAge: 12 * 60 * 60 * 1000, path: '/',
+    httpOnly: true, sameSite: 'lax', secure: SESSION_SECURE, maxAge: require('./auth').SESSION_MS, path: '/',
   });
   res.json(result);
 });
@@ -232,6 +232,11 @@ app.post('/api/digest/test', requireAuth, requireSuper, async (_req, res) => {
   try { const r = await digest.sendNow(); res.json({ ok: true, to: digest.RECIPIENT, sent: !!(r && (r.sent || r.simulated)), simulated: !!(r && r.simulated), error: r && r.error || null }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// Which build of the portal is running, so an open portal tab can pick up an update on its own (see index.html).
+const PORTAL_BUILD = (() => { try { return require('crypto').createHash('sha1').update(fs.readFileSync(path.join(__dirname, 'index.html'))).digest('hex').slice(0, 12); } catch (e) { return String(Date.now()); } })();
+app.get('/api/version', (_req, res) => { res.set('Cache-Control', 'no-store'); res.json({ portal: PORTAL_BUILD }); });
+if (!process.env.JWT_SECRET) console.warn('Sign-in key: JWT_SECRET is NOT set in the environment — using the built-in default. Set JWT_SECRET in Render.');
+else console.log('Sign-in key: set');
 app.get('/api/stats', requireAuth, requireSuper, (_req, res) => {
   const one = (sql, ...args) => { try { const r = db.prepare(sql).get(...args); return r ? Number(Object.values(r)[0]) || 0 : 0; } catch (e) { return 0; } };
   const byKind = (kind) => one('SELECT COUNT(*) c FROM orgs WHERE kind = ?', kind);
