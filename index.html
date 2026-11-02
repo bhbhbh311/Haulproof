@@ -1950,6 +1950,8 @@
   async function api(path, opts={}) {
     // credentials:'include' so the httpOnly session cookie (set by Microsoft SSO or password login) is sent.
     const res = await fetch(path, { credentials:'include', ...opts, headers: { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) , ...(opts.headers||{}) } });
+    // Signed in, but the sign-in has expired (they last 12 hours): go to the sign-in screen instead of failing every click.
+    if (res.status === 401 && user && !/^\/api\/auth\//.test(path)) { sessionExpired(); return new Promise(() => {}); }   // no error popup: the page is already on its way to sign-in
     if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
     return res.json();
   }
@@ -7333,6 +7335,15 @@
     } catch (e) { $('eoMsg').textContent = e.message; $('eoMsg').className = 'umsg-err'; }
   };
 
+  // Expired sign-in: back to the sign-in screen with a note (once, even if several requests fail together).
+  let _expiring = false;
+  function sessionExpired() { if (_expiring) return; _expiring = true; user = null; token = null; location.replace('/app?signedout=1'); }
+  // Coming back to an open tab (e.g. the next morning): check the sign-in right away rather than on the next click.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !user) return;
+    fetch('/api/me', { credentials:'include', headers: token ? { Authorization:'Bearer ' + token } : {} }).then(r => { if (r.status === 401) sessionExpired(); }).catch(() => {});
+  });
+  try { if (new URLSearchParams(location.search).get('signedout') && $('loginErr')) { $('loginErr').textContent = 'Your sign-in timed out — please sign in again.'; history.replaceState(null, '', '/app'); } } catch (_) {}
   $('loginBtn').onclick = async () => {
     $('loginErr').textContent = '';
     try {
