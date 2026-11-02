@@ -95,8 +95,8 @@ function billingOf(o, now) {
 function listBilling() {
   const from = monthStart(), key = monthKey();
   processReferrals(); applyCredits();
-  return db.prepare(`SELECT o.id, o.name, o.kind, o.createdAt, o.billingPlan, o.trialEndsAt, o.priceUsd, o.includedDrivers, o.extraDriverUsd, o.billingNote,
-      o.aiPlan, o.aiEnabled, o.aiPricePerDocUsd,
+  const raw = db.prepare(`SELECT o.id, o.name, o.kind, o.createdAt, o.billingPlan, o.trialEndsAt, o.priceUsd, o.includedDrivers, o.extraDriverUsd, o.billingNote,
+      o.aiPlan, o.aiEnabled, o.aiPricePerDocUsd, o.parentId, o.billToParent, o.volumeFrom, o.volumePriceUsd, o.contactName, o.contactEmail,
       (SELECT COUNT(*) FROM drivers d WHERE d.orgId = o.id AND d.active = 1) AS drivers,
       (SELECT COUNT(DISTINCT podId) FROM ai_usage u WHERE u.orgId = o.id AND u.createdAt >= ?) AS aiDocs,
       (SELECT MAX(createdAt) FROM loads l WHERE l.orgId = o.id OR l.brokerId = o.id) AS lastLoadAt,
@@ -104,13 +104,39 @@ function listBilling() {
       (SELECT COUNT(*) FROM referral_credits c WHERE c.orgId = o.id AND c.usedMonth IS NULL) AS creditsLeft,
       (SELECT COUNT(*) FROM orgs x WHERE x.referredBy = o.id) AS invitedCount,
       (SELECT name FROM orgs x WHERE x.id = o.referredBy) AS inviterName
-    FROM orgs o WHERE o.active = 1 AND o.kind IN ('customer','carrier','broker') ORDER BY o.name COLLATE NOCASE`).all(from, key)
-    .map(o => Object.assign({ orgId: o.id, name: o.name, kind: o.kind, createdAt: o.createdAt, lastLoadAt: o.lastLoadAt || null }, billingOf(o)));
+    FROM orgs o WHERE o.active = 1 AND o.kind IN ('customer','carrier','broker') ORDER BY o.name COLLATE NOCASE`).all(from, key);
+  const byId = {}; raw.forEach(o => { byId[o.id] = o; });
+  // A location billed through its parent follows the parent's plan and trial; its charges roll into the parent's bill.
+  const billedTo = o => (o.parentId && byId[o.parentId] && o.billToParent !== 0) ? byId[o.parentId] : null;
+  const rows = raw.map(o => {
+    const p = billedTo(o);
+    const b = billingOf(p ? Object.assign({}, o, { billingPlan: p.billingPlan, trialEndsAt: p.trialEndsAt || ((p.createdAt || Date.now()) + DEFAULTS.trialDays * DAY) }) : o);
+    return Object.assign({ orgId: o.id, name: o.name, kind: o.kind, createdAt: o.createdAt, lastLoadAt: o.lastLoadAt || null,
+      parentId: o.parentId || null, parentName: o.parentId && byId[o.parentId] ? byId[o.parentId].name : null,
+      billToParent: o.billToParent !== 0, billedToId: p ? p.id : null, billedTo: p ? p.name : null,
+      volumeFrom: o.volumeFrom != null ? o.volumeFrom : null, volumePriceUsd: o.volumePriceUsd != null ? o.volumePriceUsd : null,
+      contactName: o.contactName || null, contactEmail: o.contactEmail || null }, b);
+  });
+  const rowById = {}; rows.forEach(r => { rowById[r.orgId] = r; });
+  rows.forEach(r => {
+    const kids = rows.filter(k => k.billedToId === r.orgId);
+    if (!kids.length) return;
+    const members = [r].concat(kids).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    // Volume price: locations after the first volumeFrom are charged volumePriceUsd instead of their own price.
+    if (r.volumeFrom != null && r.volumePriceUsd != null) members.forEach((m, i) => {
+      if (i >= r.volumeFrom && m.plan === 'paid' && !m.referralCredit) { m.monthUsd += (Number(r.volumePriceUsd) - m.priceUsd); m.volumePrice = true; }
+    });
+    r.locations = members.map(m => ({ orgId: m.orgId, name: m.name, monthUsd: m.monthUsd, volumePrice: !!m.volumePrice, referralCredit: !!m.referralCredit }));
+    r.groupUsd = members.reduce((a, m) => a + m.monthUsd, 0);
+  });
+  return rows;
 }
 function summary(rows) {
   rows = rows || listBilling();
-  const paid = rows.filter(r => r.plan === 'paid'), trial = rows.filter(r => r.plan === 'trial');
-  return { monthlyUsd: paid.reduce((a, r) => a + r.monthUsd, 0), paying: paid.length, onTrial: trial.length,
+  // Locations billed through a parent are counted in the parent's bill, not on their own.
+  const top = rows.filter(r => !r.billedToId);
+  const paid = top.filter(r => r.plan === 'paid'), trial = top.filter(r => r.plan === 'trial');
+  return { monthlyUsd: paid.reduce((a, r) => a + (r.groupUsd != null ? r.groupUsd : r.monthUsd), 0), paying: paid.length, onTrial: trial.length,
     endingSoon: trial.filter(r => r.trialDaysLeft >= 0 && r.trialDaysLeft <= 14).map(r => ({ orgId: r.orgId, name: r.name, daysLeft: r.trialDaysLeft })),
     ended: trial.filter(r => r.trialDaysLeft < 0).map(r => ({ orgId: r.orgId, name: r.name, daysLeft: r.trialDaysLeft })) };
 }
@@ -143,7 +169,42 @@ router.put('/org/:id', requireAuth, requireSuper, express.json(), (req, res) => 
     set('includedDrivers', v);
   }
   if (b.note !== undefined) set('billingNote', String(b.note || '').slice(0, 300) || null);
+  if (b.parentId !== undefined) {
+    const pid = String(b.parentId || '').trim() || null;
+    if (pid) {
+      if (pid === o.id) return res.status(400).json({ error: 'A company cannot be its own parent' });
+      const p = db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(pid);
+      if (!p) return res.status(400).json({ error: 'Parent company not found' });
+      if (require('./hierarchy').descendantOrgIds(o.id).includes(pid)) return res.status(400).json({ error: 'That company is already one of this company\'s locations' });
+    }
+    set('parentId', pid);
+  }
+  if (b.billToParent !== undefined) set('billToParent', b.billToParent ? 1 : 0);
+  if (b.volumeFrom !== undefined) {
+    const v = (b.volumeFrom === '' || b.volumeFrom == null) ? null : Number(b.volumeFrom);
+    if (v !== null && !(Number.isInteger(v) && v >= 0)) return res.status(400).json({ error: 'Must be a whole number' });
+    set('volumeFrom', v);
+  }
+  if (b.volumePriceUsd !== undefined) { const v = money(b.volumePriceUsd); if (v === undefined) return res.status(400).json({ error: 'Price must be a dollar amount' }); set('volumePriceUsd', v); }
   res.json({ ok: true });
+});
+
+// One invoice for a company and every location billed through it, with each location's activity for the month.
+router.get('/invoice/:id', requireAuth, requireSuper, (req, res) => {
+  const rows = listBilling(), r = rows.find(x => x.orgId === req.params.id);
+  if (!r) return res.status(404).json({ error: 'Company not found' });
+  const m = /^(\d{4})-(\d{2})$/.exec(String(req.query.month || '')), d = m ? new Date(+m[1], +m[2] - 1, 1) : new Date();
+  const from = monthStart(d), to = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+  const ids = r.locations ? r.locations.map(l => l.orgId) : [r.orgId];
+  const lines = ids.map(id => {
+    const x = rows.find(y => y.orgId === id) || {}, loc = (r.locations || []).find(l => l.orgId === id) || {};
+    const signed = db.prepare(`SELECT COUNT(*) c FROM pods WHERE orgId = ? AND status IN ('signed','emailed') AND signedAt >= ? AND signedAt < ?`).get(id, from, to).c;
+    const loads = db.prepare(`SELECT COUNT(*) c FROM loads WHERE (orgId = ? OR brokerId = ?) AND createdAt >= ? AND createdAt < ?`).get(id, id, from, to).c;
+    return { orgId: id, name: x.name, plan: x.plan, priceUsd: loc.volumePrice ? r.volumePriceUsd : x.priceUsd, overDrivers: x.overDrivers || 0, extraDriverUsd: x.extraDriverUsd || 0,
+      aiChargeUsd: x.aiChargeUsd || 0, referralCredit: !!x.referralCredit, amountUsd: x.monthUsd || 0, loads, signed };
+  });
+  res.json({ billTo: { orgId: r.orgId, name: r.name, contactName: r.contactName, contactEmail: r.contactEmail }, plan: r.plan,
+    month: d.toLocaleString('en-US', { month: 'long', year: 'numeric' }), monthKey: monthKey(d), lines, totalUsd: lines.reduce((a, l) => a + l.amountUsd, 0) });
 });
 
 // Company side: their invite link and what it has earned. Any login in the company can see and share it.

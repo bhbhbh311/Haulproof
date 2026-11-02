@@ -217,6 +217,7 @@ app.use('/api/receivers', receiversRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/trash', trashRouter);
 app.use('/api/backup', require('./backup').router);
+app.use('/api/hq', require('./hq').router);   // headquarters view: a parent company's locations, read-only
 app.use('/api/billing', require('./billing').router);   // master admin: plans & billing; /mine = a company's invite link
 app.use('/api/referral', require('./billing').publicRouter);   // public: who sent this invite link
 app.use('/api/growth', require('./growth').router);   // account setup checklist, monthly summary preview   // master admin: nightly backup status, run now, download the database

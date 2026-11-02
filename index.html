@@ -1121,6 +1121,21 @@
     </div>
     <!-- DASHBOARD HOME (company logins): greeting, the main actions, counts by status and what needs attention.
          Built from the same loads list as the Loads tab (renderHome is called each time that list refreshes). -->
+    <!-- ALL LOCATIONS (headquarters view): a parent company sees every one of its locations, read-only. -->
+    <div class="card hide" id="hqCard">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div><h1 style="margin-bottom:0;">All locations</h1><p class="sub" style="margin-bottom:0;">Every location's loads and signed documents in one place. View only — each location runs its own loads.</p></div>
+        <button class="ghost" id="hqRefresh" type="button">Refresh</button>
+      </div>
+      <div class="htiles" id="hqTiles" style="margin-top:14px;"></div>
+      <div id="hqLocs" style="overflow-x:auto;"></div>
+      <h2 style="font-size:18px;margin:20px 0 8px;">Loads</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="hqLoc" style="width:auto;font-size:14px;padding:8px 10px;"><option value="">All locations</option></select>
+        <input type="search" id="hqQ" placeholder="Search PO, load, customer, carrier, driver…" style="flex:1;min-width:220px;font-size:14px;padding:8px 10px;">
+      </div>
+      <div id="hqLoads" style="margin-top:10px;overflow-x:auto;"><div class="empty">Loading…</div></div>
+    </div>
     <div class="hide" id="homeCard">
       <div class="hhero">
         <h1 id="homeHello">Welcome</h1>
@@ -2100,6 +2115,7 @@
       show('aiConnCard', u.role !== 'superadmin' && !!u.orgId);
       show('aiCreditCard', u.role !== 'superadmin' && !!u.orgId);
       if (u.role !== 'superadmin' && !!u.orgId && !pureReceiver) loadReferral(); else show('referCard', false);
+      if (u.role !== 'superadmin' && !!u.orgId && !pureReceiver) loadHq(true);
       if (u.role !== 'superadmin' && !!u.orgId) loadAiPromo(); else show('aiPromoCard', false);
     } catch(e){}
     show('homeCard', !pureReceiver && u.role !== 'superadmin' && !!$('loadsCard') && !$('loadsCard').classList.contains('hide'));
@@ -2219,6 +2235,8 @@
   var TAB_DEFS = [
     // The home view for company logins: counts by status and what needs attention.
     { key:'home',      label:'Dashboard',   cards:['homeCard','aiPromoCard'] },
+    // Headquarters view, shown only to a company that has locations under it.
+    { key:'hq',        label:'All locations', cards:['hqCard'] },
     // Documents and Loads are one combined view — loads sit on top, with upload + find document below them.
     { key:'documents', label:'Documents / Loads', cards:['loadsCard','loadDetailCard','offeredCard','uploadCard','findCard','resultsCard'] },
     { key:'received',  label:'Received',    cards:['receivedCard'] },
@@ -2266,7 +2284,9 @@
     span.textContent = c.n; span.className = 'tabcount' + (c.alert ? ' alert' : '');
   }
   function buildTabs(){
-    var bar=$('tabBar'); if(!bar) return; bar.innerHTML='';
+    var bar=$('tabBar'); if(!bar) return;
+    var _prev = (function(){ var a = bar.querySelector('.tab.active'); return a ? a.getAttribute('data-tab') : null; })();
+    bar.innerHTML='';
     var shown = TAB_DEFS.filter(function(t){ return tabAllowed(t.key) && t.cards.some(cardExistsForRole); });
     // Settings is always the very last tab, wherever it sits in TAB_DEFS.
     var _si = shown.findIndex(function(t){ return t.key === 'settings'; });
@@ -2283,16 +2303,17 @@
       bar.appendChild(b);
       applyTabCount(t.key);
     });
-    if(shown.length){ var def = shown.some(function(t){return t.key==='home';}) ? 'home' : shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
+    if(shown.length){ var def = (_prev && shown.some(function(t){return t.key===_prev;})) ? _prev : shown.some(function(t){return t.key==='home';}) ? 'home' : shown.some(function(t){return t.key==='documents';}) ? 'documents' : shown[0].key; selectTab(def); }
   }
   // Side-menu headings and icons.
-  var TAB_GROUP = { home:'Dispatch', documents:'Dispatch', received:'Dispatch',
+  var TAB_GROUP = { home:'Dispatch', hq:'Dispatch', documents:'Dispatch', received:'Dispatch',
     drivers:'People', custcarriers:'People', approvedcarriers:'People', mycustomers:'People', team:'People',
     dashboard:'Master admin', customers:'Master admin', carriers:'Master admin', brokers:'Master admin', receivers:'Master admin', requests:'Master admin',
     settings:'Account' };
   var TAB_ICON = {
     home:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     documents:'<path d="M1 7h13v10H1zM14 10h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/>',
+    hq:'<path d="M3 21V9l6-4 6 4v12"/><path d="M15 21V12l6 3v6"/><path d="M7 12h4M7 16h4"/>',
     received:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 15l2.5 2.5L16 12"/>',
     drivers:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     custcarriers:'<path d="M1 7h13v10H1zM14 10h4l3 3v4h-7"/>',
@@ -2378,6 +2399,60 @@
     $('aiPromoSteps').classList.remove('hide'); $('aiPromoHow').textContent = 'How to connect ▴';
   };
   // Company side of the AI credit: a meter for the free trial, the plan otherwise, and "Request more AI".
+  // All locations (headquarters view): counts per location, every location's loads, and their signed documents.
+  let _hqLoaded = false, _hqTimer = null;
+  async function loadHq(first){
+    let r; try { r = await api('/api/hq/summary'); } catch (e) { return; }
+    if (!r.applies) { $('hqCard').classList.add('hide'); return; }
+    const wasHidden = $('hqCard').classList.contains('hide');
+    $('hqCard').classList.remove('hide');
+    if (wasHidden) buildTabs();
+    const t = r.totals || {};
+    $('hqTiles').innerHTML = [['road', t.road, 'On the road', 'var(--warn)'], ['setup', t.setup, 'Needs signature setup', 'var(--violet)'],
+      ['mail', t.mailfail, 'Email failed', 'var(--bad)'], ['done', t.doneWeek, 'Delivered this week', 'var(--ok)']]
+      .map(x => `<button type="button" class="htile${x[1] ? '' : ' zero'}" style="--c:${x[3]};cursor:default;"><div class="v">${x[1] || 0}</div><div class="l">${x[2]}</div></button>`).join('');
+    const locs = r.locations || [];
+    $('hqLocs').innerHTML = '<table><thead><tr><th>Location</th><th>Loads (30 days)</th><th>On the road</th><th>Needs setup</th><th>Email failed</th><th>Delivered this week</th><th></th></tr></thead><tbody>'
+      + locs.map(l => `<tr><td><b>${esc(l.name)}</b></td><td>${l.loads30}</td><td>${l.road}</td><td>${l.setup ? '<b style="color:var(--violet)">' + l.setup + '</b>' : 0}</td><td>${l.mailfail ? '<b style="color:var(--bad)">' + l.mailfail + '</b>' : 0}</td><td>${l.doneWeek}</td><td style="text-align:right;"><button type="button" class="ghost hqPick" data-id="${esc(l.orgId)}" style="padding:5px 11px;font-size:12px;">View loads</button></td></tr>`).join('')
+      + '</tbody></table>';
+    const sel = $('hqLoc'), cur = sel.value;
+    sel.innerHTML = '<option value="">All locations (' + locs.length + ')</option>' + locs.map(l => `<option value="${esc(l.orgId)}">${esc(l.name)}</option>`).join('');
+    sel.value = cur;
+    $('hqLocs').querySelectorAll('.hqPick').forEach(b => b.onclick = () => { sel.value = b.dataset.id; loadHqLoads(); $('hqLoads').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    if (!_hqLoaded || !first) loadHqLoads();
+    _hqLoaded = true;
+  }
+  const HQ_STATE = { setup: ['Needs setup', 'prepared'], road: ['On the road', 'received'], done: ['Delivered', 'signed'], open: ['Waiting on paperwork', ''] };
+  async function loadHqLoads(){
+    const box = $('hqLoads');
+    const qs = new URLSearchParams(); if ($('hqLoc').value) qs.set('location', $('hqLoc').value); if ($('hqQ').value.trim()) qs.set('q', $('hqQ').value.trim());
+    let r; try { r = await api('/api/hq/loads?' + qs.toString()); } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
+    const rows = r.results || [];
+    if (!rows.length) { box.innerHTML = '<div class="empty">No loads found.</div>'; return; }
+    box.innerHTML = '<table><thead><tr><th>PO #</th><th>Location</th><th>Customer / consignee</th><th>Carrier</th><th>Driver</th><th>Status</th><th></th></tr></thead><tbody>'
+      + rows.map(l => { const st = HQ_STATE[l.state] || HQ_STATE.open;
+        return `<tr><td><b>${esc(l.poNumber || l.loadNumber || '—')}</b></td><td>${esc(l.location || '')}</td><td>${esc(l.customer || l.consignee || '')}</td><td>${esc(l.carrierName || '—')}</td><td>${esc(l.driverName || '—')}</td>`
+          + `<td><span class="chip ${st[1]}">${st[0]}${l.stopsTotal > 1 ? ' · ' + l.stopsDone + '/' + l.stopsTotal : ''}</span>${l.emailFailed ? ' <span class="chip" style="background:var(--bad-soft);color:var(--bad);">Email failed</span>' : ''}</td>`
+          + `<td style="text-align:right;">${l.stopsDone ? `<button type="button" class="ghost hqDocs" data-id="${esc(l.id)}" style="padding:5px 11px;font-size:12px;">Signed copies</button>` : ''}</td></tr>`; }).join('')
+      + '</tbody></table>';
+    box.querySelectorAll('.hqDocs').forEach(b => b.onclick = () => showHqDocs(b.dataset.id));
+  }
+  async function showHqDocs(loadId){
+    let ov = $('hqDocsModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'hqDocsModal'; ov.className = 'histOverlay hide';
+      ov.innerHTML = '<div class="histBox" style="max-width:520px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><h1 style="margin:0;font-size:18px;" id="hqDocsTitle">Signed copies</h1><button class="ghost" type="button" id="hqDocsClose">✕ Close</button></div><div id="hqDocsBody" style="margin-top:10px;"></div></div>';
+      document.body.appendChild(ov); ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); }); $('hqDocsClose').onclick = () => ov.classList.add('hide'); }
+    $('hqDocsBody').innerHTML = '<div class="empty">Loading…</div>'; ov.classList.remove('hide');
+    try {
+      const r = await api('/api/hq/loads/' + encodeURIComponent(loadId) + '/docs');
+      $('hqDocsTitle').textContent = 'Signed copies — PO ' + (r.poNumber || '');
+      $('hqDocsBody').innerHTML = (r.docs || []).length ? r.docs.map(d => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);"><span><b>${d.stopNumber ? 'Stop ' + d.stopNumber : esc(d.docType || 'BOL')}</b> <span class="sub" style="margin:0;">${esc(d.receiverName || d.consignee || '')}${d.signedAt ? ' · signed ' + fmtTS(d.signedAt) : ''}</span></span><a href="/api/hq/pods/${encodeURIComponent(d.id)}/file" target="_blank" rel="noopener" style="padding:7px 13px;font-size:13px;font-weight:700;text-decoration:none;background:var(--primary);color:var(--primary-ink);border-radius:10px;white-space:nowrap;">Open PDF</a></div>`).join('') : '<div class="empty">No signed copies yet.</div>';
+    } catch (e) { $('hqDocsBody').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+  }
+  if ($('hqRefresh')) $('hqRefresh').onclick = () => loadHq(false);
+  if ($('hqLoc')) $('hqLoc').onchange = loadHqLoads;
+  if ($('hqQ')) $('hqQ').addEventListener('input', () => { clearTimeout(_hqTimer); _hqTimer = setTimeout(loadHqLoads, 350); });
+
   // Invite a company: this company's permanent referral link and what it has earned.
   async function loadReferral(){
     let r; try { r = await api('/api/billing/mine'); } catch (e) { $('referCard').classList.add('hide'); return; }
@@ -2629,22 +2704,36 @@
     if (!rows.length) { box.innerHTML = '<div class="empty">No companies yet.</div>'; return; }
     const ymd = ts => { if (!ts) return ''; const x = new Date(ts); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
     const inp = (cls, v, w, step, ph) => '<input class="' + cls + '" type="number" min="0" step="' + step + '" value="' + (v != null ? v : '') + '"' + (ph ? ' placeholder="' + ph + '"' : '') + ' style="width:' + w + 'px;font-size:13px;padding:6px 8px;">';
+    // Locations billed through a parent sit right under it.
+    const ordered = []; rows.filter(o => !o.billedToId).forEach(o => { ordered.push(o); rows.filter(k => k.billedToId === o.orgId).forEach(k => ordered.push(k)); });
+    const others = id => rows.filter(x => x.orgId !== id);
     box.innerHTML = '<table><thead><tr><th>Company</th><th>Plan</th><th>Trial ends</th><th>Price / month</th><th>Drivers</th><th>Included</th><th>$ / extra driver</th><th>AI charges</th><th>Bills this month</th></tr></thead><tbody>'
-      + rows.map(o => {
+      + ordered.map(o => {
+        const kid = !!o.billedToId;
         const trialTxt = o.plan === 'trial' ? (o.trialDaysLeft < 0 ? '<div style="color:var(--danger);font-size:11.5px;font-weight:700;margin-top:3px;">Ended ' + (-o.trialDaysLeft) + 'd ago</div>' : '<div style="color:' + (o.trialDaysLeft <= 14 ? 'var(--warn)' : 'var(--muted)') + ';font-size:11.5px;margin-top:3px;">' + o.trialDaysLeft + ' days left</div>') : '';
-        return '<tr data-org="' + esc(o.orgId) + '">'
-          + '<td><b>' + esc(o.name) + '</b> <span style="color:var(--muted);font-size:12px;">' + esc(o.kind || '') + '</span>' + (o.lastLoadAt ? '<div style="color:var(--muted);font-size:11.5px;">Last load ' + new Date(o.lastLoadAt).toLocaleDateString() + '</div>' : '<div style="color:var(--muted);font-size:11.5px;">No loads yet</div>')
+        return '<tr data-org="' + esc(o.orgId) + '"' + (kid ? ' style="background:rgba(77,141,255,.05);"' : '') + '>'
+          + '<td' + (kid ? ' style="padding-left:26px;"' : '') + '>' + (kid ? '<span style="color:var(--muted);">↳ </span>' : '') + '<b>' + esc(o.name) + '</b> <span style="color:var(--muted);font-size:12px;">' + esc(o.kind || '') + '</span>' + (o.lastLoadAt ? '<div style="color:var(--muted);font-size:11.5px;">Last load ' + new Date(o.lastLoadAt).toLocaleDateString() + '</div>' : '<div style="color:var(--muted);font-size:11.5px;">No loads yet</div>')
             + (o.invitedBy ? '<div style="color:var(--ok);font-size:11.5px;">🎁 Invited by ' + esc(o.invitedBy) + '</div>' : '')
           + (o.invitedCount || o.freeMonthsLeft ? '<div style="color:var(--muted);font-size:11.5px;">Invited ' + o.invitedCount + (o.freeMonthsLeft ? ' · <b style="color:var(--ok);">' + o.freeMonthsLeft + ' free month' + (o.freeMonthsLeft === 1 ? '' : 's') + ' waiting</b>' : '') + '</div>' : '')
-          + '<input class="blNote" type="text" value="' + esc(o.note || '') + '" placeholder="Note (e.g. invoiced monthly)" style="width:100%;min-width:150px;font-size:12px;padding:5px 7px;margin-top:5px;"></td>'
-          + '<td><select class="blPlan" style="width:auto;font-size:13px;padding:6px 8px;">' + [['trial', 'Free trial'], ['paid', 'Paid'], ['free', 'Free (no charge)'], ['paused', 'Paused']].map(x => '<option value="' + x[0] + '"' + (o.plan === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select></td>'
-          + '<td>' + (o.plan === 'trial' ? '<input class="blTrial" type="date" value="' + ymd(o.trialEndsAt) + '" style="width:auto;font-size:13px;padding:6px 8px;">' + trialTxt : '<span style="color:var(--muted);">—</span>') + '</td>'
+          + '<input class="blNote" type="text" value="' + esc(o.note || '') + '" placeholder="Note (e.g. invoiced monthly)" style="width:100%;min-width:150px;font-size:12px;padding:5px 7px;margin-top:5px;">'
+          + '<div style="display:flex;gap:6px;align-items:center;margin-top:5px;font-size:11.5px;color:var(--muted);">Location of <select class="blParent" style="flex:1;min-width:0;font-size:12px;padding:4px 6px;"><option value="">— none —</option>' + others(o.orgId).map(x => '<option value="' + esc(x.orgId) + '"' + (o.parentId === x.orgId ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></div>'
+          + (o.parentId ? '<label style="display:flex;gap:6px;align-items:center;margin:4px 0 0;font-size:11.5px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted);"><input type="checkbox" class="blBillParent"' + (o.billToParent ? ' checked' : '') + ' style="width:auto;"> Billed through ' + esc(o.parentName || 'parent') + '</label>' : '')
+          + '</td>'
+          + '<td>' + (kid ? '<span style="color:var(--muted);font-size:12.5px;">Follows ' + esc(o.billedTo) + '</span>' : '<select class="blPlan" style="width:auto;font-size:13px;padding:6px 8px;">' + [['trial', 'Free trial'], ['paid', 'Paid'], ['free', 'Free (no charge)'], ['paused', 'Paused']].map(x => '<option value="' + x[0] + '"' + (o.plan === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select>') + '</td>'
+          + '<td>' + (!kid && o.plan === 'trial' ? '<input class="blTrial" type="date" value="' + ymd(o.trialEndsAt) + '" style="width:auto;font-size:13px;padding:6px 8px;">' + trialTxt : '<span style="color:var(--muted);">—</span>') + '</td>'
           + '<td>' + inp('blPrice', o.priceUsd, 80, '1') + '</td>'
           + '<td>' + o.drivers + (o.overDrivers ? '<div style="color:var(--warn);font-size:11.5px;">+' + o.overDrivers + ' over</div>' : '') + '</td>'
           + '<td>' + inp('blIncl', o.includedDrivers, 64, '1') + '</td>'
           + '<td>' + inp('blExtra', o.extraDriverUsd, 72, '0.5') + '</td>'
           + '<td>' + money(o.aiChargeUsd) + '</td>'
-          + '<td style="font-weight:800;color:' + (o.monthUsd > 0 ? 'var(--ok)' : 'var(--muted)') + ';">' + money(o.monthUsd) + (o.referralCredit ? '<div style="color:var(--ok);font-size:11.5px;font-weight:700;">🎁 Free month (referral)</div>' : '') + (o.plan !== 'paid' && o.plan !== 'free' && o.plan !== 'paused' ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + money(o.priceUsd + o.overDrivers * o.extraDriverUsd) + ' once paid</div>' : '') + '</td>'
+          + '<td style="font-weight:800;color:' + (o.monthUsd > 0 ? 'var(--ok)' : 'var(--muted)') + ';">'
+            + (o.locations ? '<div style="font-size:15px;">' + money(o.groupUsd) + '</div><div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + o.locations.length + ' locations on one bill</div>' : money(o.monthUsd))
+            + (kid ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">on ' + esc(o.billedTo) + '’s bill' + (o.volumePrice ? ' · volume price' : '') + '</div>' : '')
+            + (o.referralCredit ? '<div style="color:var(--ok);font-size:11.5px;font-weight:700;">🎁 Free month (referral)</div>' : '') + (!o.locations && !kid && o.plan !== 'paid' && o.plan !== 'free' && o.plan !== 'paused' ? '<div style="color:var(--muted);font-size:11.5px;font-weight:400;">' + money(o.priceUsd + o.overDrivers * o.extraDriverUsd) + ' once paid</div>' : '')
+            + (o.locations ? '<div style="display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11.5px;font-weight:400;color:var(--muted);">After ' + inp('blVolFrom', o.volumeFrom, 46, '1', '—') + ' locations</div>'
+              + '<div style="display:flex;gap:4px;align-items:center;margin-top:4px;font-size:11.5px;font-weight:400;color:var(--muted);">then $' + inp('blVolPrice', o.volumePriceUsd, 56, '1', 'same') + ' each</div>'
+              + '<button type="button" class="ghost blInvoice" style="margin-top:6px;padding:4px 10px;font-size:12px;">🧾 Invoice</button>' : '')
+            + '</td>'
           + '</tr>';
       }).join('') + '</tbody></table>';
     filterBilling();
@@ -2652,7 +2741,33 @@
     box.querySelectorAll('tr[data-org]').forEach(tr => {
       const on = (cls, key) => { const el = tr.querySelector('.' + cls); if (el) el.onchange = () => save(tr, { [key]: el.value }); };
       on('blPlan', 'plan'); on('blTrial', 'trialEndsAt'); on('blPrice', 'priceUsd'); on('blIncl', 'includedDrivers'); on('blExtra', 'extraDriverUsd'); on('blNote', 'note');
+      on('blParent', 'parentId'); on('blVolFrom', 'volumeFrom'); on('blVolPrice', 'volumePriceUsd');
+      const bp = tr.querySelector('.blBillParent'); if (bp) bp.onchange = () => save(tr, { billToParent: bp.checked });
+      const inv = tr.querySelector('.blInvoice'); if (inv) inv.onclick = () => openInvoice(tr.dataset.org);
     });
+  }
+  // One printable invoice for a company and every location billed through it (print or save as PDF from the browser).
+  async function openInvoice(orgId){
+    const w = window.open('', '_blank'); if (!w) { alert('Allow pop-ups to open the invoice.'); return; }
+    w.document.write('<p style="font-family:sans-serif;padding:24px">Loading invoice…</p>');
+    let r; try { r = await api('/api/billing/invoice/' + encodeURIComponent(orgId)); } catch (e) { w.document.body.innerHTML = '<p style="font-family:sans-serif;padding:24px">' + esc(e.message) + '</p>'; return; }
+    const m = v => '$' + Number(v || 0).toFixed(2), today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const lines = r.lines.map(l => '<tr><td><b>' + esc(l.name) + '</b><div class="s">' + l.loads + ' loads · ' + l.signed + ' signed documents</div></td>'
+      + '<td>' + (l.plan === 'paid' ? m(l.priceUsd) + (l.overDrivers ? '<div class="s">+ ' + l.overDrivers + ' extra drivers × ' + m(l.extraDriverUsd) + '</div>' : '') + (l.aiChargeUsd ? '<div class="s">+ AI ' + m(l.aiChargeUsd) + '</div>' : '') + (l.referralCredit ? '<div class="s">Referral: free this month</div>' : '') : '<span class="s">' + esc(l.plan === 'trial' ? 'Free trial' : l.plan === 'free' ? 'No charge' : l.plan) + '</span>') + '</td>'
+      + '<td class="r">' + m(l.amountUsd) + '</td></tr>').join('');
+    w.document.open();
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>HaulProof invoice — ' + esc(r.billTo.name) + ' — ' + esc(r.month) + '</title><style>'
+      + 'body{font-family:Inter,Arial,sans-serif;color:#14213D;max-width:760px;margin:40px auto;padding:0 24px;} h1{font-family:Georgia,serif;font-weight:600;margin:0;} .s{color:#5c6b7a;font-size:12.5px;font-weight:400;}'
+      + 'table{width:100%;border-collapse:collapse;margin-top:24px;} th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#5c6b7a;border-bottom:2px solid #14213D;padding:8px 6px;}'
+      + 'td{border-bottom:1px solid #dde4ec;padding:10px 6px;vertical-align:top;} .r{text-align:right;} .tot td{border:0;font-size:18px;font-weight:800;} .top{display:flex;justify-content:space-between;gap:20px;}'
+      + '@media print{.noprint{display:none}}</style></head><body>'
+      + '<div class="top"><div><h1>Haul<span style="color:#2F6FE0">Proof</span></h1><div class="s">HaulProof LLC · 3708 NW 52nd Terrace, Kansas City, MO 64151 · brian@haulproofepod.com</div></div>'
+      + '<div style="text-align:right"><b>Invoice</b><div class="s">' + esc(r.month) + '</div><div class="s">Issued ' + today + '</div></div></div>'
+      + '<div style="margin-top:28px"><div class="s">Bill to</div><b>' + esc(r.billTo.name) + '</b>' + (r.billTo.contactName ? '<div>' + esc(r.billTo.contactName) + '</div>' : '') + (r.billTo.contactEmail ? '<div class="s">' + esc(r.billTo.contactEmail) + '</div>' : '') + '</div>'
+      + '<table><thead><tr><th>Location</th><th>Charges</th><th class="r">Amount</th></tr></thead><tbody>' + lines + '<tr class="tot"><td></td><td class="r">Total</td><td class="r">' + m(r.totalUsd) + '</td></tr></tbody></table>'
+      + '<p class="s" style="margin-top:24px">' + r.lines.length + ' location' + (r.lines.length === 1 ? '' : 's') + ' on one bill. Thank you for using HaulProof.</p>'
+      + '<p class="noprint" style="margin-top:20px"><button onclick="window.print()" style="padding:9px 16px;font-size:14px;">Print or save as PDF</button></p></body></html>');
+    w.document.close();
   }
   function filterBilling(){
     const q = ($('blSearch') ? $('blSearch').value : '').trim().toLowerCase();

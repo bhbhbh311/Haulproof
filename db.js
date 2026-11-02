@@ -176,7 +176,12 @@ addColumn('orgs',  'priceUsd', 'REAL');            // monthly price; NULL = the 
 addColumn('orgs',  'includedDrivers', 'INTEGER');  // drivers included in the price; NULL = the default
 addColumn('orgs',  'extraDriverUsd', 'REAL');      // per active driver over the included number; NULL = the default
 addColumn('orgs',  'billingNote', 'TEXT');
-addColumn('orgs',  'paidSince', 'INTEGER');          // first switched to Paid (starts the referral clock)
+addColumn('orgs',  'paidSince', 'INTEGER');
+// One bill for a company's locations: a location (orgs.parentId set) is billed through its parent unless billToParent = 0.
+// The parent can set a lower price per location after the first volumeFrom locations.
+addColumn('orgs',  'billToParent', 'INTEGER');
+addColumn('orgs',  'volumeFrom', 'INTEGER');
+addColumn('orgs',  'volumePriceUsd', 'REAL');          // first switched to Paid (starts the referral clock)
 // Referrals: every company has a permanent invite link (?ref=referralCode). A company that joins through it is
 // tagged referredBy; 30 days after it goes Paid, the inviter earns one free month (a row in referral_credits).
 addColumn('orgs',  'referralCode', 'TEXT');
