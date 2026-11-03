@@ -2434,8 +2434,10 @@ window.__startApp=function(){
           // classical dots (already computed) and the model keeps warming for the next scan.
           showScanSpinner();
           var settled=false;
+          var classical=scan.corners;   // what the classical detector found (shown first)
           function reveal(corners){
             if(settled || scan!==myScan) return; settled=true;
+            if(corners) corners=_hpPickBetter(corners, classical, workData, wW, wH);   // keep whichever outline fits the page's edges better
             if(corners && scan.stage===1 && !scan._userMoved) scan.corners=corners;
             hideScanSpinner(); buildHandles(); updateQuad();
           }
@@ -2620,8 +2622,81 @@ window.__startApp=function(){
       t[p]=((d[o]/mx)-MEAN[0])/STD[0]; t[P+p]=((d[o+1]/mx)-MEAN[1])/STD[1]; t[2*P+p]=((d[o+2]/mx)-MEAN[2])/STD[2]; }
     return t;
   }
+  // Keep only the page-colored part of the AI's mask. The model finds "the main object", which for a page held up
+  // in a hand includes the hand and arm. Paper is the dominant color inside the mask, so drop pixels whose color
+  // (chromaticity) is unlike it or that are much darker (skin, a watch band, a sleeve), then close the holes the
+  // printed text leaves. Returns the filtered mask, or null when filtering would remove too much (e.g. a page that's
+  // mostly a dark photo) — the caller then keeps the unfiltered mask.
+  function _hpPaperFilter(bin,workData,wW,wH,gw,gh){
+    var d=workData.data, scl=gw/wW, n=gw*gh, R=new Float32Array(n), G=new Float32Array(n), B=new Float32Array(n), cnt=0;
+    for(var y=0;y<gh;y++){ var sy=Math.min(wH-1,Math.floor(y/scl));
+      for(var x=0;x<gw;x++){ var i=y*gw+x, o=(sy*wW+Math.min(wW-1,Math.floor(x/scl)))*4; R[i]=d[o]; G[i]=d[o+1]; B[i]=d[o+2]; if(bin[i]) cnt++; } }
+    if(cnt<n*0.06) return null;
+    // Median brightness and chromaticity inside the mask = the paper's color (paper covers most of it).
+    var Ls=[], rs=[], gs=[];
+    for(var j=0;j<n;j++){ if(!bin[j]) continue; var s=R[j]+G[j]+B[j]+1; Ls.push(s/3); rs.push(R[j]/s); gs.push(G[j]/s); }
+    function med(a){ a.sort(function(p,q){return p-q;}); return a[a.length>>1]; }
+    var Lm=med(Ls), mr=med(rs), mg=med(gs);
+    if(Lm<70) return null;   // a dark "page" — the color test isn't meaningful, keep the model's mask
+    var keep=new Uint8Array(n), kept=0;
+    for(var k=0;k<n;k++){ if(!bin[k]) continue; var s2=R[k]+G[k]+B[k]+1, L=s2/3;
+      if(L>=Lm*0.55 && Math.abs(R[k]/s2-mr)+Math.abs(G[k]/s2-mg)<0.07){ keep[k]=1; kept++; } }
+    if(kept<cnt*0.35) return null;
+    keep=_hpClose(keep,gw,gh,4); keep=_hpOpen(keep,gw,gh,1);
+    return keep;
+  }
+  // A corner the hand is covering: after the paper filter removed the hand, that corner of the page is missing and
+  // its extreme point lands on the edge of the hand instead. Spot it by the removed (hand / sleeve / band) pixels
+  // right next to it, and — when it's the only covered corner — put it where the other three say it should be.
+  function _hpFillCoveredCorner(corners,raw,paper,gw,gh){
+    var r=Math.max(4,Math.round(Math.min(gw,gh)*0.02)), covered=[];
+    for(var i=0;i<4;i++){
+      var cx=Math.round(corners[i].x), cy=Math.round(corners[i].y), removed=0, area=0;
+      for(var y=Math.max(0,cy-r);y<=Math.min(gh-1,cy+r);y++) for(var x=Math.max(0,cx-r);x<=Math.min(gw-1,cx+r);x++){
+        area++; var k=y*gw+x; if(raw[k]&&!paper[k]) removed++; }
+      if(removed>area*0.15) covered.push(i);
+    }
+    if(covered.length!==1) return corners;
+    var e=covered[0], pv=corners[(e+3)%4], nx=corners[(e+1)%4], op=corners[(e+2)%4];
+    var p={x:pv.x+nx.x-op.x, y:pv.y+nx.y-op.y};   // first guess: complete the parallelogram
+    if(p.x<0||p.y<0||p.x>gw||p.y>gh) return corners;
+    // Better: the page's two visible edges that run into the covered corner, traced and extended until they meet —
+    // exact even when the page is shot at an angle (where the parallelogram guess is off).
+    var cx0=(corners[0].x+corners[1].x+corners[2].x+corners[3].x)/4, cy0=(corners[0].y+corners[1].y+corners[2].y+corners[3].y)/4;
+    var L1=_hpTraceEdge(pv,p,cx0,cy0,raw,paper,gw,gh), L2=_hpTraceEdge(nx,p,cx0,cy0,raw,paper,gw,gh);
+    var q=(L1&&L2)?_hpMeet(L1,L2):null;
+    var diag=Math.sqrt((op.x-p.x)*(op.x-p.x)+(op.y-p.y)*(op.y-p.y))||1;
+    if(q && q.x>=0 && q.y>=0 && q.x<=gw && q.y<=gh && Math.sqrt((q.x-p.x)*(q.x-p.x)+(q.y-p.y)*(q.y-p.y))<diag*0.25) p=q;
+    var out=corners.slice(); out[e]=p; return out;
+  }
+  // Trace the page edge running from a known corner A toward an estimated corner B: at points along A→B, find where
+  // the paper ends going outward, skipping spots next to the hand. Returns a fitted line {px,py,dx,dy}, or null.
+  function _hpTraceEdge(A,B,cx0,cy0,raw,paper,gw,gh){
+    var dx=B.x-A.x, dy=B.y-A.y, len=Math.sqrt(dx*dx+dy*dy)||1, ux=dx/len, uy=dy/len, nx=-uy, ny=ux;
+    var mx=(A.x+B.x)/2, my=(A.y+B.y)/2;
+    if((mx+nx-cx0)*(mx+nx-cx0)+(my+ny-cy0)*(my+ny-cy0)<(mx-cx0)*(mx-cx0)+(my-cy0)*(my-cy0)){ nx=-nx; ny=-ny; }   // outward
+    var R=Math.max(6,Math.min(gw,gh)*0.06), pts=[{x:A.x,y:A.y}];
+    function at(m,x,y){ var xi=Math.round(x), yi=Math.round(y); return (xi<0||yi<0||xi>=gw||yi>=gh)?0:m[yi*gw+xi]; }
+    for(var t=0.08;t<=0.8;t+=0.04){
+      var sx=A.x+dx*t, sy=A.y+dy*t, last=null, hand=false;
+      for(var s=-R;s<=R;s+=1){ var x=sx+nx*s, y=sy+ny*s;
+        if(at(paper,x,y)) last={x:x,y:y}; else if(at(raw,x,y)){ hand=true; break; } else if(last) break; }
+      if(last && !hand) pts.push(last);
+    }
+    if(pts.length<4) return null;
+    // Total-least-squares line through the points.
+    var n=pts.length, ax=0, ay=0; for(var i=0;i<n;i++){ ax+=pts[i].x; ay+=pts[i].y; } ax/=n; ay/=n;
+    var sxx=0, syy=0, sxy=0; for(var j=0;j<n;j++){ var X=pts[j].x-ax, Y=pts[j].y-ay; sxx+=X*X; syy+=Y*Y; sxy+=X*Y; }
+    var ang=0.5*Math.atan2(2*sxy, sxx-syy);
+    return {px:ax, py:ay, dx:Math.cos(ang), dy:Math.sin(ang)};
+  }
+  function _hpMeet(a,b){
+    var den=a.dx*b.dy-a.dy*b.dx; if(Math.abs(den)<1e-6) return null;   // parallel
+    var t=((b.px-a.px)*b.dy-(b.py-a.py)*b.dx)/den;
+    return {x:a.px+a.dx*t, y:a.py+a.dy*t};
+  }
   // Post-process the 320x320 saliency map → document corners in working-image coords (or null if implausible).
-  function _aiPost(mask, wW, wH){
+  function _aiPost(mask, wW, wH, workData){
     var S=320, mn=1e9,mx=-1e9;
     for(var i=0;i<mask.length;i++){ var v=mask[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
     var rng=(mx-mn)||1;
@@ -2631,8 +2706,12 @@ window.__startApp=function(){
       var sx=Math.min(S-1,(x/gw*S)|0), sy=Math.min(S-1,(y/gh*S)|0);
       bin[y*gw+x]=((mask[sy*S+sx]-mn)/rng)>0.5?1:0;
     }
+    var raw=bin;
+    if(workData){ try{ var pf=_hpPaperFilter(bin,workData,wW,wH,gw,gh); if(pf) bin=pf; }catch(e){} }
     var blob=_hpBlob(bin,gw,gh); if(!blob||blob.xs.length<gw*gh*0.06) return null;
     var corners=_hpCorners(blob.xs,blob.ys); if(!corners) return null;
+    if(bin!==raw) corners=_hpFillCoveredCorner(corners,raw,bin,gw,gh);
+    corners=_hpFixCorners(corners,gw,gh);
     var out=corners.map(function(c){ return {x:Math.max(0,Math.min(wW,c.x/scl)), y:Math.max(0,Math.min(wH,c.y/scl))}; });
     var a=quadArea(out); if(a < wW*wH*0.08 || a > wW*wH*0.985) return null;   // implausible → let classical stand
     return out;
@@ -2640,7 +2719,7 @@ window.__startApp=function(){
   function aiDetectQuad(workData, wW, wH){
     return loadAi().then(function(sess){
       var feeds={}; feeds[sess.inputNames[0]]=new window.ort.Tensor("float32", _aiPre(workData,wW,wH), [1,3,320,320]);
-      return sess.run(feeds).then(function(res){ return _aiPost(res[sess.outputNames[0]].data, wW, wH); });
+      return sess.run(feeds).then(function(res){ return _aiPost(res[sess.outputNames[0]].data, wW, wH, workData); });
     });
   }
   function showScanSpinner(){ try{ var w=$("scWrap"); if(w) w.classList.add("sc-detecting"); var s=$("scSpinner"); if(s) s.style.display="flex"; }catch(e){} }
@@ -2685,10 +2764,29 @@ window.__startApp=function(){
     mask=_hpOpen(mask,gw,gh,2); mask=_hpClose(mask,gw,gh,2);
     var blob=_hpBlob(mask,gw,gh); if(!blob||blob.xs.length<gw*gh*0.10) return null;
     var corners=_hpCorners(blob.xs,blob.ys); if(!corners) return null;
-    (function(){ function predOf(i){ var pv=corners[(i+3)%4],nx=corners[(i+1)%4],op=corners[(i+2)%4]; return {x:pv.x+nx.x-op.x,y:pv.y+nx.y-op.y}; }
-      var origA=quadArea(corners),bi=-1,bA=1e18,bP=null;
-      for(var i=0;i<4;i++){ var p=predOf(i),test=corners.slice(); test[i]={x:p.x,y:p.y}; var A=quadArea(test); if(A>0&&A<bA){bA=A;bi=i;bP=p;} }
-      if(bi>=0&&bA>0&&origA>bA*1.18){ corners[bi]={x:Math.max(0,Math.min(gw,bP.x)),y:Math.max(0,Math.min(gh,bP.y))}; } })();
+    return _hpFixCorners(corners,gw,gh);
+  }
+  // Repair a quad whose corners came from a blob's extreme points but where one corner got dragged off the page — a
+  // hand, arm or table edge joined the blob. Each corner can be predicted from the other three (parallelogram).
+  //  • A corner that inflates the area by >18% versus its prediction is an outlier → snap it to the prediction.
+  //  • A lone corner pinned to the photo's edge while the other three sit well inside it is almost never the page
+  //    (it's where the arm / table leaves the frame) → snap it to the prediction if that lands inside the photo.
+  function _hpFixCorners(corners,W,H){
+    corners=corners.map(function(c){ return {x:c.x,y:c.y}; });
+    function predOf(i){ var pv=corners[(i+3)%4],nx=corners[(i+1)%4],op=corners[(i+2)%4]; return {x:pv.x+nx.x-op.x,y:pv.y+nx.y-op.y}; }
+    function clampPt(p){ return {x:Math.max(0,Math.min(W,p.x)),y:Math.max(0,Math.min(H,p.y))}; }
+    var origA=quadArea(corners),bi=-1,bA=1e18,bP=null;
+    for(var i=0;i<4;i++){ var p=predOf(i),test=corners.slice(); test[i]={x:p.x,y:p.y}; var A=quadArea(test); if(A>0&&A<bA){bA=A;bi=i;bP=p;} }
+    if(bi>=0&&bA>0&&origA>bA*1.18){ corners[bi]=clampPt(bP); return corners; }
+    var mE=Math.max(2,Math.min(W,H)*0.015), mI=Math.min(W,H)*0.03;
+    function edgeDist(c){ return Math.min(c.x,c.y,W-c.x,H-c.y); }
+    var onEdge=[]; for(var k=0;k<4;k++){ if(edgeDist(corners[k])<=mE) onEdge.push(k); }
+    if(onEdge.length===1){
+      var e=onEdge[0], othersInside=true;
+      for(var m=0;m<4;m++){ if(m!==e && edgeDist(corners[m])<mI) othersInside=false; }
+      var pe=predOf(e);
+      if(othersInside && pe.x>=0 && pe.y>=0 && pe.x<=W && pe.y<=H){ corners[e]={x:pe.x,y:pe.y}; }
+    }
     return corners;
   }
   function _hpSamp(g,gw,gh,x,y){ var xi=x|0,yi=y|0; if(xi<0)xi=0; if(yi<0)yi=0; if(xi>gw-1)xi=gw-1; if(yi>gh-1)yi=gh-1; return g[yi*gw+xi]; }
@@ -2727,20 +2825,36 @@ window.__startApp=function(){
     if(fjam>=2||fa>0.93) return null;
     return best;
   }
+  // The photo as a small grayscale grid (longest side ≤420) that the detectors and the edge scorer work on.
+  function _hpGrayGrid(imgData,W,H){
+    var data=imgData.data;
+    var gw=Math.min(420,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
+    var gray=new Float32Array(gw*gh);
+    for(var y=0;y<gh;y++){ var sy=Math.min(H-1,Math.floor(y/scl));
+      for(var x=0;x<gw;x++){ var sx=Math.min(W-1,Math.floor(x/scl)); var o=(sy*W+sx)*4;
+        gray[y*gw+x]=0.299*data[o]+0.587*data[o+1]+0.114*data[o+2]; } }
+    return {gray:gray,gw:gw,gh:gh,scl:scl};
+  }
   function detectQuad(imgData,W,H){
     try{
-      var data=imgData.data;
-      var gw=Math.min(420,W), scl=gw/W, gh=Math.max(1,Math.round(H*scl));
-      var gray=new Float32Array(gw*gh);
-      for(var y=0;y<gh;y++){ var sy=Math.min(H-1,Math.floor(y/scl));
-        for(var x=0;x<gw;x++){ var sx=Math.min(W-1,Math.floor(x/scl)); var o=(sy*W+sx)*4;
-          gray[y*gw+x]=0.299*data[o]+0.587*data[o+1]+0.114*data[o+2]; } }
-      var q=_hpDetect(gray,gw,gh);
+      var gg=_hpGrayGrid(imgData,W,H), scl=gg.scl;
+      var q=_hpDetect(gg.gray,gg.gw,gg.gh);
       if(!q) throw 0;
       var corners=q.map(function(c){ return {x:Math.max(0,Math.min(W,c.x/scl)), y:Math.max(0,Math.min(H,c.y/scl))}; });
       if(quadArea(corners) < W*H*0.06) throw 0;
       return corners;
-    }catch(e){ return insetRect(W,H,0.08); }
+    }catch(e){ var r=insetRect(W,H,0.08); r._fallback=true; return r; }   // _fallback: no outline found, just a default frame
+  }
+  // Of two outlines for the same photo, keep the one whose four sides sit on the sharper paper↔background boundary.
+  // The AI's outline gets a head start (it usually knows the page better), so the classical one wins only when its
+  // edges are clearly stronger — e.g. the AI's outline still ran down an arm or along a table edge.
+  function _hpPickBetter(aiC, clC, imgData, W, H){
+    try{
+      if(!clC || clC._fallback) return aiC;
+      var gg=_hpGrayGrid(imgData,W,H), s=gg.scl;
+      function score(c){ var r=_hpContrast(c.map(function(p){ return {x:p.x*s,y:p.y*s}; }),gg.gray,gg.gw,gg.gh); return 0.4*r.mean+0.6*r.min; }
+      return score(clC) > score(aiC)*1.3 ? clC : aiC;
+    }catch(e){ return aiC; }
   }
   function otsu(gray){
     var hist=new Uint32Array(256), n=gray.length;
