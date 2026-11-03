@@ -874,7 +874,7 @@ window.__startApp=function(){
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
   function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-10-28b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-03a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -4278,7 +4278,11 @@ if(window.__LIBS) window.__startApp();
     if(!hadController){ hadController=true; return; }      // first install on this phone is not an update
     pending=true; tryReload();
   });
-  navigator.serviceWorker.register("/sw.js").then(function(reg){
+  // Scope /driver: the same registration phones already have (the server used to register it too, with that scope),
+  // so this one is what actually serves the driver page. Clear out the stray whole-site registration the old
+  // scopeless call created — it never controlled the driver page, so its updates never reached drivers.
+  try{ navigator.serviceWorker.getRegistrations().then(function(regs){ regs.forEach(function(r){ try{ if(new URL(r.scope).pathname==="/") r.unregister(); }catch(e){} }); }); }catch(e){}
+  navigator.serviceWorker.register("/sw.js",{scope:"/driver"}).then(function(reg){
     function tick(){ try{ reg.update(); }catch(e){} tryReload(); }
     setInterval(tick, 60000);                                                           // re-check every minute
     document.addEventListener("visibilitychange", function(){ if(!document.hidden) tick(); });  // and on reopen

@@ -2171,48 +2171,9 @@
       renderLoadDocs(_lastPods);
     } catch (e) {}
   }
-  // --- Portal auto-refresh: reload the page itself when a new build is deployed ---
-  // The data above keeps refreshing on a stale page, but the page's *code* stays whatever
-  // version was loaded when the tab opened — so after a deploy, a long-open tab can keep
-  // running old JS (that was behind the "Open didn't open the signed doc" delay). We poll a
-  // tiny version probe; when the server's index.html mtime changes from what we first saw,
-  // we reload — but ONLY when it's safe: nothing open that a reload would interrupt, and the
-  // dispatcher isn't mid-edit or mid-type. If it's not safe right now we leave the flag set
-  // and reload the moment they land on a safe screen (next tick / focus).
-  var _appVerBaseline = null, _appVerPending = false, _lastVerCheckAt = 0;
-  function safeToReload() {
-    try {
-      if (document.hidden) return false;
-      // Any viewer / editor overlay open → don't yank it away mid-use.
-      var dv = $('docViewer'); if (dv && !dv.classList.contains('hide')) return false;
-      var sm = $('splitModal'); if (sm && !sm.classList.contains('hide')) return false;
-      var cm = $('cropModal'); if (cm && !cm.classList.contains('hide')) return false;
-      // A load's detail card being edited → unsaved changes; never reload.
-      var det = $('loadDetailCard');
-      if (det && det.classList.contains('editing')) return false;
-      // Dispatcher actively typing somewhere → don't interrupt.
-      var ae = document.activeElement;
-      if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
-      return true;
-    } catch (e) { return false; }
-  }
-  async function checkAppVersion() {
-    try {
-      if (_appVerPending && safeToReload()) { location.reload(); return; }
-      if ((Date.now() - _lastVerCheckAt) < 45000) return;   // throttle actual fetches to ~45s
-      _lastVerCheckAt = Date.now();
-      var r = await fetch('/api/app-version', { cache: 'no-store' });
-      if (!r.ok) return;
-      var d = await r.json();
-      if (!d || !d.version) return;
-      if (_appVerBaseline === null) { _appVerBaseline = d.version; return; }   // first read = baseline
-      if (d.version !== _appVerBaseline) {
-        _appVerPending = true;                                 // a new build is live
-        if (safeToReload()) location.reload();                // reload now if we can, else wait for a safe moment
-      }
-    } catch (e) {}
-  }
-  function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); checkAppVersion(); }
+  // Picking up a new BUILD of the portal (reloading the page itself) is separate from this data refresh — see
+  // startUpdateWatch / updateSafeNow further down: it waits for 2 quiet minutes with nothing open or mid-edit.
+  function autoRefreshTick() { autoRefreshLoads(); refreshOpenLoadDetail(); }
   setInterval(autoRefreshTick, 12000);                                   // poll every 12s while the tab is awake
   document.addEventListener('visibilitychange', function () { if (!document.hidden) autoRefreshTick(); });
   window.addEventListener('focus', autoRefreshTick);                     // and the moment the window regains focus
@@ -7462,6 +7423,8 @@
     const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
     if (document.querySelector('.histOverlay:not(.hide)')) return false;
     const sw = $('setupWizard'); if (sw && !sw.classList.contains('hide')) return false;
+    // A document being read, split or cropped — a reload would close it (someone can read a BOL for 2+ minutes).
+    for (const id of ['docViewer', 'splitModal', 'cropModal']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
     const ld = $('loadDetailCard'); if (ld && !ld.classList.contains('hide') && (ld.classList.contains('editing') || (typeof _ldDirty !== 'undefined' && _ldDirty))) return false;
     return true;
   }
