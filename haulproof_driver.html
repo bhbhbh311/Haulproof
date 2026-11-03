@@ -1118,26 +1118,34 @@ window.__startApp=function(){
       renderNotices((((await r.json())||{}).notices)||[]);
     }catch(e){}
   }
+  // Notices are short and shown ONCE: a one-line strip per notice, marked seen as soon as it appears (so it never comes
+  // back on the next open), fading by itself after 30s or on ✕. Re-shoot requests get no strip at all — the load's own
+  // row already says "📷 Re-shoot page N" with the reason and a button, so the strip would only repeat it.
+  var _shownNotices={};
   function renderNotices(list){
     var host=$("drvNotices");
     if(!host){ var v=$("viewRoute"); if(!v) return; host=document.createElement("div"); host.id="drvNotices"; v.insertBefore(host, v.firstChild); }
-    host.innerHTML="";
     (list||[]).forEach(function(n){
+      if(_shownNotices[n.id]) return;
+      _shownNotices[n.id]=1;
+      markNoticeSeen(n.id);
+      if(n.kind==="reupload") return;
       var card=document.createElement("div");
-      card.style.cssText="background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:12px;padding:13px 15px;margin:0 0 12px;font-size:14px;line-height:1.45;";
-      var who=n.actorName||n.actorEmail||"a dispatcher";
-      var contact = n.actorEmail ? (" You can reach out to "+esc(who)+" ("+esc(n.actorEmail)+") if this was a mistake.") : (" Contact "+esc(who)+" if this was a mistake.");
-      card.innerHTML='<div style="font-weight:800;margin-bottom:3px;">⚠ Dispatch removed your upload'+(n.poNumber?(" — PO "+esc(n.poNumber)):"")+'</div><div>'+esc(n.message||"A document you were waiting on was removed.")+contact+'</div>';
-      var x=document.createElement("button"); x.type="button"; x.textContent="Dismiss";
-      x.style.cssText="margin-top:10px;background:#7c2d12;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;font-size:13px;";
-      x.addEventListener("click", function(){ dismissNotice(n.id, card); });
+      card.style.cssText="display:flex;align-items:center;gap:8px;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:10px;padding:8px 10px 8px 12px;margin:0 0 10px;font-size:13.5px;line-height:1.35;transition:opacity .5s;";
+      var who=n.actorName||n.actorEmail||"dispatch";
+      var what = n.poNumber ? ('PO '+esc(n.poNumber)+' was removed by dispatch') : 'A document was removed by dispatch';
+      card.innerHTML='<div style="flex:1;min-width:0;"><b>⚠ '+what+'</b> <a href="#" class="ntWho" style="color:inherit;font-size:12px;margin-left:4px;text-decoration:underline;">who?</a>'+
+        '<div class="ntMore" style="display:none;font-size:12.5px;margin-top:4px;">'+esc(n.message||"")+' Ask '+esc(who)+(n.actorEmail?(' ('+esc(n.actorEmail)+')'):'')+' if this was a mistake.</div></div>';
+      var x=document.createElement("button"); x.type="button"; x.textContent="✕"; x.setAttribute("aria-label","Close");
+      x.style.cssText="background:none;border:none;color:inherit;font-size:16px;font-weight:700;padding:2px 6px;cursor:pointer;";
+      x.addEventListener("click", function(){ hideNotice(card); });
       card.appendChild(x); host.appendChild(card);
+      card.querySelector(".ntWho").addEventListener("click", function(e){ e.preventDefault(); var m=card.querySelector(".ntMore"); m.style.display=(m.style.display==="none")?"block":"none"; clearTimeout(card._t); });
+      card._t=setTimeout(function(){ hideNotice(card); }, 30000);
     });
   }
-  async function dismissNotice(id, el){
-    try{ await fetch(driverApi("/notices/"+encodeURIComponent(id)+"/seen"),{method:"POST",headers:drvHeaders()}); }catch(e){}
-    if(el && el.parentNode) el.parentNode.removeChild(el);
-  }
+  function hideNotice(card){ if(!card||!card.parentNode) return; card.style.opacity="0"; setTimeout(function(){ if(card.parentNode) card.parentNode.removeChild(card); }, 500); }
+  function markNoticeSeen(id){ try{ fetch(driverApi("/notices/"+encodeURIComponent(id)+"/seen"),{method:"POST",headers:drvHeaders()}); }catch(e){} }
   // Keep the route view current on its own: refresh loads + notices when the driver returns to the app, and
   // every 30s while it's open — so a doc dispatch removed clears itself and its notice appears without a manual reload.
   function drvRefreshRoute(){

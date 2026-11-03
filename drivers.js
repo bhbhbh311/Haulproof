@@ -215,8 +215,11 @@ router.get('/po-check', (req, res) => {
 router.get('/notices', (req, res) => {
   const r = resolveKey(req);
   if (!r || !r.driver) return res.json({ notices: [] });
+  // Only recent ones: a notice is news for a few days, after which it's noise (the app also marks each one seen as
+  // soon as it's shown, so normally a driver sees it once).
+  const since = Date.now() - 3 * 24 * 60 * 60 * 1000;
   const rows = db.prepare(`SELECT id, kind, poNumber, loadNumber, message, actorName, actorEmail, createdAt
-     FROM driver_notices WHERE driverId = ? AND seen = 0 ORDER BY createdAt DESC LIMIT 50`).all(r.driver.id);
+     FROM driver_notices WHERE driverId = ? AND seen = 0 AND createdAt >= ? ORDER BY createdAt DESC LIMIT 20`).all(r.driver.id, since);
   res.json({ notices: rows });
 });
 // Dismiss (mark seen) one of this driver's notices.
