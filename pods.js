@@ -57,7 +57,7 @@ async function combinedPodBytes(pod) {
       try { img = await doc.embedJpg(imgBytes); } catch (e) { continue; }
       const page = doc.addPage([PW, PH]);
       page.drawText(it.label, { x: M, y: PH - M, size: 14, font, color: rgb(0.07, 0.22, 0.43) });
-      page.drawText('PO ' + (pod.poNumber || '') + (pod.consignee ? '  ·  ' + String(pod.consignee).slice(0, 48) : ''), { x: M, y: PH - M - 18, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+      page.drawText(require('./loadfields').term(pod.orgId, 'poNumber', true) + ' ' + (pod.poNumber || '') + (pod.consignee ? '  ·  ' + String(pod.consignee).slice(0, 48) : ''), { x: M, y: PH - M - 18, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
       const availW = PW - 2 * M, availH = PH - 2 * M - 44;
       let w = img.width, h = img.height; const sc = Math.min(availW / w, availH / h, 1); w *= sc; h *= sc;
       page.drawImage(img, { x: (PW - w) / 2, y: M + (availH - h) / 2, width: w, height: h });

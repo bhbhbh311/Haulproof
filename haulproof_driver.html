@@ -872,11 +872,20 @@ window.__startApp=function(){
     if(!hs.length && !ws.length) return;
     function fix(t){ var o=t; hs.forEach(function(k){ o=o.split(LBL_DEF[k]).join(L[k]); }); var tr=o.trim(); ws.forEach(function(k){ if(tr===LBL_DEF[k]) o=o.replace(LBL_DEF[k], L[k]); }); return o; }
     var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), ns=[]; while(w.nextNode()) ns.push(w.currentNode);
-    ns.forEach(function(n){ if(n.parentNode && /^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName)) return; var v=fix(n.nodeValue); if(v!==n.nodeValue) n.nodeValue=v; });
+    ns.forEach(function(n){ if(n.parentNode && (/^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName) || (n.parentNode.closest && n.parentNode.closest("[data-nolbl]")))) return; var v=fix(n.nodeValue); if(v!==n.nodeValue) n.nodeValue=v; });
     if(root.querySelectorAll) root.querySelectorAll("input[placeholder]").forEach(function(el){ var v=fix(el.placeholder); if(v!==el.placeholder) el.placeholder=v; });
   }
   // "BOL #" -> "BOL" for the short "PO 1234 · Load 5678" line on a load card
   function shortLbl(k){ var v=(_drvLbl&&_drvLbl[k])||LBL_DEF[k]; return String(v).replace(/\s*#\s*$/,""); }
+  // On a load card the LOAD OWNER's names are used (they match the shipper's paperwork), with the standard name in
+  // small print when they differ: "BOL (PO) 1234". Marked data-nolbl so the driver's own company names don't touch it.
+  function ownerShort(g, k){
+    var L=(g.docs.find(function(d){ return d.ownerLabels; })||{}).ownerLabels||null;
+    var std=String(LBL_DEF[k]).replace(/\s*#\s*$/,""), own=L&&L[k]?String(L[k]).replace(/\s*#\s*$/,""):null;
+    if(!own) return '<span data-nolbl>'+esc(shortLbl(k))+'</span>';
+    return own===std ? '<span data-nolbl>'+esc(std)+'</span>' : '<span data-nolbl>'+esc(own)+' <span style="font-size:.7em;opacity:.65;font-weight:600;">('+esc(std)+')</span></span>';
+  }
+  var _activeOwnerLbl=null;   // the owner's names for the load being signed (audit-trail page)
   function applyDrvLabels(l){
     if(!l||typeof l!=="object") return; _drvLbl=l; try{ lsSet("hp_labels", l); }catch(e){}
     drvRelabel(document.body);
@@ -886,7 +895,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-04d";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-04e";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1435,6 +1444,7 @@ window.__startApp=function(){
   async function openPreparedDoc(d){
     _reup=null;   // this is a normal sign flow, not a re-shoot
     _activeReq=(d&&d.req)||null;   // this load's company/customer rules (delivery photos) while signing it
+    _activeOwnerLbl=(d&&d.ownerLabels)||null;
     var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
     var hdr = key ? {"X-Api-Key":key} : {}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
     toast("Opening…");
@@ -1625,7 +1635,7 @@ window.__startApp=function(){
           ? '<span class="ldchev" aria-hidden="true">›</span>'
           : '<span style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
         cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
-          '<div class="ldpo">'+esc(shortLbl("poNumber"))+' '+esc(g.poNumber||"—")+(g.loadNumber?(" · "+esc(shortLbl("loadNumber"))+" "+esc(g.loadNumber)):"")+'</div>'+
+          '<div class="ldpo">'+ownerShort(g,"poNumber")+' '+esc(g.poNumber||"—")+(g.loadNumber?(" · "+ownerShort(g,"loadNumber")+" "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
           (stat?'<div class="ldstat" style="color:'+statColor+';">'+esc(stat)+'</div>':'')+
           '</div>'+right+'</div>';
@@ -3761,7 +3771,8 @@ window.__startApp=function(){
       // summary page — the GPS/time data is still captured, stored on the load, and stamped under each signature.
       if(drvFieldOn("auditTrail")){
       var ap=doc.addPage([612,792]), y=740; ap.drawText("Signature Audit Trail",{x:48,y:y,size:20,font:fontB}); y-=26;
-      ap.drawText("Customer PO #: "+poNum+(consInput?("   ·   Consignee: "+consInput):""),{x:48,y:y,size:11,font:fontB,color:PDFLib.rgb(.09,.24,.45)}); y-=18;
+      var _poT=(_activeOwnerLbl&&_activeOwnerLbl.poNumber&&_activeOwnerLbl.poNumber!=="PO #")?(_activeOwnerLbl.poNumber+" (PO #)"):"PO #";
+      ap.drawText("Customer "+_poT+": "+poNum+(consInput?("   ·   Consignee: "+consInput):""),{x:48,y:y,size:11,font:fontB,color:PDFLib.rgb(.09,.24,.45)}); y-=18;
       ap.drawText("Generated by HaulProof — "+todayStr()+" "+timeStr(new Date())+(currentStop?("  ·  Stop "+currentStop.n+": "+currentStop.name):""),{x:48,y:y,size:10,font:font,color:PDFLib.rgb(.4,.45,.5)}); y-=28;
       sg.filter(function(f){return f.signed;}).forEach(function(f,i){ if(y<90){ap=doc.addPage([612,792]);y=740;}
         ap.drawText((i+1)+".  "+f.role+" — "+(f.name||""),{x:48,y:y,size:12,font:fontB}); y-=15;

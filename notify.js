@@ -32,11 +32,12 @@ async function notifyDriverUploaded({ load, poNumber, driverName }) {
     const to = masterNotifyEmails([load && load.orgId, load && load.carrierId, load && load.brokerId]);
     if (!to.length) return;
     const po = poNumber || (load && load.poNumber) || '';
+    const P = require('./loadfields').term(load && load.orgId, 'poNumber', true);   // "PO", or "BOL (PO)" when renamed
     const who = driverName || 'A driver';
-    const subject = `New document to set up — PO ${po}`;
-    const text = `${who} uploaded a document for PO ${po}. It's waiting in HaulProof for you to set up the signatures and release it to the driver.\n\nOpen HaulProof: ${portalUrl()}`;
+    const subject = `New document to set up — ${P} ${po}`;
+    const text = `${who} uploaded a document for ${P} ${po}. It's waiting in HaulProof for you to set up the signatures and release it to the driver.\n\nOpen HaulProof: ${portalUrl()}`;
     const html = wrapHtml([
-      `<b>${esc(who)}</b> uploaded a document for <b>PO ${esc(po)}</b>.`,
+      `<b>${esc(who)}</b> uploaded a document for <b>${esc(P)} ${esc(po)}</b>.`,
       `It's waiting in HaulProof for you to set up the signatures and release it to the driver.`,
     ]);
     await sendStatusNotice({ to, subject, text, html });
@@ -63,10 +64,11 @@ async function notifyLoadComplete({ load, poNumber }) {
     } catch (e) {}
     if (!to.length) return;   // everyone on the notify list already received the signed documents — nothing to send
     const po = poNumber || (load && load.poNumber) || '';
-    const subject = `Load complete — PO ${po}`;
-    const text = `All stops on PO ${po} are signed and complete. Signed documents have been emailed out.\n\nOpen HaulProof: ${portalUrl()}`;
+    const P = require('./loadfields').term(load && load.orgId, 'poNumber', true);   // "PO", or "BOL (PO)" when renamed
+    const subject = `Load complete — ${P} ${po}`;
+    const text = `All stops on ${P} ${po} are signed and complete. Signed documents have been emailed out.\n\nOpen HaulProof: ${portalUrl()}`;
     const html = wrapHtml([
-      `All stops on <b>PO ${esc(po)}</b> are signed and complete.`,
+      `All stops on <b>${esc(P)} ${esc(po)}</b> are signed and complete.`,
       `The signed documents have been emailed out.`,
     ]);
     await sendStatusNotice({ to, subject, text, html });
@@ -83,11 +85,12 @@ async function notifyDriverReady(podId) {
     const drv = db.prepare(`SELECT name, email FROM drivers WHERE id = ? AND active = 1`).get(pod.assignedDriverId);
     if (!drv || !drv.email || !/@/.test(drv.email)) return;   // no email → nothing to send (driver sees it in-app)
     const po = pod.poNumber || '';
-    const subject = `Ready to sign — PO ${po}`;
-    const text = `Hi ${drv.name || ''},\n\nA document for PO ${po} is ready for you to sign in HaulProof. Open your driver link and it'll be under "Your loads."\n`;
+    const P = require('./loadfields').term(pod.orgId, 'poNumber', true);
+    const subject = `Ready to sign — ${P} ${po}`;
+    const text = `Hi ${drv.name || ''},\n\nA document for ${P} ${po} is ready for you to sign in HaulProof. Open your driver link and it'll be under "Your loads."\n`;
     const html = wrapHtml([
       `Hi ${esc(drv.name || '')},`,
-      `A document for <b>PO ${esc(po)}</b> is ready for you to sign.`,
+      `A document for <b>${esc(P)} ${esc(po)}</b> is ready for you to sign.`,
       `Open your HaulProof driver link — it's under <b>"Your loads."</b>`,
     ]);
     const r = await sendStatusNotice({ to: [drv.email], subject, text, html });
@@ -108,13 +111,14 @@ async function notifyDriverReupload(podId) {
     const drv = db.prepare(`SELECT name, email FROM drivers WHERE id = ? AND active = 1`).get(drvId);
     if (!drv || !drv.email || !/@/.test(drv.email)) return;   // no email → driver sees it in-app instead
     const po = pod.poNumber || '';
+    const P = require('./loadfields').term(pod.orgId, 'poNumber', true);
     const pg = pod.rejectedPage || '';
     const why = (pod.rejectReason || '').trim();
-    const subject = `Re-shoot needed — PO ${po}`;
-    const text = `Hi ${drv.name || ''},\n\nDispatch needs page ${pg} of the document for PO ${po} re-shot${why ? ' (' + why + ')' : ''}. Open your HaulProof driver link — it's under "Your loads" flagged to re-shoot.\n`;
+    const subject = `Re-shoot needed — ${P} ${po}`;
+    const text = `Hi ${drv.name || ''},\n\nDispatch needs page ${pg} of the document for ${P} ${po} re-shot${why ? ' (' + why + ')' : ''}. Open your HaulProof driver link — it's under "Your loads" flagged to re-shoot.\n`;
     const html = wrapHtml([
       `Hi ${esc(drv.name || '')},`,
-      `Dispatch needs <b>page ${esc(String(pg))}</b> of the document for <b>PO ${esc(po)}</b> re-shot.`,
+      `Dispatch needs <b>page ${esc(String(pg))}</b> of the document for <b>${esc(P)} ${esc(po)}</b> re-shot.`,
       why ? `Reason: ${esc(why)}` : '',
       `Open your HaulProof driver link — it's under <b>"Your loads,"</b> flagged to re-shoot.`,
     ].filter(Boolean));

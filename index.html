@@ -1894,7 +1894,7 @@
       const tr = o.trim(); words.forEach(k => { if (tr === LABEL_DEFAULTS[k]) o = o.replace(LABEL_DEFAULTS[k], orgLabels[k]); }); return o; };
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentNode && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentNode.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
     const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
-    nodes.forEach(n => { if (n.parentNode && n.parentNode.closest && n.parentNode.closest('#loadFieldsHost')) return; const v = fix(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; });
+    nodes.forEach(n => { if (n.parentNode && n.parentNode.closest && n.parentNode.closest('#loadFieldsHost, [data-nolbl]')) return; const v = fix(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; });
     (root.querySelectorAll ? root.querySelectorAll('input[placeholder],textarea[placeholder]') : []).forEach(el => { if (el.closest('#loadFieldsHost')) return; const v = fix(el.placeholder); if (v !== el.placeholder) el.placeholder = v; });
   }
   function applyOrgLabels(l) {
@@ -2154,7 +2154,7 @@
       // Bail if the dispatcher opened a different load or started editing while the request was in flight.
       if (!curLoad || curLoad.id !== r.load.id) return;
       if (det.classList.contains('editing') || det.classList.contains('hide') || det.querySelector('#ldView .stSave')) return;
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || [];
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null;
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
       updateLdArchiveBtn();
@@ -4162,7 +4162,7 @@
     }
     try {
       const r = await api('/api/loads/' + id);
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldBackFn = (opts && opts.back) || null;
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null; _ldBackFn = (opts && opts.back) || null;
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
@@ -4553,8 +4553,10 @@
   function renderLdView() {
     if (!curLoad || !$('ldView')) return;
     const rows = [];
-    rows.push(['Customer PO #', esc(curLoad.poNumber) || '—']);
-    rows.push([esc(lbl('loadNumber')), esc(curLoad.loadNumber) || '—']);
+    // Another company's load: show their names for its fields with the standard name after ("BOL # (PO #)")
+    const _own = _ldOwnerLabels || {};
+    rows.push([_own.poNumber ? '<span data-nolbl>Customer ' + esc(_own.poNumber) + '</span>' : 'Customer PO #', esc(curLoad.poNumber) || '—']);
+    rows.push([_own.loadNumber ? '<span data-nolbl>' + esc(_own.loadNumber) + '</span>' : esc(lbl('loadNumber')), esc(curLoad.loadNumber) || '—']);
     if (curLoad.customer) rows.push(['Customer', esc(curLoad.customer)]);
     // Consignee lives on each stop now (via the stop's receiver / delivered-to), not on the load.
     const asg = [];
@@ -4658,6 +4660,7 @@
   }
   var _ldStepAnswers = [];   // var for the same reason as _ldStopTimes
   var _ldFields = [];        // the company's own load fields with this load's values
+  var _ldOwnerLabels = null; // another company's load: their field names with the standard name after
   function renderLdFieldInputs() {
     const box = $('ldEditFields'); if (!box) return;
     box.classList.toggle('hide', !_ldFields.length);
@@ -4690,7 +4693,7 @@
         const v = (sel) => { const x = row.querySelector(sel).value; return x ? new Date(x).getTime() : null; };
         try {
           const r = await api('/api/loads/' + curLoad.id + '/stop-times', { method: 'PUT', body: JSON.stringify({ kind: s.kind, stopNumber: s.stopNumber, inAt: v('.stInIn'), outAt: v('.stOutIn') }) });
-          _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || [];
+          _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null;
           renderLdView();
           try { loadHistory(curLoad.id); } catch (e) {}
         } catch (e) { row.querySelector('.stMsg').textContent = e.message || 'Could not save'; }

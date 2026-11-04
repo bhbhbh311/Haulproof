@@ -80,7 +80,8 @@ async function emailPodCopy({ to, pod, filePath, contentBytes }) {
     return { sent: false, reason: 'all recipients opted out', blocked };
   }
   const from = fromAddr();
-  const subject = `Signed delivery receipt — ${pod.poNumber ? 'PO ' + pod.poNumber : 'Load ' + (pod.loadNumber || pod.id)}`;
+  const LF = require('./loadfields');
+  const subject = `Signed delivery receipt — ${pod.poNumber ? LF.term(pod.orgId, 'poNumber', true) + ' ' + pod.poNumber : LF.term(pod.orgId, 'loadNumber', true) + ' ' + (pod.loadNumber || pod.id)}`;
   const body = `Attached is the signed proof of delivery for ${pod.consignee || 'your shipment'}.\n\nThank you,\nHaulProof`;
 
   if (!mailConfigured()) {

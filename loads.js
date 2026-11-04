@@ -204,6 +204,8 @@ router.get('/:id', requireAuth, (req, res) => {
   const warnOf = (id) => { if (!id) return null; const o = db.prepare(`SELECT authWarning FROM orgs WHERE id = ?`).get(id); return o ? o.authWarning || null : null; };
   const lo = loadOut(load, req);
   res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id), loadFields: require('./loadfields').valuesFor(load),
+    // another company's load: their names for its fields, with the standard name after ("BOL # (PO #)")
+    ownerLabels: (load.orgId && load.orgId !== req.user.orgId) ? require('./loadfields').shared(load.orgId) : null,
     stepAnswers: require('./steps').answersFor(load.id).map(a => ({ name: a.name || '(removed step)', when: a.whenAt, stopNumber: a.stopNumber, value: a.value, at: a.at })) });
 });
 
