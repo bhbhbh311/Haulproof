@@ -4558,6 +4558,9 @@
     // In / out times (driver check-in/out per stop, when the account records them — or any already recorded).
     const _timesHtml = stopTimesHtml();
     if (_timesHtml) rows.push(['In / out times', _timesHtml]);
+    // Required delivery steps a driver skipped (the signed document was kept; the server recorded what was missing)
+    const _skipped = (_lastPods || []).filter(p => p.missingSteps).map(p => { let m = []; try { m = JSON.parse(p.missingSteps) || []; } catch (e) {} return m.length ? 'Stop ' + (p.stopNumber || 1) + ': ' + m.join(', ') : ''; }).filter(Boolean);
+    if (_skipped.length) rows.push(['⚠ Skipped required steps', '<span style="color:var(--bad,#b42318);font-weight:700;">' + _skipped.map(esc).join('<br>') + '</span>']);
     // The driver's answers to the company's own steps (Seal #, Straps checked…)
     if (_ldStepAnswers.length) rows.push(['Driver steps', _ldStepAnswers.map(x => '<div><b>' + esc(x.name) + '</b> (' + (x.when === 'pickup' ? 'pickup' : 'stop ' + x.stopNumber) + '): ' + esc(x.value) + ' <span style="color:var(--muted);font-size:12px;">' + new Date(x.at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</span></div>').join('')]);
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
