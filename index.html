@@ -2383,7 +2383,7 @@
     if (!rows.length) { box.innerHTML = '<div class="empty">No loads found.</div>'; return; }
     box.innerHTML = '<table><thead><tr><th>PO #</th><th>Location</th><th>Customer / consignee</th><th>Carrier</th><th>Driver</th><th>Status</th><th></th></tr></thead><tbody>'
       + rows.map(l => { const st = HQ_STATE[l.state] || HQ_STATE.open;
-        return `<tr><td><b>${esc(l.poNumber || l.loadNumber || '—')}</b></td><td>${esc(l.location || '')}</td><td>${esc(l.customer || l.consignee || '')}</td><td>${esc(l.carrierName || '—')}</td><td>${esc(l.driverName || '—')}</td>`
+        return `<tr><td><b>${esc(l.poNumber || l.loadNumber || '—')}</b></td><td>${esc(l.location || '')}</td><td>${esc(l.customer || l.consignee || '')}</td><td>${ownTruck(l) ? OWN_TRUCK : esc(l.carrierName || '—')}</td><td>${esc(l.driverName || '—')}</td>`
           + `<td><span class="chip ${st[1]}">${st[0]}${l.stopsTotal > 1 ? ' · ' + l.stopsDone + '/' + l.stopsTotal : ''}</span>${l.emailFailed ? ' <span class="chip" style="background:var(--bad-soft);color:var(--bad);">Email failed</span>' : ''}</td>`
           + `<td style="text-align:right;">${l.stopsDone ? `<button type="button" class="ghost hqDocs" data-id="${esc(l.id)}" style="padding:5px 11px;font-size:12px;">Signed copies</button>` : ''}</td></tr>`; }).join('')
       + '</tbody></table>';
@@ -2894,6 +2894,9 @@
   wireListFilter('custFilter', 'custList');
   wireListFilter('brFilter', 'brokerList');
   wireListFilter('recvFilter', 'receiverRows');
+  // A load the company hauls itself: its own driver, no carrier and no broker on it
+  const ownTruck = l => !!(l && !l.carrierName && !l.carrierId && !l.brokerId && !l.brokerName && String(l.driverName || '').trim());
+  const OWN_TRUCK = '<span class="chip signed" title="Your own driver hauls this load">Own truck</span>';
   async function loadCarriers() {
     const box = $('carrierList');
     const inc = $('carShowInactive') && $('carShowInactive').checked;
@@ -4020,7 +4023,7 @@
           ${canBulk ? `<td><input type="checkbox" class="ldChk" data-id="${l.id}" data-po="${esc(l.poNumber || '')}"${_ldSel.has(l.id) ? ' checked' : ''}></td>` : ''}
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
-          <td>${esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>'}</td>
+          <td>${ownTruck(l) ? OWN_TRUCK : (esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>')}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
           <td>${loadStatusChip(l)}${pickupBadge(l)}</td>
           <td style="text-align:right;white-space:nowrap;">
@@ -6611,6 +6614,7 @@
       + (id ? ' <button type="button" class="ghost authRecheck" data-id="' + id + '" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span>' : '') + '</span>' : '';
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + warn(curLoad.brokerAuthWarning, curLoad.brokerId) + (canUnassign ? unassignBtn('broker') : ''));
     if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + warn(curLoad.carrierAuthWarning, curLoad.carrierId) + (canUnassign ? unassignBtn('carrier') : ''));
+    if (!parts.length && ownTruck(curLoad)) parts.push(OWN_TRUCK + ' <span style="color:var(--muted);font-size:12.5px;">' + esc(curLoad.driverName) + ' is your own driver; no carrier needed</span>');
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
   }

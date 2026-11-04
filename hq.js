@@ -20,7 +20,7 @@ function locationsFor(req) {
 }
 const inList = ids => ids.map(() => '?').join(',');
 
-const LOAD_COLS = `l.id, l.orgId, l.poNumber, l.loadNumber, l.customer, l.consignee, l.carrierName, l.driverName, l.createdAt, l.pickedUpAt, o.name AS location,
+const LOAD_COLS = `l.id, l.orgId, l.poNumber, l.loadNumber, l.customer, l.consignee, l.carrierName, l.brokerName, l.driverName, l.createdAt, l.pickedUpAt, o.name AS location,
   (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status NOT IN ('parked','not_used')) AS total,
   (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS done,
   (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status = 'awaiting_build') AS setup,
@@ -63,7 +63,7 @@ router.get('/loads', requireAuth, (req, res) => {
   else { where.push(`l.createdAt >= ?`); args.push(Date.now() - 90 * DAY); }
   const rows = db.prepare(`SELECT ${LOAD_COLS} FROM loads l LEFT JOIN orgs o ON o.id = l.orgId WHERE ${where.join(' AND ')} ORDER BY l.createdAt DESC LIMIT 300`).all(...args);
   res.json({ results: rows.map(l => ({ id: l.id, location: l.location, locationId: l.orgId, poNumber: l.poNumber, loadNumber: l.loadNumber, customer: l.customer, consignee: l.consignee,
-    carrierName: l.carrierName, driverName: l.driverName, createdAt: l.createdAt, stopsTotal: l.total, stopsDone: l.done, lastSignedAt: l.lastSigned || null, emailFailed: l.mailfail, state: stateOf(l) })) });
+    carrierName: l.carrierName, brokerName: l.brokerName || null, driverName: l.driverName, createdAt: l.createdAt, stopsTotal: l.total, stopsDone: l.done, lastSignedAt: l.lastSigned || null, emailFailed: l.mailfail, state: stateOf(l) })) });
 });
 
 // The signed documents on one load (only loads at this company's locations).
