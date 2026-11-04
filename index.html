@@ -2280,7 +2280,11 @@
     requests:'<path d="M4 4h16v12H8l-4 4z"/>',
     settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>' };
   // Keep the fixed side menu just under the header, whatever height the header wraps to.
-  function syncBarH(){ var b=document.querySelector('.bar'); if(b) document.documentElement.style.setProperty('--barH', (b.getBoundingClientRect().bottom + 2) + 'px'); }
+  // Where the side menu starts: the bottom of the header as laid out on the page (not where it sits on screen right now),
+  // so a resize while scrolled down (a browser bar appearing, a window snap) can't push the menu up off the screen.
+  function syncBarH(){ var b=document.querySelector('.bar'); if(!b) return;
+    var y = b.getBoundingClientRect().bottom + (window.scrollY || window.pageYOffset || 0);
+    document.documentElement.style.setProperty('--barH', Math.max(0, Math.round(y)) + 2 + 'px'); }
   window.addEventListener('resize', syncBarH); window.addEventListener('load', syncBarH);
   // Clicking any top tab should drop you out of the super-admin drill-in "Manage" view
   // and back to the normal lists, so the tab you clicked actually shows.
