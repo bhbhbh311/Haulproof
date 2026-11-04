@@ -1259,6 +1259,12 @@
           </div>
         </div>
       </div>
+      <div style="margin-top:18px;" id="ldInsSection">
+        <h1 style="font-size:16px;margin:0 0 6px;">Special instructions for the driver</h1>
+        <p class="sub" style="margin:0 0 8px;">Shows at the top of the load on the driver's phone: unload instructions, receiving hours, equipment, PPE.</p>
+        <textarea id="ldIns" rows="3" maxlength="4000" placeholder="e.g. NO UNLOAD APPT NEEDED · Receiving M-F 8A-3P · Forklift side unload · Max lift 6000#" style="width:100%;box-sizing:border-box;"></textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;"><button type="button" id="ldInsSave">Save instructions</button><span id="ldInsMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
       <div style="margin-top:18px;" id="ldCarrierSection" class="ld-editonly hide">
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
@@ -2901,6 +2907,21 @@
   // A load the company hauls itself: its own driver, no carrier and no broker on it
   const ownTruck = l => !!(l && !l.carrierName && !l.carrierId && !l.brokerId && !l.brokerName && String(l.driverName || '').trim());
   const OWN_TRUCK = '<span class="chip signed" title="Your own driver hauls this load">Own truck</span>';
+  // Special instructions on a load: the company that owns it writes them; everyone on the load sees them
+  function renderLdInstructions(){
+    const ta = $('ldIns'); if (!ta || !curLoad) return;
+    const mine = user && (user.role === 'superadmin' || (curLoad.orgId || null) === (user.orgId || null));
+    if (document.activeElement !== ta) ta.value = curLoad.instructions || '';
+    ta.readOnly = !mine; $('ldInsSave').classList.toggle('hide', !mine);
+    $('ldInsSection').classList.toggle('hide', !mine && !curLoad.instructions);
+    $('ldInsMsg').textContent = '';
+  }
+  if ($('ldInsSave')) $('ldInsSave').onclick = async () => {
+    if (!curLoad) return; const msg = $('ldInsMsg'); msg.style.color = ''; msg.textContent = 'Saving…';
+    try { const r = await api('/api/loads/' + encodeURIComponent(curLoad.id), { method: 'PUT', body: JSON.stringify({ instructions: $('ldIns').value }) });
+      if (r && r.load) curLoad.instructions = r.load.instructions; msg.style.color = 'var(--ok)'; msg.textContent = '✓ Saved — the driver sees it on the load'; }
+    catch (e) { msg.style.color = 'var(--bad)'; msg.textContent = e.message || 'Could not save'; }
+  };
   async function loadCarriers() {
     const box = $('carrierList');
     const inc = $('carShowInactive') && $('carShowInactive').checked;
@@ -6618,6 +6639,7 @@
       + (id ? ' <button type="button" class="ghost authRecheck" data-id="' + id + '" style="padding:2px 8px;font-size:11px;margin-left:4px;">Check FMCSA now</button><span class="authRecheckMsg" style="font-weight:500;margin-left:6px;"></span>' : '') + '</span>' : '';
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + warn(curLoad.brokerAuthWarning, curLoad.brokerId) + (canUnassign ? unassignBtn('broker') : ''));
     if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + warn(curLoad.carrierAuthWarning, curLoad.carrierId) + (canUnassign ? unassignBtn('carrier') : ''));
+    renderLdInstructions();
     if (!parts.length && ownTruck(curLoad)) parts.push(OWN_TRUCK + ' <span style="color:var(--muted);font-size:12.5px;">' + esc(curLoad.driverName) + ' is your own driver; no carrier needed</span>');
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
