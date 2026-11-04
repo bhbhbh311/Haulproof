@@ -26,6 +26,10 @@ The data on screen refreshes separately and much more often (portal `autoRefresh
    - portal → `updateSafeNow()`;
    - signature setup → `_safeReload()`;
    - driver app → `busy()`; for a flow that spans screens, set `window.__hpBusy = true` while it's open and clear it after.
+   - driver app inputs **inside a load card** on the home screen (e.g. the company's own driver steps: Seal #,
+     temperature) are covered by one rule in both `busy()` and `drvRefreshRoute()`: if the focused element is an
+     input in `#myLoadsList` with text in it, don't reload and don't redraw the cards. Keep new card inputs inside
+     `#myLoadsList` so that rule protects them, rather than adding another check.
 2. **New unsaved-changes state?** Make it visible to the check (the portal uses `_ldDirty` / `.editing`, prepare uses
    `dirty`). An in-place editor that a 12 s data refresh would redraw also needs to stop that refresh — e.g.
    `refreshOpenLoadDetail` skips while `#ldView .stSave` exists (the in/out-time editor).

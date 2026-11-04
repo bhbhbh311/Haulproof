@@ -112,7 +112,8 @@ app.get('/api/me', requireAuth, (req, res) => {
   const betaAccess = (req.user.role === 'superadmin') || !!betaRow;
   // Per-org "Simple mode" field flags, so the UI knows on load which optional inputs to show.
   let orgFields = {}; try { orgFields = resolveUiFlags(req.user.orgId); } catch (e) {}
-  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }), orgFields });
+  let orgLabels = {}; try { orgLabels = require('./loadfields').labels(req.user.orgId); } catch (e) {}
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }), orgFields, orgLabels });
 });
 
 // Read / save the per-org "Simple mode" field flags. Any admin (or super) of the org can change them; the change
@@ -155,6 +156,15 @@ app.delete('/api/driver-steps/custom/:id', requireAuth, (req, res) => {
   if (!stepAdmin(req, res)) return;
   try { res.json(STEPS.removeStep(req.user.orgId, req.params.id, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { stepErr(res, e); }
 });
+
+// The company's own load fields and names for the built-in ones (Settings › Load fields; also the connector)
+const LF = require('./loadfields');
+const lfErr = (res, e) => e instanceof LF.FieldError ? res.status(e.status).json({ error: e.message }) : (console.error(e), res.status(500).json({ error: 'Could not save' }));
+app.get('/api/load-fields', requireAuth, (req, res) => { if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' }); res.json(LF.settings(req.user.orgId)); });
+app.put('/api/load-fields/label', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.setLabel(req.user.orgId, req.body.field, req.body.label, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
+app.post('/api/load-fields', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.addField(req.user.orgId, req.body || {}, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
+app.put('/api/load-fields/:id', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.updateField(req.user.orgId, req.params.id, req.body || {}, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
+app.delete('/api/load-fields/:id', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.removeField(req.user.orgId, req.params.id, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
 
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.
 // Token comes from an admin generating a login link (POST /api/users/:id/login-link).

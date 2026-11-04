@@ -203,7 +203,7 @@ router.get('/:id', requireAuth, (req, res) => {
   // Authority warnings on the assigned carrier/broker (added by an admin override, not yet active on FMCSA).
   const warnOf = (id) => { if (!id) return null; const o = db.prepare(`SELECT authWarning FROM orgs WHERE id = ?`).get(id); return o ? o.authWarning || null : null; };
   const lo = loadOut(load, req);
-  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id),
+  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id), loadFields: require('./loadfields').valuesFor(load),
     stepAnswers: require('./steps').answersFor(load.id).map(a => ({ name: a.name || '(removed step)', when: a.whenAt, stopNumber: a.stopNumber, value: a.value, at: a.at })) });
 });
 
@@ -305,6 +305,15 @@ router.put('/:id/subscribers', requireAuth, (req, res) => {
 });
 
 // Edit a load's basic fields (owning customer or super). Changing the PO # cascades to its documents.
+// The company's own load fields on this load (Release #, Trailer #…). Only the load's owner fills them in.
+router.put('/:id/fields', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  if (!(req.user.role === 'superadmin' || (load.orgId || null) === (req.user.orgId || null))) return res.status(403).json({ error: 'Only the load’s company can change its fields' });
+  const LF = require('./loadfields');
+  try { const fields = LF.setValues(load, (req.body && req.body.values) || {}, req.user.name || req.user.email || 'dispatch', req.get('x-hp-via') || 'screen'); res.json({ fields, missing: fields.filter(f => f.required && !f.value).map(f => f.name) }); }
+  catch (e) { if (e instanceof LF.FieldError) return res.status(e.status).json({ error: e.message }); throw e; }
+});
 router.put('/:id', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
