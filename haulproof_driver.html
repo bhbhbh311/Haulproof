@@ -1582,6 +1582,7 @@ window.__startApp=function(){
         var loadId = g.docs[0] && g.docs[0].loadId;
         var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
+        var erAt = g.docs.reduce(function(m,d){ return Math.max(m, d.enRouteAt||0); }, 0);
         var canOpen = !!(reup.length || ready.length || puAt);
         var sub = ready.length>1 ? (ready.length+" stops to sign") : (g.consignee||"");
         // One-line status shown on the closed card, so the driver can tell the loads apart at a glance.
@@ -1592,6 +1593,7 @@ window.__startApp=function(){
         else if(timesOn && atDel){ stat="🕘 At "+((total>1||ready.length>1)?("stop "+atDel.sn):"delivery")+" since "+timeStr(new Date(atDel.at)); statColor="var(--primary)"; }
         else if(puAt){ stat="🚚 Picked up "+timeStr(new Date(puAt)); statColor="var(--ok)"; }
         else if(timesOn && puT && puT.inAt && !puT.outAt){ stat="🕘 At pickup since "+timeStr(new Date(puT.inAt)); statColor="var(--primary)"; }
+        else if(erAt){ stat="🚚 On the way to pickup since "+timeStr(new Date(erAt)); statColor="var(--primary)"; }
         else if(ready.length){ stat="✍ Ready to sign"; statColor="var(--primary)"; }
         else { stat=""; }
         if(signed>0 && total>0) stat=(stat?stat+" · ":"")+"✓ "+signed+" of "+total+" signed";
@@ -1629,6 +1631,8 @@ window.__startApp=function(){
         if(loadId && (ready.length || puAt)){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
           sec("Pickup");
+          // "On my way to pickup": before the truck reaches the shipper (hidden once checked in at pickup or picked up).
+          if(!puAt && !(puT && puT.inAt)){ var er=slot("2px 0 6px"); if(erAt) renderEnRoute(er, loadId, erAt); else showEnRouteButton(er, loadId); }
           // In/out times (account setting): the pickup check-in sits just above the Pickup complete button.
           if(timesOn) renderStopTimes(slot("2px 0 4px"), loadId, "pickup", 0, "pickup", puT);
           var pr=slot("2px 0 8px");
@@ -1799,6 +1803,43 @@ window.__startApp=function(){
       toast(pc?("Pickup recorded · "+pc+" photo"+(pc===1?"":"s")):(gps?"Pickup recorded with location":"Pickup recorded (no location this time)"));
       if(drvFieldOn("stopTimes")) loadMyLoads();   // show the automatic pickup check-out + the delivery check-ins
     }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save pickup — try again"); }
+  }
+  // ---- On my way to pickup: one tap when the truck sets off for the shipper (time + GPS), with Undo ----
+  function showEnRouteButton(container, loadId){
+    container.innerHTML='<button class="btn sm myLoadEnRoute" type="button">🚚 On my way to pickup</button>';
+    var b=container.querySelector(".myLoadEnRoute");
+    if(b) b.addEventListener("click", function(){ markEnRoute(loadId, b, container); });
+  }
+  function renderEnRoute(container, loadId, atMs){
+    container.innerHTML='<div style="color:var(--primary);font-size:12px;font-weight:700;">🚚 On the way since '+timeStr(new Date(atMs))+' <a href="#" class="erUndo" style="color:var(--bad);font-weight:700;margin-left:6px;text-decoration:underline;">Undo</a></div>';
+    var u=container.querySelector('.erUndo');
+    if(u) u.addEventListener('click', function(e){ e.preventDefault(); undoEnRoute(loadId, container, u); });
+  }
+  async function markEnRoute(loadId, btn, container){
+    if(!loadId) return;
+    btn.disabled=true; var _t=btn.textContent; btn.textContent="📍 Getting location…";
+    var gps=null; try{ gps=await getPickupGps(); }catch(e){}
+    try{
+      var key=currentKey(); if(!key||!online()){ btn.disabled=false; btn.textContent=_t; toast("You're offline — try again with a connection"); return; }
+      var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/en-route"),{method:"POST",headers:hdr,body:JSON.stringify({gps:gps})});
+      var j=await r.json().catch(function(){return {};});
+      if(!r.ok||j.error){ btn.disabled=false; btn.textContent=_t; toast(j.error||"Couldn't save that"); return; }
+      renderEnRoute(container, loadId, j.enRouteAt||Date.now());
+      toast("Dispatch can see you're on the way");
+      loadMyLoads();
+    }catch(e){ btn.disabled=false; btn.textContent=_t; toast("Couldn't save that — try again"); }
+  }
+  async function undoEnRoute(loadId, container, link){
+    if(link){ link.textContent='Undoing…'; link.style.pointerEvents='none'; }
+    try{
+      var key=currentKey(); if(!key||!online()){ toast("You're offline — try again with a connection"); if(link){link.textContent='Undo';link.style.pointerEvents='';} return; }
+      var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/en-route/undo"),{method:"POST",headers:hdr,body:"{}"});
+      var j=await r.json().catch(function(){return {};});
+      if(!r.ok||j.error){ toast(j.error||"Couldn't undo"); if(link){link.textContent='Undo';link.style.pointerEvents='';} return; }
+      showEnRouteButton(container, loadId); toast("Undone"); loadMyLoads();
+    }catch(e){ toast("Couldn't undo — try again"); if(link){link.textContent='Undo';link.style.pointerEvents='';} }
   }
   // Render the green "Pickup complete" button (wired to mark pickup), into a container.
   function showPickupButton(container, loadId){

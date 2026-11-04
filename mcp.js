@@ -934,4 +934,5 @@ function page(title, body) {
     '@media(max-width:520px){.card{margin:16px;padding:20px}}</style></head><body><div class="card"><div class="brand">Haul<b>Proof</b></div><h1>' + title + '</h1>' + body + '</div></body></html>';
 }
 
+router.oauthUser = mcpUser;   // auth.js: connected apps can use the REST API as the approving login
 module.exports = router;

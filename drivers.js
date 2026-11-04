@@ -284,15 +284,15 @@ router.get('/my-loads', (req, res) => {
   const pickup = {};
   if (loadIds.length) {
     const ph3 = loadIds.map(() => '?').join(',');
-    db.prepare(`SELECT id, pickedUpAt, pickedUpGps FROM loads WHERE id IN (${ph3})`).all(...loadIds)
-      .forEach(l => { pickup[l.id] = { at: l.pickedUpAt || null, gps: l.pickedUpGps || null }; });
+    db.prepare(`SELECT id, pickedUpAt, pickedUpGps, enRouteAt FROM loads WHERE id IN (${ph3})`).all(...loadIds)
+      .forEach(l => { pickup[l.id] = { at: l.pickedUpAt || null, gps: l.pickedUpGps || null, enRouteAt: l.enRouteAt || null }; });
   }
   // In/out times per load (pickup + each stop), so each row can show its own stop's check-in state.
   const times = stoptimes.mapFor(loadIds);
   const timesFor = (loadId, kind, stop) => (times[loadId] || []).find(t => t.kind === kind && (kind === 'pickup' || t.stopNumber === (stop || 1))) || null;
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
-    pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null,
+    pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null, enRouteAt: (pickup[p.loadId] || {}).enRouteAt || null,
     pickupTimes: timesFor(p.loadId, 'pickup'), stopTimes: timesFor(p.loadId, 'delivery', p.stopNumber),
     customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
@@ -354,6 +354,43 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
   // Pickup complete = out of the pickup (when in/out times are on and no check-out was recorded yet).
   stoptimes.autoOut({ load, kind: 'pickup', at, gps, by: r.driver.name || 'Driver', source: 'pickup', fallbackOrgId: org });
   res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: photoRefs.length });
+});
+
+// Driver taps "On my way to pickup" — stamps the load with the time (and GPS) the truck set off, so dispatch and a
+// connected FMS see the load is en route before the driver reaches the shipper. Re-tapping refreshes it; Undo clears it.
+router.post('/my-loads/:loadId/en-route', express.json(), (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  if (load.pickedUpAt) return res.status(400).json({ error: 'This load is already picked up' });
+  const b = req.body || {};
+  const gps = b.gps && typeof b.gps.lat === 'number' && typeof b.gps.lng === 'number'
+    ? { lat: b.gps.lat, lng: b.gps.lng, acc: (typeof b.gps.acc === 'number' ? Math.round(b.gps.acc) : null) } : null;
+  const at = Date.now();
+  db.prepare(`UPDATE loads SET enRouteAt = ?, enRouteGps = ? WHERE id = ?`).run(at, gps ? JSON.stringify(gps) : null, load.id);
+  const where = gps ? (' near ' + gps.lat.toFixed(5) + ', ' + gps.lng.toFixed(5)) : ' (location unavailable)';
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'en_route',
+    detail: 'On the way to pickup — ' + (r.driver.name || 'driver') + where, actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true, enRouteAt: at, enRouteGps: gps });
+});
+router.post('/my-loads/:loadId/en-route/undo', (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  db.prepare(`UPDATE loads SET enRouteAt = NULL, enRouteGps = NULL WHERE id = ?`).run(load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'en_route_cleared',
+    detail: '"On the way to pickup" undone by ' + (r.driver.name || 'driver'), actor: (r.driver.name || 'Driver') });
+  res.json({ ok: true });
 });
 
 // Driver self-undo of a pickup they just recorded (e.g. an accidental tap). Clears the time/GPS/photos and logs
