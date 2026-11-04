@@ -130,6 +130,32 @@ app.put('/api/org-fields', requireAuth, (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Could not save settings' }); }
 });
 
+// What drivers must do (Off / Optional / Required), for the company and as exceptions per customer, plus the
+// company's own named steps. Read by any login of the company; changed by its admins (also through the connector).
+const STEPS = require('./steps');
+const stepErr = (res, e) => e instanceof STEPS.StepError ? res.status(e.status).json({ error: e.message }) : (console.error(e), res.status(500).json({ error: 'Could not save' }));
+const stepAdmin = (req, res) => { if (req.user.role !== 'admin' && req.user.role !== 'superadmin') { res.status(403).json({ error: 'Only an admin can change what drivers must do.' }); return false; }
+  if (!req.user.orgId) { res.status(400).json({ error: 'No organization on this login.' }); return false; } return true; };
+const stepBy = req => req.user.name || req.user.email || 'admin';
+app.get('/api/driver-steps', requireAuth, (req, res) => {
+  if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
+  const out = STEPS.settings(req.user.orgId);
+  if (req.query.customerId) { try { out.forCustomer = STEPS.effective(req.user.orgId, String(req.query.customerId)); } catch (e) {} }
+  res.json(out);
+});
+app.put('/api/driver-steps', requireAuth, (req, res) => {
+  if (!stepAdmin(req, res)) return;
+  try { res.json(STEPS.setLevel(req.user.orgId, req.body || {}, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { stepErr(res, e); }
+});
+app.post('/api/driver-steps/custom', requireAuth, (req, res) => {
+  if (!stepAdmin(req, res)) return;
+  try { res.json(STEPS.addStep(req.user.orgId, req.body || {}, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { stepErr(res, e); }
+});
+app.delete('/api/driver-steps/custom/:id', requireAuth, (req, res) => {
+  if (!stepAdmin(req, res)) return;
+  try { res.json(STEPS.removeStep(req.user.orgId, req.params.id, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { stepErr(res, e); }
+});
+
 // PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.
 // Token comes from an admin generating a login link (POST /api/users/:id/login-link).
 app.get('/api/auth/login-info', (req, res) => {

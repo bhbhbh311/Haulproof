@@ -415,6 +415,18 @@
   #upToggle{white-space:nowrap;}
   .ldbulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:13px;color:var(--muted);}
   .ldbulk span{margin-right:auto;}
+  .setgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px;}
+  .settile{display:flex;align-items:flex-start;gap:12px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:rgba(127,140,170,.07);font-size:14px;}
+  .settile .hp-switch{margin-top:2px;}
+  .settile-help{color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.35;}
+  .stepgrid{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .stepgrid th{background:var(--sunk);text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:9px 12px;}
+  .stepgrid td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:middle;}
+  .stepgrid .segbtns button.seg{padding:6px 12px;}
+  .stepgrid .seg.on.lv-off{background:#8a93a3;color:#fff;} .stepgrid .seg.on.lv-optional{background:var(--primary,#1757d6);color:#fff;} .stepgrid .seg.on.lv-required{background:#b42318;color:#fff;}
+  .stepcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-top:14px;}
+  .stepbox{border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .stepbox h3{font-size:14px;margin:0 0 8px;}
   .segbtns{display:inline-flex;background:var(--sunk);border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px;}
   button.seg{background:transparent;color:var(--muted);border:0;box-shadow:none;padding:7px 16px;font-size:13px;border-radius:7px;}
   button.seg:hover{background:var(--side-hover);color:var(--ink);box-shadow:none;}
@@ -1632,83 +1644,29 @@
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="mnSave" type="button">Save master list</button><span id="mnMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
       <div id="simplifyBlock" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
-        <h1 style="font-size:16px;margin-bottom:4px;">Simplify the app</h1>
-        <p class="sub" style="margin-top:0;">Show only the fields you use. Hiding one removes it everywhere — dispatch screens, the setup guide, and the driver app — for everyone on your account. Nothing is deleted; turn a field back on anytime and its values return. Customer&nbsp;PO&nbsp;#, the document, and signatures are always required.</p>
-        <div style="display:flex;flex-direction:column;gap:14px;max-width:560px;">
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_loadNumber"><span class="hp-track"></span></label>
-            <div style="font-size:14px;"><div><b>Load #</b><span id="ft_loadNumber_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Your internal load number, separate from the PO #.</div></div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_receiver"><span class="hp-track"></span></label>
-            <div style="font-size:14px;"><div><b>Delivered to</b><span id="ft_receiver_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">The receiver/consignee on each stop.</div></div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_salesRep"><span class="hp-track"></span></label>
-            <div style="font-size:14px;"><div><b>Sales rep</b><span id="ft_salesRep_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Who's credited on a stop (also drives that rep's completion email).</div></div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_customer"><span class="hp-track"></span></label>
-            <div style="font-size:14px;"><div><b>Customer</b><span id="ft_customer_state" class="hp-switch-state"></span></div><div style="color:var(--muted);margin-top:2px;">Links your saved signature layouts. Turning this off disables layout reuse, so leave it on if you reuse layouts.</div></div>
-          </div>
+        <h1 style="font-size:16px;margin-bottom:4px;">What drivers do</h1>
+        <p class="sub" style="margin-top:0;">For each step pick <b>Off</b>, <b>Optional</b> or <b>Required</b>. Required steps hold back Pickup complete or signing until they’re done. Set exceptions for a customer below, or add your own steps.</p>
+        <div id="driverStepsHost"><div class="sub">Loading…</div></div>
+        <h1 style="font-size:16px;margin:22px 0 4px;">Fields and account</h1>
+        <p class="sub" style="margin-top:0;">Hiding a field removes it from dispatch screens, the setup guide and the driver app for everyone on your account. Nothing is deleted.</p>
+        <div class="setgrid">
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_loadNumber"><span class="hp-track"></span></label>
+            <div><div><b>Load #</b><span id="ft_loadNumber_state" class="hp-switch-state"></span></div><div class="settile-help">Your internal load number, separate from the PO #.</div></div></div>
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_receiver"><span class="hp-track"></span></label>
+            <div><div><b>Delivered to</b><span id="ft_receiver_state" class="hp-switch-state"></span></div><div class="settile-help">The receiver / consignee on each stop.</div></div></div>
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_salesRep"><span class="hp-track"></span></label>
+            <div><div><b>Sales rep</b><span id="ft_salesRep_state" class="hp-switch-state"></span></div><div class="settile-help">Who’s credited on a stop (and gets its completion email).</div></div></div>
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_customer"><span class="hp-track"></span></label>
+            <div><div><b>Customer</b><span id="ft_customer_state" class="hp-switch-state"></span></div><div class="settile-help">Links your saved signature layouts. Best left on.</div></div></div>
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_auditTrail"><span class="hp-track"></span></label>
+            <div><div><b>Signature audit-trail page</b><span id="ft_auditTrail_state" class="hp-switch-state"></span></div><div class="settile-help">Adds a last page listing each signer, time and GPS to the signed PDF.</div></div></div>
+          <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_monthlyReport"><span class="hp-track"></span></label>
+            <div><div><b>Monthly summary email</b><span id="ft_monthlyReport_state" class="hp-switch-state"></span></div><div class="settile-help">On the 1st: loads delivered, documents signed, drivers active, anything worth a look.</div></div></div>
+          <div class="settile" id="brokerDriversSetting"><label class="hp-switch"><input type="checkbox" id="ft_allowBrokerDrivers"><span class="hp-track"></span></label>
+            <div><div><b>Let brokers add drivers for us</b><span id="ft_allowBrokerDrivers_state" class="hp-switch-state"></span></div><div class="settile-help">A broker that assigns you a load can add your driver so they get the link right away.</div></div></div>
         </div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Signed document</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_auditTrail"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Signature audit-trail page</b><span id="ft_auditTrail_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">Adds a final page to the signed PDF listing each signer, the time, and the GPS location. Turn it off for a cleaner customer document — the time and GPS are still captured, saved on the load, and stamped under each signature.</div>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Monthly summary</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_monthlyReport"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Email admins a monthly summary</b><span id="ft_monthlyReport_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">On the 1st of each month: loads delivered, documents signed and emailed, drivers active, carriers re-checked with FMCSA, and anything worth a look.</div>
-            </div>
-          </div>
-        </div>
-        <div id="brokerDriversSetting" class="hide" style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Brokers</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_allowBrokerDrivers"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Let brokers add drivers for us</b><span id="ft_allowBrokerDrivers_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When a broker assigns you one of their loads, allow them to add a driver into your account so your driver gets the signing link right away. You keep full control — any driver a broker adds shows up here for you to edit or turn off.</div>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of pickup</div>
-          <div class="photoSeg" data-kind="Pickup">
-            <input type="checkbox" id="ft_allowPickupPhoto" hidden><input type="checkbox" id="ft_requirePickupPhoto" hidden>
-            <div style="font-size:14px;margin-bottom:8px;"><b>Pickup photos</b></div>
-            <div class="segbtns"><button type="button" class="seg" data-v="off">Off</button><button type="button" class="seg" data-v="optional">Optional</button><button type="button" class="seg" data-v="required">Required</button></div>
-            <div class="seghint" style="color:var(--muted);font-size:13.5px;margin-top:8px;" data-off="No photos — pickup is a one-tap check-in." data-optional="The driver is offered a photo step at pickup (up to 6) but can skip it." data-required="The driver must take at least one photo to record “Pickup complete” — proof of condition at the origin, stamped with time and GPS."></div>
-          </div>
-        </div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);max-width:560px;">
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Proof of delivery</div>
-          <div class="photoSeg" data-kind="Delivery">
-            <input type="checkbox" id="ft_allowDeliveryPhoto" hidden><input type="checkbox" id="ft_requireDeliveryPhoto" hidden>
-            <div style="font-size:14px;margin-bottom:8px;"><b>Delivery photos</b></div>
-            <div class="segbtns"><button type="button" class="seg" data-v="off">Off</button><button type="button" class="seg" data-v="optional">Optional</button><button type="button" class="seg" data-v="required">Required</button></div>
-            <div class="seghint" style="color:var(--muted);font-size:13.5px;margin-top:8px;" data-off="No delivery photos are collected." data-optional="The driver can attach photos (up to 6) on the “Send documents &amp; complete” screen after signing, or skip it." data-required="The driver must attach at least one delivery photo before they can send &amp; complete the stop."></div>
-          </div>
-          <div style="font-size:13px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin:18px 0 10px;">Time on site</div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <label class="hp-switch" style="margin-top:2px;"><input type="checkbox" id="ft_stopTimes"><span class="hp-track"></span></label>
-            <div style="font-size:14px;">
-              <div><b>Drivers record in/out times</b><span id="ft_stopTimes_state" class="hp-switch-state"></span></div>
-              <div style="color:var(--muted);margin-top:3px;">When on, the driver taps <b>Check in</b> on arriving at the pickup and at each delivery stop. The check-out records itself when they tap <b>Pickup complete</b> or send that stop’s signed documents (or they can tap Check out). Times show on each load with time on site, and can fill <b>Pickup / Delivery in &amp; out</b> boxes on the paperwork.</div>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save settings</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save fields</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
+      </div>
       </div>
     </div>
 
@@ -2163,7 +2121,7 @@
       // Bail if the dispatcher opened a different load or started editing while the request was in flight.
       if (!curLoad || curLoad.id !== r.load.id) return;
       if (det.classList.contains('editing') || det.classList.contains('hide') || det.querySelector('#ldView .stSave')) return;
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || [];
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || [];
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
       updateLdArchiveBtn();
@@ -4171,7 +4129,7 @@
     }
     try {
       const r = await api('/api/loads/' + id);
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldBackFn = (opts && opts.back) || null;
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldBackFn = (opts && opts.back) || null;
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
@@ -4600,6 +4558,8 @@
     // In / out times (driver check-in/out per stop, when the account records them — or any already recorded).
     const _timesHtml = stopTimesHtml();
     if (_timesHtml) rows.push(['In / out times', _timesHtml]);
+    // The driver's answers to the company's own steps (Seal #, Straps checked…)
+    if (_ldStepAnswers.length) rows.push(['Driver steps', _ldStepAnswers.map(x => '<div><b>' + esc(x.name) + '</b> (' + (x.when === 'pickup' ? 'pickup' : 'stop ' + x.stopNumber) + '): ' + esc(x.value) + ' <span style="color:var(--muted);font-size:12px;">' + new Date(x.at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</span></div>').join('')]);
     // Derive a plain-English status from the stops so it reads "Completed" / "1 of 2 stops signed"
     // instead of the raw load record value ("open") once drivers start signing.
     (function () {
@@ -4657,6 +4617,7 @@
     [...nums].sort((a, b) => a - b).forEach(n => slots.push({ kind: 'delivery', stopNumber: n, label: 'Stop ' + n }));
     return slots.map(s => Object.assign(s, { t: _ldStopTimes.find(t => t.kind === s.kind && (s.kind === 'pickup' || t.stopNumber === s.stopNumber)) || {} }));
   }
+  var _ldStepAnswers = [];   // var for the same reason as _ldStopTimes
   function stopTimesHtml() {
     if (!fieldOn('stopTimes') && !_ldStopTimes.length) return '';
     const src = { pickup: 'auto at pickup complete', delivery: 'auto when documents were sent', dispatch: 'set by dispatch', driver: 'driver' };
@@ -4683,7 +4644,7 @@
         const v = (sel) => { const x = row.querySelector(sel).value; return x ? new Date(x).getTime() : null; };
         try {
           const r = await api('/api/loads/' + curLoad.id + '/stop-times', { method: 'PUT', body: JSON.stringify({ kind: s.kind, stopNumber: s.stopNumber, inAt: v('.stInIn'), outAt: v('.stOutIn') }) });
-          _ldStopTimes = r.stopTimes || [];
+          _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || [];
           renderLdView();
           try { loadHistory(curLoad.id); } catch (e) {}
         } catch (e) { row.querySelector('.stMsg').textContent = e.message || 'Could not save'; }
@@ -6226,6 +6187,48 @@
     Object.keys(map).forEach(id => { const el = $(id); if (el) el.checked = fieldOn(map[id]); });
     updSwitchStates();
     renderPhotoSegs();
+    renderDriverSteps();
+  }
+  // ---- What drivers do: Off / Optional / Required per step, exceptions per customer, the company's own steps ----
+  const LV = [['off', 'Off'], ['optional', 'Optional'], ['required', 'Required']];
+  let _dsCust = '';
+  async function renderDriverSteps() {
+    const host = $('driverStepsHost'); if (!host) return;
+    let d; try { d = await api('/api/driver-steps' + (_dsCust ? '?customerId=' + encodeURIComponent(_dsCust) : '')); } catch (e) { host.innerHTML = '<div class="sub">' + esc(e.message) + '</div>'; return; }
+    let custs = []; try { custs = (await api('/api/customers')).customers || []; } catch (e) {}
+    const seg = (step, cur, cust) => '<div class="segbtns">' + (cust ? '<button type="button" class="seg' + (!cur ? ' on lv-optional' : '') + '" data-ds="' + step + '" data-v="company">Company</button>' : '')
+      + LV.map(([v, t]) => '<button type="button" class="seg' + (cur === v ? ' on lv-' + v : '') + '" data-ds="' + step + '" data-v="' + v + '"' + (cust ? ' data-cust="1"' : '') + '>' + t + '</button>').join('') + '</div>';
+    const when = s => s.when === 'both' ? 'Pickup + delivery' : s.when === 'pickup' ? 'Pickup' : 'Delivery';
+    const exFor = {}; d.exceptions.forEach(x => { if (x.customerId === _dsCust) exFor[x.step] = x.level; });
+    const custName = (custs.find(c => c.id === _dsCust) || {}).name || '';
+    const exCount = {}; d.exceptions.forEach(x => { exCount[x.customerName] = (exCount[x.customerName] || 0) + 1; });
+    host.innerHTML = '<table class="stepgrid"><thead><tr><th>Step</th><th>When</th><th>Your company</th>' + (_dsCust ? '<th>' + esc(custName) + ' only</th>' : '') + '<th></th></tr></thead><tbody>'
+      + d.steps.map(st => '<tr><td><b>' + esc(st.name) + '</b><div class="settile-help">' + esc(st.help || '') + '</div></td><td>' + when(st) + '</td><td>' + seg(st.id, st.level, false) + '</td>'
+        + (_dsCust ? '<td>' + seg(st.id, exFor[st.id] || '', true) + '</td>' : '')
+        + '<td>' + (st.builtin ? '' : '<button type="button" class="ghost" data-dsrm="' + st.id + '" title="Remove this step">Remove</button>') + '</td></tr>').join('') + '</tbody></table>'
+      + '<div class="stepcols">'
+      + '<div class="stepbox"><h3>Add your own step</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'
+      +   '<label style="flex:2 1 180px;font-size:13px;">Name it<input id="dsName" placeholder="Seal #, Trailer temp, Straps checked…" style="width:100%;"></label>'
+      +   '<label style="flex:1 1 110px;font-size:13px;">When<select id="dsWhen" style="width:100%;"><option value="pickup">At pickup</option><option value="delivery">At delivery</option></select></label>'
+      +   '<label style="flex:1 1 120px;font-size:13px;">Driver answers with<select id="dsKind" style="width:100%;">' + Object.entries(d.kinds).map(([k, t]) => '<option value="' + k + '">' + esc(t) + '</option>').join('') + '</select></label>'
+      +   '<label style="flex:1 1 110px;font-size:13px;">Add it as<select id="dsLevel" style="width:100%;"><option value="optional">Optional</option><option value="required">Required</option><option value="off">Off for now</option></select></label>'
+      +   '<button type="button" id="dsAdd">Add step</button></div><div id="dsMsg" class="settile-help"></div></div>'
+      + '<div class="stepbox"><h3>Customer exceptions</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><select id="dsCust" style="flex:1 1 220px;"><option value="">Pick a customer to set their own rules…</option>'
+      +   custs.map(c => '<option value="' + esc(c.id) + '"' + (c.id === _dsCust ? ' selected' : '') + '>' + esc(c.name) + (exCount[c.name] ? ' (' + exCount[c.name] + ' set)' : '') + '</option>').join('') + '</select></div>'
+      +   '<div class="settile-help" style="margin-top:6px;">' + (d.exceptions.length ? 'Customers with their own rules: ' + esc(Object.keys(exCount).join(', ')) : 'No customer exceptions yet. Pick a customer, then set any step for them; "Company" goes back to your company setting.') + '</div></div>'
+      + '<div class="stepbox"><h3>Recent changes</h3>' + (d.changes.length ? '<div style="max-height:150px;overflow:auto;font-size:12.5px;">' + d.changes.slice(0, 15).map(c => '<div style="padding:3px 0;border-bottom:1px solid var(--line);">'
+        + new Date(c.at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' · <b>' + esc(c.byName || '') + '</b>' + (c.via === 'connector' ? ' (AI connector)' : '') + ': ' + esc(c.stepName || c.step)
+        + (c.customerName ? ' for ' + esc(c.customerName) : '') + ' ' + esc(c.fromLevel || 'new') + ' → <b>' + esc(c.toLevel || '') + '</b></div>').join('') + '</div>' : '<div class="settile-help">Every change is listed here with who made it.</div>') + '</div>'
+      + '</div>';
+    host.onclick = async e => {
+      const b = e.target.closest('[data-ds]'), rm = e.target.closest('[data-dsrm]');
+      try {
+        if (b) { await api('/api/driver-steps', { method: 'PUT', body: JSON.stringify({ step: b.dataset.ds, level: b.dataset.v, customerId: (b.dataset.cust || b.dataset.v === 'company') ? _dsCust : null }) }); renderDriverSteps(); }
+        if (rm && confirm('Remove this step? Answers drivers already gave stay on those loads.')) { await api('/api/driver-steps/custom/' + encodeURIComponent(rm.dataset.dsrm), { method: 'DELETE' }); renderDriverSteps(); }
+        if (e.target.id === 'dsAdd') { await api('/api/driver-steps/custom', { method: 'POST', body: JSON.stringify({ name: $('dsName').value, when: $('dsWhen').value, kind: $('dsKind').value, level: $('dsLevel').value }) }); renderDriverSteps(); }
+      } catch (err) { if ($('dsMsg')) $('dsMsg').textContent = err.message; else alert(err.message); }
+    };
+    $('dsCust').onchange = () => { _dsCust = $('dsCust').value; renderDriverSteps(); };
   }
   // Pickup / delivery photos: one Off · Optional · Required choice that sets the two stored flags
   // (Optional = allow, Required = allow + require), so a contradictory combination can't be picked.
@@ -6260,11 +6263,6 @@
       customer:   !!($('ft_customer')   && $('ft_customer').checked),
       auditTrail: !!($('ft_auditTrail') && $('ft_auditTrail').checked),
       allowBrokerDrivers: !!($('ft_allowBrokerDrivers') && $('ft_allowBrokerDrivers').checked),
-      allowPickupPhoto: !!($('ft_allowPickupPhoto') && $('ft_allowPickupPhoto').checked),
-      requirePickupPhoto: !!($('ft_requirePickupPhoto') && $('ft_requirePickupPhoto').checked),
-      allowDeliveryPhoto: !!($('ft_allowDeliveryPhoto') && $('ft_allowDeliveryPhoto').checked),
-      requireDeliveryPhoto: !!($('ft_requireDeliveryPhoto') && $('ft_requireDeliveryPhoto').checked),
-      stopTimes: !!($('ft_stopTimes') && $('ft_stopTimes').checked),
       monthlyReport: !!($('ft_monthlyReport') && $('ft_monthlyReport').checked),
     };
     $('ftMsg').textContent = 'Saving…'; $('ftMsg').className = '';

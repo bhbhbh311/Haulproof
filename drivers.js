@@ -9,6 +9,7 @@ const { db, DATA_DIR } = require('./db');
 const { requireAuth, requireDriverManager, resolveKey, driverUnlockValue } = require('./auth');
 const { sendMail, helpEmail, emailPodCopy } = require('./mailer');
 const { resolveUiFlags } = require('./uiflags');
+const steps = require('./steps');
 const stoptimes = require('./stoptimes');
 let logEvent = function(){}; try { logEvent = require('./events').logEvent || logEvent; } catch (e) {}
 
@@ -242,7 +243,7 @@ router.get('/my-loads', (req, res) => {
   // does. It still follows a dispatcher reassignment, because that changes the assignment name.
   const dn = (r.driver.name || '').trim();
   const org = r.driver.orgId || null;
-  const own = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
+  const own = db.prepare(`SELECT p.*, l.orgId AS loadOrgId, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
       LEFT JOIN loads l ON l.id = p.loadId
       LEFT JOIN customers c ON c.id = l.customerId
       WHERE (
@@ -261,7 +262,7 @@ router.get('/my-loads', (req, res) => {
   const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
   if (loadIds.length) {
     const ph = loadIds.map(() => '?').join(',');
-    const mates = db.prepare(`SELECT p.*, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
+    const mates = db.prepare(`SELECT p.*, l.orgId AS loadOrgId, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
         LEFT JOIN loads l ON l.id = p.loadId
         LEFT JOIN customers c ON c.id = l.customerId
         WHERE p.loadId IN (${ph}) AND p.status IN ('prepared','awaiting_build','needs_reupload') AND p.assignedFulfilledAt IS NULL
@@ -269,6 +270,8 @@ router.get('/my-loads', (req, res) => {
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
   }
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
+  const reqCache = {}, answersCache = {};
+  const reqFor = p => { const k = (p.loadOrgId || org) + '|' + (p.loadCustomerId || ''); if (!reqCache[k]) { try { reqCache[k] = steps.flagsFor(p.loadOrgId || org, p.loadCustomerId || null); } catch (e) { reqCache[k] = null; } } return reqCache[k]; };
   // Per-load signing progress so the phone can show "1 of 2 signed — Stop 2 still needs signing". total counts
   // every stop on the load (signed + ready + awaiting); signed counts the ones already completed.
   const prog = {};
@@ -298,7 +301,9 @@ router.get('/my-loads', (req, res) => {
     awaiting: p.status === 'awaiting_build',
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
-    filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file' }));
+    filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file',
+    // what this load's company (and customer) requires of the driver, and the answers so far
+    req: p.loadId ? reqFor(p) : null, answers: p.loadId ? (answersCache[p.loadId] || (answersCache[p.loadId] = steps.answersFor(p.loadId).map(a => ({ stepId: a.stepId, stopNumber: a.stopNumber, value: a.value })))) : [] }));
   // Per-org "Simple mode" field flags so the driver app hides the same optional inputs dispatch turned off.
   let uiFlags = {}; try { uiFlags = resolveUiFlags(org); } catch (e) {}
   res.json({ loads, uiFlags });
@@ -318,9 +323,17 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
     || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
   if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
   const b = req.body || {};
-  // Is a pickup photo required for this load? (Account-wide setting for now.)
-  let requirePhoto = false;
-  try { requirePhoto = !!resolveUiFlags(load.orgId || org).requirePickupPhoto; } catch (e) {}
+  // What this load's company (and its customer) requires before "Pickup complete"
+  let need = {};
+  try { need = steps.flagsFor(load.orgId || org, load.customerId || null); } catch (e) {}
+  const requirePhoto = !!need.requirePickupPhoto;
+  if (need.requireEnRoute && !load.enRouteAt) return res.status(400).json({ error: 'Tap "On my way to pickup" first — this customer requires it.' });
+  if (need.requireStopTimes) {
+    const t = (stoptimes.mapFor([load.id])[load.id] || []).find(x => x.kind === 'pickup');
+    if (!t || !t.inAt) return res.status(400).json({ error: 'Check in at the pickup first — this customer requires it.' });
+  }
+  const stillNeeded = steps.missing(load, 'pickup');
+  if (stillNeeded.length) return res.status(400).json({ error: 'Before pickup complete: ' + stillNeeded.join(', ') + '.' });
   const photosIn = Array.isArray(b.photos)
     ? b.photos.filter(s => typeof s === 'string' && s.indexOf('data:image/') === 0).slice(0, 6) : [];
   if (requirePhoto && !photosIn.length) return res.status(400).json({ error: 'A photo is required at pickup — take at least one.' });
@@ -391,6 +404,27 @@ router.post('/my-loads/:loadId/en-route/undo', (req, res) => {
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'en_route_cleared',
     detail: '"On the way to pickup" undone by ' + (r.driver.name || 'driver'), actor: (r.driver.name || 'Driver') });
   res.json({ ok: true });
+});
+
+// Driver answers one of the company's own steps ("Seal #", "Straps checked"…) for the pickup or a delivery stop
+router.post('/my-loads/:loadId/step', express.json(), (req, res) => {
+  const r = resolveKey(req);
+  if (!r || !r.driver) return res.status(401).json({ error: 'This link is not valid' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.loadId);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const org = r.driver.orgId || null;
+  const engaged = (load.carrierId && load.carrierId === org) || (load.orgId && load.orgId === org) || (load.brokerId && load.brokerId === org)
+    || !!db.prepare(`SELECT 1 FROM pods WHERE loadId = ? AND (assignedDriverId = ? OR signedByDriverId = ?) LIMIT 1`).get(load.id, r.driver.id, r.driver.id);
+  if (!engaged) return res.status(403).json({ error: 'This load is not assigned to you' });
+  const b = req.body || {};
+  try {
+    const gps = b.gps && typeof b.gps.lat === 'number' && typeof b.gps.lng === 'number' ? { lat: b.gps.lat, lng: b.gps.lng } : null;
+    const a = steps.answer(load, { stepId: b.stepId, stopNumber: b.stopNumber, value: b.value, gps }, r.driver.id);
+    const st = db.prepare('SELECT name, whenAt FROM driver_steps WHERE id = ?').get(b.stepId) || {};
+    logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_step',
+      detail: (st.name || 'Step') + (st.whenAt === 'pickup' ? ' (pickup)' : ' (stop ' + (Number(b.stopNumber) || 1) + ')') + ': ' + (a ? a.value : 'cleared') + ' — ' + (r.driver.name || 'driver'), actor: r.driver.name || 'Driver' });
+    res.json({ ok: true, answers: steps.answersFor(load.id).map(x => ({ stepId: x.stepId, stopNumber: x.stopNumber, value: x.value })) });
+  } catch (e) { if (e instanceof steps.StepError) return res.status(e.status).json({ error: e.message }); throw e; }
 });
 
 // Driver self-undo of a pickup they just recorded (e.g. an accidental tap). Clears the time/GPS/photos and logs

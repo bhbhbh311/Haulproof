@@ -203,7 +203,8 @@ router.get('/:id', requireAuth, (req, res) => {
   // Authority warnings on the assigned carrier/broker (added by an admin override, not yet active on FMCSA).
   const warnOf = (id) => { if (!id) return null; const o = db.prepare(`SELECT authWarning FROM orgs WHERE id = ?`).get(id); return o ? o.authWarning || null : null; };
   const lo = loadOut(load, req);
-  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id) });
+  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id),
+    stepAnswers: require('./steps').answersFor(load.id).map(a => ({ name: a.name || '(removed step)', when: a.whenAt, stopNumber: a.stopNumber, value: a.value, at: a.at })) });
 });
 
 // Serve one of a load's pickup proof-photos (dispatcher/portal view). Auth'd like the load itself.
