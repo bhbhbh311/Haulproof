@@ -58,6 +58,7 @@ function loadOut(l, req) {
 router.post('/', requireAuth, (req, res) => {
   const orgId = myOrg(req);
   const { loadNumber, poNumber, customer, consignee, origin, destination } = req.body || {};
+  const instructions = String((req.body || {}).instructions || '').trim().slice(0, 4000) || null;
   if (!poNumber && !loadNumber) return res.status(400).json({ error: 'Provide a PO number or a load number' });
   if (poNumber) {
     const existing = db.prepare(`SELECT * FROM loads WHERE orgId IS ? AND poNumber = ?`).get(orgId, poNumber);
@@ -67,9 +68,9 @@ router.post('/', requireAuth, (req, res) => {
   // A carrier creating its own load IS the carrier — default it to their company (they can change it later).
   let carrierId = null, carrierName = null;
   if (isCarrier(req) && orgId) { carrierId = orgId; const o = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId); carrierName = o ? o.name : null; }
-  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, status, createdBy, createdAt)
-     VALUES (?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
-    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, req.user.email, Date.now());
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, instructions, status, createdBy, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
+    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, instructions, req.user.email, Date.now());
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : ''), actor: actorOf(req) });
   res.json({ load: loadOut(load, req), existed: false });
@@ -375,6 +376,7 @@ router.put('/:id', requireAuth, (req, res) => {
     || (orgIdNew !== load.orgId) || ((customerId || null) !== (load.customerId || null)) || ((customerText || null) !== (load.customer || null));
   if (changed) {
     db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
+    if (b.instructions !== undefined) db.prepare(`UPDATE loads SET instructions = ? WHERE id = ?`).run(String(b.instructions || '').trim().slice(0, 4000) || null, load.id);
     if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
     logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   }
@@ -517,7 +519,7 @@ router.post('/:id/assign-driver', requireAuth, (req, res) => {
     try { db.prepare(`SELECT id FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId = ?`).all(load.id, drv.id).forEach(p => notify.notifyDriverReady(p.id)); } catch (e) {}
   }
   if (!driverName) return res.status(400).json({ error: "Choose or enter the driver's name" });
-  db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, load.id);
+  db.prepare(`UPDATE loads SET driverName = ?, truck = ?, trailer = ?, assignedDriverId = ? WHERE id = ?`).run(driverName, truck || null, trailer || null, driverId, load.id);
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_assigned',
     detail: 'Driver ' + driverName + (truck ? ' · Truck ' + truck : '') + (trailer ? ' · Trailer ' + trailer : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });

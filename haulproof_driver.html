@@ -895,7 +895,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-04e";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-05a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1604,9 +1604,12 @@ window.__startApp=function(){
         var timesOn = drvFieldOn("stopTimes");
         var gReq = _renderReq || loadUiFlags(), gAnswers = (g.docs.find(function(d){ return d.answers; })||{}).answers || [];
         var reup = g.docs.filter(function(d){ return d.reupload; });
-        var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload; });
+        var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload && !d.noDoc; });
+        // A load dispatch gave this driver before any paperwork exists: open it to start (On my way, pickup, scan the BOL)
+        var noDoc = g.docs.some(function(d){ return d.noDoc; });
+        var instructions = (g.docs.find(function(d){ return d.instructions; })||{}).instructions || "";
         ready.sort(function(a,b){ return (a.stopNumber||1)-(b.stopNumber||1); });   // Stop 1 first
-        var waiting = g.docs.filter(function(d){ return d.awaiting && !d.reupload; });
+        var waiting = g.docs.filter(function(d){ return d.awaiting && !d.reupload && !d.noDoc; });
         // Signing progress: total stops on the load and how many are already signed (from the server).
         var total = g.docs.reduce(function(m,d){ return Math.max(m, d.loadTotal||0); }, 0) || (ready.length+waiting.length);
         var signed = g.docs.reduce(function(m,d){ return Math.max(m, d.loadSigned||0); }, 0);
@@ -1614,7 +1617,7 @@ window.__startApp=function(){
         var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
         var erAt = g.docs.reduce(function(m,d){ return Math.max(m, d.enRouteAt||0); }, 0);
-        var canOpen = !!(reup.length || ready.length || puAt);
+        var canOpen = !!(reup.length || ready.length || puAt || noDoc);
         var sub = ready.length>1 ? (ready.length+" stops to sign") : (g.consignee||"");
         // One-line status shown on the closed card, so the driver can tell the loads apart at a glance.
         var stat, statColor;
@@ -1626,6 +1629,7 @@ window.__startApp=function(){
         else if(timesOn && puT && puT.inAt && !puT.outAt){ stat="🕘 At pickup since "+timeStr(new Date(puT.inAt)); statColor="var(--primary)"; }
         else if(erAt){ stat="🚚 On the way to pickup since "+timeStr(new Date(erAt)); statColor="var(--primary)"; }
         else if(ready.length){ stat="✍ Ready to sign"; statColor="var(--primary)"; }
+        else if(noDoc){ stat="🆕 New load — tap to start"; statColor="var(--primary)"; }
         else { stat=""; }
         if(signed>0 && total>0) stat=(stat?stat+" · ":"")+"✓ "+signed+" of "+total+" signed";
         var cardEl=document.createElement("div"); cardEl.className="ldcard"+(reup.length?" reup":"");
@@ -1651,6 +1655,8 @@ window.__startApp=function(){
         var lf=(g.docs.find(function(d){ return d.loadFields && d.loadFields.length; })||{}).loadFields||[];
         if(lf.length){ var lfb=document.createElement("div"); lfb.style.cssText="display:flex;flex-wrap:wrap;gap:6px 14px;padding:4px 0 8px;font-size:13px;";
           lfb.innerHTML=lf.map(function(f){ return '<span><span style="color:var(--muted);">'+esc(f.name)+':</span> <b>'+esc(f.value)+'</b></span>'; }).join(""); body.appendChild(lfb); }
+        if(instructions){ var ib=document.createElement("div"); ib.style.cssText="margin:2px 0 8px;padding:8px 10px;border-radius:10px;background:var(--warn-soft);border:1px solid var(--warn-line);font-size:13px;white-space:pre-wrap;";
+          ib.innerHTML='<div style="font-weight:800;font-size:12px;margin-bottom:2px;">Special instructions</div>'+esc(instructions); body.appendChild(ib); }
         function sec(t){ var h=document.createElement("div"); h.className="ldsec"; h.textContent=t; body.appendChild(h); }
         function slot(pad){ var d=document.createElement("div"); d.style.cssText="padding:"+(pad||"2px 0 6px")+";"; body.appendChild(d); return d; }
         if(reup.length){
@@ -1662,7 +1668,7 @@ window.__startApp=function(){
         // Pickup complete (per load): one-tap GPS + time so dispatch sees the freight is picked up. No signature.
         // Only offered once dispatch has set the signature up (a "ready" stop) — not while the load is still
         // "waiting on dispatch". If it was already picked up, keep showing that status either way.
-        if(loadId && (ready.length || puAt)){
+        if(loadId && (ready.length || puAt || noDoc)){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
           sec("Pickup");
           // "On my way to pickup": before the truck reaches the shipper (hidden once checked in at pickup or picked up).
@@ -1714,6 +1720,12 @@ window.__startApp=function(){
           else if(dMiss.length) blockedNote(os, "Before signing: "+dMiss.join(", "));
           else { os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
             os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); }); }
+        }
+        if(noDoc && !ready.length && !waiting.length){
+          sec("Paperwork");
+          var sc=slot("2px 0 8px");
+          sc.innerHTML='<button class="btn primary sm" type="button">📷 Scan the shipper\'s BOL</button><div style="color:var(--muted);font-size:12px;margin-top:4px;">At pickup: photograph every page. Dispatch sets it up and it comes back here to sign at delivery.</div>';
+          sc.querySelector("button").addEventListener("click", function(){ scanBolFor(g); });
         }
       });
     }catch(e){ card.classList.add("hide"); }
@@ -2276,6 +2288,11 @@ window.__startApp=function(){
   if($("drvCustSave")) $("drvCustSave").addEventListener("click", function(){ drvSaveCustomer(false); });
   if($("drvCustModal")) $("drvCustModal").addEventListener("click", function(e){ if(e.target===$("drvCustModal")) drvCloseCustModal(); });
 
+  function scanBolFor(g){
+    _dispatchUpload=true; pulledMeta=null; enterSign(null);
+    fillDetails({ poNumber: g.poNumber||"", loadNumber: g.loadNumber||"", consignee: g.consignee||"" });
+    if(g.poNumber) setDetailsMode(false, false);
+  }
   function enterSign(stop){
     _reup=null;   // leaving any re-shoot flow
     currentStop=stop;
