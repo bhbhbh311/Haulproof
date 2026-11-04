@@ -11,6 +11,7 @@
 const crypto = require('crypto');
 const { db } = require('./db');
 const { resolveUiFlags, setUiFlags } = require('./uiflags');
+const WF = require('./wordfilter');
 
 const LEVELS = ['off', 'optional', 'required'];
 const BUILTIN = {
@@ -107,6 +108,10 @@ function setLevel(orgId, { step, level: l, customerId }, by, via = 'screen') {
 function addStep(orgId, { name, when, kind, level: l }, by, via = 'screen') {
   const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
   if (!n) throw new StepError('Name the step (for example "Seal #" or "Trailer temperature")');
+  if (WF.findBad(n)) {   // refused, and the attempt stays in the change list (who, how)
+    db.prepare('INSERT INTO step_changes (orgId, step, stepName, fromLevel, toLevel, byName, via, at) VALUES (?,?,?,?,?,?,?,?)').run(orgId, 'blocked', 'A new step name', null, 'blocked: word not allowed', by || null, via || 'screen', Date.now());
+    throw new StepError('That step name has a word that isn\'t allowed in HaulProof. Please reword it.');
+  }
   if (!['pickup', 'delivery'].includes(when)) throw new StepError('Pick when: at pickup or at delivery');
   if (!KINDS[kind]) throw new StepError('Pick how the driver answers: check box, short answer or number');
   checkLevel(l || 'optional');
@@ -145,6 +150,10 @@ function answer(load, { stepId, stopNumber, value, gps }, driverId) {
   let v = value == null ? '' : String(value).trim().slice(0, 200);
   if (s.kind === 'check') v = v && v !== 'false' && v !== '0' ? 'Done' : '';
   if (s.kind === 'number' && v && isNaN(Number(v.replace(/[, ]/g, '')))) throw new StepError(`${s.name}: enter a number`);
+  if (v && WF.findBad(v)) {
+    require('./events').logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'blocked', detail: `Blocked a word that isn't allowed in the driver's answer to ${s.name}`, actor: 'Driver' });
+    throw new StepError(`${s.name}: that answer has a word that isn't allowed. Please reword it.`);
+  }
   const stop = s.whenAt === 'pickup' ? 0 : Math.max(1, Number(stopNumber) || 1);
   if (!v) { db.prepare('DELETE FROM step_answers WHERE loadId = ? AND stepId = ? AND stopNumber = ?').run(load.id, stepId, stop); return null; }
   db.prepare(`INSERT INTO step_answers (loadId, stepId, stopNumber, value, driverId, gps, at) VALUES (?,?,?,?,?,?,?)

@@ -379,6 +379,8 @@ const DOC_STATUS = { awaiting_build: 'needs signature setup', received: 'receive
 function loadDetail(d, base) {
   return Object.assign(loadSummary(d.load), {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
+    // the company's own load fields (Release #, Trailer #…) with this load's values
+    load_fields: (d.loadFields || []).length ? Object.fromEntries(d.loadFields.map(f => [f.name, f.value || (f.required ? '(missing, required)' : '')])) : undefined,
     documents: (d.pods || []).filter(p => p.status !== 'parked' && p.status !== 'not_used').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: DOC_STATUS[p.status] || p.status, receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
     // Driver check-in / check-out per stop (when the account records in/out times).
     in_out_times: (d.stopTimes || []).map(t => {
@@ -473,6 +475,40 @@ const TOOLS = [
     description: 'Adds a company to this account’s customer list. If one with the same name already exists, returns it instead of adding a duplicate. Check list_customers first.',
     inputSchema: { type: 'object', properties: { name: str('Company name, e.g. "Dannar Outdoor Solutions LLC"') }, required: ['name'] },
     run: async (user, a) => { needCompany(user); const r = await api(user, 'POST', '/api/customers', { json: { name: String(a.name || '').trim() } }); return { customer: { id: r.customer.id, name: r.customer.name }, already_existed: !!r.existed }; } },
+
+  // ---- the company's own load fields and names for the standard ones ----
+  { name: 'list_load_fields', title: 'See your load fields',
+    description: 'Lists what this company calls its standard fields (PO #, Load #, Customer, Delivered to, Sales rep, Driver, Truck) and the load fields it added itself, with whether each is required and shown to drivers.',
+    inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true },
+    run: async (user) => { needCompany(user); const r = await api(user, 'GET', '/api/load-fields');
+      return { standard_fields: Object.keys(r.defaults).map(k => ({ field: r.defaults[k], called: r.labels[k] })), own_fields: r.fields.map(f => ({ name: f.name, type: f.kind, required: f.required, driver_sees_it: f.showDriver })) }; } },
+
+  { name: 'rename_field', title: 'Rename a standard field',
+    description: 'Calls a standard field something else for everyone on this company’s account (screens, lists, driver app), e.g. "PO #" → "BOL #", "Load #" → "Trip #", "Truck" → "Unit". Empty name goes back to the usual name. Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { field: { type: 'string', enum: ['PO #', 'Load #', 'Customer', 'Delivered to', 'Sales rep', 'Driver', 'Truck'] }, new_name: str('What to call it ("" = the usual name)') }, required: ['field', 'new_name'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => { needCompany(user); const r0 = await api(user, 'GET', '/api/load-fields');
+      const key = Object.keys(r0.defaults).find(k => r0.defaults[k] === a.field || r0.labels[k] === a.field); if (!key) throw new ToolError('Pick one of the standard fields.');
+      const r = await api(user, 'PUT', '/api/load-fields/label', { json: { field: key, label: a.new_name } , headers: { 'X-HP-Via': 'connector' } }); return { saved: true, field: r0.defaults[key], now_called: r.labels[key] }; } },
+
+  { name: 'add_load_field', title: 'Add a load field',
+    description: 'Adds a field the company names itself that stays with every load, e.g. "Release #", "Trailer #", "Pickup #". Choose text, number or date; required (the load shows it missing) and whether the driver sees it. Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { name: str('Field name'), type: { type: 'string', enum: ['text', 'number', 'date'] }, required: { type: 'boolean' }, driver_sees_it: { type: 'boolean' } }, required: ['name'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => { needCompany(user);
+      await api(user, 'POST', '/api/load-fields', { json: { name: a.name, kind: a.type || 'text', required: !!a.required, showDriver: !!a.driver_sees_it } , headers: { 'X-HP-Via': 'connector' } });
+      return { added: String(a.name).trim(), type: a.type || 'text', required: !!a.required, driver_sees_it: !!a.driver_sees_it }; } },
+
+  { name: 'change_load_field', title: 'Change or remove a load field',
+    description: 'Renames one of the company’s own load fields, makes it required or optional, shows or hides it for drivers, or removes it (values already on loads stay in their history). Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { field: str('The field’s current name'), new_name: str('Optional new name'), required: { type: 'boolean' }, driver_sees_it: { type: 'boolean' }, remove: { type: 'boolean' } }, required: ['field'] },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    run: async (user, a) => { needCompany(user); const r0 = await api(user, 'GET', '/api/load-fields');
+      const f = pickOne(r0.fields, a.field, 'load field', x => x.name);
+      if (a.remove) { await api(user, 'DELETE', '/api/load-fields/' + encodeURIComponent(f.id), { headers: { 'X-HP-Via': 'connector' } }); return { removed: f.name }; }
+      const body = {}; if (a.new_name != null) body.name = a.new_name; if (a.required != null) body.required = a.required; if (a.driver_sees_it != null) body.showDriver = a.driver_sees_it;
+      if (!Object.keys(body).length) throw new ToolError('Nothing to change.');
+      await api(user, 'PUT', '/api/load-fields/' + encodeURIComponent(f.id), { json: body , headers: { 'X-HP-Via': 'connector' } }); return { saved: true, field: a.new_name || f.name }; } },
 
   // ---- what drivers must do: Off / Optional / Required, per company with exceptions per customer, plus named steps ----
   { name: 'get_driver_steps', title: 'See what drivers must do',
@@ -684,8 +720,9 @@ const TOOLS = [
     } },
 
   { name: 'update_load', title: 'Update a load',
-    description: 'Changes a load’s PO #, load # or customer. Pass customer "none" to clear it. Only the company that owns the load can change these.',
-    inputSchema: { type: 'object', properties: { load: str('Current PO #, load #, or load id'), po_number: str('New PO #'), load_number: str('New load #'), customer: str('Customer name or id, or "none"') }, required: ['load'] },
+    description: 'Changes a load’s PO #, load #, customer, or the company’s own load fields (see list_load_fields). Pass customer "none" to clear it. Only the company that owns the load can change these.',
+    inputSchema: { type: 'object', properties: { load: str('Current PO #, load #, or load id'), po_number: str('New PO #'), load_number: str('New load #'), customer: str('Customer name or id, or "none"'),
+      fields: { type: 'object', description: 'The company’s own load fields by name, e.g. {"Release #": "R-4471"}; "" clears one', additionalProperties: { type: 'string' } } }, required: ['load'] },
     run: async (user, a, base) => {
       needCompany(user);
       const d = await resolveLoad(user, a.load);
@@ -693,7 +730,10 @@ const TOOLS = [
       if (a.po_number != null) body.poNumber = String(a.po_number).trim();
       if (a.load_number != null) body.loadNumber = String(a.load_number).trim();
       if (a.customer != null) body.customerId = /^(none|null|)$/i.test(String(a.customer).trim()) ? '' : (await resolveCustomer(user, a.customer)).id;
-      if (!Object.keys(body).length) throw new ToolError('Nothing to change — pass po_number, load_number or customer.');
+      const hasFields = a.fields && typeof a.fields === 'object' && Object.keys(a.fields).length;
+      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer or fields.');
+      if (hasFields) await api(user, 'PUT', '/api/loads/' + d.load.id + '/fields', { json: { values: a.fields } , headers: { 'X-HP-Via': 'connector' } });
+      if (!Object.keys(body).length) return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
       const r = await api(user, 'PUT', '/api/loads/' + d.load.id, { json: body });
       if (body.customerId !== undefined && (r.load.customerId || '') !== (body.customerId || '')) throw new ToolError('This login can’t change the customer on that load.');
       return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
@@ -871,7 +911,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
-  'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer; confirm changes with the user first.';
+  'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer. The company’s own load fields and names for standard fields: list_load_fields / rename_field / add_load_field / change_load_field; fill them on a load with update_load fields. Confirm changes with the user first.';
 
 async function handleRpc(msg, user, base) {
   const id = msg.id;

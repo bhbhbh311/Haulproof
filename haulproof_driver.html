@@ -549,7 +549,7 @@
     <div class="routeprog hide" id="routeProg"><div class="rbar"><i id="rbarFill"></i></div><span class="rprog" id="rprog">0 of 0 delivered</span></div>
     <div class="stepper" id="stepper"></div>
     <div id="stopList"></div>
-    <div class="demobox">
+    <div class="demobox hide" id="demoBox">
       <div class="demolbl">Examples only — for trying the app</div>
       <button class="btn ghost sm" id="sampleRouteBtn" type="button">Load sample route</button>
       <button class="btn ghost sm hide" id="clearRouteBtn" type="button">Clear sample route</button>
@@ -863,9 +863,30 @@ window.__startApp=function(){
   // _renderReq while drawing a load card, _activeReq for the load the driver is working (pickup sheet, signing).
   var _renderReq=null, _activeReq=null;
   function drvFieldOn(k){ var f=_renderReq||_activeReq||loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
+  // What the company calls its fields ("PO #" may be "BOL #", "Load #" may be "Trip #"); swapped wherever shown
+  var LBL_DEF={ poNumber:"PO #", loadNumber:"Load #", customer:"Customer", receiver:"Delivered to", salesRep:"Sales rep", driver:"Driver", truck:"Truck" }, _drvLbl=null, _lblObs=null, _lblBusy=false;
+  function drvRelabel(root){
+    var L=_drvLbl; if(!L||!root) return;
+    var hs=Object.keys(LBL_DEF).filter(function(k){ return LBL_DEF[k].slice(-1)==="#" && L[k] && L[k]!==LBL_DEF[k]; });
+    var ws=Object.keys(LBL_DEF).filter(function(k){ return LBL_DEF[k].slice(-1)!=="#" && L[k] && L[k]!==LBL_DEF[k]; });
+    if(!hs.length && !ws.length) return;
+    function fix(t){ var o=t; hs.forEach(function(k){ o=o.split(LBL_DEF[k]).join(L[k]); }); var tr=o.trim(); ws.forEach(function(k){ if(tr===LBL_DEF[k]) o=o.replace(LBL_DEF[k], L[k]); }); return o; }
+    var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), ns=[]; while(w.nextNode()) ns.push(w.currentNode);
+    ns.forEach(function(n){ if(n.parentNode && /^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName)) return; var v=fix(n.nodeValue); if(v!==n.nodeValue) n.nodeValue=v; });
+    if(root.querySelectorAll) root.querySelectorAll("input[placeholder]").forEach(function(el){ var v=fix(el.placeholder); if(v!==el.placeholder) el.placeholder=v; });
+  }
+  // "BOL #" -> "BOL" for the short "PO 1234 · Load 5678" line on a load card
+  function shortLbl(k){ var v=(_drvLbl&&_drvLbl[k])||LBL_DEF[k]; return String(v).replace(/\s*#\s*$/,""); }
+  function applyDrvLabels(l){
+    if(!l||typeof l!=="object") return; _drvLbl=l; try{ lsSet("hp_labels", l); }catch(e){}
+    drvRelabel(document.body);
+    if(!_lblObs && window.MutationObserver){ _lblObs=new MutationObserver(function(ms){ if(_lblBusy) return; _lblBusy=true; try{ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ drvRelabel(n.nodeType===1?n:n.parentNode); }); }); }finally{ _lblBusy=false; } });
+      _lblObs.observe(document.body,{childList:true,subtree:true}); }
+  }
+  try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-04c";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-04d";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1357,6 +1378,9 @@ window.__startApp=function(){
     saveRoute(route); renderRoute();
   });
   if($("clearRouteBtn")) $("clearRouteBtn").addEventListener("click", function(){ route={stops:[]}; saveRoute(route); renderRoute(); });
+  // The sample route lives under Help ("Try a sample route" opens /driver?sample=1); it's no longer on the home screen.
+  try{ if(/[?&]sample=1\b/.test(location.search)){ route={stops:SAMPLE.map(function(s,i){ return {id:genId(), n:i+1, name:s.name, addr:s.addr, status:"pending"}; })}; saveRoute(route);
+    history.replaceState(null,"",location.pathname+location.search.replace(/([?&])sample=1&?/,"$1").replace(/[?&]$/,"")); setTimeout(function(){ try{ renderRoute(); }catch(e){} },0); } }catch(e){}
   var _dispatchUpload=false;   // true = driver is just handing the raw doc + PO# to dispatch to set up
   $("oneoffBtn").addEventListener("click", function(){ _dispatchUpload=false; pulledMeta=null; enterSign(null); });
   if($("dispatchBtn")) $("dispatchBtn").addEventListener("click", function(){ _dispatchUpload=true; pulledMeta=null; enterSign(null); });
@@ -1539,7 +1563,7 @@ window.__startApp=function(){
       var hdr={"X-Api-Key":key}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
       var r=await fetch(driverApi("/my-loads"),{headers:hdr});
       if(!r.ok){ updatingNote(); return; }
-      var _j=(await r.json())||{}; if(_j.uiFlags) saveUiFlags(_j.uiFlags);
+      var _j=(await r.json())||{}; if(_j.uiFlags) saveUiFlags(_j.uiFlags); if(_j.labels) applyDrvLabels(_j.labels);
       var loads=_j.loads||[];
       if(!loads.length){ _lastMyLoads=[]; myLoadsNote("<b>No loads assigned right now.</b><br>When dispatch sends you a load, it shows up here.", "empty"); return; }
       renderMyLoads(loads);
@@ -1601,7 +1625,7 @@ window.__startApp=function(){
           ? '<span class="ldchev" aria-hidden="true">›</span>'
           : '<span style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
         cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
-          '<div class="ldpo">PO '+esc(g.poNumber||"—")+(g.loadNumber?(" · Load "+esc(g.loadNumber)):"")+'</div>'+
+          '<div class="ldpo">'+esc(shortLbl("poNumber"))+' '+esc(g.poNumber||"—")+(g.loadNumber?(" · "+esc(shortLbl("loadNumber"))+" "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
           (stat?'<div class="ldstat" style="color:'+statColor+';">'+esc(stat)+'</div>':'')+
           '</div>'+right+'</div>';
@@ -1614,6 +1638,9 @@ window.__startApp=function(){
         if(!isOpen) return;
         // ---- Opened load: everything the driver does on it ----
         var body=document.createElement("div"); body.className="ldbody"; cardEl.appendChild(body);
+        var lf=(g.docs.find(function(d){ return d.loadFields && d.loadFields.length; })||{}).loadFields||[];
+        if(lf.length){ var lfb=document.createElement("div"); lfb.style.cssText="display:flex;flex-wrap:wrap;gap:6px 14px;padding:4px 0 8px;font-size:13px;";
+          lfb.innerHTML=lf.map(function(f){ return '<span><span style="color:var(--muted);">'+esc(f.name)+':</span> <b>'+esc(f.value)+'</b></span>'; }).join(""); body.appendChild(lfb); }
         function sec(t){ var h=document.createElement("div"); h.className="ldsec"; h.textContent=t; body.appendChild(h); }
         function slot(pad){ var d=document.createElement("div"); d.style.cssText="padding:"+(pad||"2px 0 6px")+";"; body.appendChild(d); return d; }
         if(reup.length){
@@ -1799,6 +1826,7 @@ window.__startApp=function(){
     // The route progress + stops only appear once a sample route is loaded. "Load sample route" shows when
     // empty; "Clear sample route" replaces it once loaded. No manual route builder — real work is Your loads.
     if($("routeProg")) $("routeProg").classList.toggle("hide", !has);
+    if($("demoBox")) $("demoBox").classList.toggle("hide", !has);   // only shows (with "Clear sample route") while a sample is loaded
     if($("sampleRouteBtn")) $("sampleRouteBtn").classList.toggle("hide", has);
     if($("clearRouteBtn")) $("clearRouteBtn").classList.toggle("hide", !has);
     $("rbarFill").style.width=(has?Math.round(delivered/stops.length*100):0)+"%";

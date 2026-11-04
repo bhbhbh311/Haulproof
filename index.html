@@ -1059,7 +1059,7 @@
         <div id="cmDocUpForm" class="hide" style="margin-top:14px;">
           <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
             <div><label>Customer PO # <span style="color:var(--bad);">*required</span></label><input id="cmDocPo" placeholder="e.g. 4501-88"></div>
-            <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocLoad"></div>
+            <div><label><span data-lbl="loadNumber">Load #</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocLoad"></div>
             <div><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="cmDocCons"></div>
             <div><label>Type</label><select id="cmDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
           </div>
@@ -1213,8 +1213,9 @@
       <div id="ldEditForm" class="ld-editonly hide" style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;">
         <div class="row" style="grid-template-columns:1fr 1fr;">
           <div><label>Customer PO #</label><input id="ldEditPo"></div>
-          <div><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
+          <div><label><span data-lbl="loadNumber">Load #</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
         </div>
+        <div class="row hide" id="ldEditFields" style="grid-template-columns:1fr 1fr;margin-top:10px;"></div>
         <div class="row hide" id="ldEditCustomerRow" style="grid-template-columns:1fr;margin-top:10px;">
           <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;" id="ldEditCustomerHint">which account owns this PO</span></label>
             <select id="ldEditCustomer" class="hide"></select>
@@ -1411,7 +1412,7 @@
       <div id="upForm" class="hide" style="margin-top:16px;">
         <div class="row" style="grid-template-columns:1fr 1fr 1fr;">
           <div><label>Customer PO # <span style="color:var(--bad);">*required</span></label><input id="uPo" placeholder="e.g. 4501-88"></div>
-          <div id="uLoadWrap"><label>Load # <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
+          <div id="uLoadWrap"><label><span data-lbl="loadNumber">Load #</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uLoad" placeholder="e.g. 123508"></div>
           <div id="uConsWrap"><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
         <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;align-items:start;">
@@ -1449,7 +1450,7 @@
       <h1>Find a document</h1><p class="sub">Search filed documents by customer PO #, our load #, consignee, or any text.</p>
       <div class="row">
         <div><label>PO #</label><input id="fPo" placeholder="e.g. 4501-88"></div>
-        <div><label>Load #</label><input id="fLoad" placeholder="e.g. 123508"></div>
+        <div><label><span data-lbl="loadNumber">Load #</span></label><input id="fLoad" placeholder="e.g. 123508"></div>
         <div><label>Consignee</label><input id="fCons" placeholder="e.g. Lincoln"></div>
         <div><label>Any text</label><input id="fQ" placeholder="keyword"></div>
       </div>
@@ -1457,7 +1458,7 @@
     </div>
     <div class="card" id="resultsCard">
       <table>
-        <thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Signed</th><th>Copy sent</th><th></th></tr></thead>
+        <thead><tr><th class="mono">PO #</th><th class="mono" data-lbl="loadNumber">Load #</th><th>Consignee</th><th>Type</th><th>Signed</th><th>Copy sent</th><th></th></tr></thead>
         <tbody id="rows"><tr><td colspan="7" class="empty">Search to see documents.</td></tr></tbody>
       </table>
     </div>
@@ -1469,7 +1470,7 @@
         <div style="display:flex;gap:8px;align-items:center;"><input id="recvSearch" placeholder="PO # or any text" style="max-width:220px;"><button class="ghost" id="recvRefresh" type="button">Search</button></div>
       </div>
       <table style="margin-top:12px;">
-        <thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>From</th><th>Signed</th><th></th></tr></thead>
+        <thead><tr><th class="mono">PO #</th><th class="mono" data-lbl="loadNumber">Load #</th><th>From</th><th>Signed</th><th></th></tr></thead>
         <tbody id="recvRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -1644,18 +1645,21 @@
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="mnSave" type="button">Save master list</button><span id="mnMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
       <div id="simplifyBlock" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
-        <h1 style="font-size:16px;margin-bottom:4px;">What drivers do</h1>
+        <h1 style="font-size:16px;margin-bottom:4px;">Load fields</h1>
+        <p class="sub" style="margin-top:0;">Call a field what your team calls it, and add your own fields that stay with every load (Release #, Trailer #, Pickup #…). Dispatch fills them in on the load.</p>
+        <div id="loadFieldsHost"><div class="sub">Loading…</div></div>
+        <h1 style="font-size:16px;margin:22px 0 4px;">What drivers do</h1>
         <p class="sub" style="margin-top:0;">For each step pick <b>Off</b>, <b>Optional</b> or <b>Required</b>. Required steps hold back Pickup complete or signing until they’re done. Set exceptions for a customer below, or add your own steps.</p>
         <div id="driverStepsHost"><div class="sub">Loading…</div></div>
         <h1 style="font-size:16px;margin:22px 0 4px;">Fields and account</h1>
         <p class="sub" style="margin-top:0;">Hiding a field removes it from dispatch screens, the setup guide and the driver app for everyone on your account. Nothing is deleted.</p>
         <div class="setgrid">
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_loadNumber"><span class="hp-track"></span></label>
-            <div><div><b>Load #</b><span id="ft_loadNumber_state" class="hp-switch-state"></span></div><div class="settile-help">Your internal load number, separate from the PO #.</div></div></div>
+            <div><div><b data-lbl="loadNumber">Load #</b><span id="ft_loadNumber_state" class="hp-switch-state"></span></div><div class="settile-help">Your internal load number, separate from the PO #.</div></div></div>
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_receiver"><span class="hp-track"></span></label>
-            <div><div><b>Delivered to</b><span id="ft_receiver_state" class="hp-switch-state"></span></div><div class="settile-help">The receiver / consignee on each stop.</div></div></div>
+            <div><div><b data-lbl="receiver">Delivered to</b><span id="ft_receiver_state" class="hp-switch-state"></span></div><div class="settile-help">The receiver / consignee on each stop.</div></div></div>
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_salesRep"><span class="hp-track"></span></label>
-            <div><div><b>Sales rep</b><span id="ft_salesRep_state" class="hp-switch-state"></span></div><div class="settile-help">Who’s credited on a stop (and gets its completion email).</div></div></div>
+            <div><div><b data-lbl="salesRep">Sales rep</b><span id="ft_salesRep_state" class="hp-switch-state"></span></div><div class="settile-help">Who’s credited on a stop (and gets its completion email).</div></div></div>
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_customer"><span class="hp-track"></span></label>
             <div><div><b>Customer</b><span id="ft_customer_state" class="hp-switch-state"></span></div><div class="settile-help">Links your saved signature layouts. Best left on.</div></div></div>
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_auditTrail"><span class="hp-track"></span></label>
@@ -1875,6 +1879,34 @@
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
   const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
+  // What this company calls the built-in fields (Settings › Load fields): "Load #" can be "Trip #", etc.
+  const LABEL_DEFAULTS = { poNumber: 'PO #', loadNumber: 'Load #', customer: 'Customer', receiver: 'Delivered to', salesRep: 'Sales rep', driver: 'Driver', truck: 'Truck' };
+  let orgLabels = Object.assign({}, LABEL_DEFAULTS);
+  function lbl(k) { return orgLabels[k] || LABEL_DEFAULTS[k] || k; }
+  // Renamed fields show everywhere: "#" names (PO #, Load #) are swapped wherever they appear; the others only where a
+  // label or heading is exactly that word, so sentences that happen to say "customer" are left alone.
+  let _relabelOn = false, _relabelObs = null;
+  function relabelNode(root) {
+    const hashes = Object.keys(LABEL_DEFAULTS).filter(k => LABEL_DEFAULTS[k].endsWith('#') && orgLabels[k] !== LABEL_DEFAULTS[k]);
+    const words = Object.keys(LABEL_DEFAULTS).filter(k => !LABEL_DEFAULTS[k].endsWith('#') && orgLabels[k] !== LABEL_DEFAULTS[k]);
+    if (!hashes.length && !words.length) return;
+    const fix = t => { let o = t; hashes.forEach(k => { o = o.split(LABEL_DEFAULTS[k]).join(orgLabels[k]); });
+      const tr = o.trim(); words.forEach(k => { if (tr === LABEL_DEFAULTS[k]) o = o.replace(LABEL_DEFAULTS[k], orgLabels[k]); }); return o; };
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentNode && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentNode.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+    nodes.forEach(n => { if (n.parentNode && n.parentNode.closest && n.parentNode.closest('#loadFieldsHost')) return; const v = fix(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; });
+    (root.querySelectorAll ? root.querySelectorAll('input[placeholder],textarea[placeholder]') : []).forEach(el => { if (el.closest('#loadFieldsHost')) return; const v = fix(el.placeholder); if (v !== el.placeholder) el.placeholder = v; });
+  }
+  function applyOrgLabels(l) {
+    if (l && typeof l === 'object') Object.keys(LABEL_DEFAULTS).forEach(k => { orgLabels[k] = l[k] || LABEL_DEFAULTS[k]; });
+    document.querySelectorAll('[data-lbl]').forEach(el => { el.textContent = lbl(el.dataset.lbl); });
+    relabelNode(document.body);
+    if (!_relabelObs && Object.keys(LABEL_DEFAULTS).some(k => orgLabels[k] !== LABEL_DEFAULTS[k])) {
+      _relabelObs = new MutationObserver(ms => { if (_relabelOn) return; _relabelOn = true; try { ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) relabelNode(n); else if (n.nodeType === 3 && n.parentNode) relabelNode(n.parentNode); })); } finally { _relabelOn = false; } });
+      _relabelObs.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+  async function refreshOrgLabels() { try { const r = await api('/api/load-fields'); if (r && r.labels) applyOrgLabels(r.labels); } catch (e) {} }
   function fieldOn(k) { return (orgFields && (k in orgFields)) ? !!orgFields[k] : !!ORG_FIELD_DEFAULTS[k]; }
   function applyOrgFields(f) { if (f && typeof f === 'object') Object.keys(ORG_FIELD_DEFAULTS).forEach(k => { if (k in f) orgFields[k] = !!f[k]; }); try { applyUploadFieldVisibility(); } catch (e) {} }
   // The standalone "Upload & file a document" form must honor the same Simple-mode settings as everywhere else:
@@ -1955,6 +1987,7 @@
   }
   function enterApp(u) {
     user = u;
+    try { if (u && u.orgId) refreshOrgLabels(); } catch(e){}
     try { maybeShowHelpBanner(u); } catch(e){}
     refreshOrgFields();   // make sure the Simple-mode field flags are current regardless of how we signed in
     const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -2121,7 +2154,7 @@
       // Bail if the dispatcher opened a different load or started editing while the request was in flight.
       if (!curLoad || curLoad.id !== r.load.id) return;
       if (det.classList.contains('editing') || det.classList.contains('hide') || det.querySelector('#ldView .stSave')) return;
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || [];
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || [];
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
       updateLdArchiveBtn();
@@ -4129,7 +4162,7 @@
     }
     try {
       const r = await api('/api/loads/' + id);
-      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldBackFn = (opts && opts.back) || null;
+      curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldBackFn = (opts && opts.back) || null;
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
@@ -4159,6 +4192,7 @@
       renderLoadDocs(r.pods || []);
       $('ldStopForm').classList.add('hide');
       $('ldEditPo').value = curLoad.poNumber || ''; $('ldEditLoad').value = curLoad.loadNumber || '';
+      renderLdFieldInputs();
       $('ldEditMsg').textContent = ''; $('ldUploadMsg').textContent = '';
       $('ldStop').value = nextStopNumber(r.pods || []);
       if ($('ldFiles')) $('ldFiles').value = '';
@@ -4520,7 +4554,7 @@
     if (!curLoad || !$('ldView')) return;
     const rows = [];
     rows.push(['Customer PO #', esc(curLoad.poNumber) || '—']);
-    rows.push(['Load #', esc(curLoad.loadNumber) || '—']);
+    rows.push([esc(lbl('loadNumber')), esc(curLoad.loadNumber) || '—']);
     if (curLoad.customer) rows.push(['Customer', esc(curLoad.customer)]);
     // Consignee lives on each stop now (via the stop's receiver / delivered-to), not on the load.
     const asg = [];
@@ -4558,6 +4592,8 @@
     // In / out times (driver check-in/out per stop, when the account records them — or any already recorded).
     const _timesHtml = stopTimesHtml();
     if (_timesHtml) rows.push(['In / out times', _timesHtml]);
+    // The company's own load fields (missing required ones stand out)
+    _ldFields.forEach(f => rows.push([esc(f.name), f.value ? esc(f.value) : (f.required ? '<span style="color:var(--bad,#b42318);font-weight:700;">Missing — required</span>' : '—')]));
     // Required delivery steps a driver skipped (the signed document was kept; the server recorded what was missing)
     const _skipped = (_lastPods || []).filter(p => p.missingSteps).map(p => { let m = []; try { m = JSON.parse(p.missingSteps) || []; } catch (e) {} return m.length ? 'Stop ' + (p.stopNumber || 1) + ': ' + m.join(', ') : ''; }).filter(Boolean);
     if (_skipped.length) rows.push(['⚠ Skipped required steps', '<span style="color:var(--bad,#b42318);font-weight:700;">' + _skipped.map(esc).join('<br>') + '</span>']);
@@ -4621,6 +4657,13 @@
     return slots.map(s => Object.assign(s, { t: _ldStopTimes.find(t => t.kind === s.kind && (s.kind === 'pickup' || t.stopNumber === s.stopNumber)) || {} }));
   }
   var _ldStepAnswers = [];   // var for the same reason as _ldStopTimes
+  var _ldFields = [];        // the company's own load fields with this load's values
+  function renderLdFieldInputs() {
+    const box = $('ldEditFields'); if (!box) return;
+    box.classList.toggle('hide', !_ldFields.length);
+    box.innerHTML = _ldFields.map(f => '<div><label>' + esc(f.name) + (f.required ? ' <span style="color:var(--bad);font-weight:700;text-transform:none;letter-spacing:0;">required</span>' : ' <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span>') + '</label>'
+      + '<input class="ldCfInput" data-id="' + f.id + '" type="' + (f.kind === 'date' ? 'date' : 'text') + '"' + (f.kind === 'number' ? ' inputmode="decimal"' : '') + ' value="' + esc(f.value || '') + '"></div>').join('');
+  }
   function stopTimesHtml() {
     if (!fieldOn('stopTimes') && !_ldStopTimes.length) return '';
     const src = { pickup: 'auto at pickup complete', delivery: 'auto when documents were sent', dispatch: 'set by dispatch', driver: 'driver' };
@@ -4647,7 +4690,7 @@
         const v = (sel) => { const x = row.querySelector(sel).value; return x ? new Date(x).getTime() : null; };
         try {
           const r = await api('/api/loads/' + curLoad.id + '/stop-times', { method: 'PUT', body: JSON.stringify({ kind: s.kind, stopNumber: s.stopNumber, inAt: v('.stInIn'), outAt: v('.stOutIn') }) });
-          _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || [];
+          _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || [];
           renderLdView();
           try { loadHistory(curLoad.id); } catch (e) {}
         } catch (e) { row.querySelector('.stMsg').textContent = e.message || 'Could not save'; }
@@ -4963,7 +5006,7 @@
     const pods = (allPods || []).filter(p => p && p.status !== 'parked' && p.status !== 'not_used' && !(p.pickPending && (p.status === 'signed' || p.status === 'emailed')));
     // Simple mode: the Delivered-to and Sales-rep columns only appear when the org has those fields turned on.
     const showRecv = fieldOn('receiver'), showRep = fieldOn('salesRep');
-    const recvHead = showRecv ? '<th>Delivered to</th>' : '', repHead = showRep ? '<th>Sales rep</th>' : '';
+    const recvHead = showRecv ? '<th>' + esc(lbl('receiver')) + '</th>' : '', repHead = showRep ? '<th>' + esc(lbl('salesRep')) + '</th>' : '';
     // A load always has at least one stop. With no documents yet, show a placeholder Stop 1 row so the
     // load reads as having a stop from the moment it's created — click "Add document" to file into it.
     if (!pods.length && pickPods.length) { box.innerHTML = ''; appendRedoSections(box, pickPods, notUsedPods); appendParkedSection(box, parkedPods, editing); return; }
@@ -6191,6 +6234,39 @@
     updSwitchStates();
     renderPhotoSegs();
     renderDriverSteps();
+    renderLoadFieldSettings();
+  }
+  // ---- Load fields: rename the built-in ones, add the company's own (required? shown to drivers?) ----
+  async function renderLoadFieldSettings() {
+    const host = $('loadFieldsHost'); if (!host) return;
+    let d; try { d = await api('/api/load-fields'); } catch (e) { host.innerHTML = '<div class="sub">' + esc(e.message) + '</div>'; return; }
+    applyOrgLabels(d.labels);
+    const sw = (id, on, attr) => '<label class="hp-switch" title="' + attr + '"><input type="checkbox" ' + (on ? 'checked' : '') + ' data-lfsw="' + attr + '" data-id="' + id + '"><span class="hp-track"></span></label>';
+    host.innerHTML = '<div class="stepcols" style="margin-top:0;">'
+      + '<div class="stepbox"><h3>Call it something else</h3>' + Object.keys(d.defaults).map(k => '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;"><span style="min-width:110px;font-size:13px;color:var(--muted);">' + esc(d.defaults[k]) + '</span>'
+        + '<input data-lflbl="' + k + '" value="' + esc(d.labels[k] !== d.defaults[k] ? d.labels[k] : '') + '" placeholder="' + esc(d.defaults[k]) + '" maxlength="30" style="flex:1;min-width:120px;"></div>').join('')
+        + '<div class="settile-help">Leave blank to keep the usual name. Shows everywhere: load pages, lists, the setup guide and the driver app.</div><div style="margin-top:8px;"><button type="button" id="lfLblSave">Save names</button></div></div>'
+      + '<div class="stepbox" style="grid-column:span 2;min-width:0;"><h3>Your own load fields</h3>'
+        + (d.fields.length ? '<table class="stepgrid"><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Driver sees it</th><th></th></tr></thead><tbody>' + d.fields.map(f => '<tr><td><b>' + esc(f.name) + '</b></td><td>' + esc(d.kinds[f.kind] || f.kind) + '</td><td>' + sw(f.id, f.required, 'required') + '</td><td>' + sw(f.id, f.showDriver, 'showDriver') + '</td><td><button type="button" class="ghost" data-lfrm="' + f.id + '">Remove</button></td></tr>').join('') + '</tbody></table>' : '<div class="settile-help">None yet.</div>')
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+        + '<label style="flex:2 1 160px;font-size:13px;">Name it<input id="lfName" placeholder="Release #, Trailer #, Pickup #…" style="width:100%;"></label>'
+        + '<label style="flex:1 1 100px;font-size:13px;">Type<select id="lfKind" style="width:100%;">' + Object.entries(d.kinds).map(([k, t]) => '<option value="' + k + '">' + esc(t) + '</option>').join('') + '</select></label>'
+        + '<label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="lfReq"> Required</label>'
+        + '<label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="lfDrv"> Driver sees it</label>'
+        + '<button type="button" id="lfAdd">Add field</button></div><div id="lfMsg" class="settile-help"></div>'
+        + (d.changes.length ? '<details style="margin-top:8px;"><summary class="settile-help" style="cursor:pointer;">Change history: who changed what, and how</summary><div style="font-size:12.5px;max-height:140px;overflow:auto;">' + d.changes.map(c => '<div style="padding:3px 0;border-bottom:1px solid var(--line);">' + new Date(c.at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' · <b>' + esc(c.byName || '') + '</b>' + (c.via === 'connector' ? ' (AI connector)' : '') + ': ' + esc(c.detail) + '</div>').join('') + '</div></details>' : '')
+        + '</div></div>';
+    const msg = t => { if ($('lfMsg')) $('lfMsg').textContent = t; };
+    host.onclick = async e => {
+      try {
+        if (e.target.id === 'lfAdd') { await api('/api/load-fields', { method: 'POST', body: JSON.stringify({ name: $('lfName').value, kind: $('lfKind').value, required: $('lfReq').checked, showDriver: $('lfDrv').checked }) }); renderLoadFieldSettings(); }
+        if (e.target.id === 'lfLblSave') { for (const el of host.querySelectorAll('[data-lflbl]')) await api('/api/load-fields/label', { method: 'PUT', body: JSON.stringify({ field: el.dataset.lflbl, label: el.value }) });
+          try { sessionStorage.setItem('hp_tab_after_update', 'settings'); } catch (_) {} location.reload(); }   // new names show everywhere after the reload
+        const rm = e.target.closest('[data-lfrm]'); if (rm && confirm('Remove this field? Values already on loads are kept in each load’s history.')) { await api('/api/load-fields/' + rm.dataset.lfrm, { method: 'DELETE' }); renderLoadFieldSettings(); }
+      } catch (err) { msg(err.message); }
+    };
+    host.onchange = async e => { const c = e.target.closest('[data-lfsw]'); if (!c) return;
+      try { await api('/api/load-fields/' + c.dataset.id, { method: 'PUT', body: JSON.stringify({ [c.dataset.lfsw]: c.checked }) }); renderLoadFieldSettings(); } catch (err) { msg(err.message); } };
   }
   // ---- What drivers do: Off / Optional / Required per step, exceptions per customer, the company's own steps ----
   const LV = [['off', 'Off'], ['optional', 'Optional'], ['required', 'Required']];
@@ -6367,6 +6443,13 @@
         if (_pk && _pk.dataset.ready === '1') body1.customerId = _pk.value;
       }
       await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body1) });
+      // 1b) The company's own load fields (Release #, Trailer #…)
+      const cf = Array.prototype.slice.call(document.querySelectorAll('#ldEditFields .ldCfInput'));
+      if (cf.length) {
+        const vals = {}; cf.forEach(i => { vals[i.dataset.id] = i.value.trim(); });
+        const fr = await api('/api/loads/' + curLoad.id + '/fields', { method: 'PUT', body: JSON.stringify({ values: vals }) });
+        _ldFields = fr.fields || _ldFields;
+      }
       // 2) Driver (only if one is selected AND it actually changed — so repeated auto-saves don't re-log/re-notify)
       if (_ldSelectedDriverId && _ldSelectedDriverId !== _ldLastSavedDriverId) {
         const _dr = await api('/api/loads/' + curLoad.id + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: _ldSelectedDriverId }) });
@@ -7042,7 +7125,7 @@
         g.docs.forEach(d => html += cmDocRowHtml(d, cls));
       });
       box.innerHTML = (moreDocs ? '<div class="sub" style="margin:0 0 8px;">The 10 most recent loads — search by PO # above to find older documents.</div>' : '') +
-        '<table><thead><tr><th class="mono">PO #</th><th class="mono">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' + html + '</tbody></table>';
+        '<table><thead><tr><th class="mono">PO #</th><th class="mono" data-lbl="loadNumber">Load #</th><th>Consignee</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>' + html + '</tbody></table>';
       box.querySelectorAll('.cmGrpHead').forEach(h => h.onclick = (e) => {
         if (e.target.closest('.cmLasgWrap')) return;   // clicks on the driver picker shouldn't collapse the section
         const cls = h.dataset.cls, rows = box.querySelectorAll('tr.' + cls), caret = h.querySelector('.cmGrpCaret');
@@ -7548,7 +7631,7 @@
   async function boot() {
     // Check the session FIRST so a logged-in user (e.g. returning from the signature page) never sees a
     // flash of the login screen — it stays hidden until we confirm they're actually signed out.
-    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); applyOrgFields(me.orgFields); if (me.user.mustChangePassword) { forcePwReset(me.user); return; } enterApp(me.user); return; } } catch(_){}
+    try { const me = await api('/api/me'); if (me && me.user) { cleanUrl(); applyOrgFields(me.orgFields); applyOrgLabels(me.orgLabels); if (me.user.mustChangePassword) { forcePwReset(me.user); return; } enterApp(me.user); return; } } catch(_){}
     // Not signed in → now reveal the login screen and decorate it with the SSO options.
     cleanUrl();
     $('loginView').classList.remove('hide');

@@ -270,7 +270,9 @@ router.get('/my-loads', (req, res) => {
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
   }
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
-  const reqCache = {}, answersCache = {};
+  const reqCache = {}, answersCache = {}, fieldsCache = {};
+  const LF = require('./loadfields');
+  const loadFieldsFor = id => { try { const l = db.prepare('SELECT id, orgId FROM loads WHERE id = ?').get(id); return l ? LF.valuesFor(l).filter(f => f.showDriver && f.value).map(f => ({ name: f.name, value: f.value })) : []; } catch (e) { return []; } };
   const reqFor = p => { const k = (p.loadOrgId || org) + '|' + (p.loadCustomerId || ''); if (!reqCache[k]) { try { reqCache[k] = steps.flagsFor(p.loadOrgId || org, p.loadCustomerId || null); } catch (e) { reqCache[k] = null; } } return reqCache[k]; };
   // Per-load signing progress so the phone can show "1 of 2 signed — Stop 2 still needs signing". total counts
   // every stop on the load (signed + ready + awaiting); signed counts the ones already completed.
@@ -303,10 +305,12 @@ router.get('/my-loads', (req, res) => {
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file',
     // what this load's company (and customer) requires of the driver, and the answers so far
-    req: p.loadId ? reqFor(p) : null, answers: p.loadId ? (answersCache[p.loadId] || (answersCache[p.loadId] = steps.answersFor(p.loadId).map(a => ({ stepId: a.stepId, stopNumber: a.stopNumber, value: a.value })))) : [] }));
+    req: p.loadId ? reqFor(p) : null,
+    loadFields: p.loadId ? (fieldsCache[p.loadId] || (fieldsCache[p.loadId] = loadFieldsFor(p.loadId))) : [], answers: p.loadId ? (answersCache[p.loadId] || (answersCache[p.loadId] = steps.answersFor(p.loadId).map(a => ({ stepId: a.stepId, stopNumber: a.stopNumber, value: a.value })))) : [] }));
   // Per-org "Simple mode" field flags so the driver app hides the same optional inputs dispatch turned off.
   let uiFlags = {}; try { uiFlags = resolveUiFlags(org); } catch (e) {}
-  res.json({ loads, uiFlags });
+  let labels = {}; try { labels = LF.labels(org); } catch (e) {}
+  res.json({ loads, uiFlags, labels });
 });
 
 // Driver taps "Pickup complete" — stamp the load with a GPS + timestamp pickup event. No signature: this is a
