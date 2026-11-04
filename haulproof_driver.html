@@ -388,6 +388,7 @@
   @keyframes camArm{0%{box-shadow:0 0 0 0 rgba(63,208,122,.75);}100%{box-shadow:0 0 0 22px rgba(63,208,122,0);}}
   #camView .cam-auto{background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12.5px;font-weight:700;border-radius:20px;padding:7px 12px;cursor:pointer;z-index:3;white-space:nowrap;}
   #camView .cam-auto.off{opacity:.5;}
+  #scanEditor .btn.sc-finish{background:#1f9d55;border-color:#1f9d55;color:#fff;}
   #camView .cam-done{position:absolute;left:16px;bottom:calc(40px + env(safe-area-inset-bottom));background:#1f9d55;border:0;color:#fff;font-size:14px;font-weight:800;border-radius:10px;padding:11px 15px;cursor:pointer;z-index:3;box-shadow:0 2px 10px rgba(0,0,0,.35);}
   #camView .cam-native{position:absolute;right:16px;bottom:calc(40px + env(safe-area-inset-bottom));background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:12px;font-weight:600;border-radius:9px;padding:9px 11px;cursor:pointer;z-index:3;}
   /* In-app signed-PDF viewer (with its own Close button so you never get stuck in the browser's PDF view) */
@@ -709,7 +710,7 @@
   <div class="sc-hint" id="scModeHint" style="padding-top:0;"></div>
   <div class="sc-foot">
     <button class="btn ghost" id="scCancel" type="button">Retake</button>
-    <button class="btn ghost" id="scMore" type="button" style="display:none;">📷 Next page</button>
+    <button class="btn primary" id="scMore" type="button" style="display:none;">📷 Next page</button>
     <button class="btn primary" id="scNext" type="button">Next ›</button>
   </div>
 </div>
@@ -898,7 +899,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-05b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-05c";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -2621,6 +2622,7 @@ window.__startApp=function(){
     $("scFilters").classList.add("hide");
     $("scNext").textContent="Next ›";
     if($("scMore")) $("scMore").style.display="none";
+    $("scNext").classList.remove("sc-finish");
     $("scCancel").textContent = scan.editIndex>=0 ? "Cancel" : "Retake";
     if($("scWhole")) $("scWhole").style.display="block";   // offer "skip cropping" only on the line-up step
     var dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
@@ -2664,7 +2666,11 @@ window.__startApp=function(){
     $("scHint").textContent="Review the scan, then use it.";
     $("scFilters").classList.add("hide");
     $("scNext").textContent="✓ Use this scan";
-    if($("scMore")) $("scMore").style.display = (scan.reopen && scan.editIndex===-1) ? "" : "none";
+    var multi = !!(scan.reopen && scan.editIndex===-1);
+    if($("scMore")) $("scMore").style.display = multi ? "" : "none";
+    // new camera page: blue = keep scanning, green = finished (same green as the camera's Done)
+    $("scNext").textContent = multi ? "✓ Done scanning" : "✓ Use this scan";
+    $("scNext").classList.toggle("sc-finish", multi);
     $("scCancel").textContent="‹ Back";
     if($("scWhole")) $("scWhole").style.display="none";
     Array.prototype.slice.call($("scWrap").querySelectorAll(".sc-handle")).forEach(function(h){h.style.display="none";});
