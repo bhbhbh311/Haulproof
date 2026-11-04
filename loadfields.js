@@ -110,6 +110,17 @@ function setValues(load, values, by, via = 'screen') {
   return valuesFor(load);
 }
 
+// A field's name for messages and documents another company may read: the owner's name with the standard one after
+// it when they differ ("BOL # (PO #)"); short drops the "#" for lines like "BOL 1234 (PO)".
+function term(orgId, field, short = false) {
+  const std = RENAMABLE[field] || field;
+  let own = std; try { own = labels(orgId)[field] || std; } catch (e) {}
+  const cut = s => short ? s.replace(/\s*#\s*$/, '') : s;
+  return own === std ? cut(std) : `${cut(own)} (${cut(std)})`;
+}
+// Standard names next to the owner's on screens where two companies meet: { field: "BOL # (PO #)" } for renamed ones only
+function shared(orgId) { const l = labels(orgId), out = {}; Object.keys(RENAMABLE).forEach(k => { if (l[k] !== RENAMABLE[k]) out[k] = `${l[k]} (${RENAMABLE[k]})`; }); return out; }
+
 // ---------- settings + who changed them ----------
 db.exec(`CREATE TABLE IF NOT EXISTS load_field_changes (id INTEGER PRIMARY KEY, orgId TEXT NOT NULL, detail TEXT NOT NULL, byName TEXT, at INTEGER NOT NULL)`);
 try { db.exec('ALTER TABLE load_field_changes ADD COLUMN via TEXT'); } catch (e) {}   // screen | connector
@@ -125,4 +136,4 @@ function settings(orgId) {
     changes: db.prepare('SELECT detail, byName, via, at FROM load_field_changes WHERE orgId = ? ORDER BY id DESC LIMIT 30').all(orgId) };
 }
 
-module.exports = { RENAMABLE, KINDS, FieldError, labels, setLabel, defs, addField, updateField, removeField, valuesFor, missingFor, setValues, settings };
+module.exports = { RENAMABLE, KINDS, FieldError, labels, term, shared, setLabel, defs, addField, updateField, removeField, valuesFor, missingFor, setValues, settings };

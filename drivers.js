@@ -270,7 +270,7 @@ router.get('/my-loads', (req, res) => {
     mates.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); rows.push(p); } });
   }
   const parse = (s) => { try { return s ? JSON.parse(s) : []; } catch (e) { return []; } };
-  const reqCache = {}, answersCache = {}, fieldsCache = {};
+  const reqCache = {}, answersCache = {}, fieldsCache = {}, lblCache = {};
   const LF = require('./loadfields');
   const loadFieldsFor = id => { try { const l = db.prepare('SELECT id, orgId FROM loads WHERE id = ?').get(id); return l ? LF.valuesFor(l).filter(f => f.showDriver && f.value).map(f => ({ name: f.name, value: f.value })) : []; } catch (e) { return []; } };
   const reqFor = p => { const k = (p.loadOrgId || org) + '|' + (p.loadCustomerId || ''); if (!reqCache[k]) { try { reqCache[k] = steps.flagsFor(p.loadOrgId || org, p.loadCustomerId || null); } catch (e) { reqCache[k] = null; } } return reqCache[k]; };
@@ -306,7 +306,8 @@ router.get('/my-loads', (req, res) => {
     filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file',
     // what this load's company (and customer) requires of the driver, and the answers so far
     req: p.loadId ? reqFor(p) : null,
-    loadFields: p.loadId ? (fieldsCache[p.loadId] || (fieldsCache[p.loadId] = loadFieldsFor(p.loadId))) : [], answers: p.loadId ? (answersCache[p.loadId] || (answersCache[p.loadId] = steps.answersFor(p.loadId).map(a => ({ stepId: a.stepId, stopNumber: a.stopNumber, value: a.value })))) : [] }));
+    loadFields: p.loadId ? (fieldsCache[p.loadId] || (fieldsCache[p.loadId] = loadFieldsFor(p.loadId))) : [],
+    ownerLabels: p.loadOrgId ? (lblCache[p.loadOrgId] || (lblCache[p.loadOrgId] = LF.labels(p.loadOrgId))) : null, answers: p.loadId ? (answersCache[p.loadId] || (answersCache[p.loadId] = steps.answersFor(p.loadId).map(a => ({ stepId: a.stepId, stopNumber: a.stopNumber, value: a.value })))) : [] }));
   // Per-org "Simple mode" field flags so the driver app hides the same optional inputs dispatch turned off.
   let uiFlags = {}; try { uiFlags = resolveUiFlags(org); } catch (e) {}
   let labels = {}; try { labels = LF.labels(org); } catch (e) {}
