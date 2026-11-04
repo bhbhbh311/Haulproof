@@ -1323,7 +1323,11 @@
       if(hasCust && _tpl.exists && samePattern(out,_tpl.fields||[])) return resolve({action:'skip'});   // already the saved layout
       var updating=hasCust && _tpl.exists;
       $('#rmTitle').textContent=updating?'Update the saved layout?':'Remember this layout?';
-      $('#rmMsg').innerHTML = !hasCust
+      var co=String(name).replace(/ \(all loads\)$/,'');
+      $('#rmMsg').innerHTML = _tpl.companyWide
+        ? (updating ? 'These boxes are different from your saved <b>'+esc(dt)+'</b> layout. Update it? Every '+esc(co)+' '+esc(dt)+' after this uses these boxes.'
+                    : 'Save these boxes as <b>'+esc(co)+'</b>’s own <b>'+esc(dt)+'</b> layout? Every '+esc(dt)+' you add after this gets them <b>instantly and free</b>; AI won’t need to run again.')
+        : !hasCust
         ? 'This load has no customer yet, so there’s nothing to remember these boxes under. Pick the customer this paperwork is for — we’ll set it on the load and use these boxes automatically on their next <b>'+esc(dt)+'</b>.'
         : updating
           ? 'These boxes are different from <b>'+esc(name)+'</b>’s saved <b>'+esc(dt)+'</b> layout. Update it? Every future '+esc(name)+' '+esc(dt)+' will use these boxes instead.'

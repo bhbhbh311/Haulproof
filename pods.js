@@ -788,18 +788,28 @@ router.put('/:id/fields', requireAuth, express.json({ limit: '1mb' }), (req, res
 
 // ---- Reusable signature LAYOUTS (templates), keyed by the pod's customer + document type. Lets dispatch
 //      save a layout once and apply it to every matching document instead of placing fields by hand. ----
+// A load with no customer (a shipper's own loads, where every BOL is the company's own paperwork) uses the company's
+// own layout, kept under the customer key '*'. A load with a customer uses that customer's layout first, else the company's.
+const ALL = '*';
 function tplKeyForPod(row) {
   const load = (row && row.loadId) ? db.prepare(`SELECT customerId FROM loads WHERE id = ?`).get(row.loadId) : null;
   return { customerId: (load && load.customerId) || null, docType: (row && row.docType) || 'BOL' };
 }
+const orgName = id => ((id && db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(id)) || {}).name || 'your company';
 // Is there a saved layout for this pod's customer + type? If so, return its fields to apply.
 router.get('/:id/template', requireAuth, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
   const { customerId, docType } = tplKeyForPod(row);
-  if (!customerId) return res.json({ exists: false, hasCustomer: false, docType });
+  const get = cid => db.prepare(`SELECT fields, updatedAt FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).get(row.orgId || null, cid, docType);
+  if (!customerId) {   // no customer: the company's own layout for all its loads
+    const own = get(ALL), name = `${orgName(row.orgId)} (all loads)`;
+    if (!own) return res.json({ exists: false, hasCustomer: true, companyWide: true, docType, customerId: ALL, customerName: name });
+    let f = []; try { f = JSON.parse(own.fields) || []; } catch (e) {}
+    return res.json({ exists: true, hasCustomer: true, companyWide: true, docType, customerId: ALL, customerName: name, fields: f, updatedAt: own.updatedAt });
+  }
   const cust = db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
-  const t = db.prepare(`SELECT fields, updatedAt FROM sig_templates WHERE ownerOrgId IS ? AND customerId = ? AND docType = ?`).get(row.orgId || null, customerId, docType);
+  const t = get(customerId);
   if (!t) return res.json({ exists: false, hasCustomer: true, docType, customerId, customerName: cust ? cust.name : null });
   let fields = []; try { fields = JSON.parse(t.fields) || []; } catch (e) {}
   res.json({ exists: true, hasCustomer: true, docType, customerId, customerName: cust ? cust.name : null, fields, updatedAt: t.updatedAt });
@@ -808,8 +818,7 @@ router.get('/:id/template', requireAuth, (req, res) => {
 router.post('/:id/save-template', requireAuth, express.json({ limit: '1mb' }), (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
   if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
-  const { customerId, docType } = tplKeyForPod(row);
-  if (!customerId) return res.status(400).json({ error: 'Assign a customer to this load first — layouts are saved per customer.' });
+  const key = tplKeyForPod(row), docType = key.docType, customerId = key.customerId || ALL;   // no customer: the company's own layout
   const fields = Array.isArray(req.body && req.body.fields) ? req.body.fields : [];
   if (!fields.length) return res.status(400).json({ error: 'Place at least one signature field before saving a layout.' });
   const orgId = row.orgId || null, now = Date.now(), by = req.user.email || req.user.name || '';
@@ -817,7 +826,7 @@ router.post('/:id/save-template', requireAuth, express.json({ limit: '1mb' }), (
   if (existing) db.prepare(`UPDATE sig_templates SET fields = ?, updatedAt = ?, updatedBy = ? WHERE id = ?`).run(JSON.stringify(fields), now, by, existing.id);
   else db.prepare(`INSERT INTO sig_templates (id, ownerOrgId, customerId, docType, fields, updatedAt, updatedBy) VALUES (?,?,?,?,?,?,?)`)
     .run(crypto.randomUUID(), orgId, customerId, docType, JSON.stringify(fields), now, by);
-  const cust = db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
+  const cust = customerId === ALL ? { name: `${orgName(orgId)} (all loads)` } : db.prepare(`SELECT name FROM customers WHERE id = ?`).get(customerId);
   res.json({ ok: true, count: fields.length, docType, customerName: cust ? cust.name : null });
 });
 
