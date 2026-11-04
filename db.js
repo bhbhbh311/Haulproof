@@ -265,6 +265,8 @@ addColumn('pods', 'parkedFromPodId', 'TEXT');   // the live pod this snapshot wa
 addColumn('loads', 'completeNotifiedAt', 'INTEGER');   // when the "load fully complete" status email went out → send it only once
 addColumn('loads', 'pickedUpAt', 'INTEGER');    // driver tapped "Pickup complete" — ms epoch (no signature needed)
 addColumn('loads', 'pickedUpGps', 'TEXT');      // JSON {lat,lng,acc} captured at the moment of pickup
+addColumn('loads', 'enRouteAt', 'INTEGER');     // driver tapped "On my way to pickup" — ms epoch
+addColumn('loads', 'enRouteGps', 'TEXT');       // JSON {lat,lng,acc} where the driver was when they set off
 addColumn('loads', 'pickedUpPhotos', 'TEXT');   // JSON array of pickup proof-photo refs: [{id, at}] (files on disk)
 addColumn('loads', 'deliveredPhotos', 'TEXT');  // JSON array of delivery proof-photo refs: [{id, at, stopNumber}] (files on disk)
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)

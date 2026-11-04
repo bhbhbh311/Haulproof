@@ -119,6 +119,15 @@ function requireAuth(req, res, next) {
   const cookieTok = req.cookies ? req.cookies.hp_session : null;
   const token = bearer || cookieTok;
   if (!token) return res.status(401).json({ error: 'Not signed in' });
+  // A connected app (OAuth "Connect HaulProof", e.g. an FMS or an AI connector) acts as the login that approved it,
+  // with that login's permissions — no separate login needed. Turned off from Settings › AI connections.
+  if (bearer && bearer.startsWith('hpat_')) {
+    const u = require('./mcp').oauthUser(req);
+    if (!u) return res.status(401).json({ error: 'Connection expired or turned off — connect again' });
+    const m = orgMetaOf(u.orgId);
+    req.user = { sub: u.id, email: u.email, role: u.role, name: u.name, orgId: u.orgId || null, orgKind: m.kind, orgRoles: m.roles, orgName: m.name, parentId: m.parentId, viaApp: true };
+    return next();
+  }
   // An expired copy held by the page falls back to the (renewed) cookie.
   let payload = null;
   for (const t of [bearer, cookieTok]) { if (!t) continue; try { payload = jwt.verify(t, JWT_SECRET); break; } catch (e) {} }
