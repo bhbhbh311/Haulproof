@@ -539,7 +539,8 @@
       <div class="pullnote" id="pullNote">Opens the document with the signature spots dispatch already set up.</div>
     </div>
     <div class="pullcard hide" id="recentDocsCard">
-      <div class="pulltitle">🗂 Your documents</div>
+      <button type="button" class="pulltitle" id="pastDocsToggle" aria-expanded="false" style="all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;width:100%;font-weight:800;">🗂 <span id="pastDocsLabel">Past documents</span><span style="margin-left:auto;font-size:18px;" id="pastDocsChev">›</span></button>
+      <div id="pastDocsBody" class="hide" style="margin-top:10px;">
       <div class="pullrow" style="margin-bottom:8px;">
         <input class="ti" id="docSearch" placeholder="Search PO #, consignee, receiver…" autocomplete="off">
         <button class="btn primary sm" id="docSearchBtn" type="button">Search</button>
@@ -547,6 +548,7 @@
       </div>
       <div id="recentDocsList"></div>
       <div class="pullnote" id="recentDocsNote">Your signed documents — view, send a copy, or download. They’re never edited here.</div>
+      </div>
     </div>
     <div class="routeprog hide" id="routeProg"><div class="rbar"><i id="rbarFill"></i></div><span class="rprog" id="rprog">0 of 0 delivered</span></div>
     <div class="stepper" id="stepper"></div>
@@ -899,7 +901,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-05c";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-05d";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -4229,6 +4231,13 @@ window.__startApp=function(){
     }
     setTimeout(function(){URL.revokeObjectURL(url);},60000);
   });
+  // Past documents stay folded behind one button so the home screen leads with today's loads (opened state kept per phone)
+  function pastDocsOpen(){ try{ return localStorage.getItem("hp_pastdocs_open")==="1"; }catch(e){ return false; } }
+  function setPastDocs(open){ var b=$("pastDocsBody"); if(!b) return; b.classList.toggle("hide", !open);
+    if($("pastDocsToggle")) $("pastDocsToggle").setAttribute("aria-expanded", open?"true":"false");
+    if($("pastDocsChev")) $("pastDocsChev").textContent = open ? "⌄" : "›";
+    try{ localStorage.setItem("hp_pastdocs_open", open?"1":"0"); }catch(e){} }
+  if($("pastDocsToggle")) $("pastDocsToggle").addEventListener("click", function(){ setPastDocs($("pastDocsBody").classList.contains("hide")); });
   // ---- Driver's documents (from the server): search → view / send / download. Read-only; never re-signed. ----
   async function loadMyDocuments(q){
     var card=$("recentDocsCard"); if(!card) return;
@@ -4244,6 +4253,8 @@ window.__startApp=function(){
       card.classList.remove("hide");
       if($("recentDocsNote")) $("recentDocsNote").textContent = q ? (docs.length+" match"+(docs.length===1?"":"es")+" — view, send a copy, or download.") : "Your signed documents — view, send a copy, or download. They’re never edited here.";
       var box=$("recentDocsList"); box.innerHTML="";
+      if(!q && $("pastDocsLabel")) $("pastDocsLabel").textContent = "Past documents" + (docs.length ? " (" + docs.length + (docs.length >= 60 ? "+" : "") + ")" : "");
+      setPastDocs(q ? true : pastDocsOpen());
       if(!docs.length && !q){ card.classList.add("hide"); return; }   // nothing signed yet: don't show an empty box
       if(!docs.length){ box.innerHTML='<div class="empty" style="font-size:13px;">'+(q?("No documents match “"+esc(q)+"”."):"No signed documents yet.")+'</div>'; return; }
       // Group by load (PO#): a multi-stop load shows as ONE entry you expand to see each stop's doc.

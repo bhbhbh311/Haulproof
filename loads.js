@@ -376,9 +376,16 @@ router.put('/:id', requireAuth, (req, res) => {
     || (orgIdNew !== load.orgId) || ((customerId || null) !== (load.customerId || null)) || ((customerText || null) !== (load.customer || null));
   if (changed) {
     db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
-    if (b.instructions !== undefined) db.prepare(`UPDATE loads SET instructions = ? WHERE id = ?`).run(String(b.instructions || '').trim().slice(0, 4000) || null, load.id);
     if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
     logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
+  }
+  // Special instructions for the driver: saved on their own (no other field has to change)
+  if (b.instructions !== undefined) {
+    const ins = String(b.instructions || '').trim().slice(0, 4000) || null;
+    if (ins !== (load.instructions || null)) {
+      db.prepare(`UPDATE loads SET instructions = ? WHERE id = ?`).run(ins, load.id);
+      logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: ins ? 'Special instructions for the driver updated' : 'Special instructions removed', actor: actorOf(req) });
+    }
   }
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
