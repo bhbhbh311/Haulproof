@@ -474,6 +474,49 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { name: str('Company name, e.g. "Dannar Outdoor Solutions LLC"') }, required: ['name'] },
     run: async (user, a) => { needCompany(user); const r = await api(user, 'POST', '/api/customers', { json: { name: String(a.name || '').trim() } }); return { customer: { id: r.customer.id, name: r.customer.name }, already_existed: !!r.existed }; } },
 
+  // ---- what drivers must do: Off / Optional / Required, per company with exceptions per customer, plus named steps ----
+  { name: 'get_driver_steps', title: 'See what drivers must do',
+    description: 'Lists the driver steps (On my way, check in/out times, pickup photos, delivery photos, and this company’s own named steps) with each one’s level: off, optional or required. Give a customer to see what applies to that customer’s loads, including exceptions.',
+    inputSchema: { type: 'object', properties: { customer: str('Optional: customer name or id, to see that customer’s rules') } }, annotations: { readOnlyHint: true },
+    run: async (user, a) => { needCompany(user);
+      let q = ''; if (a.customer) { const c = pickOne(await customers(user), a.customer, 'customer', x => x.name); q = '?customerId=' + encodeURIComponent(c.id); }
+      const r = await api(user, 'GET', '/api/driver-steps' + q);
+      return { steps: r.steps.map(x => ({ id: x.id, name: x.name, when: x.when, level: x.level, own_step: !x.builtin })),
+        customer_exceptions: r.exceptions.map(x => ({ customer: x.customerName, step: (r.steps.find(s => s.id === x.step) || {}).name || x.step, level: x.level })),
+        for_customer: r.forCustomer ? { levels: r.forCustomer.levels, own_steps: r.forCustomer.custom.map(x => ({ name: x.name, when: x.when, level: x.level })) } : undefined }; } },
+
+  { name: 'set_driver_step', title: 'Change what drivers must do',
+    description: 'Sets one driver step to off, optional or required for the whole company, or (with customer) for one customer’s loads only. For a customer, level "company" removes the exception. Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { step: str('Step name or id, e.g. "On my way to pickup", "Check in / check out times", "Pickup photos", "Delivery photos", or one of the company’s own steps'),
+      level: { type: 'string', enum: ['off', 'optional', 'required', 'company'] }, customer: str('Optional: only for this customer (name or id)') }, required: ['step', 'level'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => { needCompany(user);
+      const cur = await api(user, 'GET', '/api/driver-steps');
+      const st = pickOne(cur.steps, a.step, 'step', x => x.name);
+      let customerId = null, customerName = null;
+      if (a.customer) { const c = pickOne(await customers(user), a.customer, 'customer', x => x.name); customerId = c.id; customerName = c.name; }
+      else if (a.level === 'company') throw new ToolError('"company" only applies to a customer exception.');
+      await api(user, 'PUT', '/api/driver-steps', { json: { step: st.id, level: a.level, customerId }, headers: { 'X-HP-Via': 'connector' } });
+      return { saved: true, step: st.name, level: a.level, for: customerName || 'the whole company' }; } },
+
+  { name: 'add_driver_step', title: 'Add your own driver step',
+    description: 'Adds a step the company names itself, e.g. "Seal #", "Trailer temperature", "Straps checked". Choose when (pickup or delivery), how the driver answers (check, text, number) and the level (optional or required). Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { name: str('What the driver sees, e.g. "Seal #"'), when: { type: 'string', enum: ['pickup', 'delivery'] },
+      answer: { type: 'string', enum: ['check', 'text', 'number'], description: 'check = a check box; text = short answer; number' }, level: { type: 'string', enum: ['optional', 'required', 'off'] } }, required: ['name', 'when', 'answer'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => { needCompany(user);
+      const r = await api(user, 'POST', '/api/driver-steps/custom', { json: { name: a.name, when: a.when, kind: a.answer, level: a.level || 'optional' }, headers: { 'X-HP-Via': 'connector' } });
+      return { added: true, id: r.id, name: String(a.name).trim(), when: a.when, level: a.level || 'optional' }; } },
+
+  { name: 'remove_driver_step', title: 'Remove one of your own driver steps',
+    description: 'Removes a step the company added (answers already given stay on those loads). Built-in steps can’t be removed; set them to off instead. Admin logins only. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { step: str('The step’s name or id') }, required: ['step'] }, annotations: { readOnlyHint: false, destructiveHint: true },
+    run: async (user, a) => { needCompany(user);
+      const cur = await api(user, 'GET', '/api/driver-steps');
+      const st = pickOne(cur.steps.filter(x => !x.builtin), a.step, 'step', x => x.name);
+      await api(user, 'DELETE', '/api/driver-steps/custom/' + encodeURIComponent(st.id), { headers: { 'X-HP-Via': 'connector' } });
+      return { removed: st.name }; } },
+
   { name: 'list_drivers', title: 'List drivers',
     description: 'Lists this account’s active drivers. Optionally filter by name or phone.',
     inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number') } }, annotations: { readOnlyHint: true },
@@ -828,7 +871,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
-  'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).';
+  'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer; confirm changes with the user first.';
 
 async function handleRpc(msg, user, base) {
   const id = msg.id;

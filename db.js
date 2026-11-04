@@ -211,7 +211,8 @@ addColumn('loads', 'truck', 'TEXT');
 addColumn('loads', 'trailer', 'TEXT');
 addColumn('loads', 'brokerId', 'TEXT');    // a customer can hand a load to a broker, who then assigns the carrier
 addColumn('loads', 'brokerName', 'TEXT');
-addColumn('loads', 'customerId', 'TEXT');  // link to the owner org's own customer-list entry (customers.id)
+addColumn('loads', 'customerId', 'TEXT');
+addColumn('pods', 'missingSteps', 'TEXT');   // required delivery steps the driver skipped (the signed doc is kept; dispatch is told)  // link to the owner org's own customer-list entry (customers.id)
 // Customer-list entries gained more detail + a contacts list (added to installs that already have the table).
 addColumn('customers', 'contactPhone', 'TEXT');
 addColumn('customers', 'address', 'TEXT');

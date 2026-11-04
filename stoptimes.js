@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS stop_times (
 const KINDS = ['pickup', 'delivery'];
 // Is in/out time tracking on for this load? The load's owning account decides (falling back to the driver's).
 function enabledFor(load, fallbackOrgId) {
-  try { return !!resolveUiFlags((load && load.orgId) || fallbackOrgId || null).stopTimes; } catch (e) { return false; }
+  try { return !!require('./steps').flagsFor((load && load.orgId) || fallbackOrgId || null, (load && load.customerId) || null).stopTimes; } catch (e) { return false; }
 }
 function stopKey(kind, stopNumber) {
   if (KINDS.indexOf(kind) < 0) return null;

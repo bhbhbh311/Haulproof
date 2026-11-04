@@ -196,14 +196,15 @@ router.get('/:id', requireAuth, (req, res) => {
   // PO (SCR017BOL -> SCR017BOL-4) while it attached to this load by load #, leaving the driver app showing a
   // different PO than dispatch. Bring any out-of-step documents back in line with the load's PO.
   try { if (load.poNumber) db.prepare(`UPDATE pods SET poNumber = ? WHERE loadId = ? AND poNumber IS NOT ?`).run(load.poNumber, load.id, load.poNumber); } catch (e) {}
-  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt, redoOf, pickPending, notUsedAt, notUsedBy, (originalFile IS NOT NULL) AS hasOriginal, assignedDriverName, driver, recipients, emailStatus, emailError, emailFailedTo, emailNextRetryAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
+  const pods = db.prepare(`SELECT id, orgId, poNumber, loadNumber, docType, filename, consignee, stopNumber, missingSteps, receiverId, receiverName, salesRepUserId, signedAt, uploadedAt, status, dupWarn, assignedDriverId, rejectedPage, rejectReason, parkedReason, parkedAt, redoOf, pickPending, notUsedAt, notUsedBy, (originalFile IS NOT NULL) AS hasOriginal, assignedDriverName, driver, recipients, emailStatus, emailError, emailFailedTo, emailNextRetryAt FROM pods WHERE loadId = ? ORDER BY (stopNumber IS NULL), stopNumber ASC, uploadedAt ASC`).all(load.id)
     .map(p => ({ ...p, fileUrl: `/api/pods/${p.id}/file` }));
   const uid = userId(req);
   const archived = uid ? !!db.prepare(`SELECT 1 FROM load_archives WHERE userId = ? AND loadId = ?`).get(uid, load.id) : false;
   // Authority warnings on the assigned carrier/broker (added by an admin override, not yet active on FMCSA).
   const warnOf = (id) => { if (!id) return null; const o = db.prepare(`SELECT authWarning FROM orgs WHERE id = ?`).get(id); return o ? o.authWarning || null : null; };
   const lo = loadOut(load, req);
-  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id) });
+  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id),
+    stepAnswers: require('./steps').answersFor(load.id).map(a => ({ name: a.name || '(removed step)', when: a.whenAt, stopNumber: a.stopNumber, value: a.value, at: a.at })) });
 });
 
 // Serve one of a load's pickup proof-photos (dispatcher/portal view). Auth'd like the load itself.

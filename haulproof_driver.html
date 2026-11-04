@@ -855,13 +855,17 @@ window.__startApp=function(){
   function saveCfg(c){ lsSet("hp_cfg",c); }
   // Per-org "Simple mode" field flags (which optional inputs dispatch left on). Delivered via /my-loads and cached,
   // so the driver app hides the same fields as the dispatch side. Defaults match the server until the first fetch.
-  var UIFLAG_DEFAULTS={ loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, allowPickupPhoto:false, requirePickupPhoto:false, allowDeliveryPhoto:false, requireDeliveryPhoto:false, stopTimes:false };
+  var UIFLAG_DEFAULTS={ enRoute:true, requireEnRoute:false, requireStopTimes:false, loadNumber:false, receiver:false, salesRep:false, customer:true, auditTrail:true, allowPickupPhoto:false, requirePickupPhoto:false, allowDeliveryPhoto:false, requireDeliveryPhoto:false, stopTimes:false };
   var _uiFlags=null;
   function loadUiFlags(){ if(!_uiFlags){ _uiFlags=lsGet("hp_uiflags",null); } return _uiFlags||{}; }
   function saveUiFlags(f){ if(f&&typeof f==="object"){ _uiFlags=f; try{ lsSet("hp_uiflags",f); }catch(e){} } }
-  function drvFieldOn(k){ var f=loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
+  // What the load's company and customer require (sent with each load) wins over the driver's own account flags:
+  // _renderReq while drawing a load card, _activeReq for the load the driver is working (pickup sheet, signing).
+  var _renderReq=null, _activeReq=null;
+  function drvFieldOn(k){ var f=_renderReq||_activeReq||loadUiFlags(); return (f&&(k in f))?!!f[k]:!!UIFLAG_DEFAULTS[k]; }
+  function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-04b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-04c";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1140,6 +1144,8 @@ window.__startApp=function(){
     try{
       if(document.hidden || !online()) return;
       var rv=$("viewRoute"); if(!rv || rv.classList.contains("hide")) return;
+      // Typing a step answer (Seal #, temperature…) in a load card: don't redraw the card under the driver's fingers
+      var fe=document.activeElement; if(fe && fe.closest && fe.closest("#myLoadsList") && /INPUT|TEXTAREA/.test(fe.tagName) && fe.value){ return; }
       loadMyLoads(); loadMyDocuments(); loadNotices();
     }catch(e){}
   }
@@ -1404,6 +1410,7 @@ window.__startApp=function(){
   // Open a prepared document (from a pull OR an assigned load) into the sign view.
   async function openPreparedDoc(d){
     _reup=null;   // this is a normal sign flow, not a re-shoot
+    _activeReq=(d&&d.req)||null;   // this load's company/customer rules (delivery photos) while signing it
     var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim(), base=podsBase(ep);
     var hdr = key ? {"X-Api-Key":key} : {}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
     toast("Opening…");
@@ -1556,10 +1563,12 @@ window.__startApp=function(){
       loads.forEach(function(d){ var key=d.loadId||("po:"+(d.poNumber||"")); var g=gmap[key]; if(!g){ g=gmap[key]={key:key,poNumber:d.poNumber,loadNumber:d.loadNumber,consignee:d.consignee,docs:[]}; groups.push(g);} g.docs.push(d); });
       $("myLoadsCount").textContent="("+groups.length+")";
       var box=$("myLoadsList"); box.innerHTML="";
-      var timesOn = drvFieldOn("stopTimes");
       // A load the driver can act on opens when tapped; with only one such load, open it straight away.
       var actionable = groups.filter(function(g){ return g.docs.some(function(d){ return !d.awaiting || d.reupload || d.pickedUpAt; }); });
       groups.forEach(function(g){
+        _renderReq = (g.docs.find(function(d){ return d.req; })||{}).req || null;
+        var timesOn = drvFieldOn("stopTimes");
+        var gReq = _renderReq || loadUiFlags(), gAnswers = (g.docs.find(function(d){ return d.answers; })||{}).answers || [];
         var reup = g.docs.filter(function(d){ return d.reupload; });
         var ready = g.docs.filter(function(d){ return !d.awaiting && !d.reupload; });
         ready.sort(function(a,b){ return (a.stopNumber||1)-(b.stopNumber||1); });   // Stop 1 first
@@ -1620,14 +1629,19 @@ window.__startApp=function(){
           var puGps = null; g.docs.forEach(function(d){ if(!puGps && d.pickedUpGps) puGps=d.pickedUpGps; });
           sec("Pickup");
           // "On my way to pickup": before the truck reaches the shipper (hidden once checked in at pickup or picked up).
-          if(!puAt && !(puT && puT.inAt)){ var er=slot("2px 0 6px"); if(erAt) renderEnRoute(er, loadId, erAt); else showEnRouteButton(er, loadId); }
+          if(drvFieldOn("enRoute") && !puAt && !(puT && puT.inAt)){ var er=slot("2px 0 6px"); if(erAt) renderEnRoute(er, loadId, erAt); else showEnRouteButton(er, loadId); }
           // In/out times (account setting): the pickup check-in sits just above the Pickup complete button.
           if(timesOn) renderStopTimes(slot("2px 0 4px"), loadId, "pickup", 0, "pickup", puT);
+          if(stepsFor(gReq, "pickup").length) renderSteps(slot("2px 0 6px"), loadId, gReq, gAnswers, "pickup", 0);
           var pr=slot("2px 0 8px");
+          var puMissing = missingSteps(gReq, gAnswers, "pickup", 0);
           if(puAt) renderPickedUp(pr, loadId, puAt, puGps, 0);
+          else if(drvFieldOn("requireEnRoute") && !erAt && !(puT && puT.inAt)) blockedNote(pr, 'Tap "On my way to pickup" first — then Pickup complete shows here');
+          else if(drvFieldOn("requireStopTimes") && !(puT && puT.inAt)) blockedNote(pr, "Check in at the pickup first — then Pickup complete shows here");
+          else if(puMissing.length) blockedNote(pr, "Before pickup complete: "+puMissing.join(", "));
           else showPickupButton(pr, loadId);
           // Single-stop load: its delivery check-in sits here (once picked up), the sign button under Paperwork.
-          if(timesOn && puAt && ready.length===1 && !(total>1)){
+          if(timesOn && (puAt || drvFieldOn("requireStopTimes")) && ready.length===1 && !(total>1)){
             sec("Delivery");
             renderStopTimes(slot(), loadId, "delivery", ready[0].stopNumber||1, "delivery", ready[0].stopTimes);
           }
@@ -1642,22 +1656,70 @@ window.__startApp=function(){
             var sn=d.stopNumber||1, who=d.receiverName||"";
             var box=document.createElement("div"); box.className="ldstopbox"; body.appendChild(box);
             box.innerHTML='<div class="ldstophead"><span class="ldstopnum">Stop '+sn+'</span>'+(who?'<span class="ldstopwho">'+esc(who)+'</span>':'')+'</div>';
-            if(timesOn && puAt){ var tb=document.createElement("div"); tb.style.cssText="padding:2px 0 8px;"; box.appendChild(tb); renderStopTimes(tb, loadId, "delivery", sn, "Stop "+sn, d.stopTimes); }
+            if(timesOn && (puAt || drvFieldOn("requireStopTimes"))){ var tb=document.createElement("div"); tb.style.cssText="padding:2px 0 8px;"; box.appendChild(tb); renderStopTimes(tb, loadId, "delivery", sn, "Stop "+sn, d.stopTimes); }
+            if(stepsFor(gReq, "delivery").length){ var stb=document.createElement("div"); box.appendChild(stb); renderSteps(stb, loadId, gReq, gAnswers, "delivery", sn); }
             var sb=document.createElement("div"); box.appendChild(sb);
-            sb.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete Stop '+sn+'</button>';
-            sb.querySelector("button").addEventListener("click", function(){ openPreparedDoc(d); });
+            var sMiss=missingSteps(gReq, gAnswers, "delivery", sn);
+            if(drvFieldOn("requireStopTimes") && !(d.stopTimes && d.stopTimes.inAt)) blockedNote(sb, "Check in at Stop "+sn+" first — then you can sign");
+            else if(sMiss.length) blockedNote(sb, "Before signing Stop "+sn+": "+sMiss.join(", "));
+            else { sb.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete Stop '+sn+'</button>';
+              sb.querySelector("button").addEventListener("click", function(){ openPreparedDoc(d); }); }
           });
           if(waiting.length){ var wl2=slot("4px 0 4px"); wl2.innerHTML='<div style="color:var(--warn);font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
         } else if(ready.length){
           sec("Paperwork");
           if(waiting.length){ var wl=slot("0 0 4px"); wl.innerHTML='<div style="color:var(--warn);font-size:12px;">⏳ '+waiting.length+' more stop'+(waiting.length===1?'':'s')+' not ready yet — dispatch is setting '+(waiting.length===1?'it':'them')+' up</div>'; }
           // Signing and sending the paperwork is what completes the delivery (and checks the driver out of the stop).
-          var os=slot("2px 0 8px"); os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
-          os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); });
+          var sn1=ready[0].stopNumber||1;
+          if(stepsFor(gReq, "delivery").length) renderSteps(slot("2px 0 6px"), loadId, gReq, gAnswers, "delivery", sn1);
+          var os=slot("2px 0 8px"), dMiss=missingSteps(gReq, gAnswers, "delivery", sn1);
+          if(drvFieldOn("requireStopTimes") && !(ready[0].stopTimes && ready[0].stopTimes.inAt)) blockedNote(os, "Check in at delivery first — then you can sign");
+          else if(dMiss.length) blockedNote(os, "Before signing: "+dMiss.join(", "));
+          else { os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
+            os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); }); }
         }
       });
     }catch(e){ card.classList.add("hide"); }
+    _renderReq=null;
   }
+  // ---- The company's own steps ("Seal #", "Straps checked"…) and what's still required before the driver can go on ----
+  function stepsFor(req, when){ return ((req&&req.customSteps)||[]).filter(function(s){ return s.when===when && s.level!=="off"; }); }
+  function answerOf(answers, stepId, stop){ var a=(answers||[]).find(function(x){ return x.stepId===stepId && x.stopNumber===stop; }); return a?a.value:""; }
+  function missingSteps(req, answers, when, stop){ return stepsFor(req, when).filter(function(s){ return s.level==="required" && !answerOf(answers, s.id, stop); }).map(function(s){ return s.name; }); }
+  function renderSteps(container, loadId, req, answers, when, stop){
+    var list=stepsFor(req, when); if(!list.length) return;
+    list.forEach(function(s){
+      var v=answerOf(answers, s.id, stop), row=document.createElement("div");
+      row.style.cssText="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0;";
+      var tag=s.level==="required"?'<span style="color:var(--bad);font-size:11px;font-weight:800;">REQUIRED</span>':'';
+      if(s.kind==="check"){
+        row.innerHTML='<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:pointer;"><input type="checkbox" '+(v?'checked':'')+' style="width:22px;height:22px;"> '+esc(s.name)+'</label>'+tag;
+        row.querySelector("input").addEventListener("change", function(e){ saveStep(loadId, s.id, stop, e.target.checked?"1":""); });
+      } else {
+        row.innerHTML='<span style="font-size:14px;font-weight:600;min-width:90px;">'+esc(s.name)+'</span>'+tag+
+          '<input class="ti" '+(s.kind==="number"?'inputmode="decimal"':'')+' value="'+esc(v)+'" style="flex:1;min-width:110px;max-width:220px;padding:8px 10px;">'+
+          '<button class="btn sm" type="button">'+(v?'Change':'Save')+'</button>';
+        var inp=row.querySelector("input"), b=row.querySelector("button");
+        b.addEventListener("click", function(){ saveStep(loadId, s.id, stop, inp.value); });
+        inp.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); saveStep(loadId, s.id, stop, inp.value); } });
+      }
+      container.appendChild(row);
+    });
+  }
+  async function saveStep(loadId, stepId, stop, value){
+    var key=currentKey(); if(!key||!online()){ toast("You're offline — try again with a connection"); return; }
+    var hdr={"X-Api-Key":key,"Content-Type":"application/json"}; var unlock=loadUnlock(); if(unlock) hdr["X-Driver-Unlock"]=unlock;
+    var gps=null; try{ gps=lastGps||null; }catch(e){}
+    try{
+      var r=await fetch(driverApi("/my-loads/"+encodeURIComponent(loadId)+"/step"),{method:"POST",headers:hdr,body:JSON.stringify({stepId:stepId,stopNumber:stop,value:value,gps:gps})});
+      var j=await r.json().catch(function(){return{};});
+      if(!r.ok){ toast(j.error||"Couldn't save"); return; }
+      (_lastMyLoads||[]).forEach(function(d){ if(d.loadId===loadId) d.answers=j.answers||[]; });
+      toast("Saved"); renderMyLoads(_lastMyLoads);
+    }catch(e){ toast("Couldn't save — check your signal"); }
+  }
+  // A required step not done yet: say what's missing in place of the button it holds back
+  function blockedNote(container, text){ container.innerHTML='<div style="color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:700;">⏳ '+esc(text)+'</div>'; }
   async function startDocTemplate(bytes, tpl){
     if(!ready){ toast("Engine not loaded"); return; }
     origBytes=bytes.slice(0); fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
@@ -1834,6 +1896,7 @@ window.__startApp=function(){
     container.innerHTML='<button class="btn sm myLoadPickup" type="button" style="background:#0f6f3f;color:#fff;border-color:var(--ok);">📍 Pickup complete</button>';
     var pb=container.querySelector(".myLoadPickup");
     if(pb) pb.addEventListener("click", function(){
+      _activeReq=reqForLoad(loadId);
       var req=drvFieldOn("requirePickupPhoto"), allow=drvFieldOn("allowPickupPhoto");
       if(req || allow) openPickupSheet(loadId, pb, container, req);   // offer the photo sheet (req=must add >=1, else optional)
       else markPickup(loadId, pb, container, []);                     // no photos — one-tap pickup
@@ -4287,7 +4350,9 @@ if(window.__LIBS) window.__startApp();
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) lastActive=Date.now(); });
   function busy(){
     if(Date.now()-lastActive < 60000) return true;
-    if(window.__hpBusy) return true;                       // signing / entering emails / completion screen
+    if(window.__hpBusy) return true;
+    // a half-typed answer to a driver step in a load card
+    var fe=document.activeElement; if(fe && fe.closest && fe.closest("#myLoadsList") && /INPUT|TEXTAREA/.test(fe.tagName) && fe.value) return true;                       // signing / entering emails / completion screen
     // Only update from the home (route) screen. Anywhere else — taking photos, reviewing pages, the send-to-dispatch
     // screen, signing, the outbox, the PIN screens — the driver may have unsaved work, so wait until they're back home.
     var route=document.getElementById("viewRoute");

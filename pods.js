@@ -462,6 +462,26 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
       detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
     // A redo: both signed copies wait for dispatch to pick one; the customer copy is held until then.
     if (redoOf) { try { db.prepare(`UPDATE pods SET redoOf = ?, pickPending = 1 WHERE id = ?`).run(redoOf, id); db.prepare(`UPDATE pods SET pickPending = 1 WHERE id = ?`).run(redoOf); } catch (e) {} }
+    // Server check of the required delivery steps (check-in at this stop, the company's own delivery steps). A signed
+    // POD is never refused — it may have waited in an offline phone's outbox — but anything skipped is recorded on the
+    // document and the load history so dispatch sees it.
+    try {
+      const sp = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
+      const stop = (sp && sp.stopNumber) || 1;
+      const steps = require('./steps');
+      const need = steps.flagsFor(load.orgId, load.customerId || null);
+      const miss = [];
+      if (need.requireStopTimes) {
+        const t = (stoptimes.mapFor([load.id])[load.id] || []).find(x => x.kind === 'delivery' && x.stopNumber === stop);
+        if (!t || !t.inAt) miss.push('Check in at stop ' + stop);
+      }
+      miss.push(...steps.missing(load, 'delivery', stop));
+      if (miss.length) {
+        db.prepare(`UPDATE pods SET missingSteps = ? WHERE id = ?`).run(JSON.stringify(miss), id);
+        logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'missing_steps',
+          detail: '⚠ Stop ' + stop + ' signed without required: ' + miss.join(', ') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+      }
+    } catch (e) {}
     // Sending a stop's signed documents = out of that delivery stop (when in/out times are on and no check-out yet).
     // Uses the time the driver actually signed, so a document that waited in the phone's outbox keeps the real time.
     try {
