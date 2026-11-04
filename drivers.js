@@ -260,6 +260,16 @@ router.get('/my-loads', (req, res) => {
   const rows = own.slice();
   const seen = new Set(own.map(p => p.id));
   const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
+  // Loads dispatch gave to this driver that have no paperwork yet: show them as a load card right away, so the driver
+  // can tap "On my way", check in, pick up and scan the shipper's BOL from the card. Done loads (signed, nothing open) drop off.
+  try {
+    db.prepare(`SELECT l.id AS loadId, l.poNumber, l.loadNumber, l.consignee, l.orgId AS loadOrgId, l.customerId AS loadCustomerId,
+        COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM loads l LEFT JOIN customers c ON c.id = l.customerId
+      WHERE l.assignedDriverId = ? AND NOT EXISTS (SELECT 1 FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed'))
+      ORDER BY l.createdAt DESC LIMIT 50`).all(r.driver.id)
+      .filter(l => !loadIds.includes(l.loadId))
+      .forEach(l => { loadIds.push(l.loadId); rows.push({ ...l, id: 'load:' + l.loadId, noDoc: true, status: 'none', stopNumber: null, receiverName: null, docType: null, filename: null, fields: null }); });
+  } catch (e) {}
   if (loadIds.length) {
     const ph = loadIds.map(() => '?').join(',');
     const mates = db.prepare(`SELECT p.*, l.orgId AS loadOrgId, l.customerId AS loadCustomerId, COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM pods p
@@ -296,14 +306,16 @@ router.get('/my-loads', (req, res) => {
   const times = stoptimes.mapFor(loadIds);
   const timesFor = (loadId, kind, stop) => (times[loadId] || []).find(t => t.kind === kind && (kind === 'pickup' || t.stopNumber === (stop || 1))) || null;
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
-  const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee,
+  const instr = {};
+  if (loadIds.length) db.prepare(`SELECT id, instructions FROM loads WHERE id IN (${loadIds.map(() => '?').join(',')})`).all(...loadIds).forEach(l => { instr[l.id] = l.instructions || null; });
+  const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee, noDoc: !!p.noDoc, instructions: instr[p.loadId] || null,
     pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null, enRouteAt: (pickup[p.loadId] || {}).enRouteAt || null,
     pickupTimes: timesFor(p.loadId, 'pickup'), stopTimes: timesFor(p.loadId, 'delivery', p.stopNumber),
     customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,
     awaiting: p.status === 'awaiting_build',
     reupload: p.status === 'needs_reupload', rejectedPage: p.rejectedPage || null, rejectReason: p.rejectReason || null,
     loadSigned: (prog[p.loadId] || {}).signed || 0, loadTotal: (prog[p.loadId] || {}).total || 0,
-    filename: p.filename, fields: parse(p.fields), fileUrl: '/api/pods/' + p.id + '/file',
+    filename: p.filename, fields: parse(p.fields), fileUrl: p.noDoc ? null : '/api/pods/' + p.id + '/file',
     // what this load's company (and customer) requires of the driver, and the answers so far
     req: p.loadId ? reqFor(p) : null,
     loadFields: p.loadId ? (fieldsCache[p.loadId] || (fieldsCache[p.loadId] = loadFieldsFor(p.loadId))) : [],
@@ -642,7 +654,7 @@ function brokerMayManageCarrier(req, carrierId) {
   let flags = {}; try { flags = resolveUiFlags(carrierId); } catch (e) {}
   if (!flags.allowBrokerDrivers) return { ok: false, code: 403, errcode: 'broker_drivers_off', error: carrier.name + ' hasn’t turned on broker-added drivers, so only they can manage their roster.' };
   if (isSuper) return { ok: true, carrier };
-  const link = db.prepare(`SELECT 1 FROM loads WHERE brokerId IS ? AND carrierId IS ? LIMIT 1`).get(req.user.orgId || null, carrierId);
+  const link = db.prepare(`SELECT 1 FROM loads WHERE (brokerId IS ? OR orgId IS ?) AND carrierId IS ? LIMIT 1`).get(req.user.orgId || null, req.user.orgId || null, carrierId);
   if (!link) return { ok: false, code: 403, error: 'You can only manage drivers for a carrier you’ve assigned one of your loads to.' };
   return { ok: true, carrier };
 }

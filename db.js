@@ -270,6 +270,8 @@ addColumn('loads', 'enRouteAt', 'INTEGER');     // driver tapped "On my way to p
 addColumn('loads', 'enRouteGps', 'TEXT');       // JSON {lat,lng,acc} where the driver was when they set off
 addColumn('loads', 'pickedUpPhotos', 'TEXT');   // JSON array of pickup proof-photo refs: [{id, at}] (files on disk)
 addColumn('loads', 'deliveredPhotos', 'TEXT');  // JSON array of delivery proof-photo refs: [{id, at, stopNumber}] (files on disk)
+addColumn('loads', 'instructions', 'TEXT');     // the shipper's / broker's special instructions, shown on the driver's load card
+addColumn('loads', 'assignedDriverId', 'TEXT'); // the driver RECORD dispatch gave the load to: it shows on their phone before any paperwork exists
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)
 // Provenance when a BROKER adds a driver into a carrier's roster on their behalf (the carrier allows it via
 // the allowBrokerDrivers flag). The driver belongs to the carrier's org as normal; these just record who added it.
