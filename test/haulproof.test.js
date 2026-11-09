@@ -28,7 +28,7 @@ function pod(orgId, loadId, status = 'received') { const p = id(); db.prepare("I
 let server;
 test.before(async () => {
   server = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR, PORT: String(PORT), JWT_SECRET: 'test-only-' + PW }, stdio: 'ignore' });
-  for (let i = 0; i < 60; i++) { try { const r = await fetch(B + '/api/app-version'); if (r.ok) return; } catch (e) {} await new Promise(r => setTimeout(r, 250)); }
+  for (let i = 0; i < 160; i++) { try { const r = await fetch(B + '/api/app-version'); if (r.ok) return; } catch (e) {} await new Promise(r => setTimeout(r, 250)); }
   throw new Error('server did not start');
 });
 test.after(() => { if (server) server.kill(); });
@@ -102,4 +102,57 @@ test('a company that owns a load and gave it to a carrier can add that carrier\'
   const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(add.body.driver.id).token;
   const mine = (await asDriver(tok)('GET', '/api/drivers/my-loads')).body.loads;
   assert.ok(mine.some(x => x.loadId === l.id && x.noDoc), 'the carrier\'s driver sees the load');
+});
+
+// ---- AI connector: a token for a login, then tools/call the way Claude does ----
+function mcpToken(email) {
+  const u = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const tok = 'test_' + crypto.randomBytes(12).toString('hex');
+  db.prepare("INSERT INTO oauth_tokens (tokenHash, kind, clientId, userId, expiresAt, createdAt) VALUES (?, 'access', ?, ?, ?, ?)")
+    .run(crypto.createHash('sha256').update(tok).digest('hex'), 'test-client-' + email, u.id, Date.now() + 3600e3, Date.now());
+  return async (name, args) => {
+    const r = await fetch(B + '/mcp', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    const j = await r.json(); const res = j.result || {};
+    const text = (res.content || [{}])[0].text || (j.error && j.error.message) || '';
+    let out = text; try { out = JSON.parse(text); } catch (e) {}
+    return { err: !!(res.isError || j.error), out };
+  };
+}
+
+test('connector: a company deletes its own load — preview first, then only with confirm, and it can be restored', async () => {
+  const api = await login('ship@test.example');
+  const l = (await api('POST', '/api/loads', { poNumber: 'DEL-1' })).body.load;
+  pod(shipper, l.id, 'signed');
+  const call = mcpToken('ship@test.example');
+  const preview = await call('delete_load', { load: 'DEL-1' });
+  assert.equal(preview.err, false, JSON.stringify(preview.out));
+  assert.deepEqual([preview.out.would_delete, preview.out.documents, preview.out.signed_documents], [true, 1, 1]);
+  assert.ok(db.prepare('SELECT 1 FROM loads WHERE id = ?').get(l.id), 'nothing deleted without confirm');
+  const done = await call('delete_load', { load: 'DEL-1', confirm: true });
+  assert.equal(done.out.deleted, true);
+  assert.equal(db.prepare('SELECT 1 FROM loads WHERE id = ?').get(l.id), undefined);
+  const bin = db.prepare('SELECT docCount FROM deleted_loads WHERE id = ?').get(l.id);
+  assert.ok(bin, 'the load is in the recovery bin'); assert.equal(bin.docCount, 1);
+  // another company's load can't be deleted through the connector
+  const other = (await (await login('brk@test.example'))('POST', '/api/loads', { poNumber: 'NOT-MINE' })).body.load;
+  const no = await call('delete_load', { load: other.id, confirm: true });
+  assert.equal(no.err, true);
+  assert.ok(db.prepare('SELECT 1 FROM loads WHERE id = ?').get(other.id));
+});
+
+test('connector: the master admin turns a company off and back on; others never see the tool', async () => {
+  createUser({ email: 'master@test.example', name: 'Master', role: 'superadmin', password: PW, orgId: null });
+  const master = mcpToken('master@test.example');
+  const off = await master('set_company_active', { company: 'Test Carrier Inc', active: false });
+  assert.equal(off.err, false, JSON.stringify(off.out));
+  assert.deepEqual([off.out.changed, off.out.active], [true, false]);
+  assert.equal(db.prepare('SELECT active FROM orgs WHERE id = ?').get(carrier).active, 0);
+  const again = await master('set_company_active', { company: 'Test Carrier Inc', active: false });
+  assert.equal(again.out.changed, false, 'already off: nothing to do');
+  const on = await master('set_company_active', { company: 'Test Carrier Inc', active: true });
+  assert.equal(on.out.active, true); assert.equal(db.prepare('SELECT active FROM orgs WHERE id = ?').get(carrier).active, 1);
+  const notMaster = await mcpToken('ship@test.example')('set_company_active', { company: 'Test Carrier Inc', active: false });
+  assert.equal(notMaster.err, true, 'a company login can not use it');
+  assert.equal(db.prepare('SELECT active FROM orgs WHERE id = ?').get(carrier).active, 1);
 });
