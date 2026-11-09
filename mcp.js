@@ -466,6 +466,44 @@ const TOOLS = [
       return { now_working_in: o.name, type: o.kind, acting_as: 'HaulProof Help', note: 'Changes from here on are made in ' + o.name + '.' };
     } },
 
+  { name: 'set_company_active', title: 'Turn a company off or on (master admin)', masterOnly: true,
+    description: 'Master admin only: turns a company (customer, carrier, broker or receiver) off or back on, the same as Deactivate / Reactivate in Master Admin. '
+      + 'Off locks out its logins and driver links and hides it from carrier and customer pick lists; nothing is deleted, and turning it back on restores everything. '
+      + 'Use list_companies first to get the right one (names can repeat across types). Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { company: str('Company name or id from list_companies'), active: { type: 'boolean', description: 'false = turn off, true = turn back on' } }, required: ['company', 'active'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      const all = db.prepare(`SELECT id, name, kind, active FROM orgs`).all();
+      const o = pickOne(all, a.company, 'company', x => x.name);
+      const on = !!a.active;
+      if ((o.active !== 0) === on) return { company: o.name, type: o.kind, active: on, changed: false, note: o.name + ' was already ' + (on ? 'on' : 'off') + '.' };
+      db.prepare(`UPDATE orgs SET active = ? WHERE id = ?`).run(on ? 1 : 0, o.id);
+      console.log('[mcp] master admin ' + user._master.email + ' turned ' + o.name + ' (' + o.kind + ') ' + (on ? 'on' : 'off'));
+      const ctx = db.prepare(`SELECT orgId FROM mcp_master_ctx WHERE userId = ? AND clientId = ?`).get(user._master.id, user._master.clientId);
+      return { company: o.name, type: o.kind, active: on, changed: true,
+        note: on ? o.name + ' is back on: its logins and driver links work again.' : o.name + ' is off: its logins and driver links stop working; nothing was deleted.'
+          + (ctx && ctx.orgId === o.id ? ' This connection was working in it, so pick another company with use_company.' : '') };
+    } },
+
+  { name: 'delete_load', title: 'Delete a load',
+    description: 'Deletes one load and its documents, the same as Delete in Documents / Loads: recoverable, a master admin can restore it from the recovery bin. '
+      + 'Only the company that owns the load can delete it. Call it first without confirm to see what would go (PO #, documents, how many are signed), '
+      + 'tell the user, and call again with confirm true only after they say yes.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), confirm: { type: 'boolean', description: 'true = delete it now (only after the user agreed)' } }, required: ['load'] },
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    run: async (user, a) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      const docs = db.prepare(`SELECT status FROM pods WHERE loadId = ?`).all(d.load.id);
+      const signedN = docs.filter(x => x.status === 'signed' || x.status === 'emailed').length;
+      const what = { po_number: d.load.poNumber, load_number: d.load.loadNumber || null, documents: docs.length, signed_documents: signedN };
+      if (!a.confirm) return Object.assign({ would_delete: true }, what,
+        { note: 'Nothing deleted yet. ' + (signedN ? signedN + ' signed document(s) would go too (recoverable). ' : '') + 'Ask the user, then call again with confirm true.' });
+      const r = await api(user, 'DELETE', '/api/loads/' + encodeURIComponent(d.load.id));
+      return Object.assign({ deleted: true }, what, { documents_deleted: r.deletedPods != null ? r.deletedPods : docs.length,
+        note: 'Deleted. It can be restored from the recovery bin by a master admin.' });
+    } },
+
   { name: 'list_customers', title: 'List customers',
     description: 'Lists the companies on this account’s customer list (the customer a load is for). Optionally filter by name.',
     inputSchema: { type: 'object', properties: { search: str('Part of a customer name to filter by') } }, annotations: { readOnlyHint: true },
