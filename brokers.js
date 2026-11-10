@@ -5,6 +5,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { requireAuth, requireAdmin, createUser } = require('./auth');
+const { inviteLogin } = require('./invite');
 const { fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, setAuthWarning, isHaulProof } = require('./carriers');
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -62,14 +63,14 @@ router.post('/', requireAuth, async (req, res) => {
     .run(id, name, newDeviceKey(), mcNumber || null, dotNumber || null, verified, b.allowedToOperate || null, (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
   setAuthWarning(id, gate.warning, gate.snapshot);
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
+  let adminLink = null;   // their first admin gets an email with a link to choose their own password
   if (adminEmail) {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Only an admin can create a broker login' });
     if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid broker admin email is required' });
-    if (!b.adminPassword || String(b.adminPassword).length < 6) return res.status(400).json({ error: 'Broker admin password must be at least 6 characters' });
     if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That admin email already has a login' });
-    createUser({ email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', password: String(b.adminPassword), orgId: id });
+    adminLink = inviteLogin(req, { email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', orgId: id, company: name }).link;
   }
-  res.status(201).json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)) });
+  res.status(201).json({ broker: brokerOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)), adminEmail: adminLink ? adminEmail : null, adminLink });
 });
 
 // Edit a broker's company info.

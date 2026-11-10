@@ -6,6 +6,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { createUser, requireAuth, requireSuper, requireCap, userHasCap } = require('./auth');
+const { inviteLogin } = require('./invite');
 
 const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -125,10 +126,8 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
   const parentId = (b.parentId || '').trim() || null;
   if (parentId && !db.prepare(`SELECT id FROM orgs WHERE id = ?`).get(parentId)) return res.status(400).json({ error: 'Parent company not found' });
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
-  const adminPassword = b.adminPassword || '';
   if (isSuper && adminEmail) {
     if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid admin email is required' });
-    if (String(adminPassword).length < 6) return res.status(400).json({ error: 'Admin password must be at least 6 characters' });
     if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That email already has a login' });
   }
   const id = crypto.randomUUID();
@@ -139,10 +138,11 @@ router.post('/', requireAuth, requireCap('manage_customers'), (req, res) => {
          (b.phone || b.contactPhone || '').trim() || null,
          (b.address || '').trim() || null, (b.city || '').trim() || null, (b.state || '').trim() || null, (b.zip || '').trim() || null,
          (b.externalId || '').trim() || null, Date.now());
-  if (isSuper && adminEmail) createUser({ email: adminEmail, name: (b.adminName || b.contactName || '').trim(), role: 'admin', password: String(adminPassword), orgId: id });
+  // Their login gets an email with a link to choose their own password.
+  const adminLink = (isSuper && adminEmail) ? inviteLogin(req, { email: adminEmail, name: (b.adminName || b.contactName || '').trim(), role: 'admin', orgId: id, company: name }).link : null;
   setContacts(id, b.contacts, ownerOrg);
   linkReceiver(ownerOrg, id);
-  res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id), ownerOrg), linked: !!ownerOrg, created: true });
+  res.status(201).json({ receiver: receiverOut(db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id), ownerOrg), linked: !!ownerOrg, created: true, adminEmail: adminLink ? adminEmail : null, adminLink });
 });
 
 // ---- BULK IMPORT (master admin). Create/refresh many global receivers at once, deduping on
