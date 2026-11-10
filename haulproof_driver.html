@@ -159,6 +159,9 @@
   .ldpo{font-weight:700;font-family:"IBM Plex Mono",monospace;font-size:14px;overflow-wrap:anywhere;}
   .ldsub{color:var(--muted);font-size:13px;}
   .ldstat{font-size:12px;font-weight:700;margin-top:3px;}
+  .ldmode{display:inline-block;font-size:11.5px;font-weight:700;margin-top:4px;padding:2px 8px;border-radius:999px;}
+  .ldmode.paper{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line);}
+  .ldmode.epod{background:var(--primary-soft,#e8efff);color:var(--primary);border:1px solid var(--primary);}
   .ldchev{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--primary-soft);color:var(--primary);font-weight:800;font-size:20px;line-height:1;transition:transform .15s;}
   .ldcard.open .ldchev{transform:rotate(90deg);}
   .ldbody{border-top:1px solid var(--line);padding:10px 12px 6px;}
@@ -901,7 +904,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-05d";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-10a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1018,6 +1021,7 @@ window.__startApp=function(){
           if(p.forDispatch) hdrs["X-POD-Build"]="dispatch"; // handed to dispatch to set up (awaiting build)
           hdrs["X-POD-App-Build"]=APP_BUILD;                 // which driver-app build sent this → shown in the load history
           if(p.stopNum) hdrs["X-POD-Stop"]=String(p.stopNum); // one upload split into per-stop docs on the same load
+          if(p.paper){ hdrs["X-POD-Paper"]="1"; hdrs["X-POD-LoadId"]=he(p.loadId||""); }   // photo of the signed paper BOL: the POD for that stop
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
           if(!res.ok){
             var body=await res.json().catch(function(){return {};});
@@ -1397,8 +1401,9 @@ window.__startApp=function(){
   try{ if(/[?&]sample=1\b/.test(location.search)){ route={stops:SAMPLE.map(function(s,i){ return {id:genId(), n:i+1, name:s.name, addr:s.addr, status:"pending"}; })}; saveRoute(route);
     history.replaceState(null,"",location.pathname+location.search.replace(/([?&])sample=1&?/,"$1").replace(/[?&]$/,"")); setTimeout(function(){ try{ renderRoute(); }catch(e){} },0); } }catch(e){}
   var _dispatchUpload=false;   // true = driver is just handing the raw doc + PO# to dispatch to set up
-  $("oneoffBtn").addEventListener("click", function(){ _dispatchUpload=false; pulledMeta=null; enterSign(null); });
-  if($("dispatchBtn")) $("dispatchBtn").addEventListener("click", function(){ _dispatchUpload=true; pulledMeta=null; enterSign(null); });
+  var _paperUpload=null;       // {loadId, stop}: a photo of the paper BOL the receiver signed (the POD for that stop)
+  $("oneoffBtn").addEventListener("click", function(){ _dispatchUpload=false; _paperUpload=null; pulledMeta=null; enterSign(null); });
+  if($("dispatchBtn")) $("dispatchBtn").addEventListener("click", function(){ _dispatchUpload=true; _paperUpload=null; pulledMeta=null; enterSign(null); });
 
   /* ===== Pull a dispatcher-prepared BOL by PO# / Load# ===== */
   var pulledMeta=null;
@@ -1482,7 +1487,7 @@ window.__startApp=function(){
     }catch(err){ console.error(err); toast("Couldn't open that load"); }
   }
   function enterReuploadScreen(d){
-    currentStop=null; pulledMeta=d; _dispatchUpload=false;
+    currentStop=null; pulledMeta=d; _dispatchUpload=false; _paperUpload=null;
     origBytes=null; fields=[]; pageRecs=[]; signedPdfBytes=null; curField=null; curRoleIdx=0; adoptedByRole={}; handoffPending=false;
     capturedPages=[]; capturedMeta=[]; capturedStops=[]; capStopCount=1;
     $("pages").innerHTML=""; $("banner").classList.remove("on"); $("doneActions").classList.add("hide"); $("doneActions").innerHTML="";
@@ -1619,6 +1624,10 @@ window.__startApp=function(){
         // Signing progress: total stops on the load and how many are already signed (from the server).
         var total = g.docs.reduce(function(m,d){ return Math.max(m, d.loadTotal||0); }, 0) || (ready.length+waiting.length);
         var signed = g.docs.reduce(function(m,d){ return Math.max(m, d.loadSigned||0); }, 0);
+        // How this load is delivered: "paper" = photograph the BOL the receiver signed on paper; "epod" = sign on the phone
+        var podMode = (g.docs.find(function(d){ return d.podMode; })||{}).podMode || null;
+        var paperStops = g.docs.reduce(function(m,d){ return Math.max(m, d.paperStops||0); }, 0);
+        if(podMode==="paper") total = Math.max(total, paperStops||1);
         var loadId = g.docs[0] && g.docs[0].loadId;
         var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
@@ -1647,6 +1656,7 @@ window.__startApp=function(){
         cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
           '<div class="ldpo">'+ownerShort(g,"poNumber")+' '+esc(g.poNumber||"—")+(g.loadNumber?(" · "+ownerShort(g,"loadNumber")+" "+esc(g.loadNumber)):"")+'</div>'+
           (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
+          (podMode?'<div class="ldmode '+podMode+'">'+(podMode==="paper"?"📄 Paper BOL · send a photo once it's signed":"✍ ePOD · the BOL is signed on your phone")+'</div>':'')+
           (stat?'<div class="ldstat" style="color:'+statColor+';">'+esc(stat)+'</div>':'')+
           '</div>'+right+'</div>';
         box.appendChild(cardEl);
@@ -1727,7 +1737,15 @@ window.__startApp=function(){
           else { os.innerHTML='<button class="btn primary sm" type="button">✍ Open, sign &amp; complete delivery</button>';
             os.querySelector("button").addEventListener("click", function(){ openPreparedDoc(ready[0]); }); }
         }
-        if(noDoc && !ready.length && !waiting.length){
+        if(noDoc && !ready.length && !waiting.length && podMode==="paper"){
+          // Paper BOL: the receiver signs the paper BOL; the driver's photo of it is the POD and completes that stop
+          sec("Paperwork");
+          var nextStop = Math.min(signed+1, paperStops||1), many = (paperStops||1) > 1;
+          var pc=slot("2px 0 8px");
+          pc.innerHTML='<button class="btn primary sm" type="button">📷 Photo of the signed BOL'+(many?(' · Stop '+nextStop+' of '+paperStops):'')+'</button><div style="color:var(--muted);font-size:12px;margin-top:4px;">After the receiver signs the paper BOL, photograph every page. That photo is the POD; it completes '+(many?'this stop':'the delivery')+'.</div>';
+          pc.querySelector("button").addEventListener("click", function(){ scanPaperBol(g, many?nextStop:null); });
+        }
+        else if(noDoc && !ready.length && !waiting.length){
           sec("Paperwork");
           var sc=slot("2px 0 8px");
           sc.innerHTML='<button class="btn primary sm" type="button">📷 Scan the shipper\'s BOL</button><div style="color:var(--muted);font-size:12px;margin-top:4px;">At pickup: photograph every page. Dispatch sets it up and it comes back here to sign at delivery.</div>';
@@ -2294,8 +2312,14 @@ window.__startApp=function(){
   if($("drvCustSave")) $("drvCustSave").addEventListener("click", function(){ drvSaveCustomer(false); });
   if($("drvCustModal")) $("drvCustModal").addEventListener("click", function(e){ if(e.target===$("drvCustModal")) drvCloseCustModal(); });
 
+  // Paper BOL: photograph the BOL the receiver signed on paper. It goes up as that stop's finished POD (not to dispatch).
+  function scanPaperBol(g, stopNum){
+    _dispatchUpload=false; _paperUpload={ loadId:g.docs[0]&&g.docs[0].loadId, stop:stopNum||null, po:g.poNumber||"" }; pulledMeta=null; enterSign(null);
+    fillDetails({ poNumber: g.poNumber||"", loadNumber: g.loadNumber||"", consignee: g.consignee||"" });
+    if(g.poNumber) setDetailsMode(false, false);
+  }
   function scanBolFor(g){
-    _dispatchUpload=true; pulledMeta=null; enterSign(null);
+    _dispatchUpload=true; _paperUpload=null; pulledMeta=null; enterSign(null);
     fillDetails({ poNumber: g.poNumber||"", loadNumber: g.loadNumber||"", consignee: g.consignee||"" });
     if(g.poNumber) setDetailsMode(false, false);
   }
@@ -2324,7 +2348,7 @@ window.__startApp=function(){
   }
   // Hide/show the extra detail fields depending on whether this upload is for dispatch to set up.
   function applyDispatchMode(){
-    var dispatch = !!_dispatchUpload;
+    var dispatch = !!_dispatchUpload || !!_paperUpload;   // both only need the PO # (the load already has the rest)
     // Hide a field when this is a dispatch upload (dispatch fills it in) OR the org turned that field off in Simple mode.
     var hide = {
       ldNum:      dispatch || !drvFieldOn("loadNumber"),
@@ -2333,7 +2357,7 @@ window.__startApp=function(){
     };
     Object.keys(hide).forEach(function(id){ var el=$(id); if(el){ var lab=el.closest("label"); if(lab) lab.classList.toggle("hide", hide[id]); } });
     var add=$("drvCustAddBtn"); if(add) add.classList.toggle("hide", hide.drvCustSel);
-    if($("signCtx")) $("signCtx").textContent = _dispatchUpload ? "Upload for dispatch — just add the PO #" : (currentStop ? ("Delivering · Stop "+currentStop.n+" — "+currentStop.name) : "One-off document");
+    if($("signCtx")) $("signCtx").textContent = _paperUpload ? ("Signed paper BOL"+(_paperUpload.stop?(" · Stop "+_paperUpload.stop):"")+" — photograph every page") : _dispatchUpload ? "Upload for dispatch — just add the PO #" : (currentStop ? ("Delivering · Stop "+currentStop.n+" — "+currentStop.name) : "One-off document");
   }
   function role(){ return roles[curRoleIdx]; }
   function sigs(){ return fields.filter(function(f){return f.kind==="sig"||f.kind==="sigdate";}); }
@@ -3230,8 +3254,8 @@ window.__startApp=function(){
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
     var slb=$("saveLaterBtn");
     if(slb){
-      slb.textContent = _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
-      if(_dispatchUpload){
+      slb.textContent = _paperUpload ? "✅ Send the signed BOL" : _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
+      if(_dispatchUpload || _paperUpload){
         // This is the ONE action on the upload screen — make it big and obvious, and keep it pulsing (always, not
         // just first-time) so drivers can't miss the final send step.
         slb.classList.remove("ghost","sm"); slb.classList.add("primary","block");
@@ -3242,11 +3266,11 @@ window.__startApp=function(){
       }
     }
     leadOff("capDone");
-    if(!_dispatchUpload) leadOn("saveLaterBtn");   // first-time guide for the save-to-sign-later path
+    if(!_dispatchUpload && !_paperUpload) leadOn("saveLaterBtn");   // first-time guide for the save-to-sign-later path
     $("saveLaterBtn") && $("saveLaterBtn").addEventListener("click", function(){ leadOff("saveLaterBtn"); }, { once:true });
     // Offer "Split into stops" only for a multi-page doc the driver is building for themselves (not a
     // send-to-dispatch upload) — each stop becomes its own document on the load, ready to sign.
-    if($("splitStopsBtn")) $("splitStopsBtn").classList.toggle("hide", !(pageRecs.length>1 && !_dispatchUpload));
+    if($("splitStopsBtn")) $("splitStopsBtn").classList.toggle("hide", !(pageRecs.length>1 && !_dispatchUpload && !_paperUpload));
     window.scrollTo(0,0);
   }
   var docPageStops = null;   // when a scanned packet is split across stops: stop number per page (1-based)
@@ -3872,7 +3896,8 @@ window.__startApp=function(){
     // already in use — it will be filed as a NEW, separate load (PO.1, PO.2 …) rather than merged onto the
     // existing (maybe already completed) one. Skipped when signing a stop dispatch already prepared (pulledMeta),
     // since that legitimately belongs to the existing load.
-    if(!pulledMeta && online() && serverOrigin()){
+    var paper=_paperUpload;   // a photo of the signed paper BOL: it files on its own load, so no "PO already in use" check
+    if(!pulledMeta && !paper && online() && serverOrigin()){
       try{
         var chk=await fetch(driverApi("/po-check?po="+encodeURIComponent(poNum)),{headers:drvHeaders()});
         if(chk.ok){ var ci=await chk.json();
@@ -3901,8 +3926,10 @@ window.__startApp=function(){
         toast("Saving to load…");
         try{
           var he=function(v){ return encodeURIComponent(v==null?"":String(v)); };
-          var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he("PO "+poNum),
-            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-ClientId":he(cid),"X-POD-Status":"prepared" };
+          var hdrs={ "Content-Type":"application/pdf","X-POD-Enc":"uri","X-POD-Name":he((paper?"Signed BOL - PO ":"PO ")+poNum+(paper&&paper.stop?(" stop "+paper.stop):"")),
+            "X-POD-PO":he(poNum),"X-POD-Load":he(loadVal),"X-POD-Consignee":he(consVal),"X-POD-CustomerId":he(custVal),"X-POD-ClientId":he(cid) };
+          if(paper){ hdrs["X-POD-Paper"]="1"; hdrs["X-POD-LoadId"]=he(paper.loadId||""); hdrs["X-POD-SignedAt"]=String(Date.now()); if(paper.stop) hdrs["X-POD-Stop"]=String(paper.stop); }
+          else hdrs["X-POD-Status"]="prepared";
           // Stamp WHO sent it so dispatch uploads from a shared device still land on this driver's "Your loads".
           if(driverName()) hdrs["X-POD-Driver"]=he(driverName());
           if(_dispatchUpload) hdrs["X-POD-Build"]="dispatch";
@@ -3912,7 +3939,7 @@ window.__startApp=function(){
           var _ug=lastGps||bestGps(); if(_ug&&_ug.lat!=null){ hdrs["X-POD-Gps"]=_ug.lat+","+_ug.lng;
             if(_ug.source) hdrs["X-POD-Gps-Source"]=_ug.source; if(_ug.acc!=null) hdrs["X-POD-Gps-Acc"]=String(_ug.acc); }
           var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
-          if(res.ok){ var okj=await res.json().catch(function(){return {};}); try{ loadMyLoads(); }catch(_){} showSavedConfirmation(okj.poNumber||poNum, okj.poRenamed?(okj.originalPo||poNum):null); return; }
+          if(res.ok){ var okj=await res.json().catch(function(){return {};}); try{ loadMyLoads(); }catch(_){} showSavedConfirmation(okj.poNumber||poNum, okj.poRenamed?(okj.originalPo||poNum):null, paper); return; }
           var eb=await res.json().catch(function(){return {};});
           if(isLinkError(res.status, eb.error)){ showLinkExpired(); toast("Driver link expired — reconnect to upload"); return; }
           toast(eb.error||("Save failed ("+res.status+")")); return;
@@ -3920,13 +3947,13 @@ window.__startApp=function(){
       }
     }
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
-    var pod={ id:cid, name:"PO "+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
+    var pod={ id:cid, name:(paper?"Signed BOL - PO ":"PO ")+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
       forDispatch:_dispatchUpload, driver:driverName(), stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
-      gps:lastGps, size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) };
+      gps:lastGps, size:bytes.length, status:"pending", unsigned:!paper, paper:!!paper, loadId:paper?paper.loadId:null, stopNum:paper?paper.stop:null, b64:u8ToB64(bytes) };
     var arr=loadPods(); arr.unshift(pod);
     if(!savePods(arr)){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); savePods(arr); }   // free space if storage is full
     renderCloud();
-    showSavedConfirmation(poNum);
+    showSavedConfirmation(poNum, null, paper);
   }
   // Reclaim phone storage: drop the heavy PDF bytes of PODs that already uploaded (they live on the server
   // now). Keeps the lightweight outbox entry so the list still shows them.
@@ -3938,7 +3965,7 @@ window.__startApp=function(){
   }
   // After a save-for-later: a clear confirmation with a button that takes the driver straight to the
   // "Your loads" list where the saved doc waits to be signed.
-  function showSavedConfirmation(poNum, renamedFrom){
+  function showSavedConfirmation(poNum, renamedFrom, paper){
     setGuided();   // they've completed a first upload — stop the first-time lead pulses from here on
     captureMode=false;
     $("banner").classList.remove("on");
@@ -3946,12 +3973,13 @@ window.__startApp=function(){
     // ONLY thing on screen — the "Go to Your loads" button can't be scrolled off or mistaken for the status banner.
     ["docMeta","pages","capTray","uploadTools","drop","saveLaterRow","splitStopsBtn"].forEach(function(id){ var el=$(id); if(el) el.classList.add("hide"); });
     if($("sampleDocBtn") && $("sampleDocBtn").parentElement) $("sampleDocBtn").parentElement.classList.add("hide");
-    if($("signCtx")) $("signCtx").textContent = "Sent to dispatch ✓";
+    if($("signCtx")) $("signCtx").textContent = paper ? "Signed BOL sent ✓" : "Sent to dispatch ✓";
     try{ if(typeof hideLocBar==="function") hideLocBar(); }catch(e){}   // clear the fixed bottom location bar so it can't sit over the buttons
     try{ window.scrollTo(0,0); }catch(e){}                              // render the confirmation + buttons at the top, nothing to scroll to
     var da=$("doneActions"); da.classList.remove("hide"); da.innerHTML="";
     var sb=document.createElement("div"); sb.className="connbanner "+(online()?"on":"off"); sb.style.marginBottom="12px";
-    if(_dispatchUpload) sb.textContent = online() ? ("✓ Sent to dispatch — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
+    if(paper) sb.textContent = online() ? ("✓ Signed BOL sent — PO "+poNum+(paper.stop?(" · Stop "+paper.stop):"")) : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
+    else if(_dispatchUpload) sb.textContent = online() ? ("✓ Sent to dispatch — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will send when you have signal");
     else sb.textContent = online() ? ("✓ Saved to load — PO "+poNum+" · uploading…") : ("✓ Saved on device — PO "+poNum+" · will upload when you have signal");
     da.appendChild(sb);
     // If dispatch upload found the PO already in use, the server filed it as a new PO — tell the driver clearly.
@@ -3962,13 +3990,15 @@ window.__startApp=function(){
       da.appendChild(rn);
     }
     var note=document.createElement("div"); note.style.cssText="font-size:14px;color:var(--muted);margin:0 0 16px;";
-    note.textContent = _dispatchUpload
+    note.textContent = paper ? "That's your POD — dispatch has it. You're done with "+(paper.stop?"this stop":"this load")+"."
+      : _dispatchUpload
       ? "Dispatch will set it up. It'll appear under “Your loads” as Ready to sign when they're done."
       : "It's under “Your loads.” Open it there to add signatures whenever you're ready.";
     da.appendChild(note);
     var b1=mkBtn("Go to Your loads","primary",function(){ try{ if(online()) syncOutbox(); }catch(e){} showView("route"); setTimeout(function(){ try{ loadMyLoads(); }catch(e){} },350); }); b1.classList.remove("sm"); b1.classList.add("block"); b1.style.marginBottom="10px";
     var b2=mkBtn("Save another document","ghost",function(){ enterSign(currentStop); }); b2.classList.remove("sm"); b2.classList.add("block");
-    da.appendChild(b1); da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});
+    da.appendChild(b1); if(!paper) da.appendChild(b2); da.scrollIntoView({behavior:"smooth"});   // a paper BOL's next stop starts from its card
+    if(paper) _paperUpload=null;
   }
   if($("saveLaterBtn")) $("saveLaterBtn").addEventListener("click", saveUnsigned);
   function getCtx(){ var cn=$("consName")?$("consName").value.trim():""; return currentStop ? {name:cn||currentStop.name,addr:currentStop.addr,gps:currentStop.deliveredGps||lastGps} : {name:cn,addr:"",gps:lastGps}; }

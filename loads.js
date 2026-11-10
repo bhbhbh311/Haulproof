@@ -54,25 +54,35 @@ function loadOut(l, req) {
   return l;
 }
 
+// How the driver delivers a load: 'paper' = status taps + a photo of the signed paper BOL (the customer hasn't approved
+// ePOD yet); 'epod' = the BOL is signed on the phone. Anything else = not set (the app works as it always has).
+const POD_MODES = { paper: 'Paper BOL: the driver sends a photo of the signed BOL', epod: 'ePOD: the BOL is signed on the phone' };
+const podModeIn = v => (v === 'paper' || v === 'epod') ? v : null;
+const stopsIn = v => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : null; };
+
 // Create/name a load (PO# is the primary identifier, unique per customer).
 router.post('/', requireAuth, (req, res) => {
   const orgId = myOrg(req);
   const { loadNumber, poNumber, customer, consignee, origin, destination } = req.body || {};
   const instructions = String((req.body || {}).instructions || '').trim().slice(0, 4000) || null;
+  const podMode = podModeIn((req.body || {}).podMode), paperStops = podMode === 'paper' ? (stopsIn((req.body || {}).deliveryStops) || 1) : null;
   if (!poNumber && !loadNumber) return res.status(400).json({ error: 'Provide a PO number or a load number' });
   if (poNumber) {
     const existing = db.prepare(`SELECT * FROM loads WHERE orgId IS ? AND poNumber = ?`).get(orgId, poNumber);
-    if (existing) return res.json({ load: loadOut(existing, req), existed: true });
+    if (existing) {
+      if (podMode && podMode !== existing.podMode) db.prepare(`UPDATE loads SET podMode = ?, paperStops = ? WHERE id = ?`).run(podMode, paperStops, existing.id);
+      return res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(existing.id), req), existed: true });
+    }
   }
   const id = crypto.randomUUID();
   // A carrier creating its own load IS the carrier — default it to their company (they can change it later).
   let carrierId = null, carrierName = null;
   if (isCarrier(req) && orgId) { carrierId = orgId; const o = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId); carrierName = o ? o.name : null; }
-  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, instructions, status, createdBy, createdAt)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
-    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, instructions, req.user.email, Date.now());
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, instructions, podMode, paperStops, status, createdBy, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
+    .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, instructions, podMode, paperStops, req.user.email, Date.now());
   const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
-  logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : ''), actor: actorOf(req) });
+  logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : '') + (podMode ? ' · ' + POD_MODES[podMode] : ''), actor: actorOf(req) });
   res.json({ load: loadOut(load, req), existed: false });
 });
 
@@ -378,6 +388,14 @@ router.put('/:id', requireAuth, (req, res) => {
     db.prepare(`UPDATE loads SET loadNumber = ?, consignee = ?, poNumber = ?, orgId = ?, customer = ?, customerId = ? WHERE id = ?`).run(loadNumber, consignee, poNumber, orgIdNew, customerText, customerId, load.id);
     if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
     logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
+  }
+  // Paper BOL vs ePOD: saved on its own too
+  if (b.podMode !== undefined) {
+    const pm = podModeIn(b.podMode), ps = pm === 'paper' ? (stopsIn(b.deliveryStops) || load.paperStops || 1) : null;
+    if (pm !== (load.podMode || null) || ps !== (load.paperStops || null)) {
+      db.prepare(`UPDATE loads SET podMode = ?, paperStops = ? WHERE id = ?`).run(pm, ps, load.id);
+      logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: pm ? 'Delivery set to ' + POD_MODES[pm] : 'Delivery type cleared', actor: actorOf(req) });
+    }
   }
   // Special instructions for the driver: saved on their own (no other field has to change)
   if (b.instructions !== undefined) {

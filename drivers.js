@@ -261,11 +261,13 @@ router.get('/my-loads', (req, res) => {
   const seen = new Set(own.map(p => p.id));
   const loadIds = [...new Set(own.filter(p => p.loadId).map(p => p.loadId))];
   // Loads dispatch gave to this driver that have no paperwork yet: show them as a load card right away, so the driver
-  // can tap "On my way", check in, pick up and scan the shipper's BOL from the card. Done loads (signed, nothing open) drop off.
+  // can tap "On my way", check in, pick up and scan the shipper's BOL from the card. Done loads (signed, nothing open) drop off;
+  // a paper-BOL load stays until every delivery stop has its signed-BOL photo.
   try {
     db.prepare(`SELECT l.id AS loadId, l.poNumber, l.loadNumber, l.consignee, l.orgId AS loadOrgId, l.customerId AS loadCustomerId,
         COALESCE(NULLIF(l.customer,''), c.name) AS loadCustomer FROM loads l LEFT JOIN customers c ON c.id = l.customerId
-      WHERE l.assignedDriverId = ? AND NOT EXISTS (SELECT 1 FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed'))
+      WHERE l.assignedDriverId = ? AND (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed'))
+        < (CASE WHEN l.podMode = 'paper' THEN COALESCE(l.paperStops, 1) ELSE 1 END)
       ORDER BY l.createdAt DESC LIMIT 50`).all(r.driver.id)
       .filter(l => !loadIds.includes(l.loadId))
       .forEach(l => { loadIds.push(l.loadId); rows.push({ ...l, id: 'load:' + l.loadId, noDoc: true, status: 'none', stopNumber: null, receiverName: null, docType: null, filename: null, fields: null }); });
@@ -306,9 +308,12 @@ router.get('/my-loads', (req, res) => {
   const times = stoptimes.mapFor(loadIds);
   const timesFor = (loadId, kind, stop) => (times[loadId] || []).find(t => t.kind === kind && (kind === 'pickup' || t.stopNumber === (stop || 1))) || null;
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
-  const instr = {};
-  if (loadIds.length) db.prepare(`SELECT id, instructions FROM loads WHERE id IN (${loadIds.map(() => '?').join(',')})`).all(...loadIds).forEach(l => { instr[l.id] = l.instructions || null; });
+  const instr = {}, mode = {};
+  if (loadIds.length) db.prepare(`SELECT id, instructions, podMode, paperStops FROM loads WHERE id IN (${loadIds.map(() => '?').join(',')})`).all(...loadIds)
+    .forEach(l => { instr[l.id] = l.instructions || null; mode[l.id] = { podMode: l.podMode || null, paperStops: l.podMode === 'paper' ? (l.paperStops || 1) : null }; });
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee, noDoc: !!p.noDoc, instructions: instr[p.loadId] || null,
+    // 'paper' = send a photo of the signed paper BOL; 'epod' = sign on the phone; null = not set
+    podMode: (mode[p.loadId] || {}).podMode || null, paperStops: (mode[p.loadId] || {}).paperStops || null,
     pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null, enRouteAt: (pickup[p.loadId] || {}).enRouteAt || null,
     pickupTimes: timesFor(p.loadId, 'pickup'), stopTimes: timesFor(p.loadId, 'delivery', p.stopNumber),
     customerId: p.loadCustomerId || null, customerName: p.loadCustomer || null, receiverName: p.receiverName, stopNumber: p.stopNumber, docType: p.docType,

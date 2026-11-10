@@ -271,6 +271,9 @@ addColumn('loads', 'enRouteGps', 'TEXT');       // JSON {lat,lng,acc} where the 
 addColumn('loads', 'pickedUpPhotos', 'TEXT');   // JSON array of pickup proof-photo refs: [{id, at}] (files on disk)
 addColumn('loads', 'deliveredPhotos', 'TEXT');  // JSON array of delivery proof-photo refs: [{id, at, stopNumber}] (files on disk)
 addColumn('loads', 'instructions', 'TEXT');     // the shipper's / broker's special instructions, shown on the driver's load card
+addColumn('pods', 'paperSigned', 'INTEGER');    // 1 = a photo of a BOL the receiver signed on paper (not signed in the app)
+addColumn('loads', 'podMode', 'TEXT');          // how the driver delivers: 'paper' (photo of the signed paper BOL) | 'epod' (signs on the phone) | NULL (not set)
+addColumn('loads', 'paperStops', 'INTEGER');    // paper loads: how many delivery stops need a signed-BOL photo (stays on the driver's list until then)
 addColumn('loads', 'assignedDriverId', 'TEXT'); // the driver RECORD dispatch gave the load to: it shows on their phone before any paperwork exists
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)
 // Provenance when a BROKER adds a driver into a carrier's roster on their behalf (the carrier allows it via

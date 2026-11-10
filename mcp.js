@@ -379,9 +379,10 @@ const DOC_STATUS = { awaiting_build: 'needs signature setup', received: 'receive
 function loadDetail(d, base) {
   return Object.assign(loadSummary(d.load), {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
+    delivery: d.load.podMode === 'paper' ? 'paper BOL (driver sends a photo of the signed BOL' + ((d.load.paperStops || 1) > 1 ? ', ' + d.load.paperStops + ' stops' : '') + ')' : d.load.podMode === 'epod' ? 'ePOD (signed on the phone)' : 'not set',
     // the company's own load fields (Release #, Trailer #…) with this load's values
     load_fields: (d.loadFields || []).length ? Object.fromEntries(d.loadFields.map(f => [f.name, f.value || (f.required ? '(missing, required)' : '')])) : undefined,
-    documents: (d.pods || []).filter(p => p.status !== 'parked' && p.status !== 'not_used').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: DOC_STATUS[p.status] || p.status, receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
+    documents: (d.pods || []).filter(p => p.status !== 'parked' && p.status !== 'not_used').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: (DOC_STATUS[p.status] || p.status) + (p.paperSigned ? ' (photo of the paper BOL)' : ''), receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
     // Driver check-in / check-out per stop (when the account records in/out times).
     in_out_times: (d.stopTimes || []).map(t => {
       const iso = (ms) => ms ? new Date(ms).toISOString() : null;
@@ -743,14 +744,17 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {
       po_number: str('Customer PO # (required, unique per account)'), load_number: str('Your load #'),
       customer: str('Customer name or id from list_customers'), driver: str('Driver name, phone, or id from list_drivers'),
-      truck: str('Truck #'), trailer: str('Trailer #') }, required: ['po_number'] },
+      truck: str('Truck #'), trailer: str('Trailer #'),
+      delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
+      delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' } }, required: ['po_number'] },
     run: async (user, a, base) => {
       needCompany(user);
       const po = String(a.po_number || '').trim(); if (!po) throw new ToolError('po_number is required.');
       // Resolve names first so a typo fails before anything is created.
       const cust = a.customer ? await resolveCustomer(user, a.customer) : null;
       const drv = a.driver ? await resolveDriver(user, a.driver) : null;
-      const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined } });
+      const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined,
+        podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined } });
       if (c.existed) return Object.assign({ already_existed: true, note: 'A load with this PO # already exists; nothing was changed. Use update_load or assign_driver to change it.' }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
       let custNote = null;
       if (cust) { const r = await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
@@ -760,8 +764,10 @@ const TOOLS = [
     } },
 
   { name: 'update_load', title: 'Update a load',
-    description: 'Changes a load’s PO #, load #, customer, or the company’s own load fields (see list_load_fields). Pass customer "none" to clear it. Only the company that owns the load can change these.',
+    description: 'Changes a load’s PO #, load #, customer, delivery type (paper BOL photo or ePOD), or the company’s own load fields (see list_load_fields). Pass customer "none" to clear it. Only the company that owns the load can change these.',
     inputSchema: { type: 'object', properties: { load: str('Current PO #, load #, or load id'), po_number: str('New PO #'), load_number: str('New load #'), customer: str('Customer name or id, or "none"'),
+      delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
+      delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' },
       fields: { type: 'object', description: 'The company’s own load fields by name, e.g. {"Release #": "R-4471"}; "" clears one', additionalProperties: { type: 'string' } } }, required: ['load'] },
     run: async (user, a, base) => {
       needCompany(user);
@@ -770,8 +776,10 @@ const TOOLS = [
       if (a.po_number != null) body.poNumber = String(a.po_number).trim();
       if (a.load_number != null) body.loadNumber = String(a.load_number).trim();
       if (a.customer != null) body.customerId = /^(none|null|)$/i.test(String(a.customer).trim()) ? '' : (await resolveCustomer(user, a.customer)).id;
+      if (a.delivery != null) { body.podMode = a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : ''; if (a.delivery_stops) body.deliveryStops = a.delivery_stops; }
+      else if (a.delivery_stops) { body.podMode = d.load.podMode || 'paper'; body.deliveryStops = a.delivery_stops; }
       const hasFields = a.fields && typeof a.fields === 'object' && Object.keys(a.fields).length;
-      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer or fields.');
+      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer, delivery or fields.');
       if (hasFields) await api(user, 'PUT', '/api/loads/' + d.load.id + '/fields', { json: { values: a.fields } , headers: { 'X-HP-Via': 'connector' } });
       if (!Object.keys(body).length) return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
       const r = await api(user, 'PUT', '/api/loads/' + d.load.id, { json: body });

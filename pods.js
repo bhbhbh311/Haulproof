@@ -331,6 +331,15 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
         }
       } catch (e) {}
     }
+    // Paper BOL: the driver photographed the BOL the receiver signed on paper, from that load's card (X-POD-LoadId). It's the
+    // finished POD for that stop, filed on exactly that load: only one the driver's company is on, or that was given to them.
+    const paperSigned = /^(1|true)$/i.test(String(h['x-pod-paper'] || '').trim()) && !asPrepared && !forDispatch;
+    const _loadId = (dec(h['x-pod-loadid']) || '').trim() || null;
+    if (!load && _loadId && !asPrepared && !forDispatch) {
+      const byId = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(_loadId);
+      const ok = byId && ((req.org && [byId.orgId, byId.carrierId, byId.brokerId].indexOf(req.org.id) >= 0) || (req.driver && byId.assignedDriverId === req.driver.id));
+      if (ok) { load = byId; orgId = byId.orgId; }
+    }
     // A carrier's driver files a SIGNED / sign-later doc back onto the assigned load (match by PO/Load). But an
     // "upload for dispatch" is a brand-new hand-off — never merge it onto an existing load (see the PO uniquing below).
     // Only a SIGNED POD files back onto an existing assigned load (matching its stop). A driver-originated
@@ -389,6 +398,7 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
         consignee: meta.consignee, stopNumber: meta.stopNumber || null, docType: meta.docType, filename: meta.filename, filepath, sizeBytes: req.body.length,
         gps: meta.gps, gpsSource: meta.gpsSource, gpsAcc: meta.gpsAcc, signedAt: meta.signedAt, recipients: JSON.stringify(meta.recipients), driver: meta.driver, clientId: meta.clientId || null,
         status: asPrepared ? (forDispatch ? 'awaiting_build' : 'prepared') : 'signed', dupWarn, uploadedAt: Date.now() });
+    if (paperSigned) { try { db.prepare(`UPDATE pods SET paperSigned = 1 WHERE id = ?`).run(id); } catch (e) {} }
     // Remember which driver signed this, so their app can list their own recent documents.
     if (req.driver && req.driver.id) { try { db.prepare(`UPDATE pods SET signedByDriverId = ? WHERE id = ?`).run(req.driver.id, id); } catch (e) {} }
     // A document created by a named driver is automatically assigned to that driver.
@@ -459,7 +469,7 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
       }
     } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
-      detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+      detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : paperSigned ? ('Photo of the paper BOL signed by the receiver' + (meta.stopNumber ? ' (Stop ' + meta.stopNumber + ')' : '')) : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
     // A redo: both signed copies wait for dispatch to pick one; the customer copy is held until then.
     if (redoOf) { try { db.prepare(`UPDATE pods SET redoOf = ?, pickPending = 1 WHERE id = ?`).run(redoOf, id); db.prepare(`UPDATE pods SET pickPending = 1 WHERE id = ?`).run(redoOf); } catch (e) {} }
     // Server check of the required delivery steps (check-in at this stop, the company's own delivery steps). A signed
