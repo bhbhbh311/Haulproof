@@ -1960,7 +1960,10 @@
   }
   async function api(path, opts={}) {
     // credentials:'include' so the httpOnly session cookie (set by Microsoft SSO or password login) is sent.
-    const res = await fetch(path, { credentials:'include', ...opts, headers: { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) , ...(opts.headers||{}) } });
+    let res;
+    try { res = await fetch(path, { credentials:'include', ...opts, headers: { 'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}) , ...(opts.headers||{}) } }); }
+    catch (e) { serverDown(); throw new Error(navigator.onLine === false ? 'You’re offline. Check the internet connection and try again.' : 'HaulProof is restarting for an update. Wait a minute and try again.'); }
+    if (res.status === 502 || res.status === 503 || res.status === 504) serverDown();
     // Signed in, but the sign-in has expired (they last 12 hours): go to the sign-in screen instead of failing every click.
     if (res.status === 401 && user && !/^\/api\/auth\//.test(path)) { sessionExpired(); return new Promise(() => {}); }   // no error popup: the page is already on its way to sign-in
     if (!res.ok) {
@@ -7575,6 +7578,25 @@
     setInterval(checkForUpdate, 5 * 60000);
     setInterval(() => { if (_updatePending && updateSafeNow()) applyUpdate(); }, 30000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+  }
+  // HaulProof restarting (an update going live takes about a minute): a strip across the top says so, so nobody
+  // thinks the site broke. It checks every 5 s and says "back" when the server answers again. It never reloads the
+  // page itself: whether to load the new version stays with checkForUpdate / updateSafeNow above.
+  let _downWatch = null;
+  function serverDown() {
+    if (_downWatch) return;
+    let n = $('downNote');
+    if (!n) { n = document.createElement('div'); n.id = 'downNote'; document.body.appendChild(n); }
+    n.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:10060;background:#172b58;border:1px solid var(--primary);color:var(--ink);border-radius:12px;padding:10px 16px;box-shadow:0 12px 30px rgba(0,0,0,.45);font-size:14px;max-width:calc(100vw - 32px);text-align:center;';
+    n.textContent = navigator.onLine === false ? '📶 You’re offline. HaulProof will pick up again when the internet is back.' : '⏳ HaulProof is updating. Back in about a minute; nothing on this page is lost.';
+    n.hidden = false;
+    _downWatch = setInterval(async () => {
+      try { const r = await fetch('/api/app-version', { cache: 'no-store' }); if (!r.ok) return; } catch (e) { return; }
+      clearInterval(_downWatch); _downWatch = null;
+      n.style.borderColor = '#22c55e'; n.textContent = '✓ HaulProof is back.';
+      setTimeout(() => { if (!_downWatch) n.hidden = true; }, 4000);
+      try { checkForUpdate(); } catch (e) {}
+    }, 5000);
   }
   // Expired sign-in: back to the sign-in screen with a note (once, even if several requests fail together).
   let _expiring = false;
