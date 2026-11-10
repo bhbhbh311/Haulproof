@@ -1250,7 +1250,8 @@
               <button type="button" id="ldSalesRepAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find sales rep</button></div>
           </div>
           <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
-            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Pick more than one and they'll be merged into a single document, in the order chosen. Uncheck any pages below you don't want.</div></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Each pick adds to the list, so you can choose files one at a time from different folders. They're merged into one document in this order. Uncheck any pages below you don't want.</div>
+            <div id="ldFileList" class="hide" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div></div>
           <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,var(--sunk));max-height:340px;overflow:auto;"></div>
           <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
             <button id="ldUploadBtn" type="button">Upload to this stop</button>
@@ -4232,7 +4233,7 @@
       $('ldStop').value = nextStopNumber(r.pods || []);
       if ($('ldFiles')) $('ldFiles').value = '';
       if ($('ldPagePicker')) { $('ldPagePicker').innerHTML = ''; $('ldPagePicker').classList.add('hide'); }
-      ldPageState = []; ldFileBufs = [];
+      ldPageState = []; ldFileBufs = []; ldPicked = []; ldRenderFileList();
       loadReceiverOptions();
       loadRepOptions();
       populateLdCustomer();
@@ -6545,13 +6546,33 @@
   });
   // Add a stop / upload documents to this load.
   if ($('ldAddStopToggle')) $('ldAddStopToggle').onclick = () => { $('ldStopForm').classList.toggle('hide'); if (!$('ldStopForm').classList.contains('hide')) $('ldStop').focus(); };
-  if ($('ldStopCancel')) $('ldStopCancel').onclick = () => $('ldStopForm').classList.add('hide');
+  if ($('ldStopCancel')) $('ldStopCancel').onclick = () => { $('ldStopForm').classList.add('hide'); ldClearPicked(); };
   // ---- Page picker: render a thumbnail of every page of the selected PDFs, each with a checkbox. ----
   let ldPageState = [];   // { fileIdx, pageIdx, cb }
   let ldFileBufs = [];    // ArrayBuffer per selected file (reused for assembly)
+  // The files picked for this stop. Each "Choose Files" ADDS to this list (the browser's own box replaces its
+  // selection every time), so files from different folders can go on one stop. Unchecked pages are remembered per
+  // file, so adding or removing another file keeps them unchecked.
+  let ldPicked = [];
+  const ldUnchecked = new WeakMap();   // File -> Set of page indexes the user unchecked
+  function ldClearPicked() { ldPicked = []; if ($('ldFiles')) $('ldFiles').value = ''; ldRenderPages(); }
+  function ldRenderFileList() {
+    const box = $('ldFileList'); if (!box) return;
+    box.innerHTML = ''; box.classList.toggle('hide', !ldPicked.length);
+    ldPicked.forEach((f, i) => {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;';
+      chip.textContent = (ldPicked.length > 1 ? ('File ' + (i + 1) + ': ') : '') + f.name;
+      const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕'; x.title = 'Remove this file';
+      x.style.cssText = 'background:none;border:none;padding:0;color:var(--danger);cursor:pointer;font:inherit;';
+      x.onclick = () => { ldPicked.splice(i, 1); ldRenderPages(); };
+      chip.appendChild(x); box.appendChild(chip);
+    });
+  }
   async function ldRenderPages() {
     const picker = $('ldPagePicker'); if (!picker) return;
-    const files = Array.from(($('ldFiles') || {}).files || []);
+    ldRenderFileList();
+    const files = ldPicked.slice();
     picker.innerHTML = ''; ldPageState = []; ldFileBufs = [];
     if (!files.length || !window.pdfjsLib) { picker.classList.add('hide'); return; }
     picker.classList.remove('hide');
@@ -6569,16 +6590,24 @@
         canvas.style.cssText = 'display:block;border:1px solid var(--line);border-radius:4px;';
         try { await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise; } catch (e) {}
         const wrap = document.createElement('label'); wrap.style.cssText = 'width:100px;font-size:11px;text-align:center;cursor:pointer;';
-        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.style.marginBottom = '3px';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.style.marginBottom = '3px';
+        const off = ldUnchecked.get(files[fi]) || new Set(); ldUnchecked.set(files[fi], off);
+        cb.checked = !off.has(pi); cb.onchange = () => { if (cb.checked) off.delete(pi); else off.add(pi); };
         const cap = document.createElement('div'); cap.style.color = 'var(--muted)'; cap.textContent = (files.length > 1 ? ('File ' + (fi + 1) + ' · ') : '') + 'p' + (pi + 1);
         wrap.appendChild(cb); wrap.appendChild(canvas); wrap.appendChild(cap); grid.appendChild(wrap);
         ldPageState.push({ fileIdx: fi, pageIdx: pi, cb });
       }
     }
   }
-  if ($('ldFiles')) $('ldFiles').addEventListener('change', ldRenderPages);
+  if ($('ldFiles')) $('ldFiles').addEventListener('change', () => {
+    const add = Array.from($('ldFiles').files || []);
+    // Re-picking a file that's already on the list doesn't add it twice
+    add.forEach(f => { if (!ldPicked.some(p => p.name === f.name && p.size === f.size && p.lastModified === f.lastModified)) ldPicked.push(f); });
+    $('ldFiles').value = '';   // so the same file can be picked again after removing it
+    ldRenderPages();
+  });
   if ($('ldUploadBtn')) $('ldUploadBtn').onclick = async () => {
-    const files = Array.from(($('ldFiles') || {}).files || []);
+    const files = ldPicked.slice();
     if (!files.length) { $('ldUploadMsg').textContent = 'Choose PDF file(s)'; $('ldUploadMsg').className = 'umsg-err'; return; }
     if (files.some(f => f.type && f.type !== 'application/pdf')) { $('ldUploadMsg').textContent = 'All files must be PDFs'; $('ldUploadMsg').className = 'umsg-err'; return; }
     const stop = $('ldStop').value.trim();
@@ -6608,7 +6637,7 @@
         body: buf });
       if (!res.ok) { const e = await res.json().catch(() => ({})); $('ldUploadMsg').textContent = e.error || 'Upload failed'; $('ldUploadMsg').className = 'umsg-err'; return; }
       $('ldUploadMsg').textContent = 'Uploaded ✓'; $('ldUploadMsg').className = 'umsg-ok';
-      $('ldFiles').value = '';
+      ldClearPicked();
       openLoad(curLoad.id);
     } catch (e) { $('ldUploadMsg').textContent = e.message; $('ldUploadMsg').className = 'umsg-err'; }
   };
@@ -7549,6 +7578,7 @@
     const sw = $('setupWizard'); if (sw && !sw.classList.contains('hide')) return false;
     // A document being read, split or cropped — a reload would close it (someone can read a BOL for 2+ minutes).
     for (const id of ['docViewer', 'splitModal', 'cropModal']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
+    if (typeof ldPicked !== 'undefined' && ldPicked.length) return false;   // files picked for a stop, not uploaded yet
     const ld = $('loadDetailCard'); if (ld && !ld.classList.contains('hide') && (ld.classList.contains('editing') || (typeof _ldDirty !== 'undefined' && _ldDirty))) return false;
     return true;
   }
