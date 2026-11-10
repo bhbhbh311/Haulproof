@@ -221,3 +221,15 @@ test('driver signs: the signed PDF lands on the load by PO #, a retry is not fil
   const bad = await fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': tok, 'Content-Type': 'application/pdf' } });
   assert.equal(bad.status, 422);
 });
+
+test('connector: the master admin can list receivers already merged into another, with where they went', async () => {
+  const keep = org('Merge Test Steel', 'receiver'), old = org('MERGE TEST STEEL', 'receiver');
+  db.prepare('UPDATE orgs SET active = 0, mergedInto = ?, city = ? WHERE id = ?').run(keep, 'Denver', old);
+  const master = mcpToken('master@test.example');
+  const plain = await master('list_receivers', { search: 'merge test' });
+  assert.equal(plain.err, false, JSON.stringify(plain.out));
+  assert.deepEqual(plain.out.receivers.map(r => r.id), [keep], 'merged ones hidden by default');
+  const all = (await master('list_receivers', { search: 'merge test', include_merged: true })).out.receivers;
+  const m = all.find(r => r.id === old);
+  assert.ok(m, 'merged one listed'); assert.equal(m.merged_into, 'Merge Test Steel'); assert.equal(m.active, false); assert.match(m.address, /Denver/);
+});

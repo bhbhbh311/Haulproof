@@ -442,14 +442,16 @@ const TOOLS = [
 
   { name: 'list_receivers', title: 'List receivers (master admin)', masterOnly: true,
     description: 'Master admin only: lists receivers (delivery locations) with address, contacts, parent company, how many documents were delivered to each and which customers use it — for spotting and cleaning up duplicates. Optionally filter by name.',
-    inputSchema: { type: 'object', properties: { search: str('Part of a receiver name') } }, annotations: { readOnlyHint: true },
+    inputSchema: { type: 'object', properties: { search: str('Part of a receiver name'),
+      include_merged: { type: 'boolean', description: 'true = also list old entries already merged into another receiver (they are turned off), with what they were merged into' } } }, annotations: { readOnlyHint: true },
     run: async (user, a) => { const n = norm(a.search);
-      const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind = 'receiver') AND mergedInto IS NULL ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
+      const rows = db.prepare(`SELECT * FROM orgs WHERE (roles LIKE '%"receiver"%' OR kind = 'receiver')` + (a.include_merged ? '' : ` AND mergedInto IS NULL`) + ` ORDER BY name COLLATE NOCASE`).all().filter(o => !n || norm(o.name).indexOf(n) >= 0);
       const docs = db.prepare(`SELECT COUNT(*) n FROM pods WHERE receiverId = ?`), custs = db.prepare(`SELECT o.name FROM customer_receivers cr JOIN orgs o ON o.id = cr.orgId WHERE cr.receiverId = ?`);
       const contacts = db.prepare(`SELECT name, email, receiveBol FROM receiver_contacts WHERE receiverId = ?`), parent = db.prepare(`SELECT name FROM orgs WHERE id = ?`);
       return { total: rows.length, receivers: rows.slice(0, 300).map(o => ({ id: o.id, name: o.name, active: o.active !== 0,
         address: [o.address, o.city, o.state, o.zip].filter(Boolean).join(', ') || null, contact: [o.contactName, o.contactEmail, o.contactPhone].filter(Boolean).join(' · ') || null,
-        parent: o.parentId ? ((parent.get(o.parentId) || {}).name || null) : null, documents_delivered: docs.get(o.id).n,
+        parent: o.parentId ? ((parent.get(o.parentId) || {}).name || null) : null,
+        ...(o.mergedInto ? { merged_into: (parent.get(o.mergedInto) || {}).name || o.mergedInto } : {}), documents_delivered: docs.get(o.id).n,
         used_by: custs.all(o.id).map(r => r.name), bol_contacts: contacts.all(o.id).map(c => c.email + (c.receiveBol ? ' (gets BOL)' : '')) })) }; } },
 
   { name: 'use_company', title: 'Work in a company (master admin)', masterOnly: true,
