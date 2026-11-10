@@ -4604,6 +4604,17 @@
       ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
       : '<span class="ld-missing">Not set</span>';
     rows.push(['Driver & equipment', drv]);
+    // How the driver delivers: Paper BOL (a photo of the BOL the receiver signed on paper) or ePOD (signed on the phone).
+    // Set by the FMS hand-off, or here for a load made by hand.
+    {
+      const pm = curLoad.podMode || '', ps = curLoad.paperStops || 1;
+      rows.push(['Delivery', '<select id="ldPodMode" style="width:auto;padding:5px 8px;font-size:13px;">'
+        + '<option value=""' + (pm ? '' : ' selected') + '>Not set</option>'
+        + '<option value="paper"' + (pm === 'paper' ? ' selected' : '') + '>📄 Paper BOL: driver sends a photo of the signed BOL</option>'
+        + '<option value="epod"' + (pm === 'epod' ? ' selected' : '') + '>✍ ePOD: the BOL is signed on the phone</option></select>'
+        + (pm === 'paper' ? ' <label style="display:inline;font-weight:400;font-size:13px;margin-left:8px;">Delivery stops <input id="ldPaperStops" type="number" min="1" max="20" value="' + ps + '" style="width:64px;padding:4px 6px;"></label>' : '')
+        + ' <span id="ldPodMsg" style="font-size:12.5px;"></span>']);
+    }
     // Pickup (driver tapped "Pickup complete" — GPS + time, no signature). Only shown once it's happened.
     if (curLoad.pickedUpAt) {
       let pt = ''; try { pt = new Date(curLoad.pickedUpAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
@@ -4664,6 +4675,15 @@
       rows.map(r => '<div style="color:var(--muted);font-weight:600;white-space:nowrap;">' + r[0] + '</div><div>' + r[1] + '</div>').join('') +
       '</div>';
     wireStopTimes();
+    const _pmSave = async () => {
+      const body = { podMode: $('ldPodMode').value };
+      if ($('ldPaperStops')) body.deliveryStops = Number($('ldPaperStops').value) || 1;
+      $('ldPodMsg').textContent = 'Saving…'; $('ldPodMsg').className = '';
+      try { const r = await api('/api/loads/' + curLoad.id, { method: 'PUT', body: JSON.stringify(body) }); if (r && r.load) curLoad = r.load; renderLdView(); }
+      catch (e) { $('ldPodMsg').textContent = e.message; $('ldPodMsg').className = 'umsg-err'; }
+    };
+    if ($('ldPodMode')) $('ldPodMode').onchange = _pmSave;
+    if ($('ldPaperStops')) $('ldPaperStops').onchange = _pmSave;
     // Reset pickup (dispatch correction — clears the recorded pickup time/GPS/photos, driver can mark it again).
     const _cp = $('ldClearPickup');
     if (_cp) _cp.onclick = async () => {
@@ -5083,7 +5103,7 @@
         ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
-        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload' || (p.redoOf && p.status === 'prepared')) ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.redoOf && p.status === 'prepared' ? 'Sent to driver again' : p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? 'Signed' : p.status === 'emailed' ? 'Emailed' : 'On file'}</span>${p.redoOf && p.status === 'prepared' && p.assignedDriverName ? `<div class="sub" style="font-size:12px;margin-top:3px;">${esc(p.assignedDriverName)}</div>` : ''}${emailFailBadge(p)}</td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload' || (p.redoOf && p.status === 'prepared')) ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.redoOf && p.status === 'prepared' ? 'Sent to driver again' : p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? (p.paperSigned ? 'Signed on paper (photo)' : 'Signed') : p.status === 'emailed' ? (p.paperSigned ? 'Signed on paper · emailed' : 'Emailed') : 'On file'}</span>${p.redoOf && p.status === 'prepared' && p.assignedDriverName ? `<div class="sub" style="font-size:12px;margin-top:3px;">${esc(p.assignedDriverName)}</div>` : ''}${emailFailBadge(p)}</td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;font-size:12px;color:var(--warn);text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${p.status === 'needs_reupload'

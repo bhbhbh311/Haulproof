@@ -314,3 +314,46 @@ test('master admin adds a company: no admin password; the first admin gets a lin
   const noLogin = await master('POST', '/api/receivers', { name: 'Receiver Without Login' });
   assert.equal(noLogin.status, 201); assert.equal(noLogin.body.adminLink, null);
 });
+
+// ---- Paper BOL (tracking) loads: status taps + a photo of the BOL the receiver signed on paper ----
+test('paper BOL load: the driver sees it as paper; each stop\'s photo is its signed POD; the load stays until every stop has one', async () => {
+  const { PDFDocument } = require('pdf-lib');
+  const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Paper Driver' })).body.driver;
+  const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token, drv = asDriver(tok);
+  const l = (await api('POST', '/api/loads', { poNumber: 'PAPER-1', podMode: 'paper', deliveryStops: 2 })).body.load;
+  assert.deepEqual([l.podMode, l.paperStops], ['paper', 2]);
+  await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: d.id });
+  const card = () => drv('GET', '/api/drivers/my-loads').then(r => r.body.loads.filter(x => x.loadId === l.id));
+  let mine = await card();
+  assert.equal(mine.length, 1); assert.deepEqual([mine[0].podMode, mine[0].paperStops, mine[0].noDoc], ['paper', 2, true]);
+  const photo = (stop, cid, key = tok, loadId = l.id) => fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': key, 'Content-Type': 'application/pdf',
+    'X-POD-PO': 'PAPER-1', 'X-POD-Paper': '1', 'X-POD-LoadId': loadId, 'X-POD-Stop': String(stop), 'X-POD-ClientId': cid, 'X-POD-Name': 'Signed BOL - PO PAPER-1' } });
+  assert.ok((await photo(1, 'paper-s1')).status < 300);
+  const p1 = db.prepare('SELECT status, paperSigned, stopNumber FROM pods WHERE loadId = ?').all(l.id);
+  assert.deepEqual(p1.map(p => [p.status, p.paperSigned, p.stopNumber]), [['signed', 1, 1]], 'filed on the load as stop 1, signed on paper');
+  mine = await card();
+  assert.equal(mine.length, 1, 'still on the list: stop 2 needs its photo'); assert.equal(mine[0].loadSigned, 1);
+  assert.ok((await photo(2, 'paper-s2')).status < 300);
+  assert.equal((await card()).length, 0, 'every stop has its photo: done');
+  // the load page shows the photo as signed on paper; the history says so
+  const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ?').all(l.id).map(e => e.detail).join('\n');
+  assert.match(hist, /Photo of the paper BOL signed by the receiver \(Stop 2\)/);
+  // dispatch can switch a load's delivery type, and nonsense is ignored
+  assert.equal((await api('PUT', '/api/loads/' + l.id, { podMode: 'epod' })).body.load.podMode, 'epod');
+  assert.equal((await api('PUT', '/api/loads/' + l.id, { podMode: 'banana' })).body.load.podMode, null);
+});
+
+test('paper BOL photo: another company\'s driver can\'t file onto someone else\'s load by its id', async () => {
+  const { PDFDocument } = require('pdf-lib');
+  const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
+  const api = await login('ship@test.example');
+  const l = (await api('POST', '/api/loads', { poNumber: 'PAPER-OWN', podMode: 'paper' })).body.load;
+  const other = await login('brk@test.example');
+  const od = (await other('POST', '/api/drivers', { name: 'Outside Driver' })).body.driver;
+  const otok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(od.id).token;
+  await fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': otok, 'Content-Type': 'application/pdf',
+    'X-POD-PO': 'SOMETHING-ELSE', 'X-POD-Paper': '1', 'X-POD-LoadId': l.id, 'X-POD-ClientId': 'outside-1' } });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM pods WHERE loadId = ?').get(l.id).n, 0, 'nothing landed on the other company\'s load');
+});
