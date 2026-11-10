@@ -2396,7 +2396,7 @@
     if (!rows.length) { box.innerHTML = '<div class="empty">No loads found.</div>'; return; }
     box.innerHTML = '<table><thead><tr><th>PO #</th><th>Location</th><th>Customer / consignee</th><th>Carrier</th><th>Driver</th><th>Status</th><th></th></tr></thead><tbody>'
       + rows.map(l => { const st = HQ_STATE[l.state] || HQ_STATE.open;
-        return `<tr><td><b>${esc(l.poNumber || l.loadNumber || '—')}</b></td><td>${esc(l.location || '')}</td><td>${esc(l.customer || l.consignee || '')}</td><td>${ownTruck(l) ? OWN_TRUCK : esc(l.carrierName || '—')}</td><td>${esc(l.driverName || '—')}</td>`
+        return `<tr><td><b>${esc(l.poNumber || l.loadNumber || '—')}</b></td><td>${esc(l.location || '')}</td><td>${esc(l.customer || l.consignee || '')}</td><td>${ownTruck(l) ? ownTruckTag(l) : esc(l.carrierName || '—')}</td><td>${esc(l.driverName || '—')}</td>`
           + `<td><span class="chip ${st[1]}">${st[0]}${l.stopsTotal > 1 ? ' · ' + l.stopsDone + '/' + l.stopsTotal : ''}</span>${l.emailFailed ? ' <span class="chip" style="background:var(--bad-soft);color:var(--bad);">Email failed</span>' : ''}</td>`
           + `<td style="text-align:right;">${l.stopsDone ? `<button type="button" class="ghost hqDocs" data-id="${esc(l.id)}" style="padding:5px 11px;font-size:12px;">Signed copies</button>` : ''}</td></tr>`; }).join('')
       + '</tbody></table>';
@@ -2909,7 +2909,9 @@
   wireListFilter('recvFilter', 'receiverRows');
   // A load the company hauls itself: its own driver, no carrier and no broker on it
   const ownTruck = l => !!(l && !l.carrierName && !l.carrierId && !l.brokerId && !l.brokerName && String(l.driverName || '').trim());
-  const OWN_TRUCK = '<span class="chip signed" title="Your own driver hauls this load">Own truck</span>';
+  // The company whose own driver hauls it (e.g. Brown Strauss): the HQ view's location, else the signed-in company.
+  const ownTruckCo = l => (l && (l.location || l.orgName)) || ((user && user.orgName && (!l || !l.orgId || l.orgId === user.orgId)) ? user.orgName : '') || 'Own driver';
+  const ownTruckTag = l => '<span class="chip signed" title="Their own driver hauls this load; no carrier needed">' + esc(ownTruckCo(l)) + '</span>';
   // Special instructions on a load: the company that owns it writes them; everyone on the load sees them
   function renderLdInstructions(){
     const ta = $('ldIns'); if (!ta || !curLoad) return;
@@ -4053,7 +4055,7 @@
           ${canBulk ? `<td><input type="checkbox" class="ldChk" data-id="${l.id}" data-po="${esc(l.poNumber || '')}"${_ldSel.has(l.id) ? ' checked' : ''}></td>` : ''}
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
-          <td>${ownTruck(l) ? OWN_TRUCK : (esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>')}</td>
+          <td>${ownTruck(l) ? ownTruckTag(l) : (esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>')}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
           <td>${loadStatusChip(l)}${pickupBadge(l)}</td>
           <td style="text-align:right;white-space:nowrap;">
@@ -4595,11 +4597,9 @@
     const asg = [];
     if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
     if (curLoad.carrierName) asg.push('Carrier: ' + esc(curLoad.carrierName));
-    // No carrier or broker but a driver is on it: the company's own driver hauls it, which isn't "missing" anything.
-    const ownCo = (user && user.orgName && (!curLoad.orgId || curLoad.orgId === user.orgId)) ? user.orgName : '';
+    // No carrier or broker but a driver is on it: the company's own driver hauls it ("Brown Strauss · Dan"), nothing missing.
     rows.push(['Carrier / broker', asg.length ? asg.join(' · ')
-      : (ownTruck(curLoad) ? OWN_TRUCK + ' <span style="color:var(--muted);">' + (ownCo ? esc(ownCo) + ' driver: ' : 'Your driver: ') + esc(curLoad.driverName) + '</span>'
-        : '<span class="ld-missing">Not assigned</span>')]);
+      : (ownTruck(curLoad) ? ownTruckTag(curLoad) + ' ' + esc(curLoad.driverName) : '<span class="ld-missing">Not assigned</span>')]);
     const drv = curLoad.driverName
       ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
       : '<span class="ld-missing">Not set</span>';
@@ -6677,7 +6677,7 @@
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + warn(curLoad.brokerAuthWarning, curLoad.brokerId) + (canUnassign ? unassignBtn('broker') : ''));
     if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + warn(curLoad.carrierAuthWarning, curLoad.carrierId) + (canUnassign ? unassignBtn('carrier') : ''));
     renderLdInstructions();
-    if (!parts.length && ownTruck(curLoad)) parts.push(OWN_TRUCK + ' <span style="color:var(--muted);font-size:12.5px;">' + esc(curLoad.driverName) + ' is your own driver; no carrier needed</span>');
+    if (!parts.length && ownTruck(curLoad)) parts.push(ownTruckTag(curLoad) + ' ' + esc(curLoad.driverName) + ' <span style="color:var(--muted);font-size:12.5px;">· their own driver, no carrier needed</span>');
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));
   }
