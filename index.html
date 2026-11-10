@@ -4595,7 +4595,11 @@
     const asg = [];
     if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
     if (curLoad.carrierName) asg.push('Carrier: ' + esc(curLoad.carrierName));
-    rows.push(['Carrier / broker', asg.length ? asg.join(' · ') : '<span class="ld-missing">Not assigned</span>']);
+    // No carrier or broker but a driver is on it: the company's own driver hauls it, which isn't "missing" anything.
+    const ownCo = (user && user.orgName && (!curLoad.orgId || curLoad.orgId === user.orgId)) ? user.orgName : '';
+    rows.push(['Carrier / broker', asg.length ? asg.join(' · ')
+      : (ownTruck(curLoad) ? OWN_TRUCK + ' <span style="color:var(--muted);">' + (ownCo ? esc(ownCo) + ' driver: ' : 'Your driver: ') + esc(curLoad.driverName) + '</span>'
+        : '<span class="ld-missing">Not assigned</span>')]);
     const drv = curLoad.driverName
       ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
       : '<span class="ld-missing">Not set</span>';
