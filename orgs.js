@@ -3,6 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { createUser, requireAuth, requireSuper } = require('./auth');
+const { inviteLogin } = require('./invite');
 
 const router = express.Router();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -39,15 +40,13 @@ router.post('/:id/active', requireAuth, requireSuper, (req, res) => {
   res.json({ org: orgOut(req, db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 
-// Create a customer + its first admin login.
+// Create a customer + its first admin login. The admin is emailed a link to choose their own password.
 router.post('/', requireAuth, requireSuper, (req, res) => {
   const b = req.body || {};
   const name = (b.name || '').trim();
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
-  const adminPassword = b.adminPassword || '';
   if (!name) return res.status(400).json({ error: 'Company name is required' });
   if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid admin email is required' });
-  if (!adminPassword || String(adminPassword).length < 6) return res.status(400).json({ error: 'Admin password must be at least 6 characters' });
   if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That admin email already has a login' });
 
   const id = crypto.randomUUID();
@@ -55,9 +54,9 @@ router.post('/', requireAuth, requireSuper, (req, res) => {
               VALUES (?,?,?,?,?,?,?,1,?)`)
     .run(id, name, newDeviceKey(), (b.contactName || '').trim() || null, (b.contactEmail || '').trim() || null,
          (b.contactPhone || '').trim() || null, (b.address || '').trim() || null, Date.now());
-  createUser({ email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', password: String(adminPassword), orgId: id });
+  const inv = inviteLogin(req, { email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', orgId: id, company: name });
   const o = db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id);
-  res.status(201).json({ org: orgOut(req, o) });
+  res.status(201).json({ org: orgOut(req, o), adminEmail, adminLink: inv.link });
 });
 
 // Customer detail + its users.

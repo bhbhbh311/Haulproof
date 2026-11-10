@@ -3,6 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { db } = require('./db');
 const { requireAuth, requireAdmin, createUser } = require('./auth');
+const { inviteLogin } = require('./invite');
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const router = express.Router();
@@ -663,14 +664,14 @@ router.post('/', requireAuth, async (req, res) => {
   setAuthWarning(id, gate.warning, gate.snapshot);
   // Optionally create the carrier's first admin login (master/customer admin only).
   const adminEmail = (b.adminEmail || '').toLowerCase().trim();
+  let adminLink = null;   // their first admin gets an email with a link to choose their own password
   if (adminEmail) {
     if (!(req.user.role === 'admin' || req.user.role === 'superadmin')) return res.status(403).json({ error: 'Only an admin can create a carrier login' });
     if (!EMAIL_RE.test(adminEmail)) return res.status(400).json({ error: 'A valid carrier admin email is required' });
-    if (!b.adminPassword || String(b.adminPassword).length < 6) return res.status(400).json({ error: 'Carrier admin password must be at least 6 characters' });
     if (db.prepare(`SELECT id FROM users WHERE email = ?`).get(adminEmail)) return res.status(409).json({ error: 'That admin email already has a login' });
-    createUser({ email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', password: String(b.adminPassword), orgId: id });
+    adminLink = inviteLogin(req, { email: adminEmail, name: (b.adminName || '').trim(), role: 'admin', orgId: id, company: name }).link;
   }
-  res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)) });
+  res.status(201).json({ carrier: carrierOut(db.prepare(`SELECT * FROM orgs WHERE id=?`).get(id)), adminEmail: adminLink ? adminEmail : null, adminLink });
 });
 
 // ---- Per-org CARRIER ROSTER: "the carriers you work with." Lets a customer (or any org) save carriers found on

@@ -298,3 +298,19 @@ test('forgot password and Send password link: the old password works until they 
   assert.equal((await setPassword(linkToken(sent.body.link), 'third-pass-3')).status, 200);
   assert.ok(await canSignIn('forgets@test.example', 'third-pass-3'));
 });
+
+test('master admin adds a company: no admin password; the first admin gets a link to choose their own', async () => {
+  const master = await login('master@test.example');
+  const c = await master('POST', '/api/orgs', { name: 'Invite Customer Co', adminEmail: 'boss@invite-cust.example', adminName: 'Cust Boss' });
+  assert.equal(c.status, 201, JSON.stringify(c.body)); assert.match(c.body.adminLink, /\/login-info\?t=/);
+  assert.ok(!(await canSignIn('boss@invite-cust.example', '')), 'no usable password until they choose one');
+  assert.equal((await setPassword(linkToken(c.body.adminLink), 'cust-boss-pass')).body.signedIn, true);
+  assert.ok(await canSignIn('boss@invite-cust.example', 'cust-boss-pass'));
+  const car = await master('POST', '/api/carriers', { name: 'Invite Carrier LLC', adminEmail: 'boss@invite-carrier.example' });
+  assert.equal(car.status, 201, JSON.stringify(car.body)); assert.ok(car.body.adminLink);
+  assert.equal((await setPassword(linkToken(car.body.adminLink), 'carrier-boss-1')).status, 200);
+  const rcv = await master('POST', '/api/receivers', { name: 'Invite Receiver Yard', adminEmail: 'dock@invite-recv.example' });
+  assert.equal(rcv.status, 201, JSON.stringify(rcv.body)); assert.ok(rcv.body.adminLink);
+  const noLogin = await master('POST', '/api/receivers', { name: 'Receiver Without Login' });
+  assert.equal(noLogin.status, 201); assert.equal(noLogin.body.adminLink, null);
+});

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 const { requireAuth, requireSuper, createUser } = require('./auth');
+const { passwordLink } = require('./invite');
 const { sendMail } = require('./mailer');
 
 const router = express.Router();
@@ -151,34 +152,33 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
         }
         return res.status(409).json({ error: 'That email already has a login' });
       }
-      const adminPassword = (b.adminPassword || '').trim() || crypto.randomBytes(5).toString('hex');
       const orgId = crypto.randomUUID();
       db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, parentId, contactName, contactEmail, contactPhone, mcNumber, dotNumber, active, createdAt)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)`)
         .run(orgId, name, newDeviceKey(), orgType, JSON.stringify([orgType]), parentId, r.contactName, adminEmail, r.phone || null, r.mcNumber || null, r.dotNumber || null, Date.now());
-      createUser({ email: adminEmail, name: r.contactName, role: 'admin', password: adminPassword, orgId });
+      const adminLink = passwordLink(req, createUser({ email: adminEmail, name: r.contactName, role: 'admin', password: crypto.randomBytes(16).toString('hex'), orgId }).id);
       if (r.refOrgId && r.refOrgId !== orgId) db.prepare(`UPDATE orgs SET referredBy = ? WHERE id = ?`).run(r.refOrgId, orgId);   // joined through a referral link
       db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), orgId, r.id);
       pushThread(r, 'admin', `Approved — ${orgType} account "${name}" created; login emailed.`);
       sendMail({ to: r.email, subject: 'Your HaulProof account is ready',
-        text: `Your ${orgType} account "${name}" is set up.\n\nSign in at ${originOf(req)}\nEmail: ${adminEmail}\nTemporary password: ${adminPassword}\n\nPlease change your password after signing in.` });
-      return res.json({ ok: true, kind: 'company', orgType, orgId, adminEmail, adminPassword });
+        text: `Your ${orgType} account "${name}" is set up.\n\nYour login is ${adminEmail}. Open this link to choose your password and sign in:\n${adminLink}\n\nThis link expires in 7 days.` });
+      return res.json({ ok: true, kind: 'company', orgType, orgId, adminEmail, adminLink });
     }
     // driver → must be attached to a company
     const targetOrgId = (b.targetOrgId || '').trim();
     if (!targetOrgId) return res.status(400).json({ error: 'Choose which company this driver belongs to' });
     const org = db.prepare(`SELECT * FROM orgs WHERE id = ? AND active = 1`).get(targetOrgId);
     if (!org) return res.status(400).json({ error: 'That company was not found' });
-    const pin = (b.pin || '').trim() || String(1000 + Math.floor(Math.random() * 9000));
+    // No PIN: the driver makes their own the first time they open the link.
     const drvId = crypto.randomUUID(), token = driverToken();
-    db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, createdAt) VALUES (?,?,?,?,?,?,?,1,?)`)
-      .run(drvId, targetOrgId, r.contactName, r.phone || null, r.email || null, bcrypt.hashSync(pin, 10), token, Date.now());
+    db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)
+      .run(drvId, targetOrgId, r.contactName, r.phone || null, r.email || null, null, token, Date.now());
     const link = originOf(req) + '/driver?k=' + encodeURIComponent(token);
     db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdDriverId=? WHERE id=?`).run(Date.now(), drvId, r.id);
-    pushThread(r, 'admin', `Approved — added as a driver for ${org.name}; link + PIN emailed.`);
+    pushThread(r, 'admin', `Approved — added as a driver for ${org.name}; link emailed.`);
     sendMail({ to: r.email, subject: 'Your HaulProof driver link',
-      text: `You've been added as a driver for ${org.name}.\n\nOpen this link on your phone: ${link}\nYour PIN: ${pin}\n\nOpen it once, enter the PIN, and you're set.` });
-    return res.json({ ok: true, kind: 'driver', driverId: drvId, company: org.name, link, pin });
+      text: `You've been added as a driver for ${org.name}.\n\nOpen this link on your phone: ${link}\n\nThe first time you open it, you'll pick your own PIN to keep it locked to you.` });
+    return res.json({ ok: true, kind: 'driver', driverId: drvId, company: org.name, link });
   } catch (e) { console.error('grant', e); return res.status(500).json({ error: 'Could not grant this request' }); }
 });
 

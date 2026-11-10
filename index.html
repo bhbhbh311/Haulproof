@@ -918,12 +918,11 @@
           <p class="sub" style="margin:0 0 10px;">Their first admin login — this person manages their own dispatchers and drivers:</p>
           <div class="row" style="grid-template-columns:1fr 1fr;">
             <div><label>Admin email <span style="color:var(--bad);">*required</span></label><input id="ncAdminEmail" type="email" placeholder="admin@customer.com"></div>
-            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="ncAdminPass" placeholder="at least 6 characters"></div>
+            <div class="sub" style="align-self:end;font-size:12.5px;padding-bottom:10px;">They get an email with a link to choose their own password.</div>
           </div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <button id="ncBtn" type="button">Create customer</button>
-          <button class="ghost" id="ncGen" type="button">Suggest password</button>
           <button class="ghost" id="ncCancel" type="button">Cancel</button>
           <span id="ncMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
@@ -958,11 +957,10 @@
           </div>
           <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
             <div><label>Carrier admin email <span style="color:var(--bad);">*required</span></label><input id="acAdminEmail" type="email" placeholder="admin@carrier.com"></div>
-            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="acAdminPass" placeholder="at least 6 characters"></div>
+            <div class="sub" style="align-self:end;font-size:12.5px;padding-bottom:10px;">They get an email with a link to choose their own password.</div>
           </div>
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button id="acBtn" type="button">Create carrier</button>
-            <button class="ghost" id="acGen" type="button">Suggest password</button>
             <span id="acMsg" style="font-size:13px;font-weight:600;"></span>
           </div>
           <div id="acVerified" class="sub" style="margin-top:8px;"></div>
@@ -997,11 +995,10 @@
           </div>
           <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
             <div><label>Broker admin email <span style="color:var(--bad);">*required</span></label><input id="abAdminEmail" type="email" placeholder="admin@broker.com"></div>
-            <div><label>Admin password <span style="color:var(--bad);">*required</span></label><input id="abAdminPass" placeholder="at least 6 characters"></div>
+            <div class="sub" style="align-self:end;font-size:12.5px;padding-bottom:10px;">They get an email with a link to choose their own password.</div>
           </div>
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button id="abBtn" type="button">Create broker</button>
-            <button class="ghost" id="abGen" type="button">Suggest password</button>
             <span id="abMsg" style="font-size:13px;font-weight:600;"></span>
           </div>
           <div id="abVerified" class="sub" style="margin-top:8px;"></div>
@@ -1499,7 +1496,7 @@
         </div>
         <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;">
           <div><label>Login email <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — lets them sign in to look up documents</span></label><input id="nrLoginEmail" placeholder="Leave blank to add later"></div>
-          <div><label>Temporary password <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nrLoginPw" placeholder="Min 6 characters"></div>
+          <div class="sub" style="align-self:end;font-size:12.5px;padding-bottom:10px;">If you add a login email, they get a link to choose their own password.</div>
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
           <button id="nrCreate" type="button">Create receiver</button>
@@ -2861,8 +2858,8 @@
       msg.style.color='var(--muted)'; msg.textContent='Granting…';
       try { const r = await api('/api/requests/'+id+'/grant', {method:'POST', body: JSON.stringify(body)});
         if (r.kind==='authority') alert('Approved — '+r.company+' was added to their list with an authority warning.');
-        else if (r.kind==='company') alert('Account created.\n\nLogin: '+r.adminEmail+'\nTemporary password: '+r.adminPassword+'\n\n(Also emailed to them.)');
-        else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\nPIN: '+r.pin+'\n\n(Also emailed to them.)');
+        else if (r.kind==='company') { if (r.merged) alert('Approved — the role was added to their existing account.'); else if (r.adminLink) showLoginLink(r.adminLink, r.adminEmail); }
+        else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\n\nWe emailed it to them. They pick their own PIN the first time they open it.');
         loadRequests();
         // Refresh the management lists + tab counts so a just-granted account shows up right away (no stale count).
         try { loadCustomers(); loadCarriers(); loadBrokers(); } catch(e){}
@@ -2958,7 +2955,6 @@
   }
   if ($('carShowInactive')) $('carShowInactive').onchange = loadCarriers;
   $('acToggle').onclick = () => { $('acForm').classList.toggle('hide'); if (!$('acForm').classList.contains('hide')) $('acSearch').focus(); };
-  $('acGen').onclick = () => { $('acAdminPass').value = randPw(); };
   let acVerified = false, acAllowed = '';
   $('acLookup').onclick = async () => {
     const val = $('acSearch').value.trim(), by = $('acBy').value; if (!val) return;
@@ -2982,15 +2978,15 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
   $('acBtn').onclick = async () => {
-    const name = $('acName').value.trim(), adminEmail = $('acAdminEmail').value.trim(), adminPassword = $('acAdminPass').value;
+    const name = $('acName').value.trim(), adminEmail = $('acAdminEmail').value.trim();
     if (!name) { $('acMsg').textContent = 'Carrier name required'; $('acMsg').className = 'umsg-err'; return; }
     if (!adminEmail) { $('acMsg').textContent = 'Carrier admin email required'; $('acMsg').className = 'umsg-err'; return; }
-    if (!adminPassword || adminPassword.length < 6) { $('acMsg').textContent = 'Admin password must be at least 6 characters'; $('acMsg').className = 'umsg-err'; return; }
     $('acMsg').textContent = 'Creating…'; $('acMsg').className = '';
     try {
-      await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('acMc').value.trim(), dotNumber: $('acDot').value.trim(), fmcsaVerified: acVerified, allowedToOperate: acAllowed, adminEmail, adminPassword }) });
-      $('acMsg').textContent = 'Carrier created ✓ — give them the admin login'; $('acMsg').className = 'umsg-ok';
-      ['acSearch','acName','acMc','acDot','acAdminEmail','acAdminPass'].forEach(id => $(id).value = ''); $('acResults').innerHTML = ''; $('acVerified').innerHTML = ''; acVerified = false;
+      const cr = await api('/api/carriers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('acMc').value.trim(), dotNumber: $('acDot').value.trim(), fmcsaVerified: acVerified, allowedToOperate: acAllowed, adminEmail }) });
+      $('acMsg').textContent = 'Carrier created ✓ — we emailed ' + adminEmail + ' a link to choose their password'; $('acMsg').className = 'umsg-ok';
+      ['acSearch','acName','acMc','acDot','acAdminEmail'].forEach(id => $(id).value = ''); $('acResults').innerHTML = ''; $('acVerified').innerHTML = ''; acVerified = false;
+      if (cr && cr.adminLink) showLoginLink(cr.adminLink, adminEmail);
       loadCarriers();
     } catch (e) { $('acMsg').textContent = e.message; $('acMsg').className = 'umsg-err'; }
   };
@@ -3026,7 +3022,6 @@
   }
   if ($('brShowInactive')) $('brShowInactive').onchange = loadBrokers;
   $('abToggle').onclick = () => { $('abForm').classList.toggle('hide'); if (!$('abForm').classList.contains('hide')) $('abSearch').focus(); };
-  $('abGen').onclick = () => { $('abAdminPass').value = randPw(); };
   let abVerified = false, abAllowed = '';
   $('abLookup').onclick = async () => {
     const val = $('abSearch').value.trim(), by = $('abBy').value; if (!val) return;
@@ -3050,15 +3045,15 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
   $('abBtn').onclick = async () => {
-    const name = $('abName').value.trim(), adminEmail = $('abAdminEmail').value.trim(), adminPassword = $('abAdminPass').value;
+    const name = $('abName').value.trim(), adminEmail = $('abAdminEmail').value.trim();
     if (!name) { $('abMsg').textContent = 'Broker name required'; $('abMsg').className = 'umsg-err'; return; }
     if (!adminEmail) { $('abMsg').textContent = 'Broker admin email required'; $('abMsg').className = 'umsg-err'; return; }
-    if (!adminPassword || adminPassword.length < 6) { $('abMsg').textContent = 'Admin password must be at least 6 characters'; $('abMsg').className = 'umsg-err'; return; }
     $('abMsg').textContent = 'Creating…'; $('abMsg').className = '';
     try {
-      await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('abMc').value.trim(), dotNumber: $('abDot').value.trim(), fmcsaVerified: abVerified, allowedToOperate: abAllowed, adminEmail, adminPassword }) });
-      $('abMsg').textContent = 'Broker created ✓ — give them the admin login'; $('abMsg').className = 'umsg-ok';
-      ['abSearch','abName','abMc','abDot','abAdminEmail','abAdminPass'].forEach(id => $(id).value = ''); $('abResults').innerHTML = ''; $('abVerified').innerHTML = ''; abVerified = false;
+      const br = await api('/api/brokers', { method: 'POST', body: JSON.stringify({ name, mcNumber: $('abMc').value.trim(), dotNumber: $('abDot').value.trim(), fmcsaVerified: abVerified, allowedToOperate: abAllowed, adminEmail }) });
+      $('abMsg').textContent = 'Broker created ✓ — we emailed ' + adminEmail + ' a link to choose their password'; $('abMsg').className = 'umsg-ok';
+      ['abSearch','abName','abMc','abDot','abAdminEmail'].forEach(id => $(id).value = ''); $('abResults').innerHTML = ''; $('abVerified').innerHTML = ''; abVerified = false;
+      if (br && br.adminLink) showLoginLink(br.adminLink, adminEmail);
       loadBrokers();
     } catch (e) { $('abMsg').textContent = e.message; $('abMsg').className = 'umsg-err'; }
   };
@@ -7313,24 +7308,23 @@
   if ($('custShowInactive')) $('custShowInactive').onchange = loadCustomers;
   $('ncToggle').onclick = () => { $('ncForm').classList.toggle('hide'); if (!$('ncForm').classList.contains('hide')) $('ncName').focus(); };
   $('ncCancel').onclick = () => { $('ncForm').classList.add('hide'); $('ncAfter').classList.add('hide'); ncMsg(''); };
-  $('ncGen').onclick = () => { $('ncAdminPass').value = randPw(); };
   $('ncBtn').onclick = async () => {
     const body = {
       name: $('ncName').value.trim(), contactName: $('ncContact').value.trim(), contactPhone: $('ncPhone').value.trim(),
       contactEmail: $('ncEmail').value.trim(), address: $('ncAddr').value.trim(),
-      adminEmail: $('ncAdminEmail').value.trim(), adminPassword: $('ncAdminPass').value,
+      adminEmail: $('ncAdminEmail').value.trim(),
     };
     if (!body.name) { ncMsg('Company name is required', 'err'); return; }
     if (!body.adminEmail) { ncMsg('Admin email is required', 'err'); return; }
-    if (!body.adminPassword || body.adminPassword.length < 6) { ncMsg('Admin password must be at least 6 characters', 'err'); return; }
     ncMsg('Creating…');
     try {
       const r = await api('/api/orgs', { method: 'POST', body: JSON.stringify(body) });
       ncMsg('Customer created ✓', 'ok');
       const o = r.org;
-      $('ncAfter').innerHTML = `<b>${o.name}</b> is set up.<br>Admin login: <b>${body.adminEmail}</b> / <b>${body.adminPassword}</b><br>Driver link: <span style="font-family:ui-monospace,monospace;font-size:12px;">${o.driverLink}</span><br><span style="color:var(--muted);">Share the admin login with your contact and the driver link with their drivers. Copy these now.</span>`;
+      $('ncAfter').innerHTML = `<b>${o.name}</b> is set up.<br>We emailed <b>${esc(body.adminEmail)}</b> a link to choose their password.<br>Driver link: <span style="font-family:ui-monospace,monospace;font-size:12px;">${o.driverLink}</span><br><span style="color:var(--muted);">Share the driver link with their drivers.</span>`;
+      if (r.adminLink) showLoginLink(r.adminLink, body.adminEmail);
       $('ncAfter').classList.remove('hide');
-      ['ncName','ncContact','ncPhone','ncEmail','ncAddr','ncAdminEmail','ncAdminPass'].forEach(id => $(id).value = '');
+      ['ncName','ncContact','ncPhone','ncEmail','ncAddr','ncAdminEmail'].forEach(id => $(id).value = '');
       loadCustomers();
     } catch (e) { ncMsg(e.message, 'err'); }
   };
@@ -8372,10 +8366,11 @@
     }
     $('nrCreate')._confirmed = false;
     const body = { name, contactEmail: $('nrEmail').value.trim(), parentId: $('nrParent').value,
-      adminEmail: $('nrLoginEmail').value.trim(), adminPassword: $('nrLoginPw').value };
+      adminEmail: $('nrLoginEmail').value.trim() };
     nrMsg('Saving…');
-    try { await api('/api/receivers', { method:'POST', body: JSON.stringify(body) }); nrMsg('Created ✓','ok');
-      ['nrName','nrEmail','nrLoginEmail','nrLoginPw'].forEach(id => $(id).value=''); $('nrParent').value=''; loadReceivers(); }
+    try { const rr = await api('/api/receivers', { method:'POST', body: JSON.stringify(body) });
+      nrMsg(rr && rr.adminLink ? 'Created ✓ — we emailed ' + body.adminEmail + ' a link to choose their password' : 'Created ✓','ok');
+      ['nrName','nrEmail','nrLoginEmail'].forEach(id => $(id).value=''); $('nrParent').value=''; loadReceivers(); }
     catch(e){ nrMsg(e.message || 'Could not create receiver','err'); }
   };
 
