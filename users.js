@@ -74,9 +74,9 @@ router.post('/', requireAuth, (req, res) => {
   try {
     const temp = (password && String(password).length >= 6) ? String(password) : crypto.randomBytes(4).toString('hex'); // 8-char temp when none given
     const u = createUser({ email: em, name: name || '', role: r, password: temp, orgId });
-    // New logins always start on a temporary password — force the user to set their own on first sign-in.
+    // If an admin typed a password, the person still changes it on first sign-in.
     try { db.prepare('UPDATE users SET mustChangePassword = 1 WHERE id = ?').run(u.id); } catch (e) {}
-    // Generate a "here's your login" link (shows the temp password + sign-in) so the admin doesn't invent one.
+    // The emailed link opens "Choose your password" (login-info.html → /api/auth/set-password).
     const token = crypto.randomBytes(24).toString('hex');
     const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;   // link good for 7 days
     db.prepare('DELETE FROM login_links WHERE userId = ?').run(u.id);
@@ -84,7 +84,7 @@ router.post('/', requireAuth, (req, res) => {
     const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
     const link = origin + '/login-info?t=' + token;
     sendMail({ to: em, subject: 'Your HaulProof login is ready',
-      text: `You've been set up on HaulProof${name ? ', ' + name : ''}.\n\nOpen this link to sign in and choose your own password:\n${link}\n\nThis link expires in 7 days.` });
+      text: `You've been set up on HaulProof${name ? ', ' + name : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
     res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r }, link, email: em, expiresAt });
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
@@ -245,21 +245,23 @@ router.post('/:id/password', requireAuth, requireCap('manage_users'), (req, res)
   res.json({ ok: true });
 });
 
-// Generate (or regenerate) a shareable "here's your login" link for a user. Sets a fresh temporary
-// password and returns a link whose page shows that password + the login email. The user changes the
-// password after signing in. Admin/super, same org only. Regenerating replaces any previous link.
+// Send a login a "choose your password" link (Team logins → Send password link): emailed to them and returned
+// so the admin can also paste it into a text. Their current password keeps working until they choose a new one
+// from the link. Admin/super, same org only. A new link replaces any previous one.
 router.post('/:id/login-link', requireAuth, requireCap('manage_users'), (req, res) => {
-  const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
+  const target = db.prepare('SELECT id, orgId, role, email, name FROM users WHERE id = ?').get(req.params.id);
   if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
   if (isHelpLogin(target) && req.user.role !== 'superadmin') return res.status(403).json({ error: HELP_LOCKED });
-  const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
-  db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(temp, 10), target.id);
+  const temp = crypto.randomBytes(8).toString('hex');            // not shown to anyone; the column just can't be empty
   const token = crypto.randomBytes(24).toString('hex');
   const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;   // link good for 7 days
   db.prepare('DELETE FROM login_links WHERE userId = ?').run(target.id);   // one active link per user
   db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, target.id, temp, expiresAt, now);
   const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
-  res.json({ ok: true, link: origin + '/login-info?t=' + token, email: target.email, expiresAt });
+  const link = origin + '/login-info?t=' + token;
+  if (!(req.body && req.body.email === false)) sendMail({ to: target.email, subject: 'Choose your HaulProof password',
+    text: `Hi${target.name ? ' ' + target.name : ''},\n\nOpen this link to choose your HaulProof password and sign in:\n${link}\n\nThis link expires in 7 days. Your current password, if you have one, keeps working until you choose a new one.` });
+  res.json({ ok: true, link, email: target.email, expiresAt });
 });
 
 // Remove a login (same customer only; you cannot remove yourself).

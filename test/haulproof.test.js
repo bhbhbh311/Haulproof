@@ -233,3 +233,68 @@ test('connector: the master admin can list receivers already merged into another
   const m = all.find(r => r.id === old);
   assert.ok(m, 'merged one listed'); assert.equal(m.merged_into, 'Merge Test Steel'); assert.equal(m.active, false); assert.match(m.address, /Denver/);
 });
+
+// ---- first-time setup: nobody types a PIN or password for someone else ----
+test('new driver: no PIN from dispatch; they make their own on first open; Reset PIN lets them pick a new one', async () => {
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Fresh Driver' })).body.driver;
+  assert.equal(d.hasPin, false);
+  const drv = asDriver(db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token);
+  assert.equal((await drv('GET', '/api/drivers/link-info')).body.needsPinCreate, true, 'the app asks them to create a PIN');
+  const made = await drv('POST', '/api/drivers/change-pin', { newPin: '4821' });
+  assert.equal(made.status, 200); assert.ok(made.body.unlock);
+  assert.equal((await drv('GET', '/api/drivers/link-info')).body.requiresPin, true);
+  assert.equal((await drv('GET', '/api/drivers/notices')).status, 401, 'locked without the PIN now');
+  // dispatch resets it: no PIN to type, the driver picks a new one next time
+  const rs = await api('PUT', '/api/drivers/' + d.id, { resetPin: true });
+  assert.equal(rs.status, 200); assert.equal(rs.body.driver.hasPin, false);
+  assert.equal((await drv('GET', '/api/drivers/link-info')).body.needsPinCreate, true);
+  assert.equal((await drv('POST', '/api/drivers/change-pin', { newPin: '7713' })).status, 200);
+  // an edit without resetPin leaves the PIN alone
+  await api('PUT', '/api/drivers/' + d.id, { name: 'Fresh Driver', phone: '555-0199' });
+  assert.equal((await drv('GET', '/api/drivers/link-info')).body.requiresPin, true);
+});
+
+const linkToken = link => new URL(link).searchParams.get('t');
+async function setPassword(t, password) {
+  const r = await fetch(B + '/api/auth/set-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t, password }) });
+  return { status: r.status, body: await r.json().catch(() => ({})), cookie: (r.headers.get('set-cookie') || '').split(';')[0] };
+}
+const canSignIn = async (email, password) => (await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })).status === 200;
+
+test('new login: no temp password; the link opens "choose your password", signs them in, and works once', async () => {
+  const api = await login('ship@test.example');
+  const made = await api('POST', '/api/users', { email: 'newbie@test.example', name: 'New Person', role: 'dispatcher' });
+  assert.equal(made.status, 201);
+  const t = linkToken(made.body.link);
+  const info = await (await fetch(B + '/api/auth/login-info?t=' + t)).json();
+  assert.equal(info.email, 'newbie@test.example'); assert.equal(info.tempPassword, undefined, 'no temporary password shown');
+  assert.equal((await setPassword(t, 'abc')).status, 400, 'too short');
+  const set = await setPassword(t, 'my-own-pass-1');
+  assert.equal(set.status, 200); assert.equal(set.body.signedIn, true); assert.match(set.cookie, /^hp_session=/);
+  const me = await fetch(B + '/api/me', { headers: { cookie: set.cookie } });
+  assert.equal(me.status, 200); assert.equal((await me.json()).user.mustChangePassword, false, 'no second "change your password" step');
+  assert.ok(await canSignIn('newbie@test.example', 'my-own-pass-1'));
+  assert.equal((await setPassword(t, 'someone-else-1')).status, 404, 'the link is used up');
+});
+
+test('forgot password and Send password link: the old password works until they choose a new one', async () => {
+  const api = await login('ship@test.example');
+  const u = (await api('POST', '/api/users', { email: 'forgets@test.example', name: 'Forgetful', role: 'sales' })).body;
+  await setPassword(linkToken(u.link), 'first-pass-1');
+  // a stranger asks to reset it: nothing changes until the link is used
+  await fetch(B + '/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'forgets@test.example' }) });
+  const uid = db.prepare('SELECT id FROM users WHERE email = ?').get('forgets@test.example').id;
+  const t = db.prepare('SELECT token FROM login_links WHERE userId = ? AND pendingReset = 1').get(uid).token;
+  const info = await (await fetch(B + '/api/auth/login-info?t=' + t)).json();
+  assert.equal(info.reset, true);
+  assert.ok(await canSignIn('forgets@test.example', 'first-pass-1'), 'opening the link changes nothing');
+  assert.equal((await setPassword(t, 'second-pass-2')).status, 200);
+  assert.ok(!(await canSignIn('forgets@test.example', 'first-pass-1'))); assert.ok(await canSignIn('forgets@test.example', 'second-pass-2'));
+  // the admin's "Send password link" doesn't lock them out either
+  const sent = await api('POST', `/api/users/${uid}/login-link`, {});
+  assert.equal(sent.status, 200);
+  assert.ok(await canSignIn('forgets@test.example', 'second-pass-2'), 'current password still works');
+  assert.equal((await setPassword(linkToken(sent.body.link), 'third-pass-3')).status, 200);
+  assert.ok(await canSignIn('forgets@test.example', 'third-pass-3'));
+});

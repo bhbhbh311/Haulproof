@@ -166,7 +166,7 @@ app.post('/api/load-fields', requireAuth, (req, res) => { if (!stepAdmin(req, re
 app.put('/api/load-fields/:id', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.updateField(req.user.orgId, req.params.id, req.body || {}, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
 app.delete('/api/load-fields/:id', requireAuth, (req, res) => { if (!stepAdmin(req, res)) return; try { res.json(LF.removeField(req.user.orgId, req.params.id, stepBy(req), req.get('x-hp-via') || 'screen')); } catch (e) { lfErr(res, e); } });
 
-// PUBLIC: the "here's your login" link page reads this to show the user their email + temp password.
+// PUBLIC: the set-up / reset link page (login-info.html) reads this to show who the login is for.
 // Token comes from an admin generating a login link (POST /api/users/:id/login-link).
 app.get('/api/auth/login-info', (req, res) => {
   const token = (req.query.t || '').trim();
@@ -177,16 +177,31 @@ app.get('/api/auth/login-info', (req, res) => {
   const user = db.prepare('SELECT email, name, orgId FROM users WHERE id = ?').get(row.userId);
   if (!user) return res.status(404).json({ error: 'This login no longer exists.' });
   const org = user.orgId ? db.prepare('SELECT name FROM orgs WHERE id = ?').get(user.orgId) : null;
-  // A forgot-password link only switches the password once its owner actually opens it, so a stranger who
-  // types someone's email can't lock them out. Their other links stay valid until then.
-  if (row.pendingReset) {
-    db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 1 WHERE id = ?').run(bcrypt.hashSync(row.tempPassword, 10), row.userId);
-    db.prepare('DELETE FROM login_links WHERE userId = ? AND token != ?').run(row.userId, token);
-    db.prepare('UPDATE login_links SET pendingReset = 0 WHERE token = ?').run(token);
-  }
+  // Opening the link changes nothing: the password only changes when they choose one (set-password below), so a
+  // stranger who types someone's email into "Forgot password" can't lock them out.
   try { db.prepare('UPDATE login_links SET viewedAt = ? WHERE token = ?').run(Date.now(), token); } catch (e) {}
   const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
-  res.json({ email: user.email, name: user.name || '', company: org ? org.name : '', tempPassword: row.tempPassword, signInUrl: origin + '/app' });
+  res.json({ email: user.email, name: user.name || '', company: org ? org.name : '', reset: !!row.pendingReset, signInUrl: origin + '/app' });
+});
+
+// PUBLIC: the person opened their set-up / reset link and chose a password. Sets it, uses up every link for
+// that login, and signs them in (same session cookie as a password sign-in), so the next stop is the portal.
+app.post('/api/auth/set-password', (req, res) => {
+  const b = req.body || {};
+  const token = String(b.t || '').trim(), pw = String(b.password || '');
+  if (!token) return res.status(400).json({ error: 'This link is missing its code.' });
+  const row = db.prepare('SELECT * FROM login_links WHERE token = ?').get(token);
+  if (!row) return res.status(404).json({ error: 'This link was already used or is not valid. Use "Forgot password" on the sign-in page to get a new one.' });
+  if (row.expiresAt && row.expiresAt < Date.now()) return res.status(410).json({ error: 'This link has expired. Use "Forgot password" on the sign-in page, or ask your administrator, for a new one.' });
+  if (pw.length < 6) return res.status(400).json({ error: 'Choose a password of at least 6 characters.' });
+  const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(row.userId);
+  if (!user) return res.status(404).json({ error: 'This login no longer exists.' });
+  db.prepare('UPDATE users SET passHash = ?, mustChangePassword = 0 WHERE id = ?').run(bcrypt.hashSync(pw, 10), user.id);
+  db.prepare('DELETE FROM login_links WHERE userId = ?').run(user.id);
+  const result = login(user.email, pw);
+  if (!result) return res.json({ ok: true, signedIn: false });   // e.g. the company is turned off: password saved, sign-in refused
+  res.cookie('hp_session', result.token, { httpOnly: true, sameSite: 'lax', secure: SESSION_SECURE, maxAge: require('./auth').SESSION_MS, path: '/' });
+  res.json({ ok: true, signedIn: true, user: result.user });
 });
 
 // PUBLIC: self-service "forgot password". Given an email, if a matching login exists we set a fresh
@@ -201,7 +216,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
     const user = db.prepare('SELECT id, email, name FROM users WHERE email = ?').get(em);
     if (!user) return res.json(generic);   // no such login — say nothing revealing
     const temp = crypto.randomBytes(4).toString('hex');            // 8-char temporary password
-    // The password is NOT changed here — only when the emailed link is opened (see /api/auth/login-info).
+    // The password is NOT changed here, only when they choose a new one from the emailed link (/api/auth/set-password).
     const token = crypto.randomBytes(24).toString('hex');
     const now = Date.now(), expiresAt = now + 24 * 60 * 60 * 1000;  // reset link good for 24 hours
     db.prepare('DELETE FROM login_links WHERE userId = ? AND pendingReset = 1').run(user.id);   // one pending reset at a time
@@ -211,7 +226,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
     sendMail({
       to: user.email,
       subject: 'Reset your HaulProof password',
-      text: `Someone asked to reset the password for your HaulProof login (${user.email}).\n\nOpen this link to see your temporary password and sign in — you'll set a new password right away:\n${link}\n\nThis link expires in 24 hours. If you didn't request this, you can ignore this email; your current password still works until you use the link.`,
+      text: `Someone asked to reset the password for your HaulProof login (${user.email}).\n\nOpen this link to choose a new password:\n${link}\n\nThis link expires in 24 hours. If you didn't request this, you can ignore this email; your current password keeps working until a new one is chosen from the link.`,
     });
     res.json(generic);
   } catch (e) { console.error('forgot-password', e.message); res.json(generic); }
