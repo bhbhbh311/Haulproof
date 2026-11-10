@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Your HaulProof login</title>
+<title>Choose your password</title>
 <style>
   :root{ --primary:#1655d1; --primary-dark:#0f3fa6; --ink:#0e1a2d; --muted:#5a6b82; --line:#e3e9f2; --bg:#eef3fb; --ok:#12b76a; }
   *{box-sizing:border-box}
@@ -29,6 +29,11 @@
   .err{color:#c0392b;text-align:center;font-size:15px;padding:16px 0}
   .muted{color:var(--muted)}
   #loading{text-align:center;color:var(--muted);padding:20px}
+  .inp{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink)}
+  .inp:focus{outline:2px solid var(--primary);outline-offset:1px}
+  .show{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);margin:2px 0 6px}
+  .ferr{color:#c0392b;font-size:14px;min-height:20px;margin:4px 0}
+  .btn:disabled{opacity:.6;cursor:default}
 </style>
 </head>
 <body>
@@ -36,20 +41,33 @@
     <div class="brand"><span class="mark" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5V16H3V7.5Z" fill="#fff"/><path d="M15 10h3.2l2.8 3.2V16H15v-6Z" fill="#cfe0ff"/><circle cx="7" cy="17.5" r="2" fill="#0f3fa6"/><circle cx="17" cy="17.5" r="2" fill="#0f3fa6"/></svg></span>HaulProof</div>
     <div id="loading">Loading your login…</div>
     <div id="content" style="display:none">
-      <h1>Your login is ready</h1>
-      <p class="sub" id="whoSub">Use the details below to sign in.</p>
+      <h1 id="title">Choose your password</h1>
+      <p class="sub" id="whoSub">Pick a password for your HaulProof login.</p>
 
       <div class="field">
-        <label>Email</label>
-        <div class="row"><span class="val" id="fEmail">—</span><button class="copy" data-target="fEmail" type="button">Copy</button></div>
+        <label>Your login</label>
+        <div class="row"><span class="val" id="fEmail">—</span></div>
       </div>
-      <div class="field">
-        <label>Temporary password</label>
-        <div class="row"><span class="val" id="fPass">—</span><button class="copy" data-target="fPass" type="button">Copy</button></div>
-      </div>
-
-      <a class="btn" id="signInBtn" href="#">Go to sign in →</a>
-      <p class="note">For your security, change this temporary password after you sign in. This link works for 7 days — don't forward it to anyone else.</p>
+      <form id="pwForm" autocomplete="on">
+        <input type="email" id="userField" autocomplete="username" style="display:none">
+        <div class="field">
+          <label for="pw1">New password</label>
+          <input class="inp" id="pw1" type="password" autocomplete="new-password" minlength="6" required placeholder="At least 6 characters">
+        </div>
+        <div class="field">
+          <label for="pw2">Type it again</label>
+          <input class="inp" id="pw2" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <label class="show"><input type="checkbox" id="showPw"> Show password</label>
+        <div id="formErr" class="ferr"></div>
+        <button class="btn" id="saveBtn" type="submit">Save password and sign in</button>
+      </form>
+      <p class="note" id="linkNote">This link works once and expires in 7 days. Don't forward it to anyone else.</p>
+    </div>
+    <div id="done" style="display:none;text-align:center">
+      <h1>Password saved</h1>
+      <p class="sub" id="doneSub">Taking you to HaulProof…</p>
+      <a class="btn" id="goBtn" href="/app">Go to HaulProof →</a>
     </div>
     <div id="error" class="err" style="display:none"></div>
   </div>
@@ -57,36 +75,49 @@
 <script>
   function $(id){ return document.getElementById(id); }
   function tokenFromUrl(){ try { return new URLSearchParams(location.search).get('t') || ''; } catch(e){ return ''; } }
-  async function copyText(t){ try { await navigator.clipboard.writeText(t); return true; } catch(e){
-    try { var a=document.createElement('textarea'); a.value=t; document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a); return true; } catch(_){ return false; } } }
+  var T = tokenFromUrl(), SIGNIN = '/app';
 
   (async function(){
-    var t = tokenFromUrl();
-    if(!t){ showError('This link is missing its code.'); return; }
+    if(!T){ showError('This link is missing its code.'); return; }
     try{
-      var r = await fetch('/api/auth/login-info?t=' + encodeURIComponent(t), { headers:{ 'Accept':'application/json' } });
+      var r = await fetch('/api/auth/login-info?t=' + encodeURIComponent(T), { headers:{ 'Accept':'application/json' } });
       var d = await r.json().catch(function(){ return {}; });
       if(!r.ok){ showError(d.error || 'This link is not valid.'); return; }
       $('loading').style.display='none';
       $('content').style.display='';
       $('fEmail').textContent = d.email || '';
-      $('fPass').textContent = d.tempPassword || '';
-      $('whoSub').textContent = d.company ? ('Sign in to ' + d.company + ' on HaulProof.') : 'Use the details below to sign in.';
-      $('signInBtn').href = d.signInUrl || '/app';
+      $('userField').value = d.email || '';   // lets the browser's password manager save it against the right login
+      SIGNIN = d.signInUrl || '/app';
+      if (d.reset) { $('title').textContent = 'Choose a new password'; $('linkNote').textContent = 'This link works once and expires 24 hours after it was sent. Don\'t forward it to anyone else.'; }
+      $('whoSub').textContent = d.reset ? 'Pick a new password for your HaulProof login.'
+        : (d.company ? ('Pick a password to sign in to ' + d.company + ' on HaulProof.') : 'Pick a password for your HaulProof login.');
+      setTimeout(function(){ try { $('pw1').focus(); } catch(e){} }, 30);
     }catch(e){ showError('Something went wrong loading this link. Please try again.'); }
   })();
+
+  $('showPw').addEventListener('change', function(){ var t = this.checked ? 'text' : 'password'; $('pw1').type = t; $('pw2').type = t; });
+  $('pwForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var a = $('pw1').value, b = $('pw2').value;
+    if (a.length < 6) { $('formErr').textContent = 'Use at least 6 characters.'; $('pw1').focus(); return; }
+    if (a !== b) { $('formErr').textContent = 'The two passwords don’t match.'; $('pw2').focus(); return; }
+    $('formErr').textContent = ''; $('saveBtn').disabled = true; $('saveBtn').textContent = 'Saving…';
+    try {
+      var r = await fetch('/api/auth/set-password', { method:'POST', credentials:'include', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ t: T, password: a }) });
+      var d = await r.json().catch(function(){ return {}; });
+      if (!r.ok) { $('formErr').textContent = d.error || 'Couldn’t save your password. Try again.'; $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save password and sign in'; return; }
+      $('content').style.display = 'none'; $('done').style.display = '';
+      $('goBtn').href = SIGNIN;
+      if (d.signedIn) { setTimeout(function(){ location.replace(SIGNIN); }, 900); }
+      else { $('doneSub').textContent = 'Sign in with your email and the password you just chose.'; }
+    } catch (err) { $('formErr').textContent = 'Couldn’t reach HaulProof. Check your connection and try again.'; $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save password and sign in'; }
+  });
 
   function showError(msg){
     $('loading').style.display='none';
     $('content').style.display='none';
     var el = $('error'); el.style.display=''; el.textContent = msg;
   }
-
-  document.addEventListener('click', function(e){
-    var b = e.target.closest && e.target.closest('.copy'); if(!b) return;
-    var el = $(b.getAttribute('data-target')); if(!el) return;
-    copyText(el.textContent).then(function(ok){ if(ok){ var o=b.textContent; b.textContent='Copied ✓'; b.classList.add('done'); setTimeout(function(){ b.textContent=o; b.classList.remove('done'); }, 1600); } });
-  });
 </script>
 </body>
 </html>

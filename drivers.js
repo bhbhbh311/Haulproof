@@ -148,7 +148,7 @@ router.post('/forgot-pin', (req, res) => {
   sendMail({
     to: helpEmail(),
     subject: 'HaulProof help request — driver PIN reset',
-    text: `Driver "${d.name || '(unnamed)'}"${orgName ? ' at ' + orgName : ''} tapped "Forgot PIN" but has no email on file, so an automatic reset couldn't be sent.\n\nPlease reset this driver's PIN from the portal (Drivers → edit → set a new PIN).\n\n— Sent automatically from the HaulProof driver app.`,
+    text: `Driver "${d.name || '(unnamed)'}"${orgName ? ' at ' + orgName : ''} tapped "Forgot PIN" but has no email on file, so an automatic reset couldn't be sent.\n\nPlease reset this driver's PIN from the portal (Drivers → Edit → Reset PIN); they pick a new one the next time they open their link.\n\n— Sent automatically from the HaulProof driver app.`,
   });
   res.json({ ok: true, emailed: false, helpSent: true });
 });
@@ -779,9 +779,11 @@ router.put('/:id', requireAuth, requireDriverManager, (req, res) => {
   const phone = (b.phone !== undefined ? String(b.phone) : (d.phone || '')).trim();
   const email = (b.email !== undefined ? String(b.email) : (d.email || '')).trim();
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
-  // PIN is required and can't be removed. undefined = leave as-is; 4–6 digits = set a new one.
+  // resetPin: clear the PIN so the driver picks a new one the next time they open their link (the portal's
+  // "Reset PIN"). b.pin (4–6 digits) still sets one directly, for older callers. undefined = leave as-is.
   let pinHash = d.pinHash, resetPin = 0;
-  if (b.pin !== undefined) {
+  if (b.resetPin) { pinHash = null; resetPin = 1; }
+  else if (b.pin !== undefined) {
     const pin = String(b.pin).trim();
     if (!pin) return res.status(400).json({ error: 'A PIN is required — enter a new one to change it' });
     if (!PIN_RE.test(pin)) return res.status(400).json({ error: 'PIN must be 4 to 6 digits' });
