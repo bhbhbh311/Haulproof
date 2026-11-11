@@ -374,3 +374,28 @@ test('short driver link: /go/<code> opens the driver app with that driver\'s key
   const html = await (await fetch(B + '/driver')).text();
   assert.match(html, /property="og:title" content="HaulProof Driver"/, 'a tidy preview when the link is texted');
 });
+
+test('how drivers deliver: new loads start with the company setting, a customer\'s own setting wins, and a hand-picked one stays put', async () => {
+  const api = await login('brk@test.example');   // a broker, like Callahan: its loads carry a customer
+  const cust = (await api('POST', '/api/customers', { name: 'Delivery Default Steel' })).body.customer;
+  const other = (await api('POST', '/api/customers', { name: 'Plain Customer Co' })).body.customer;
+  assert.equal((await api('PUT', '/api/delivery-defaults', { company: 'paper' })).body.company, 'paper');
+  const set = await api('PUT', '/api/delivery-defaults', { customerId: cust.id, podMode: 'epod' });
+  assert.equal(set.body.customers.find(c => c.id === cust.id).podMode, 'epod');
+  // a new load starts as the company's Paper BOL; picking the ePOD customer switches it; picking another customer goes back
+  const l = (await api('POST', '/api/loads', { poNumber: 'DEF-1' })).body.load;
+  assert.deepEqual([l.podMode, l.paperStops], ['paper', 1]);
+  assert.equal((await api('PUT', '/api/loads/' + l.id, { customerId: cust.id })).body.load.podMode, 'epod');
+  assert.equal((await api('PUT', '/api/loads/' + l.id, { customerId: other.id })).body.load.podMode, 'paper');
+  // chosen by hand: a customer change no longer moves it
+  await api('PUT', '/api/loads/' + l.id, { podMode: 'epod' });
+  assert.equal((await api('PUT', '/api/loads/' + l.id, { customerId: '' })).body.load.podMode, 'epod');
+  // chosen when the load is made: kept
+  assert.equal((await api('POST', '/api/loads', { poNumber: 'DEF-2', podMode: 'epod' })).body.load.podMode, 'epod');
+  // back to not set
+  await api('PUT', '/api/delivery-defaults', { company: '' });
+  assert.equal((await api('POST', '/api/loads', { poNumber: 'DEF-3' })).body.load.podMode, null);
+  // another company's customer can't be changed from here
+  const ship = await login('ship@test.example');
+  assert.equal((await ship('PUT', '/api/delivery-defaults', { customerId: cust.id, podMode: 'paper' })).status, 404);
+});

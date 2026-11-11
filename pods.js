@@ -149,8 +149,10 @@ function findOrCreateLoad({ orgId, loadNumber, poNumber, consignee, createdBy })
   // If the owning org is itself a carrier, it IS the assigned carrier for its own loads (changeable later).
   let carrierId = null, carrierName = null;
   if (orgId) { const o = db.prepare(`SELECT name, kind FROM orgs WHERE id = ?`).get(orgId); if (o && o.kind === 'carrier') { carrierId = orgId; carrierName = o.name; } }
-  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, consignee, carrierId, carrierName, status, createdBy, createdAt)
-     VALUES (?,?,?,?,?,?,?, 'open', ?, ?)`).run(id, orgId || null, loadNumber || null, poNumber || null, consignee || null, carrierId, carrierName, createdBy || 'dispatch', Date.now());
+  // The company's "how drivers deliver" default applies to loads a driver's upload starts too
+  let podMode = null; try { podMode = require('./loads').defaultPodMode(orgId, null); } catch (e) {}
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, consignee, carrierId, carrierName, podMode, paperStops, podModeAuto, status, createdBy, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`).run(id, orgId || null, loadNumber || null, poNumber || null, consignee || null, carrierId, carrierName, podMode, podMode === 'paper' ? 1 : null, podMode ? 1 : 0, createdBy || 'dispatch', Date.now());
   return db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
 }
 

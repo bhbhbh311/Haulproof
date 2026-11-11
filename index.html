@@ -1659,6 +1659,9 @@
         <h1 style="font-size:16px;margin-bottom:4px;">Load fields</h1>
         <p class="sub" style="margin-top:0;">Call a field what your team calls it, and add your own fields that stay with every load (Release #, Trailer #, Pickup #…). Dispatch fills them in on the load.</p>
         <div id="loadFieldsHost"><div class="sub">Loading…</div></div>
+        <h1 style="font-size:16px;margin:22px 0 4px;">How drivers deliver</h1>
+        <p class="sub" style="margin-top:0;"><b>Paper BOL</b>: the driver taps updates in the app and sends a photo of the BOL the receiver signed on paper. <b>ePOD</b>: the BOL is signed on the driver’s phone. This decides what a <b>new</b> load starts as; you can still change any one load on its page.</p>
+        <div id="podModeHost"><div class="sub">Loading…</div></div>
         <h1 style="font-size:16px;margin:22px 0 4px;">What drivers do</h1>
         <p class="sub" style="margin-top:0;">For each step pick <b>Off</b>, <b>Optional</b> or <b>Required</b>. Required steps hold back Pickup complete or signing until they’re done. Set exceptions for a customer below, or add your own steps.</p>
         <div id="driverStepsHost"><div class="sub">Loading…</div></div>
@@ -6325,7 +6328,30 @@
     updSwitchStates();
     renderPhotoSegs();
     renderDriverSteps();
+    renderPodDefaults();
     renderLoadFieldSettings();
+  }
+  // ---- How drivers deliver: the company's default for new loads, and a choice per customer ----
+  const PODOPT = [['', 'Not set'], ['paper', '📄 Paper BOL (photo of the signed BOL)'], ['epod', '✍ ePOD (signed on the phone)']];
+  async function renderPodDefaults() {
+    const host = $('podModeHost'); if (!host) return;
+    let d; try { d = await api('/api/delivery-defaults'); } catch (e) { host.innerHTML = '<div class="sub">' + esc(e.message) + '</div>'; return; }
+    const sel = (attrs, cur, opts) => '<select ' + attrs + ' style="width:auto;padding:6px 8px;font-size:13px;">' + opts.map(([v, t]) => '<option value="' + v + '"' + ((cur || '') === v ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>';
+    const companyName = esc(PODOPT.find(o => o[0] === (d.company || ''))[1]);
+    host.innerHTML = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 10px;"><b style="font-size:14px;">New loads start as</b>'
+      + sel('id="podCompany"', d.company, PODOPT) + '<span id="podMsg" style="font-size:12.5px;"></span></div>'
+      + (d.customers.length ? '<details' + (d.customers.some(c => c.podMode) ? ' open' : '') + '><summary style="cursor:pointer;font-size:13.5px;font-weight:600;">Different for a customer' + (d.customers.filter(c => c.podMode).length ? ' (' + d.customers.filter(c => c.podMode).length + ' set)' : '') + '</summary>'
+        + '<div style="margin-top:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;max-width:620px;">'
+        + d.customers.map(c => '<div style="font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(c.name) + '</div>'
+          + sel('class="podCust" data-id="' + esc(c.id) + '"', c.podMode, [['', 'Company setting (' + companyName.replace(/ \(.*\)$/, '') + ')'], PODOPT[1], PODOPT[2]])).join('')
+        + '</div></details>' : '<div class="sub" style="font-size:12.5px;">Add customers to set one differently (for example ePOD for a customer that approved it).</div>');
+    const save = async (body) => {
+      $('podMsg').textContent = 'Saving…'; $('podMsg').className = '';
+      try { await api('/api/delivery-defaults', { method: 'PUT', body: JSON.stringify(body) }); await renderPodDefaults(); if ($('podMsg')) { $('podMsg').textContent = 'Saved ✓'; $('podMsg').className = 'umsg-ok'; } }
+      catch (e) { $('podMsg').textContent = e.message; $('podMsg').className = 'umsg-err'; }
+    };
+    $('podCompany').onchange = () => save({ company: $('podCompany').value });
+    host.querySelectorAll('.podCust').forEach(x => x.onchange = () => save({ customerId: x.dataset.id, podMode: x.value }));
   }
   // ---- Load fields: rename the built-in ones, add the company's own (required? shown to drivers?) ----
   async function renderLoadFieldSettings() {

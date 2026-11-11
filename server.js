@@ -122,6 +122,29 @@ app.get('/api/me', requireAuth, (req, res) => {
 app.get('/api/org-fields', requireAuth, (req, res) => {
   res.json({ fields: resolveUiFlags(req.user.orgId) });
 });
+// How drivers deliver on new loads: a company default plus a choice per customer (Settings › How drivers deliver).
+// 'paper' = status taps + a photo of the signed paper BOL; 'epod' = signed on the phone; null = not set. A load can
+// still be changed one at a time on its page; these only decide what a new load starts as.
+const PODM = v => (v === 'paper' || v === 'epod') ? v : null;
+app.get('/api/delivery-defaults', requireAuth, (req, res) => {
+  if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
+  const o = db.prepare('SELECT defaultPodMode FROM orgs WHERE id = ?').get(req.user.orgId) || {};
+  res.json({ company: PODM(o.defaultPodMode),
+    customers: db.prepare('SELECT id, name, podMode FROM customers WHERE ownerOrgId = ? ORDER BY name COLLATE NOCASE').all(req.user.orgId).map(c => ({ id: c.id, name: c.name, podMode: PODM(c.podMode) })) });
+});
+app.put('/api/delivery-defaults', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only an admin can change how drivers deliver.' });
+  if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
+  const b = req.body || {};
+  if (b.customerId) {
+    const c = db.prepare('SELECT id FROM customers WHERE id = ? AND ownerOrgId = ?').get(String(b.customerId), req.user.orgId);
+    if (!c) return res.status(404).json({ error: 'That customer isn’t on your list.' });
+    db.prepare('UPDATE customers SET podMode = ? WHERE id = ?').run(PODM(b.podMode), c.id);
+  } else if (b.company !== undefined) db.prepare('UPDATE orgs SET defaultPodMode = ? WHERE id = ?').run(PODM(b.company), req.user.orgId);
+  const o = db.prepare('SELECT defaultPodMode FROM orgs WHERE id = ?').get(req.user.orgId) || {};
+  res.json({ ok: true, company: PODM(o.defaultPodMode),
+    customers: db.prepare('SELECT id, name, podMode FROM customers WHERE ownerOrgId = ? ORDER BY name COLLATE NOCASE').all(req.user.orgId).map(c => ({ id: c.id, name: c.name, podMode: PODM(c.podMode) })) });
+});
 app.put('/api/org-fields', requireAuth, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only an admin can change these settings.' });
   if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
