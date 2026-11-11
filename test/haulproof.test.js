@@ -428,3 +428,18 @@ test('require ePOD: with Paper BOL turned off every load is ePOD, whatever asks 
   assert.equal((await api('PUT', '/api/loads/' + asked.id, { podMode: 'paper' })).body.load.podMode, 'paper');
   await api('PUT', '/api/delivery-defaults', { company: '' });
 });
+
+test('FMCSA authority from SAFER: "AUTHORIZED FOR" with a new 8-digit MC reads as active carrier authority', () => {
+  const { parseSaferAuthority } = require('../carriers');
+  const page = (auth, mc) => `<TR><TH><A class="querylabel">Operating Authority Status:</A></TH> <TD colspan="4" class="queryfield">${auth} <br><br> <b>For Licensing and Insurance details </b> <a href="http://motus.dot.gov/customer/1/account">click here.</a></TD></TR>
+    <TR><TH><A class="querylabel">MC/MX/FF Number(s):</A></TH> <TD colspan="4" class="queryfield"> ${mc}<br> &nbsp;</TD></TR>`;
+  const a = parseSaferAuthority(page('AUTHORIZED FOR: <br> Motor Carrier of Property (Except Household Goods)', '<A href="x"> MC-67543984</A>'));
+  assert.deepEqual([a.state.carrier, a.state.broker, a.mc], ['active', 'none', '67543984']);
+  const b = parseSaferAuthority(page('AUTHORIZED FOR: <br> Broker of Property (Except Household Goods)', '<A href="x"> MC-123456</A>'));
+  assert.deepEqual([b.state.carrier, b.state.broker], ['none', 'active']);
+  const both = parseSaferAuthority(page('AUTHORIZED FOR: <br> Motor Carrier of Property, Broker of Property', 'MC-1'));
+  assert.deepEqual([both.state.carrier, both.state.broker], ['active', 'active']);
+  const not = parseSaferAuthority(page('NOT AUTHORIZED', 'None'));
+  assert.deepEqual([not.state.carrier, not.state.broker, not.mc], ['none', 'none', null]);
+  assert.equal(parseSaferAuthority('<html>nothing here</html>'), null, 'a page without the line is "couldn\'t read", not "none"');
+});

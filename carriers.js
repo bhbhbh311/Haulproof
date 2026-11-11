@@ -102,7 +102,8 @@ function snapshotProblems(kind, snap) {
   if (!snap || !snap.checked) return ['FMCSA couldn’t be checked'];
   const out = [], a = snap.authority && snap.authority[kind];
   if (snap.usdotStatus === 'inactive') out.push('USDOT record inactive');
-  if (a !== 'active') out.push('no active ' + kind + ' authority' + (a && AUTH_WORDS[a] ? ' (' + AUTH_WORDS[a] + ')' : ''));
+  if (!snap.authority) out.push(kind + ' authority couldn’t be confirmed with FMCSA right now');
+  else if (a !== 'active') out.push('no active ' + kind + ' authority' + (a && AUTH_WORDS[a] ? ' (' + AUTH_WORDS[a] + ')' : ''));
   if (snap.oosDate) out.push('out-of-service order (' + snap.oosDate + ')');
   else if (snap.allowedToOperate === false && a === 'active') out.push('not allowed to operate');
   const ins = snap.insurance || {};
@@ -116,7 +117,20 @@ async function fmcsaEligibility(kind, dotNumber) {
   const [rec, auth] = await Promise.all([fetchCarrierRecord(d), fetchAuthority(d).catch(() => null)]);
   const recAuth = rec && !rec._missing ? authorityFromRecords([rec]) : null;
   const more = (x) => x && x.state && (x.state.carrier !== 'none' || x.state.broker !== 'none');
-  const snap = buildSnapshot(rec, more(auth) ? auth : (more(recAuth) ? recAuth : (auth || recAuth)));
+  let use = more(auth) ? auth : (more(recAuth) ? recAuth : (auth || recAuth));
+  // QCMobile shows no authority for a company it knows: ask SAFER before calling it "none on file" (newer FMCSA
+  // registrations can be authorized on SAFER while QCMobile is still empty). If SAFER can't be read, it's "couldn't
+  // check" (no authority state), not "none".
+  let mc = null;
+  if (rec && !rec._missing && !more(use)) {
+    const saf = await fetchSaferAuthority(d);
+    if (saf && more(saf)) { use = { broker: saf.broker, carrier: saf.carrier, state: saf.state, source: 'safer' }; mc = saf.mc; }
+    else if (saf) { use = { broker: false, carrier: false, state: saf.state, source: 'safer' }; mc = saf.mc; }
+    else use = null;
+  }
+  const snap = buildSnapshot(rec, use);
+  if (use && use.source) snap.authoritySource = use.source;
+  if (mc) snap.mcNumber = mc;
   return { snap, problems: snapshotProblems(kind, snap), rec };
 }
 // ---- HaulProof's OK list: the latest FMCSA snapshot is kept on each saved carrier/broker (shared across HaulProof,
@@ -369,7 +383,7 @@ async function checkImportRow(row, listOrg, brokerList) {
     out.allowedToOperate = r.rec.allowedToOperate || '';
   }
   if (r.snap && r.snap.checked && !r.snap.onFile && !org) return Object.assign(out, { status: 'notfound', message: 'No company on FMCSA with DOT ' + out.dotNumber + ' — check the number' });
-  if (!out.mcNumber && !r.cached) out.mcNumber = await fetchMcByDot(out.dotNumber);
+  if (!out.mcNumber) out.mcNumber = (r.snap && r.snap.mcNumber) || (!r.cached ? await fetchMcByDot(out.dotNumber) : '');
   if (mine) return Object.assign(out, { status: 'exists' });
   if (!r.snap || !r.snap.checked) return Object.assign(out, { status: 'error', message: 'FMCSA didn’t answer — try again' });
   return Object.assign(out, { status: r.problems.length ? 'flagged' : 'ok' });
@@ -496,6 +510,36 @@ async function fetchAuthority(dot) {
     return read;
   } catch (e) { console.log('[fmcsa] authority dot=' + d + ' failed: ' + e.message); return null; }
 }
+// SAFER Company Snapshot: FMCSA's public page. Backup for when QCMobile's authority list comes back empty. Carriers
+// registered through FMCSA's newer system (8-digit MC #s, e.g. MC-67543984) can be "AUTHORIZED FOR" on SAFER while
+// QCMobile has nothing yet, which made them look like "no authority on file".
+const SAFER_BASE = process.env.SAFER_BASE || 'https://safer.fmcsa.dot.gov/';
+// Pull the authority line and MC/MX/FF numbers out of the snapshot page. Returns { state, mc } or null if not found.
+function parseSaferAuthority(html) {
+  const s = String(html || '');
+  const cell = label => { const i = s.indexOf(label); if (i < 0) return null; const m = s.slice(i).match(/<TD[^>]*>([\s\S]*?)<\/TD>/i); return m ? m[1] : null; };
+  const raw = cell('Operating Authority Status:'); if (raw == null) return null;
+  const text = raw.replace(/<a[\s\S]*?<\/a>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/For Licensing and Insurance details/i, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+  const mcCell = cell('MC/MX/FF Number(s):') || '';
+  const mcm = mcCell.replace(/<[^>]+>/g, ' ').match(/MC-?\s*(\d+)/i);
+  const authorized = /AUTHORIZED FOR/.test(text) && !/^NOT AUTHORIZED/.test(text);
+  const what = authorized ? text.replace(/^.*?AUTHORIZED FOR:?/, '') : '';
+  const pendingAll = /PENDING/.test(text) && !authorized;
+  const carrier = authorized && /MOTOR CARRIER/.test(what);   // SAFER lists "Motor Carrier of Property / Passengers / Household Goods"
+  const broker = authorized && /BROKER/.test(what);
+  const st = (on) => on ? 'active' : pendingAll ? 'pending' : /OUT-OF-SERVICE|REVOKED|INACTIVE/.test(text) ? 'inactive' : 'none';
+  return { state: { carrier: st(carrier), broker: st(broker) }, carrier, broker, mc: mcm ? mcm[1] : null, text };
+}
+async function fetchSaferAuthority(dot) {
+  const d = String(dot || '').replace(/\D/g, ''); if (!d) return null;
+  try {
+    const r = await fetch(SAFER_BASE + 'query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=' + encodeURIComponent(d), { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) { console.log('[safer] dot=' + d + ' HTTP ' + r.status); return null; }
+    const out = parseSaferAuthority(await r.text());
+    console.log('[safer] dot=' + d + ' → ' + (out ? JSON.stringify(out.state) + (out.mc ? ' MC ' + out.mc : '') : 'no authority line'));
+    return out;
+  } catch (e) { console.log('[safer] dot=' + d + ' failed: ' + e.message); return null; }
+}
 // Read authority status fields from FMCSA records (the authority sub-record, or a company record that carries the
 // same fields). Returns { broker, carrier, state } or null when no status fields are present.
 function authorityFromRecords(arr) {
@@ -552,8 +596,14 @@ async function fmcsaLookup({ mc, dot, name }) {
         // The authority sub-record can come back empty while the company record itself shows the status — use whichever
         // says more (anything beyond "none on file").
         const rec = c._recordAuth, more = (x) => x && x.state && (x.state.carrier !== 'none' || x.state.broker !== 'none');
-        const use = more(a) ? a : (more(rec) ? rec : (a || rec));
+        let use = more(a) ? a : (more(rec) ? rec : (a || rec));
         if (rec && !more(a) && more(rec)) console.log('[fmcsa] dot=' + c.dotNumber + ' authority from the company record: ' + JSON.stringify(rec.state));
+        // Nothing from QCMobile: ask SAFER (newer FMCSA registrations show there first). Only for a short result list,
+        // e.g. a DOT # or MC # lookup, so a name search doesn't fire a page fetch per row.
+        if (!more(use) && carriers.length <= 3) {
+          const saf = await fetchSaferAuthority(c.dotNumber);
+          if (saf) { use = { broker: saf.broker, carrier: saf.carrier, state: saf.state }; if (!c.mcNumber && saf.mc) c.mcNumber = saf.mc; }
+        }
         if (use) { c.authBroker = use.broker; c.authCarrier = use.carrier; c.authState = use.state; }
       }
       delete c._recordAuth;
@@ -718,4 +768,4 @@ router.delete('/roster/:carrierId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, assignGate, setAuthWarning, startAuthorityRecheck, recheckAuthority, emailCarrierAlerts, grantAuthorityRequest, isHaulProof };
+module.exports = { router, parseSaferAuthority, fmcsaLookup, upsertCarrierOrg, carrierOut, authorityGate, assignGate, setAuthWarning, startAuthorityRecheck, recheckAuthority, emailCarrierAlerts, grantAuthorityRequest, isHaulProof };
