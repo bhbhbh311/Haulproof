@@ -511,3 +511,20 @@ test('owner-operator: a login that also drives gets a driver record, sees "My dr
   assert.equal(r3.status, 201); assert.equal(db.prepare('SELECT COUNT(*) n FROM drivers WHERE orgId = ?').get(shipper).n, before);
   assert.equal(r3.body.driver.id, r2.body.driver.id);
 });
+
+test('connector: new team logins are emailed their set-up link; send_password_link resends one', async () => {
+  const call = mcpToken('brk@test.example');
+  const r = await call('add_team_logins', { logins: [{ email: 'New.Disp@test.example', name: 'New Disp' }] });
+  assert.equal(r.err, false, JSON.stringify(r.out));
+  assert.equal(r.out.logins[0].emailed, true);
+  assert.equal(r.out.logins[0].setup_link, undefined, 'an emailed link is not handed back');
+  assert.ok(db.prepare("SELECT 1 FROM login_links l JOIN users u ON u.id = l.userId WHERE u.email = 'new.disp@test.example'").get());
+  const quiet = await call('add_team_logins', { logins: [{ email: 'quiet@test.example' }], send_invite: false });
+  assert.match(quiet.out.logins[0].setup_link, /\/login-info\?t=/);
+  assert.equal(quiet.out.logins[0].emailed, undefined);
+  const re = await call('send_password_link', { login: 'New Disp' });
+  assert.equal(re.err, false, JSON.stringify(re.out));
+  assert.equal(re.out.emailed_to, 'new.disp@test.example'); assert.equal(re.out.setup_link, undefined);
+  // only this account's logins
+  assert.equal((await mcpToken('ship@test.example')('send_password_link', { login: 'new.disp@test.example' })).err, true);
+});

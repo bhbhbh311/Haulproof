@@ -105,8 +105,11 @@ router.post('/', requireAuth, (req, res) => {
 
 // ---- Bulk import team logins (email, name, role). Each new login gets a temporary password and a
 //      "here's your login" link (returned so the admin can hand them out). Existing emails are skipped.
-//      Not auto-emailed, to avoid a burst of mail on a bulk import. ----
-router.post('/import', requireAuth, requireCap('manage_users'), (req, res) => {
+//      Emailed only when the caller asks (sendEmail: true) — the portal's spreadsheet import hands links out itself;
+//      the connector emails each new person their own link. ----
+router.post('/import', requireAuth, requireCap('manage_users'), async (req, res) => {
+  const sendEmail = !!(req.body && req.body.sendEmail);
+  const company = (db.prepare('SELECT name FROM orgs WHERE id = ?').get(scopeOrgId(req) || '') || {}).name || '';
   const orgId = scopeOrgId(req);
   const callerIsAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';   // a manage_users helper can't make admins
   if (!orgId) return res.status(400).json({ error: 'No organization on this login' });
@@ -128,7 +131,14 @@ router.post('/import', requireAuth, requireCap('manage_users'), (req, res) => {
       const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;
       db.prepare('DELETE FROM login_links WHERE userId = ?').run(u.id);
       db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, u.id, temp, expiresAt, now);
-      links.push({ email: em, name, role, link: origin + '/login-info?t=' + token });
+      const link = origin + '/login-info?t=' + token;
+      let emailed;
+      if (sendEmail) {
+        try { const m = await sendMail({ to: em, subject: 'Your HaulProof login is ready',
+          text: `You've been set up on HaulProof${name ? ', ' + name : ''}${company ? ' for ' + company : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+          emailed = !!(m && (m.sent || m.simulated)); } catch (e) { emailed = false; }
+      }
+      links.push({ email: em, name, role, link, emailed });
       created++;
     } catch (e) { if (errors.length < 8) errors.push(String(e && e.message || e)); }
   }
