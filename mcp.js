@@ -653,15 +653,32 @@ const TOOLS = [
         note: 'Send each driver their own link privately (or use Email next to their name in HaulProof → Drivers).' }; } },
 
   { name: 'add_team_logins', title: 'Add team logins',
-    description: 'Creates portal logins for people on this account (same as Team logins → Import). Role is dispatcher (default), sales, or admin — admins get a copy of every signed document and can manage the account, so only use admin when the user asks for it. Existing emails are skipped. Each new person gets a set-up link to choose their own password. Confirm the list and roles with the user before creating.',
+    description: 'Creates portal logins for people on this account (same as Team logins → Import). Role is dispatcher (default), sales, or admin — admins get a copy of every signed document and can manage the account, so only use admin when the user asks for it. Existing emails are skipped (use send_password_link for them). HaulProof emails each new person their own link to choose their password; pass send_invite false to get the links back instead. Confirm the list and roles with the user before creating.',
     inputSchema: { type: 'object', properties: { logins: { type: 'array', minItems: 1, maxItems: 200, description: 'Logins to create',
-      items: { type: 'object', properties: { email: str('Work email'), name: str('Full name'), role: { type: 'string', enum: ['dispatcher', 'sales', 'admin'], description: 'Default dispatcher' } }, required: ['email'] } } }, required: ['logins'] },
+      items: { type: 'object', properties: { email: str('Work email'), name: str('Full name'), role: { type: 'string', enum: ['dispatcher', 'sales', 'admin'], description: 'Default dispatcher' } }, required: ['email'] } },
+      send_invite: { type: 'boolean', description: 'Email each new person their set-up link (default true). false = return the links to hand out yourself.' } }, required: ['logins'] },
     run: async (user, a) => { needCompany(user);
+      const send = a.send_invite !== false;
       const records = (a.logins || []).map(l => ({ email: String(l.email || '').trim(), name: l.name ? String(l.name).trim() : '', role: l.role || 'dispatcher' })).filter(l => l.email);
-      const r = await api(user, 'POST', '/api/users/import', { json: { records } });
+      const r = await api(user, 'POST', '/api/users/import', { json: { records, sendEmail: send } });
       return { created: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
-        logins: (r.links || []).map(l => ({ email: l.email, name: l.name || null, role: l.role, setup_link: l.link })),
-        note: 'Send each person their own set-up link privately; it lets them choose their password. Existing emails were skipped.' }; } },
+        // An emailed link isn't handed back (it lets someone set a password); one that failed to send is, so it can be passed on.
+        logins: (r.links || []).map(l => Object.assign({ email: l.email, name: l.name || null, role: l.role },
+          send ? { emailed: !!l.emailed } : {}, (!send || !l.emailed) ? { setup_link: l.link } : {})),
+        note: send ? 'Each new person was emailed their own link to choose their password (check "emailed"). Existing emails were skipped; use send_password_link for them.'
+                   : 'Send each person their own set-up link privately; it lets them choose their password. Existing emails were skipped.' }; } },
+
+  { name: 'send_password_link', title: 'Send a password link',
+    description: 'Emails someone who already has a login on this account a link to choose their password (same as Team → Send password link). Use it for people added earlier who never got their link, or who forgot their password. Their current password keeps working until they use it. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { login: str('Their email or name'), email_it: { type: 'boolean', description: 'Email the link to them (default true). false = only return the link, to text it yourself.' } }, required: ['login'] },
+    run: async (user, a) => { needCompany(user);
+      const list = ((await api(user, 'GET', '/api/users')).users || []).filter(u => !/^haulproofhelp\+/i.test(u.email || ''));
+      const ref = String(a.login || '').trim().toLowerCase();
+      const u = list.find(x => String(x.email || '').toLowerCase() === ref) || pickOne(list, a.login, 'login', x => (x.name || x.email));
+      const send = a.email_it !== false;
+      const r = await api(user, 'POST', '/api/users/' + u.id + '/login-link', { json: { email: send } });
+      return send ? { emailed_to: r.email, name: u.name || null, expires: new Date(r.expiresAt).toISOString().slice(0, 10) }
+                  : { email: r.email, name: u.name || null, setup_link: r.link, note: 'Not emailed — send it to them privately.' }; } },
 
   { name: 'check_carriers', title: 'Check carriers/brokers on FMCSA',
     description: 'Checks a list of carriers or brokers (by MC# or DOT#) the way the portal\'s Carriers / Brokers → Import list does, without saving anything. Each row comes back ok (nothing FMCSA reports blocks it), flagged (needs HaulProof\'s approval — the reasons are listed), exists (already on this account\'s list), or notfound. Show the user the results before calling add_carriers. Results are an FMCSA snapshot only, not a guarantee.',
@@ -1033,7 +1050,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. A broker puts one of its approved carriers on a load with create_load or assign_carrier (carrier = name, MC # or DOT #); after that, assign_driver can pick that carrier’s drivers (list_carriers shows them). ' +
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
-  'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
+  'To set up an account in bulk, add_drivers and add_team_logins take a list (add_team_logins emails each new person their link; send_password_link resends one) (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
   'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer. The company’s own load fields and names for standard fields: list_load_fields / rename_field / add_load_field / change_load_field; fill them on a load with update_load fields. Confirm changes with the user first.';
 
 async function handleRpc(msg, user, base) {
