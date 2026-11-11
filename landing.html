@@ -59,6 +59,12 @@
   .navlinks a.link:hover{color:var(--text)}
   .navcta{display:flex; align-items:center; gap:12px}
   .menutoggle{display:none; background:none; border:1px solid var(--border); border-radius:10px; width:42px; height:42px; cursor:pointer; color:var(--text)}
+  /* Phone menu (the ☰): sign in first, then the page sections */
+  .mobilemenu{display:none}
+  .mobilemenu.open{display:block; position:absolute; top:100%; left:0; right:0; padding:10px 16px 16px; background:var(--bg, #0b1530); border-bottom:1px solid var(--border); box-shadow:0 18px 40px rgba(0,0,0,.35); z-index:60}
+  .mobilemenu a{display:block; padding:13px 6px; font-weight:600; font-size:16px; color:var(--text); border-bottom:1px solid var(--border)}
+  .mobilemenu a:last-child{border-bottom:none}
+  .mobilemenu a.signin{color:var(--sky, #7fb0ff); font-weight:800}
 
   /* ---------- hero ---------- */
   .hero{position:relative; padding:72px 0 40px; overflow:hidden}
@@ -395,11 +401,20 @@
     <div class="navcta">
       <a class="btn btn-ghost" href="/app">Sign in</a>
       <a class="btn btn-primary" href="/request">Request a demo</a>
-      <button class="menutoggle" id="menutoggle" aria-label="Menu">
+      <button class="menutoggle" id="menutoggle" aria-label="Menu" aria-expanded="false" aria-controls="mobilemenu">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>
   </div>
+  <nav class="mobilemenu" id="mobilemenu" aria-label="Menu">
+    <a class="signin" href="/app">Sign in</a>
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#ai">AI assistant</a>
+    <a href="#who">Who it's for</a>
+    <a href="/help">Help</a>
+    <a href="/request">Request a demo</a>
+  </nav>
 </header>
 
 <a id="top"></a>
@@ -776,7 +791,13 @@
 
   // mobile menu: simple smooth-scroll fallback (links already anchor); toggle just scrolls to features
   var mt = document.getElementById('menutoggle');
-  if(mt){ mt.addEventListener('click', function(){ var f=document.getElementById('features'); if(f) f.scrollIntoView({behavior:'smooth'}); }); }
+  var mm = document.getElementById('mobilemenu');
+  if(mt && mm){
+    var setOpen = function(on){ mm.classList.toggle('open', on); mt.setAttribute('aria-expanded', on ? 'true' : 'false'); };
+    mt.addEventListener('click', function(e){ e.stopPropagation(); setOpen(!mm.classList.contains('open')); });
+    mm.addEventListener('click', function(e){ if(e.target.closest('a')) setOpen(false); });   // picking a section closes it
+    document.addEventListener('click', function(e){ if(!mm.contains(e.target)) setOpen(false); });
+  }
 </script>
 <script>
 // Night highway: perspective road with streaking headlights (toward you) and taillights (away), on a canvas behind the hero.
