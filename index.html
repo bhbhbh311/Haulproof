@@ -1428,6 +1428,12 @@
           <div id="uConsWrap"><label>Consignee <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="uCons" placeholder="Who it was delivered to"></div>
         </div>
         <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;align-items:start;">
+          <div id="uPodWrap"><label>Delivery</label>
+            <select id="uPodMode"><option value="">Account setting</option><option value="paper">📄 Paper BOL: driver sends a photo of the signed BOL</option><option value="epod">✍ ePOD: the BOL is signed on the phone</option></select>
+            <label id="uStopsWrap" class="hide" style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:400;text-transform:none;letter-spacing:0;font-size:13px;">Delivery stops <input id="uStops" type="number" min="1" max="20" value="1" style="width:70px;"></label></div>
+          <div></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:12px;align-items:start;">
           <div><label>Document type</label>
             <select id="uType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
           <!-- Stop # hidden: documents are filed first, then their stop is set on the load. Kept in the DOM (hidden,
@@ -1893,7 +1899,7 @@
   const $ = id => document.getElementById(id);
   // Per-org "Simple mode" field flags (which optional inputs are shown). Defaults match the server; replaced by the
   // org's saved settings from /api/me (or /api/org-fields). PO # and the document/signatures are always required.
-  const ORG_FIELD_DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
+  const ORG_FIELD_DEFAULTS = { allowPaperBol: true, loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false };
   let orgFields = Object.assign({}, ORG_FIELD_DEFAULTS);
   // What this company calls the built-in fields (Settings › Load fields): "Load #" can be "Trip #", etc.
   const LABEL_DEFAULTS = { poNumber: 'PO #', loadNumber: 'Load #', customer: 'Customer', receiver: 'Delivered to', salesRep: 'Sales rep', driver: 'Driver', truck: 'Truck' };
@@ -4630,7 +4636,10 @@
     rows.push(['Driver & equipment', drv]);
     // How the driver delivers: Paper BOL (a photo of the BOL the receiver signed on paper) or ePOD (signed on the phone).
     // Set by the FMS hand-off, or here for a load made by hand.
-    {
+    if (!fieldOn('allowPaperBol')) {
+      rows.push(['Delivery', curLoad.podMode === 'paper' ? '📄 Paper BOL <span style="color:var(--muted);font-size:12.5px;">(set before ePOD was required)</span>'
+        : '✍ ePOD <span style="color:var(--muted);font-size:12.5px;">· required on your account</span>']);
+    } else {
       const pm = curLoad.podMode || '', ps = curLoad.paperStops || 1;
       rows.push(['Delivery', '<select id="ldPodMode" style="width:auto;padding:5px 8px;font-size:13px;">'
         + '<option value=""' + (pm ? '' : ' selected') + '>Not set</option>'
@@ -6338,20 +6347,36 @@
     let d; try { d = await api('/api/delivery-defaults'); } catch (e) { host.innerHTML = '<div class="sub">' + esc(e.message) + '</div>'; return; }
     const sel = (attrs, cur, opts) => '<select ' + attrs + ' style="width:auto;padding:6px 8px;font-size:13px;">' + opts.map(([v, t]) => '<option value="' + v + '"' + ((cur || '') === v ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>';
     const companyName = esc(PODOPT.find(o => o[0] === (d.company || ''))[1]);
-    host.innerHTML = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 10px;"><b style="font-size:14px;">New loads start as</b>'
+    const sw = '<div class="settile" style="margin:4px 0 12px;max-width:620px;"><label class="hp-switch"><input type="checkbox" id="podAllowPaper"' + (d.allowPaper ? ' checked' : '') + '><span class="hp-track"></span></label>'
+      + '<div><div><b>Allow Paper BOL</b> <span class="hp-switch-state" style="color:' + (d.allowPaper ? 'var(--primary)' : '#8a93a3') + ';">' + (d.allowPaper ? 'ON' : 'OFF') + '</span></div>'
+      + '<div class="settile-help">' + (d.allowPaper ? 'Loads can be Paper BOL or ePOD. Turn off to require ePOD on every load.' : '<b>ePOD is required:</b> every load is signed on the driver’s phone, and the Paper BOL choices are hidden. Turn on to allow Paper BOL again.') + '</div></div></div>';
+    if (!d.allowPaper) {
+      host.innerHTML = sw + '<span id="podMsg" style="font-size:12.5px;"></span>';
+      $('podAllowPaper').onchange = () => savePod({ allowPaper: $('podAllowPaper').checked });
+      return;
+    }
+    host.innerHTML = sw + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0 10px;"><b style="font-size:14px;">New loads start as</b>'
       + sel('id="podCompany"', d.company, PODOPT) + '<span id="podMsg" style="font-size:12.5px;"></span></div>'
       + (d.customers.length ? '<details' + (d.customers.some(c => c.podMode) ? ' open' : '') + '><summary style="cursor:pointer;font-size:13.5px;font-weight:600;">Different for a customer' + (d.customers.filter(c => c.podMode).length ? ' (' + d.customers.filter(c => c.podMode).length + ' set)' : '') + '</summary>'
         + '<div style="margin-top:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;max-width:620px;">'
         + d.customers.map(c => '<div style="font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(c.name) + '</div>'
           + sel('class="podCust" data-id="' + esc(c.id) + '"', c.podMode, [['', 'Company setting (' + companyName.replace(/ \(.*\)$/, '') + ')'], PODOPT[1], PODOPT[2]])).join('')
         + '</div></details>' : '<div class="sub" style="font-size:12.5px;">Add customers to set one differently (for example ePOD for a customer that approved it).</div>');
-    const save = async (body) => {
-      $('podMsg').textContent = 'Saving…'; $('podMsg').className = '';
-      try { await api('/api/delivery-defaults', { method: 'PUT', body: JSON.stringify(body) }); await renderPodDefaults(); if ($('podMsg')) { $('podMsg').textContent = 'Saved ✓'; $('podMsg').className = 'umsg-ok'; } }
-      catch (e) { $('podMsg').textContent = e.message; $('podMsg').className = 'umsg-err'; }
+    $('podAllowPaper').onchange = () => {
+      if (!$('podAllowPaper').checked && !confirm('Require ePOD on every load?\n\nNew loads will all be ePOD and the Paper BOL choices go away. Loads already set to Paper BOL stay as they are.')) { $('podAllowPaper').checked = true; return; }
+      savePod({ allowPaper: $('podAllowPaper').checked });
     };
-    $('podCompany').onchange = () => save({ company: $('podCompany').value });
-    host.querySelectorAll('.podCust').forEach(x => x.onchange = () => save({ customerId: x.dataset.id, podMode: x.value }));
+    $('podCompany').onchange = () => savePod({ company: $('podCompany').value });
+    host.querySelectorAll('.podCust').forEach(x => x.onchange = () => savePod({ customerId: x.dataset.id, podMode: x.value }));
+  }
+  async function savePod(body) {
+    if ($('podMsg')) { $('podMsg').textContent = 'Saving…'; $('podMsg').className = ''; }
+    try {
+      const r = await api('/api/delivery-defaults', { method: 'PUT', body: JSON.stringify(body) });
+      if (r && r.fields) applyOrgFields(r.fields);   // the Delivery choices on loads and the New load form follow right away
+      await renderPodDefaults(); if ($('podMsg')) { $('podMsg').textContent = 'Saved ✓'; $('podMsg').className = 'umsg-ok'; }
+      if (curLoad && $('loadDetailCard') && !$('loadDetailCard').classList.contains('hide')) { try { renderLdView(); } catch (e) {} }
+    } catch (e) { if ($('podMsg')) { $('podMsg').textContent = e.message; $('podMsg').className = 'umsg-err'; } }
   }
   // ---- Load fields: rename the built-in ones, add the company's own (required? shown to drivers?) ----
   async function renderLoadFieldSettings() {
@@ -8051,8 +8076,19 @@
 
   // --- Upload & file a document ---
   function uMsg(t, kind) { const el = $('uMsg'); el.textContent = t || ''; el.className = kind ? ('umsg-' + kind) : ''; }
-  $('upToggle').onclick = () => { applyUploadFieldVisibility(); $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) $('uPo').focus(); };
-  $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); };
+  $('upToggle').onclick = () => { applyUploadFieldVisibility(); $('upForm').classList.toggle('hide'); if (!$('upForm').classList.contains('hide')) { $('uPo').focus(); uPodModeLabel(); } };
+  // Delivery on the New load form: "Account setting" names what that is right now; Paper BOL asks how many stops
+  async function uPodModeLabel() {
+    // ePOD required on this account: no choice to make (every load is ePOD)
+    if ($('uPodWrap')) $('uPodWrap').classList.toggle('hide', !fieldOn('allowPaperBol'));
+    if (!fieldOn('allowPaperBol')) { if ($('uPodMode')) $('uPodMode').value = ''; return; }
+    const o = $('uPodMode') && $('uPodMode').options[0]; if (!o) return;
+    try { const d = await api('/api/delivery-defaults'); o.textContent = 'Account setting (' + (d.company === 'paper' ? 'Paper BOL' : d.company === 'epod' ? 'ePOD' : 'not set') + ')'; } catch (e) {}
+  }
+  if ($('uPodMode')) $('uPodMode').onchange = () => { if ($('uStopsWrap')) $('uStopsWrap').classList.toggle('hide', $('uPodMode').value !== 'paper'); };
+  const uPodBody = () => { const v = $('uPodMode') ? $('uPodMode').value : ''; return v ? { podMode: v, deliveryStops: v === 'paper' ? (Number($('uStops').value) || 1) : undefined } : {}; };
+  const uPodReset = () => { if ($('uPodMode')) { $('uPodMode').value = ''; $('uPodMode').onchange(); } if ($('uStops')) $('uStops').value = '1'; };
+  $('uCancel').onclick = () => { $('upForm').classList.add('hide'); $('uAfter').classList.add('hide'); uMsg(''); uPodReset(); };
   if ($('uFile')) $('uFile').addEventListener('change', () => { const n = (($('uFile')||{}).files || []).length; if ($('uMergeWrap')) $('uMergeWrap').classList.toggle('hide', n < 2); });
   // "No document yet" — the load is created without a file; the BOL can be added later.
   if ($('uNoDoc')) $('uNoDoc').addEventListener('change', function () {
@@ -8082,9 +8118,9 @@
     if ($('uNoDoc') && $('uNoDoc').checked) {
       uMsg('Creating load…');
       try {
-        const r = await api('/api/loads', { method: 'POST', body: JSON.stringify({ poNumber: po, loadNumber: load, consignee: $('uCons').value.trim() }) });
+        const r = await api('/api/loads', { method: 'POST', body: JSON.stringify(Object.assign({ poNumber: po, loadNumber: load, consignee: $('uCons').value.trim() }, uPodBody())) });
         uMsg('Load created ✓', 'ok');
-        ['uPo','uLoad','uCons'].forEach(id => { if ($(id)) $(id).value = ''; });
+        ['uPo','uLoad','uCons'].forEach(id => { if ($(id)) $(id).value = ''; }); uPodReset();
         if ($('uNoDoc')) { $('uNoDoc').checked = false; $('uNoDoc').dispatchEvent(new Event('change')); }
         $('upForm').classList.add('hide');
         const newId = r && r.load && r.load.id;
@@ -8102,7 +8138,8 @@
       'X-Load': encodeURIComponent(load),
       'X-Consignee': encodeURIComponent($('uCons').value.trim()),
       'X-DocType': encodeURIComponent($('uType').value),
-      'X-Receiver': encodeURIComponent(($('uReceiver')||{}).value||'')
+      'X-Receiver': encodeURIComponent(($('uReceiver')||{}).value||''),
+      ...(uPodBody().podMode ? { 'X-PodMode': uPodBody().podMode, 'X-DeliveryStops': String(uPodBody().deliveryStops || 1) } : {})
     });
     $('uAfter').classList.add('hide');
     try {

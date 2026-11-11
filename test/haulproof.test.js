@@ -399,3 +399,32 @@ test('how drivers deliver: new loads start with the company setting, a customer\
   const ship = await login('ship@test.example');
   assert.equal((await ship('PUT', '/api/delivery-defaults', { customerId: cust.id, podMode: 'paper' })).status, 404);
 });
+
+test('new load form: Delivery picked with the upload is set on the load, ahead of the account setting', async () => {
+  const { PDFDocument } = require('pdf-lib');
+  const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
+  const lr = await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'ship@test.example', password: PW }) });
+  const cookie = (lr.headers.get('set-cookie') || '').split(';')[0];
+  const up = (po, extra) => fetch(B + '/api/pods/upload', { method: 'POST', body: pdf, headers: Object.assign({ cookie, 'Content-Type': 'application/pdf', 'X-Enc': 'uri', 'X-PO': po, 'X-DocType': 'BOL', 'X-Filename': 'bol.pdf' }, extra) });
+  assert.equal((await up('FORM-PAPER', { 'X-PodMode': 'paper', 'X-DeliveryStops': '3' })).status, 200);
+  assert.deepEqual(Object.values(db.prepare('SELECT podMode, paperStops, podModeAuto FROM loads WHERE poNumber = ?').get('FORM-PAPER')), ['paper', 3, 0]);
+  assert.equal((await up('FORM-EPOD', { 'X-PodMode': 'epod' })).status, 200);
+  assert.equal(db.prepare('SELECT podMode FROM loads WHERE poNumber = ?').get('FORM-EPOD').podMode, 'epod');
+  assert.equal((await up('FORM-NONE', {})).status, 200);
+  assert.equal(db.prepare('SELECT podMode FROM loads WHERE poNumber = ?').get('FORM-NONE').podMode, null, 'nothing picked: the account setting (none here)');
+});
+
+test('require ePOD: with Paper BOL turned off every load is ePOD, whatever asks for paper; turning it back on restores the choice', async () => {
+  const api = await login('brk@test.example');
+  const off = await api('PUT', '/api/delivery-defaults', { allowPaper: false });
+  assert.equal(off.body.allowPaper, false); assert.equal(off.body.fields.allowPaperBol, false);
+  assert.equal((await api('POST', '/api/loads', { poNumber: 'REQ-1' })).body.load.podMode, 'epod', 'a new load is ePOD');
+  const asked = (await api('POST', '/api/loads', { poNumber: 'REQ-2', podMode: 'paper' })).body.load;
+  assert.equal(asked.podMode, 'epod', 'asking for paper (FMS, connector) still gives ePOD');
+  assert.equal((await api('PUT', '/api/loads/' + asked.id, { podMode: 'paper' })).body.load.podMode, 'epod');
+  assert.equal((await api('PUT', '/api/delivery-defaults', { company: 'paper' })).status, 400);
+  // back on: the choice is there again
+  assert.equal((await api('PUT', '/api/delivery-defaults', { allowPaper: true })).body.allowPaper, true);
+  assert.equal((await api('PUT', '/api/loads/' + asked.id, { podMode: 'paper' })).body.load.podMode, 'paper');
+  await api('PUT', '/api/delivery-defaults', { company: '' });
+});

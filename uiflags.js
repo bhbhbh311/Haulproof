@@ -22,7 +22,9 @@ const { db } = require('./db');
 // enRoute / requireEnRoute: the driver's "On my way to pickup" tap (shown by default, optional).
 // requireStopTimes: check-in is required (pickup complete / signing wait for it). Per-customer exceptions: steps.js.
 // monthlyReport: email this company's admins a summary of last month on the 1st (ON by default; turn off in Settings).
-const DEFAULTS = { loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false, monthlyReport: true, enRoute: true, requireEnRoute: false, requireStopTimes: false };
+// allowPaperBol: ON = loads can be Paper BOL (status taps + a photo of the signed paper BOL) or ePOD; OFF = ePOD is
+// required: every load is ePOD and the Paper BOL choices disappear (Settings › How drivers deliver).
+const DEFAULTS = { allowPaperBol: true, loadNumber: false, receiver: false, salesRep: false, customer: true, auditTrail: true, allowBrokerDrivers: true, allowPickupPhoto: false, requirePickupPhoto: false, allowDeliveryPhoto: false, requireDeliveryPhoto: false, stopTimes: false, monthlyReport: true, enRoute: true, requireEnRoute: false, requireStopTimes: false };
 const KEYS = Object.keys(DEFAULTS);
 
 // The effective flags for an org: stored values merged over the defaults (missing keys fall back to the default).
