@@ -29,7 +29,8 @@ router.get('/', requireAuth, (req, res) => {
     `SELECT id, email, name, role, capabilities, betaAccess, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
   ).all(orgId);
   const users = rows.map(u => { let caps = []; try { caps = u.capabilities ? JSON.parse(u.capabilities) : []; } catch (e) { caps = []; }
-    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, betaAccess: !!u.betaAccess, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
+    const drv = require('./drivers').driverForLogin(orgId, u.email);
+    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, betaAccess: !!u.betaAccess, alsoDrives: !!drv, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
   res.json({ users });
 });
 
@@ -85,7 +86,20 @@ router.post('/', requireAuth, (req, res) => {
     const link = origin + '/login-info?t=' + token;
     sendMail({ to: em, subject: 'Your HaulProof login is ready',
       text: `You've been set up on HaulProof${name ? ', ' + name : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
-    res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r }, link, email: em, expiresAt });
+    // "This person also drives": an owner-operator gets a driver record with the same email (linked to this login).
+    let driver = null;
+    if (req.body && req.body.alsoDrives) {
+      const drivers = require('./drivers');
+      let d = drivers.driverForLogin(orgId, em);
+      if (!d) {
+        const did = crypto.randomUUID(), phone = String(req.body.phone || '').trim();
+        db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)
+          .run(did, orgId, (name || '').trim() || em.split('@')[0], phone || null, em, null, drivers.newDriverToken(), Date.now());
+        d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(did);
+      }
+      driver = { id: d.id, name: d.name, link: require('./driverlink').driverLink(req, d) };
+    }
+    res.status(201).json({ user: { id: u.id, email: em, name: name || '', role: r }, link, email: em, expiresAt, driver });
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
 });
 

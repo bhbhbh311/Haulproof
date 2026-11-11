@@ -486,3 +486,28 @@ test('connector: change a driver — rename, new phone, reset PIN; the link stay
   // another company's driver can't be changed
   assert.equal((await mcpToken('brk@test.example')('update_driver', { driver: dId, name: 'X' })).err, true);
 });
+
+test('owner-operator: a login that also drives gets a driver record, sees "My driver app", and the driver sees Office', async () => {
+  const api = await login('ship@test.example');
+  const r = await api('POST', '/api/users', { email: 'Owner.Op@test.example', name: 'Owen Operator', role: 'admin', alsoDrives: true, phone: '5550177' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.ok(r.body.driver && /\/go\//.test(r.body.driver.link), 'a driver link came back');
+  const d = db.prepare('SELECT * FROM drivers WHERE id = ?').get(r.body.driver.id);
+  assert.deepEqual([d.orgId, d.name, d.phone, d.email], [shipper, 'Owen Operator', '5550177', 'owner.op@test.example']);
+  const team = (await api('GET', '/api/users')).body.users;
+  assert.equal(team.find(u => u.email === 'owner.op@test.example').alsoDrives, true);
+  assert.equal(team.find(u => u.email === 'ship@test.example').alsoDrives, false);
+  // the driver's link says they also have an office login; a plain driver's doesn't
+  assert.equal((await asDriver(d.token)('GET', '/api/drivers/link-info')).body.office, true);
+  // signed in as the owner-operator: their own driver record (and only theirs)
+  db.prepare('UPDATE users SET passHash = (SELECT passHash FROM users WHERE email = ?), mustChangePassword = 0 WHERE email = ?').run('ship@test.example', 'owner.op@test.example');
+  const me = (await (await login('owner.op@test.example'))('GET', '/api/drivers/me')).body;
+  assert.equal(me.driver.id, d.id);
+  assert.equal((await api('GET', '/api/drivers/me')).body.driver, null, 'a login that does not drive has no driver');
+  // an existing driver with the same email is linked, not duplicated
+  const r2 = await api('POST', '/api/drivers', { name: 'Pat Two', email: 'pat2@test.example' });
+  const before = db.prepare('SELECT COUNT(*) n FROM drivers WHERE orgId = ?').get(shipper).n;
+  const r3 = await api('POST', '/api/users', { email: 'pat2@test.example', name: 'Pat Two', alsoDrives: true });
+  assert.equal(r3.status, 201); assert.equal(db.prepare('SELECT COUNT(*) n FROM drivers WHERE orgId = ?').get(shipper).n, before);
+  assert.equal(r3.body.driver.id, r2.body.driver.id);
+});

@@ -432,6 +432,7 @@
     <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
     <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;"><span id="drvName"></span><span id="drvCompany" style="font-size:10px;opacity:.7;font-weight:600;"></span></span>
   </button>
+  <a href="/app" target="_blank" rel="noopener" class="pill ico hide" id="officePill" style="text-decoration:none;" title="You also have an office login — open the office site" aria-label="Office"><span class="pi" aria-hidden="true">🏢</span><span class="pl">Office</span></a>
   <a href="/help" target="_blank" rel="noopener" class="pill ico" id="helpPill" style="text-decoration:none;" title="Help &amp; how-to" aria-label="Help"><span class="pi" aria-hidden="true">?</span><span class="pl">Help</span></a>
   <button class="pill ico" id="themePill" type="button" title="Switch between navy and the bright Daylight look" aria-label="Daylight mode"><span class="pi" aria-hidden="true" id="themeIco">☀</span><span class="pl" id="themeTxt">Daylight</span></button>
   <button class="pill ico" id="reportPill" type="button" title="Report a problem with the app" aria-label="Report a problem"><span aria-hidden="true">⚠</span><span class="pl">Report</span></button>
@@ -904,7 +905,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-11a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-11b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1390,6 +1391,7 @@ window.__startApp=function(){
     }
     if(info && info.name){ setDriver(info.name); }          // remember the driver's real name for offline opens
     if(info){ setCompany(info.company, info.companyKind); }  // and which company / kind their link belongs to
+    if(info && $("officePill")) $("officePill").classList.toggle("hide", !info.office);   // owner-operator: a way to the office site
     // Brand-new driver with no PIN yet → have them create their own right away (no admin-set PIN to enter first).
     if(info && info.needsPinCreate && !loadUnlock()){ _lastPin=""; showSetPinGate(true); return; }
     if(info && info.requiresPin && !loadUnlock()){ showPinGate(); return; }
