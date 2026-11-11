@@ -470,3 +470,19 @@ test('connector: a broker creates a load with an approved carrier and that carri
   assert.equal(ad.err, false, JSON.stringify(ad.out));
   assert.equal(db.prepare('SELECT assignedDriverId FROM loads WHERE poNumber = ?').get('CAR-2').assignedDriverId, drvId);
 });
+
+test('connector: change a driver — rename, new phone, reset PIN; the link stays the same', async () => {
+  const call = mcpToken('ship@test.example');
+  const add = await call('add_drivers', { drivers: [{ name: 'Bruce', phone: '5550142' }] });
+  const link = add.out.drivers[0].link;
+  const dId = db.prepare('SELECT id FROM drivers WHERE orgId = ? AND name = ?').get(shipper, 'Bruce').id;
+  db.prepare("UPDATE drivers SET pinHash = 'x', mustChangePin = 0 WHERE id = ?").run(dId);
+  const r = await call('update_driver', { driver: '555-0142', name: 'Bruce Foster', reset_pin: true });
+  assert.equal(r.err, false, JSON.stringify(r.out));
+  assert.deepEqual([r.out.now.name, r.out.now.has_pin, r.out.now.link], ['Bruce Foster', false, link]);
+  const row = db.prepare('SELECT name, phone, mustChangePin FROM drivers WHERE id = ?').get(dId);
+  assert.deepEqual([row.name, row.phone, row.mustChangePin], ['Bruce Foster', '5550142', 1]);
+  assert.equal((await call('update_driver', { driver: 'Bruce Foster' })).err, true, 'nothing to change');
+  // another company's driver can't be changed
+  assert.equal((await mcpToken('brk@test.example')('update_driver', { driver: dId, name: 'X' })).err, true);
+});
