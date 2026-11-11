@@ -3168,8 +3168,8 @@
   function drvSmsHref(d) {
     let n = String(d.phone || '').replace(/\D/g, ''); if (n.length === 10) n = '1' + n;
     const first = String(d.name || '').trim().split(/\s+/)[0], co = (user && user.orgName) || 'dispatch';
-    const body = (first ? 'Hi ' + first + ', ' : '') + 'this is ' + co + '. Here\'s your HaulProof driver link: ' + d.link
-      + '\nOpen it on your phone and pick your own PIN. Your loads show up there; tap the buttons as you go.';
+    // Short, with the link on its own last line: iMessage then shows a HaulProof preview card instead of a raw address
+    const body = co + ': here\'s your HaulProof driver app' + (first ? ', ' + first : '') + '. Tap the link, pick your own PIN, and your loads show up there.\n' + d.link;
     return 'sms:' + (n ? '+' + n : '') + '?&body=' + encodeURIComponent(body);
   }
   // --- Drivers (shared: customer admin uses own org; super passes an orgId) ---
