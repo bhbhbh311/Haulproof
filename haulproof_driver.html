@@ -904,7 +904,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-10a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-11a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1068,18 +1068,31 @@ window.__startApp=function(){
   $("signBack").addEventListener("click", function(){ showView("route"); });
   // Download a copy of the document being signed to the driver's device. Prefers the signed version if the
   // driver has already signed; otherwise saves the original document they're about to sign.
+  // Save a PDF from a phone or computer. On a phone the share sheet opens (Save to Files, Print, Mail, Messages): a PDF
+  // opened from page memory on iPhone breaks with "WebKitBlobResource error 1" as soon as the page frees it or Safari
+  // reloads the tab. On a computer it's a normal download. Must be called straight from a tap (the share sheet needs it).
+  function savePdfFile(bytes, name){
+    var nm = String(name||"document").replace(/[^\w.-]+/g,"_"); if(!/\.pdf$/i.test(nm)) nm += ".pdf";
+    var blob = bytes instanceof Blob ? bytes : new Blob([bytes], {type:"application/pdf"});
+    var mobile = /iP(hone|ad|od)|Android/i.test(navigator.userAgent) || (navigator.platform==="MacIntel" && (navigator.maxTouchPoints||0)>1);
+    if(mobile && navigator.canShare && window.File){
+      try{
+        var f = new File([blob], nm, {type:"application/pdf"});
+        if(navigator.canShare({files:[f]})){ navigator.share({files:[f], title:nm}).catch(function(e){ if(e && e.name!=="AbortError") toast("Couldn't share the document"); }); return; }
+      }catch(e){}
+    }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a"); a.href=url; a.download=nm; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    // never revoked on a phone (it may be showing the PDF in its own view); on a computer the download has it by then
+    if(!mobile) setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  }
   if($("dlDocBtn")) $("dlDocBtn").addEventListener("click", function(){
     try{
       var src = (signedPdfBytes && signedPdfBytes.byteLength) ? signedPdfBytes : origBytes;
       if(!src || !src.byteLength){ toast("Document isn't ready to download yet"); return; }
       var ab = (src.buffer ? src.slice(0) : src);   // copy so the live buffer isn't detached
-      var blob = new Blob([ab], {type:"application/pdf"});
       var po = (pulledMeta && pulledMeta.poNumber) ? pulledMeta.poNumber : (currentStop && currentStop.name) || "document";
-      var nm = String(po).replace(/[^\w.-]+/g,"_") + (signedPdfBytes && signedPdfBytes.byteLength ? "_signed" : "") + ".pdf";
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a"); a.href=url; a.download=nm; document.body.appendChild(a); a.click();
-      setTimeout(function(){ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(_){} }, 1500);
-      toast("Saving "+nm+" to your device");
+      savePdfFile(new Blob([ab], {type:"application/pdf"}), String(po) + (signedPdfBytes && signedPdfBytes.byteLength ? "_signed" : ""));
     }catch(e){ console.error(e); toast("Couldn't download the document"); }
   });
 
@@ -4201,7 +4214,8 @@ window.__startApp=function(){
   function renderChips(){ if(!compBox)return; var c=compBox._chips; c.innerHTML=""; compRecips.forEach(function(e){ var s=document.createElement("span"); s.className="c"; s.appendChild(document.createTextNode(e)); var x=document.createElement("button"); x.type="button"; x.setAttribute("aria-label","Remove"); x.textContent="×"; x.addEventListener("click",function(){ removeRecip(e); }); s.appendChild(x); c.appendChild(s); }); }
   function renderSuggest(){ if(!compBox||!compBox._sug)return; var s=compBox._sug; s.innerHTML=""; (compBox._match.emails||[]).forEach(function(e){ if(compRecips.indexOf(e)>=0) return; var b=document.createElement("button"); b.type="button"; b.className="s"; b.textContent="＋ "+e; b.addEventListener("click",function(){ tryAddRecip(e); }); s.appendChild(b); }); }
   function renderNote(){ if(!compBox)return; var n=compBox._note; n.textContent = compRecips.length ? ("A copy will be emailed to "+compRecips.length+" recipient"+(compRecips.length>1?"s":"")+" when this POD uploads.") : "Add an email to send the consignee a copy (optional)."; }
-  function downloadPod(pod){ var url=URL.createObjectURL(b64ToBlob(pod.b64)); var a=document.createElement("a"); a.href=url; a.download=(pod.name.replace(/[^\w]+/g,"_"))+".pdf"; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(url);},1000); }
+  function downloadPod(pod){ savePdfFile(b64ToBlob(pod.b64), pod.name); }
+  window.hpSavePdf = savePdfFile;   // reachable from the automated browser check
   // In-app viewer: render any signed PDF inside the app so there's always a Close button back to HaulProof.
   var pvBytes=null, pvName="document";
   async function showPdfInViewer(title, name, getBytes){
@@ -4247,19 +4261,8 @@ window.__startApp=function(){
   $("pvClose").addEventListener("click", closePv);
   $("pvDownload").addEventListener("click", function(){
     if(!pvBytes) return;
-    var url=URL.createObjectURL(new Blob([pvBytes],{type:"application/pdf"}));
-    // iOS/iPadOS ignore the <a download> attribute and instead navigate the whole
-    // app away to preview the PDF, stranding the driver with no Close button.
-    // On those devices open the PDF in a SEPARATE tab so the app (and its ✕ Close)
-    // stays put underneath. Everywhere else, do a normal silent download.
-    var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && (navigator.maxTouchPoints||0)>1);
-    if(isIOS){
-      var w=window.open(url,"_blank");
-      if(!w){ alert("Allow pop-ups for this site to open the PDF, or use the ✕ to go back — your document is already saved."); }
-    } else {
-      var a=document.createElement("a"); a.href=url; a.download=pvName+".pdf"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    }
-    setTimeout(function(){URL.revokeObjectURL(url);},60000);
+    // Phone: the share sheet (Save to Files, Print…) and the app stays where it is; computer: a normal download
+    savePdfFile(new Blob([pvBytes],{type:"application/pdf"}), pvName);
   });
   // Past documents stay folded behind one button so the home screen leads with today's loads (opened state kept per phone)
   function pastDocsOpen(){ try{ return localStorage.getItem("hp_pastdocs_open")==="1"; }catch(e){ return false; } }
