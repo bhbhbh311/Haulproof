@@ -59,8 +59,12 @@ function loadOut(l, req) {
 const POD_MODES = { paper: 'Paper BOL: the driver sends a photo of the signed BOL', epod: 'ePOD: the BOL is signed on the phone' };
 const podModeIn = v => (v === 'paper' || v === 'epod') ? v : null;
 const stopsIn = v => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? Math.min(n, 20) : null; };
+// Does this company allow Paper BOL loads? Off = ePOD is required: every load is ePOD, whatever asked otherwise.
+const paperAllowed = orgId => { try { return require('./uiflags').resolveUiFlags(orgId).allowPaperBol !== false; } catch (e) { return true; } };
+const podModeFor = (orgId, v) => paperAllowed(orgId) ? podModeIn(v) : 'epod';
 // What a new load starts as when nobody chose: the customer's own setting, else the company's (Settings › How drivers deliver)
 function defaultPodMode(orgId, customerId) {
+  if (!paperAllowed(orgId)) return 'epod';
   try {
     const c = customerId ? db.prepare(`SELECT podMode FROM customers WHERE id = ?`).get(customerId) : null;
     if (c && podModeIn(c.podMode)) return c.podMode;
@@ -74,7 +78,8 @@ router.post('/', requireAuth, (req, res) => {
   const orgId = myOrg(req);
   const { loadNumber, poNumber, customer, consignee, origin, destination } = req.body || {};
   const instructions = String((req.body || {}).instructions || '').trim().slice(0, 4000) || null;
-  const chosen = podModeIn((req.body || {}).podMode), podMode = chosen || defaultPodMode(orgId, null), podModeAuto = chosen ? 0 : (podMode ? 1 : 0);
+  const asked = podModeIn((req.body || {}).podMode), chosen = asked ? podModeFor(orgId, asked) : null;
+  const podMode = chosen || defaultPodMode(orgId, null), podModeAuto = chosen ? 0 : (podMode ? 1 : 0);
   const paperStops = podMode === 'paper' ? (stopsIn((req.body || {}).deliveryStops) || 1) : null;
   if (!poNumber && !loadNumber) return res.status(400).json({ error: 'Provide a PO number or a load number' });
   if (poNumber) {
@@ -401,7 +406,7 @@ router.put('/:id', requireAuth, (req, res) => {
   }
   // Paper BOL vs ePOD: saved on its own too. Chosen by hand it stays put; otherwise it follows the customer's default.
   if (b.podMode !== undefined) {
-    const pm = podModeIn(b.podMode), ps = pm === 'paper' ? (stopsIn(b.deliveryStops) || load.paperStops || 1) : null;
+    const pm = podModeFor(orgIdNew, b.podMode), ps = pm === 'paper' ? (stopsIn(b.deliveryStops) || load.paperStops || 1) : null;
     if (pm !== (load.podMode || null) || ps !== (load.paperStops || null)) {
       db.prepare(`UPDATE loads SET podMode = ?, paperStops = ?, podModeAuto = 0 WHERE id = ?`).run(pm, ps, load.id);
       logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: pm ? 'Delivery set to ' + POD_MODES[pm] : 'Delivery type cleared', actor: actorOf(req) });
@@ -583,3 +588,4 @@ router.get('/:id/history', requireAuth, (req, res) => {
 module.exports = router;
 
 module.exports.defaultPodMode = defaultPodMode;
+module.exports.paperAllowed = paperAllowed;

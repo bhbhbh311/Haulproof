@@ -129,20 +129,24 @@ const PODM = v => (v === 'paper' || v === 'epod') ? v : null;
 app.get('/api/delivery-defaults', requireAuth, (req, res) => {
   if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
   const o = db.prepare('SELECT defaultPodMode FROM orgs WHERE id = ?').get(req.user.orgId) || {};
-  res.json({ company: PODM(o.defaultPodMode),
+  res.json({ allowPaper: resolveUiFlags(req.user.orgId).allowPaperBol !== false, company: PODM(o.defaultPodMode),
     customers: db.prepare('SELECT id, name, podMode FROM customers WHERE ownerOrgId = ? ORDER BY name COLLATE NOCASE').all(req.user.orgId).map(c => ({ id: c.id, name: c.name, podMode: PODM(c.podMode) })) });
 });
 app.put('/api/delivery-defaults', requireAuth, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'superadmin') return res.status(403).json({ error: 'Only an admin can change how drivers deliver.' });
   if (!req.user.orgId) return res.status(400).json({ error: 'No organization on this login.' });
   const b = req.body || {};
+  // Allow Paper BOL, or require ePOD (then every load is ePOD and the Paper BOL choices go away)
+  if (b.allowPaper !== undefined) setUiFlags(req.user.orgId, { allowPaperBol: !!b.allowPaper });
+  const allowPaper = resolveUiFlags(req.user.orgId).allowPaperBol !== false;
+  if (!allowPaper && (b.podMode === 'paper' || b.company === 'paper')) return res.status(400).json({ error: 'ePOD is required on this account. Allow Paper BOL first.' });
   if (b.customerId) {
     const c = db.prepare('SELECT id FROM customers WHERE id = ? AND ownerOrgId = ?').get(String(b.customerId), req.user.orgId);
     if (!c) return res.status(404).json({ error: 'That customer isn’t on your list.' });
     db.prepare('UPDATE customers SET podMode = ? WHERE id = ?').run(PODM(b.podMode), c.id);
   } else if (b.company !== undefined) db.prepare('UPDATE orgs SET defaultPodMode = ? WHERE id = ?').run(PODM(b.company), req.user.orgId);
   const o = db.prepare('SELECT defaultPodMode FROM orgs WHERE id = ?').get(req.user.orgId) || {};
-  res.json({ ok: true, company: PODM(o.defaultPodMode),
+  res.json({ ok: true, allowPaper, fields: resolveUiFlags(req.user.orgId), company: PODM(o.defaultPodMode),
     customers: db.prepare('SELECT id, name, podMode FROM customers WHERE ownerOrgId = ? ORDER BY name COLLATE NOCASE').all(req.user.orgId).map(c => ({ id: c.id, name: c.name, podMode: PODM(c.podMode) })) });
 });
 app.put('/api/org-fields', requireAuth, (req, res) => {

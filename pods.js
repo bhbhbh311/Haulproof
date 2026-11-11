@@ -239,6 +239,13 @@ router.post('/upload', requireAuth, raw, (req, res) => {
     // SCR017BOL-4); if the document then attaches to an existing load (matched by load #), keep it in step with
     // that load's PO so dispatch and the driver app never show two different PO #s for the same load.
     poNumber = load.poNumber || poNumber;
+    // Delivery picked on the New load form (Paper BOL / ePOD): set on the load by hand, ahead of the account's default
+    let pmIn = String(h['x-podmode'] || '').trim();
+    if (pmIn === 'paper' && !require('./loads').paperAllowed(orgId)) pmIn = 'epod';   // ePOD required on this account
+    if ((pmIn === 'paper' || pmIn === 'epod') && (load.orgId || null) === (orgId || null)) {
+      const stopsIn = Math.min(Math.max(parseInt(h['x-deliverystops'], 10) || 1, 1), 20);
+      db.prepare(`UPDATE loads SET podMode = ?, paperStops = ?, podModeAuto = 0 WHERE id = ?`).run(pmIn, pmIn === 'paper' ? stopsIn : null, load.id);
+    }
     db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, uploadedAt)
        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,'[]','[]',@signedAt,@status,@uploadedAt)`)
       .run({ id, orgId, loadId: load.id, loadNumber: loadNumber || null, poNumber, consignee: consignee || null, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes: req.body.length, signedAt: Date.now(), status, uploadedAt: Date.now() });
