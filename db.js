@@ -272,7 +272,10 @@ addColumn('loads', 'pickedUpPhotos', 'TEXT');   // JSON array of pickup proof-ph
 addColumn('loads', 'deliveredPhotos', 'TEXT');  // JSON array of delivery proof-photo refs: [{id, at, stopNumber}] (files on disk)
 addColumn('loads', 'instructions', 'TEXT');     // the shipper's / broker's special instructions, shown on the driver's load card
 addColumn('pods', 'paperSigned', 'INTEGER');    // 1 = a photo of a BOL the receiver signed on paper (not signed in the app)
-addColumn('loads', 'podMode', 'TEXT');          // how the driver delivers: 'paper' (photo of the signed paper BOL) | 'epod' (signs on the phone) | NULL (not set)
+addColumn('loads', 'podMode', 'TEXT');
+addColumn('loads', 'podModeAuto', 'INTEGER');   // 1 = podMode came from the company / customer default (follows a customer change); 0/NULL = set by hand
+addColumn('orgs', 'defaultPodMode', 'TEXT');    // how drivers deliver on this company's new loads: 'paper' | 'epod' | NULL (not set)
+addColumn('customers', 'podMode', 'TEXT');      // this customer's own choice, ahead of the company default: 'paper' | 'epod' | NULL (use the company's)          // how the driver delivers: 'paper' (photo of the signed paper BOL) | 'epod' (signs on the phone) | NULL (not set)
 addColumn('loads', 'paperStops', 'INTEGER');    // paper loads: how many delivery stops need a signed-BOL photo (stays on the driver's list until then)
 addColumn('loads', 'assignedDriverId', 'TEXT'); // the driver RECORD dispatch gave the load to: it shows on their phone before any paperwork exists
 addColumn('orgs', 'uiFlags', 'TEXT');   // JSON of per-org "Simple mode" field flags (which optional inputs are shown)
