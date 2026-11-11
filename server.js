@@ -549,7 +549,13 @@ function driverHtml() {
       + '<meta name="apple-mobile-web-app-capable" content="yes">'
       + '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
       + '<meta name="apple-mobile-web-app-title" content="HaulProof">'
-      + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">';
+      + '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">'
+      // Link preview when the link is texted or emailed (iMessage, Android, email): a tidy card instead of a raw address
+      + '<meta property="og:site_name" content="HaulProof">'
+      + '<meta property="og:title" content="HaulProof Driver">'
+      + '<meta property="og:description" content="Your loads, status buttons and BOL signing, right on your phone. No app store.">'
+      + '<meta property="og:type" content="website">'
+      + '<meta property="og:image" content="' + ((process.env.PORTAL_URL || 'https://haulproofepod.com').replace(/\/+$/, '')) + '/icons/icon-512.png">';
     // The service worker (network-first, auto-updating) is registered by the driver page itself, in its last-but-one
     // <script>, which also decides when it's safe to reload onto a new build. Don't register it here as well.
     // Establish the driver's device key on every open. Priority: ?k= from their personal link → whatever the
@@ -561,6 +567,15 @@ function driverHtml() {
   } catch { DRIVER_HTML = null; }
   return DRIVER_HTML;
 }
+// Short driver link (texted): /go/K7M2QX9PRA -> the driver app with that driver's full key
+app.get('/go/:code', (req, res) => {
+  const d = require('./driverlink').driverByCode(req.params.code);
+  if (!d || !d.active) return res.status(404).type('html').send('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>HaulProof</title>'
+    + '<div style="font:17px/1.5 system-ui,sans-serif;max-width:420px;margin:60px auto;padding:0 20px;text-align:center"><h1 style="font-size:20px">This driver link isn’t active</h1>'
+    + '<p>Ask your dispatcher to send you a new one.</p></div>');
+  res.set('Cache-Control', 'no-store');
+  res.redirect(302, '/driver?k=' + encodeURIComponent(d.token));
+});
 app.get('/driver', (req, res) => {
   const h = driverHtml(); if (!h) return res.status(404).send('driver app not installed');
   // Durable per-device credential: when the driver opens their personal link (?k=token), remember the token in a

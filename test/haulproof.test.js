@@ -97,7 +97,7 @@ test('a company that owns a load and gave it to a carrier can add that carrier\'
   assert.equal((await api('POST', `/api/drivers/for-carrier/${carrier}`, { name: 'Early Driver' })).status, 403);
   db.prepare('UPDATE loads SET carrierId = ?, carrierName = ? WHERE id = ?').run(carrier, 'Test Carrier Inc', l.id);
   const add = await api('POST', `/api/drivers/for-carrier/${carrier}`, { name: 'Carrier Driver', phone: '555-0100' });
-  assert.equal(add.status, 201); assert.match(add.body.driver.link, /\/driver\?k=/);
+  assert.equal(add.status, 201); assert.match(add.body.driver.link, /\/go\/[2-9A-HJKMNP-Z]{10}$/, 'a short link to text');
   assert.equal((await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: add.body.driver.id })).status, 200);
   const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(add.body.driver.id).token;
   const mine = (await asDriver(tok)('GET', '/api/drivers/my-loads')).body.loads;
@@ -356,4 +356,21 @@ test('paper BOL photo: another company\'s driver can\'t file onto someone else\'
   await fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': otok, 'Content-Type': 'application/pdf',
     'X-POD-PO': 'SOMETHING-ELSE', 'X-POD-Paper': '1', 'X-POD-LoadId': l.id, 'X-POD-ClientId': 'outside-1' } });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM pods WHERE loadId = ?').get(l.id).n, 0, 'nothing landed on the other company\'s load');
+});
+
+test('short driver link: /go/<code> opens the driver app with that driver\'s key; a switched-off driver\'s link stops', async () => {
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Short Link Sue', phone: '816-555-0177' })).body.driver;
+  const code = d.link.split('/go/')[1];
+  assert.equal(code.length, 10);
+  const r = await fetch(B + '/go/' + code, { redirect: 'manual' });
+  const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token;
+  assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/driver?k=' + encodeURIComponent(tok));
+  assert.equal((await fetch(B + '/go/' + code.toLowerCase(), { redirect: 'manual' })).status, 302, 'typed in lower case still works');
+  assert.equal((await api('GET', '/api/drivers')).body.drivers.find(x => x.id === d.id).link, d.link, 'the same link every time');
+  await api('POST', `/api/drivers/${d.id}/active`, { active: false });
+  assert.equal((await fetch(B + '/go/' + code, { redirect: 'manual' })).status, 404);
+  assert.equal((await fetch(B + '/go/NOTAREALONE', { redirect: 'manual' })).status, 404);
+  const html = await (await fetch(B + '/driver')).text();
+  assert.match(html, /property="og:title" content="HaulProof Driver"/, 'a tidy preview when the link is texted');
 });

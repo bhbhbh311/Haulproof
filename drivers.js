@@ -55,7 +55,7 @@ function scopeOrgId(req) {
 function sameOrg(req, orgId) { return req.user.role === 'superadmin' ? true : (orgId || null) === (req.user.orgId || null); }
 function driverOut(req, d) {
   return { id: d.id, name: d.name, phone: d.phone, email: d.email || '', hasPin: !!d.pinHash, active: !!d.active, createdAt: d.createdAt,
-    link: originOf(req) + '/driver?k=' + encodeURIComponent(d.token) };
+    link: require('./driverlink').driverLink(req, d) };
 }
 
 // A driver link with a PIN works only with the "unlock" value the phone earned by entering that PIN (sent as
@@ -701,7 +701,7 @@ router.post('/for-carrier/:carrierId/:driverId/email-link', requireAuth, require
   if (!d) return res.status(404).json({ error: 'Driver not found' });
   const to = (d.email || '').trim();
   if (!to) return res.status(400).json({ error: 'This driver has no email on file — add one first, or use Copy link.' });
-  const link = originOf(req) + '/driver?k=' + encodeURIComponent(d.token);
+  const link = require('./driverlink').driverLink(req, d);
   const first = (d.name || '').split(/\s+/)[0] || 'there';
   try {
     const r = await sendMail({ to, subject: 'Your HaulProof driver link', text: driverLinkText(first, g.carrier.name, link), html: driverLinkHtml(first, g.carrier.name, link) });
@@ -825,7 +825,7 @@ router.post('/:id/email-link', requireAuth, requireDriverManager, async (req, re
   if (!to) return res.status(400).json({ error: 'This driver has no email on file — add one first, or use Text / Copy link.' });
   const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(d.orgId);
   const orgName = org ? org.name : '';
-  const link = originOf(req) + '/driver?k=' + encodeURIComponent(d.token);
+  const link = require('./driverlink').driverLink(req, d);
   const first = (d.name || '').split(/\s+/)[0] || 'there';
   try {
     const r = await sendMail({ to, subject: 'Your HaulProof driver link', text: driverLinkText(first, orgName, link), html: driverLinkHtml(first, orgName, link) });

@@ -173,7 +173,7 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
     const drvId = crypto.randomUUID(), token = driverToken();
     db.prepare(`INSERT INTO drivers (id, orgId, name, phone, email, pinHash, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,?,?,1,1,?)`)
       .run(drvId, targetOrgId, r.contactName, r.phone || null, r.email || null, null, token, Date.now());
-    const link = originOf(req) + '/driver?k=' + encodeURIComponent(token);
+    const link = require('./driverlink').driverLink(req, { id: drvId, token });
     db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdDriverId=? WHERE id=?`).run(Date.now(), drvId, r.id);
     pushThread(r, 'admin', `Approved — added as a driver for ${org.name}; link emailed.`);
     sendMail({ to: r.email, subject: 'Your HaulProof driver link',
