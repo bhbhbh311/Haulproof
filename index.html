@@ -68,6 +68,8 @@
   button:active{transform:translateY(0);box-shadow:0 1px 2px rgba(22,85,209,.25);}
   button.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:none;}
   button.ghost:hover{background:var(--primary-soft);border-color:var(--primary-line);box-shadow:0 2px 7px rgba(20,40,80,.07);}
+  a.btnlink{display:inline-flex;align-items:center;border-radius:8px;text-decoration:none;font-weight:600;background:var(--surface);color:var(--ink);border:1px solid var(--line);}
+  a.btnlink:hover{background:var(--primary-soft);border-color:var(--primary-line);}
   button.btn-ok{background:var(--ok);box-shadow:0 1px 2px rgba(18,120,74,.28);}
   button.btn-ok:hover{background:#0f6640;box-shadow:0 4px 12px rgba(18,120,74,.3);}
   button.btn-danger{background:var(--danger);color:#fff;box-shadow:0 1px 2px rgba(192,57,43,.28);}
@@ -3152,6 +3154,15 @@
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
 
+  // "Text link": on a phone it opens Messages to the driver with their link and a short how-to filled in (you press send).
+  // No texting service needed — it goes from whoever's phone taps it. "?&body=" works on iPhone and Android.
+  function drvSmsHref(d) {
+    let n = String(d.phone || '').replace(/\D/g, ''); if (n.length === 10) n = '1' + n;
+    const first = String(d.name || '').trim().split(/\s+/)[0], co = (user && user.orgName) || 'dispatch';
+    const body = (first ? 'Hi ' + first + ', ' : '') + 'this is ' + co + '. Here\'s your HaulProof driver link: ' + d.link
+      + '\nOpen it on your phone and pick your own PIN. Your loads show up there; tap the buttons as you go.';
+    return 'sms:' + (n ? '+' + n : '') + '?&body=' + encodeURIComponent(body);
+  }
   // --- Drivers (shared: customer admin uses own org; super passes an orgId) ---
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
@@ -3162,6 +3173,7 @@
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${d.email ? `<button class="ghost drvEmail" data-id="${d.id}" title="Email ${esc(d.email)} their link + home-screen steps" style="padding:6px 10px;font-size:12px;">Email</button>` : ''}
         <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
+        ${d.phone && d.link ? `<a class="ghost btnlink" href="${esc(drvSmsHref(d))}" title="Opens Messages on your phone with their link filled in; you press send" style="padding:6px 10px;font-size:12px;">Text link</a>` : ''}
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -6745,6 +6757,7 @@
         + '<div style="flex:1;min-width:120px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + off
         + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + added + '</div>'
         + '<button class="ghost bdCopy" data-link="' + esc(d.link) + '" data-name="' + esc(d.name || 'Driver') + '" style="padding:5px 9px;font-size:12px;">Copy link</button>'
+        + (d.phone && d.link ? '<a class="ghost btnlink" href="' + esc(drvSmsHref(d)) + '" title="Opens Messages on your phone with their link filled in; you press send" style="padding:5px 9px;font-size:12px;">Text link</a>' : '')
         + (d.email ? ('<button class="ghost bdEmail" data-id="' + esc(d.id) + '" style="padding:5px 9px;font-size:12px;">Email link</button>') : '')
         + '</div>';
     }).join('');
