@@ -70,6 +70,15 @@
   button.ghost:hover{background:var(--primary-soft);border-color:var(--primary-line);box-shadow:0 2px 7px rgba(20,40,80,.07);}
   a.btnlink{display:inline-flex;align-items:center;border-radius:8px;text-decoration:none;font-weight:600;background:var(--surface);color:var(--ink);border:1px solid var(--line);}
   a.btnlink:hover{background:var(--primary-soft);border-color:var(--primary-line);}
+  /* Drivers list on a phone: each driver is a card with its buttons underneath (the table was wider than the screen) */
+  @media (max-width: 700px) {
+    table.drvtable thead { display: none; }
+    table.drvtable, table.drvtable tbody, table.drvtable tr, table.drvtable td { display: block; width: auto; }
+    table.drvtable tr { padding: 12px 0; border-bottom: 1px solid var(--line); position: relative; }
+    table.drvtable td { border: none !important; padding: 3px 0 !important; text-align: left !important; white-space: normal !important; }
+    table.drvtable td:first-child:has(input[type=checkbox]) { position: absolute; right: 0; top: 12px; }
+    table.drvtable td:empty { display: none; }
+  }
   button.btn-ok{background:var(--ok);box-shadow:0 1px 2px rgba(18,120,74,.28);}
   button.btn-ok:hover{background:#0f6640;box-shadow:0 4px 12px rgba(18,120,74,.3);}
   button.btn-danger{background:var(--danger);color:#fff;box-shadow:0 1px 2px rgba(192,57,43,.28);}
@@ -1045,7 +1054,7 @@
           <button id="cmdBtn" type="button">Add driver</button>
           <span id="cmdMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
-        <table style="margin-top:14px;"><thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead><tbody id="cmDriverRows"></tbody></table>
+        <table class="drvtable" style="margin-top:14px;"><thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead><tbody id="cmDriverRows"></tbody></table>
       </div>
       <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);" id="cmDocsSection">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -1713,7 +1722,7 @@
     <!-- DRIVERS (admin only) -->
     <div class="card hide" id="driversCard">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div><h1 style="margin-bottom:0;">Drivers</h1><p class="sub" style="margin-bottom:0;">Add each driver once with a PIN. They get their own link to open on their phone — the PIN locks it to them, their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p></div>
+        <div><h1 style="margin-bottom:0;">Drivers</h1><p class="sub" style="margin-bottom:0;">Add each driver once. They get their own link to open on their phone and pick their own PIN the first time, which locks it to them. Their name is stamped on everything they sign, and you can switch any driver off without affecting the others.</p></div>
         <button class="ghost" id="drvImportBtn" type="button">⇪ Import</button>
       </div>
       <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end;">
@@ -1726,7 +1735,7 @@
         <button id="ndBtn" type="button">Add driver</button>
         <span id="ndMsg" style="font-size:13px;font-weight:600;"></span>
       </div>
-      <table style="margin-top:18px;">
+      <table class="drvtable" style="margin-top:18px;">
         <thead><tr><th>Driver</th><th>Phone</th><th>Status</th><th>Personal link</th><th></th></tr></thead>
         <tbody id="driverRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
@@ -3173,7 +3182,7 @@
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${d.email ? `<button class="ghost drvEmail" data-id="${d.id}" title="Email ${esc(d.email)} their link + home-screen steps" style="padding:6px 10px;font-size:12px;">Email</button>` : ''}
         <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
-        ${d.phone && d.link ? `<a class="ghost btnlink" href="${esc(drvSmsHref(d))}" title="Opens Messages on your phone with their link filled in; you press send" style="padding:6px 10px;font-size:12px;">Text link</a>` : ''}
+        ${d.link ? `<a class="ghost btnlink" href="${esc(drvSmsHref(d))}" title="${d.phone ? 'Opens Messages on your phone with their number and link filled in; you press send' : 'No phone # saved: Messages opens with the link filled in and you pick who to send it to'}" style="padding:6px 10px;font-size:12px;">Text link</a>` : ''}
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -6767,7 +6776,7 @@
         + '<div style="flex:1;min-width:120px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + off
         + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + added + '</div>'
         + '<button class="ghost bdCopy" data-link="' + esc(d.link) + '" data-name="' + esc(d.name || 'Driver') + '" style="padding:5px 9px;font-size:12px;">Copy link</button>'
-        + (d.phone && d.link ? '<a class="ghost btnlink" href="' + esc(drvSmsHref(d)) + '" title="Opens Messages on your phone with their link filled in; you press send" style="padding:5px 9px;font-size:12px;">Text link</a>' : '')
+        + (d.link ? '<a class="ghost btnlink" href="' + esc(drvSmsHref(d)) + '" title="Opens Messages on your phone with their link filled in; you press send" style="padding:5px 9px;font-size:12px;">Text link</a>' : '')
         + (d.email ? ('<button class="ghost bdEmail" data-id="' + esc(d.id) + '" style="padding:5px 9px;font-size:12px;">Email link</button>') : '')
         + '</div>';
     }).join('');
