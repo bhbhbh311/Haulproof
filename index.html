@@ -1646,6 +1646,10 @@
         <div><label>Name <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="nuName" placeholder="Full name"></div>
         <div><label>Role</label><select id="nuRole"><option value="dispatcher">Dispatcher</option><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
       </div>
+      <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="display:inline-flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13.5px;font-weight:600;cursor:pointer;margin:0;"><input type="checkbox" id="nuDrives" style="width:16px;height:16px;margin:0;"> This person also drives (owner-operator)</label>
+        <input id="nuPhone" type="tel" placeholder="Their cell (for the driver link)" class="hide" style="max-width:240px;">
+      </div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <button id="nuBtn" type="button">Create login</button>
         <span class="sub" style="font-size:12.5px;">They get an email with a link to choose their own password.</span>
@@ -2028,7 +2032,10 @@
       + (user.betaAccess ? ` <label id="betaToggleWrap" title="Show the sections that aren't rolled out to regular users yet" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="betaToggle" style="width:14px;height:14px;margin:0;cursor:pointer;"> Show all sections</label>` : '')
       + ` <a href="/help" target="_blank" rel="noopener" class="ghost" style="text-decoration:none;">Help</a>`
       + ` <button class="ghost" id="reportBtn" type="button" title="Report a problem">⚠ Report a problem</button>`
+      + ` <a class="ghost hide" id="myDriverBtn" target="_blank" rel="noopener" style="text-decoration:none;" title="You also drive for this company — open your driver app">🚚 My driver app</a>`
       + ` <button class="ghost" id="logoutBtn">Sign out</button>`;
+    // Owner-operator: this login also has a driver record (same company, same email) → one tap to their driver app.
+    if (u.orgId) api('/api/drivers/me').then(r => { const b = $('myDriverBtn'); if (b && r && r.driver && r.driver.link) { b.href = r.driver.link; b.classList.remove('hide'); } }).catch(() => {});
     $('logoutBtn').onclick = async () => { try { await api('/api/auth/logout', { method:'POST' }); } catch(_){} token=null; location.href='/'; };
     if ($('reportBtn')) $('reportBtn').onclick = openReport;
     if (user.betaAccess && $('betaToggle')) {
@@ -7555,7 +7562,7 @@
       const tb = $('userRows');
       if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: '', url: id => '/api/users/' + id, reload: loadUsers }); return; }
       tb.innerHTML = r.users.map(u => `<tr>
-        <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}</td>
+        <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}${u.alsoDrives ? ' <span class="sub" style="font-size:12px;" title="Same email as one of your drivers — they can open their driver app from the menu">· also drives</span>' : ''}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
         <td style="text-align:right;white-space:nowrap;">${(/^haulproofhelp\+/i.test(u.email || '') && !(user && user.role === 'superadmin'))
           // The built-in HaulProof Help login is managed only by the master admin (outside Help mode) — no buttons here.
@@ -7569,16 +7576,20 @@
   }
   $('nuBtn').onclick = async () => {
     const email = $('nuEmail').value.trim(), name = $('nuName').value.trim(), role = $('nuRole').value;
+    const alsoDrives = !!($('nuDrives') && $('nuDrives').checked), phone = $('nuPhone') ? $('nuPhone').value.trim() : '';
     if (!email) { nuMsg('Enter an email', 'err'); return; }
+    if (alsoDrives && !name) { nuMsg('Enter their name — it shows on their loads as the driver', 'err'); return; }
     nuMsg('Creating…');
     try {
-      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role }) });
-      nuMsg('Created ✓ — we emailed ' + email + ' a link to choose their password', 'ok');
-      $('nuEmail').value = ''; $('nuName').value = '';
+      const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ email, name, role, alsoDrives, phone }) });
+      nuMsg('Created ✓ — we emailed ' + email + ' a link to choose their password' + (r && r.driver ? '. They’re also on your Drivers list, and can open their driver app from the menu after signing in.' : ''), 'ok');
+      $('nuEmail').value = ''; $('nuName').value = ''; if ($('nuDrives')) { $('nuDrives').checked = false; $('nuPhone').value = ''; $('nuPhone').classList.add('hide'); }
+      try { if (r && r.driver && typeof loadDrivers === 'function' && $('driverRows')) loadDrivers('', $('driverRows')); } catch (e2) {}
       loadUsers();
       if (r && r.link) showLoginLink(r.link, r.email);   // show the setup link to copy/share; user sets their own password
     } catch (e) { nuMsg(e.message, 'err'); }
   };
+  if ($('nuDrives')) $('nuDrives').onchange = function () { $('nuPhone').classList.toggle('hide', !this.checked); };
   $('userRows').addEventListener('click', async (e) => {
     const ed = e.target.closest('.nuEdit'), rb = e.target.closest('.nuReset'), del = e.target.closest('.nuDel'), lk = e.target.closest('.nuLink');
     if (lk) { genLoginLink(lk.dataset.id); return; }

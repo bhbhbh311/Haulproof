@@ -15,6 +15,15 @@ let logEvent = function(){}; try { logEvent = require('./events').logEvent || lo
 
 const router = express.Router();
 
+// Owner-operators: a driver and an office login in the same company with the same email are the same person.
+function officeLoginFor(d) {
+  if (!d || !d.email) return null;
+  return db.prepare(`SELECT id FROM users WHERE orgId IS ? AND LOWER(email) = LOWER(?) AND role != 'superadmin'`).get(d.orgId, String(d.email).trim()) || null;
+}
+function driverForLogin(orgId, email) {
+  if (!orgId || !email) return null;
+  return db.prepare(`SELECT * FROM drivers WHERE orgId = ? AND active = 1 AND LOWER(TRIM(email)) = LOWER(?) ORDER BY createdAt LIMIT 1`).get(orgId, String(email).trim()) || null;
+}
 function newToken() { return 'drv_' + crypto.randomBytes(24).toString('hex'); }
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
@@ -79,7 +88,8 @@ router.get('/link-info', (req, res) => {
   res.json({ requiresPin: !!(r.driver && r.driver.pinHash),
     needsPinCreate: !!(r.driver && !r.driver.pinHash),   // brand-new driver with no PIN yet → prompt them to create one
     name: r.driver ? r.driver.name : '',
-    company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '' });
+    company: r.org ? r.org.name : '', companyKind: r.org ? (r.org.kind || 'customer') : '',
+    office: !!(r.driver && officeLoginFor(r.driver)) });   // an owner-operator: this driver also has an office login
 });
 // Exchange the correct PIN for an "unlock" value the app stores and replays on every request.
 // Wrong-PIN limit: after 5 misses on one driver link, PIN checks pause for 10 minutes (stops guessing a 4-digit PIN).
@@ -710,6 +720,13 @@ router.post('/for-carrier/:carrierId/:driverId/email-link', requireAuth, require
   } catch (e) { console.error('broker email-link', e); return res.status(500).json({ error: 'Email could not be sent right now' }); }
 });
 
+// The signed-in office login's own driver record, if they also drive (same company, same email).
+router.get('/me', requireAuth, (req, res) => {
+  const d = driverForLogin(req.user.orgId, req.user.email);
+  if (!d) return res.json({ driver: null });
+  res.json({ driver: { id: d.id, name: d.name, link: require('./driverlink').driverLink(req, d) } });
+});
+
 // List a customer's drivers.
 router.get('/', requireAuth, requireDriverManager, (req, res) => {
   const orgId = scopeOrgId(req);
@@ -843,3 +860,5 @@ router.delete('/:id', requireAuth, requireDriverManager, (req, res) => {
 });
 
 module.exports = router;
+module.exports.driverForLogin = driverForLogin;
+module.exports.newDriverToken = newToken;
