@@ -443,3 +443,30 @@ test('FMCSA authority from SAFER: "AUTHORIZED FOR" with a new 8-digit MC reads a
   assert.deepEqual([not.state.carrier, not.state.broker, not.mc], ['none', 'none', null]);
   assert.equal(parseSaferAuthority('<html>nothing here</html>'), null, 'a page without the line is "couldn\'t read", not "none"');
 });
+
+test('connector: a broker creates a load with an approved carrier and that carrier\'s driver in one step', async () => {
+  const c2 = org('Roster Carrier LLC', 'carrier');
+  db.prepare('UPDATE orgs SET mcNumber = ? WHERE id = ?').run('7654321', c2);
+  const drvId = id();
+  db.prepare("INSERT INTO drivers (id, orgId, name, phone, token, active, mustChangePin, createdAt) VALUES (?,?,?,?,?,1,1,?)").run(drvId, c2, 'Roster Bob', '5550109', 'tok_' + crypto.randomBytes(8).toString('hex'), Date.now());
+  const call = mcpToken('brk@test.example');
+  // not on the broker's approved list yet
+  const no = await call('create_load', { po_number: 'CAR-0', carrier: 'Roster Carrier' });
+  assert.equal(no.err, true, 'only approved carriers');
+  db.prepare('INSERT INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)').run(broker, c2, Date.now());
+  const list = await call('list_carriers', { search: '7654321' });
+  assert.deepEqual(list.out.carriers.map(c => c.name), ['Roster Carrier LLC']);
+  assert.match(list.out.carriers[0].drivers[0], /Roster Bob/);
+  const r = await call('create_load', { po_number: 'CAR-1', carrier: 'MC 7654321', driver: 'Roster Bob', delivery: 'paper' });
+  assert.equal(r.err, false, JSON.stringify(r.out));
+  assert.equal(r.out.warning, undefined, JSON.stringify(r.out));
+  const row = db.prepare('SELECT carrierId, assignedDriverId AS driverId FROM loads WHERE poNumber = ? AND orgId = ?').get('CAR-1', broker);
+  assert.deepEqual([row.carrierId, row.driverId], [c2, drvId]);
+  // and on an existing load: assign_carrier, then assign_driver by phone
+  await call('create_load', { po_number: 'CAR-2' });
+  const ac = await call('assign_carrier', { load: 'CAR-2', carrier: 'Roster Carrier LLC' });
+  assert.deepEqual(ac.out.carrier_drivers, ['Roster Bob']);
+  const ad = await call('assign_driver', { load: 'CAR-2', driver: '555-0109' });
+  assert.equal(ad.err, false, JSON.stringify(ad.out));
+  assert.equal(db.prepare('SELECT assignedDriverId FROM loads WHERE poNumber = ?').get('CAR-2').assignedDriverId, drvId);
+});

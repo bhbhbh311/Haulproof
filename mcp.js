@@ -351,9 +351,34 @@ function pickOne(list, ref, label, nameOf) {
 async function customers(user) { return (await api(user, 'GET', '/api/customers')).customers || []; }
 async function drivers(user) { return ((await api(user, 'GET', '/api/drivers')).drivers || []).filter(d => d.active !== false && d.active !== 0); }
 const driverLabel = (d) => d.name + (d.phone ? ' (' + d.phone + ')' : (d.email ? ' (' + d.email + ')' : ''));
+// Carriers this login can put on a load: a broker's approved roster, otherwise every active carrier.
+async function carrierList(user) {
+  if (user.orgKind === 'broker' || orgKindOf(user) === 'broker') return (await api(user, 'GET', '/api/brokers/my-carriers')).carriers || [];
+  return (await api(user, 'GET', '/api/carriers')).carriers || [];
+}
+function orgKindOf(user) { try { const o = user.orgId ? db.prepare(`SELECT kind FROM orgs WHERE id = ?`).get(user.orgId) : null; return o ? o.kind : null; } catch (e) { return null; } }
+async function resolveCarrier(user, ref) {
+  const list = await carrierList(user), r = String(ref || '').trim(), digits = r.replace(/\D/g, '');
+  if (digits.length >= 5 && digits === r.replace(/^(mc|dot|usdot)\s*#?\s*/i, '')) {
+    const hit = list.filter(c => String(c.mcNumber || '').replace(/\D/g, '') === digits || String(c.dotNumber || '').replace(/\D/g, '') === digits);
+    if (hit.length === 1) return hit[0];
+  }
+  return pickOne(list, ref, 'carrier', c => c.name);
+}
+async function putCarrier(user, loadId, carrier) {
+  await api(user, 'POST', '/api/loads/' + loadId + '/assign-carrier', { json: { carrierId: carrier.id } });
+  return api(user, 'GET', '/api/loads/' + loadId);
+}
 async function resolveCustomer(user, ref) { return pickOne(await customers(user), ref, 'customer', c => c.name); }
-async function resolveDriver(user, ref) {
-  const list = await drivers(user);
+// Drivers that can go on a load: this account's own, plus (when the load has a carrier) that carrier's drivers —
+// the same set the assign-driver endpoint accepts.
+async function resolveDriver(user, ref, load) {
+  let list = await drivers(user);
+  if (load && load.carrierId && String(load.carrierId) !== String(user.orgId || '')) {
+    const own = db.prepare(`SELECT id, name, phone, email, active FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(load.carrierId)
+      .map(d => Object.assign(d, { carrier: load.carrierName || null }));
+    list = list.concat(own);
+  }
   const r = String(ref || '').trim(), digits = r.replace(/\D/g, '');
   if (digits.length >= 7) { const byPhone = list.filter(d => String(d.phone || '').replace(/\D/g, '').endsWith(digits.slice(-10))); if (byPhone.length === 1) return byPhone[0]; }
   return pickOne(list, ref, 'driver', d => d.name);
@@ -743,7 +768,9 @@ const TOOLS = [
     description: 'Creates a load identified by its customer PO #. Optionally sets the load #, the customer (must already be on the customer list — use add_customer first if needed) and the driver (sends the load to their phone). If a load with that PO # already exists, it is returned unchanged.',
     inputSchema: { type: 'object', properties: {
       po_number: str('Customer PO # (required, unique per account)'), load_number: str('Your load #'),
-      customer: str('Customer name or id from list_customers'), driver: str('Driver name, phone, or id from list_drivers'),
+      customer: str('Customer name or id from list_customers'),
+      carrier: str('Carrier hauling it: name, MC #, DOT # or id (a broker picks from its approved carriers)'),
+      driver: str('Driver name, phone, or id — your own driver, or the carrier’s driver when carrier is set'),
       truck: str('Truck #'), trailer: str('Trailer #'),
       delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
       delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' } }, required: ['po_number'] },
@@ -752,14 +779,21 @@ const TOOLS = [
       const po = String(a.po_number || '').trim(); if (!po) throw new ToolError('po_number is required.');
       // Resolve names first so a typo fails before anything is created.
       const cust = a.customer ? await resolveCustomer(user, a.customer) : null;
-      const drv = a.driver ? await resolveDriver(user, a.driver) : null;
+      const car = a.carrier ? await resolveCarrier(user, a.carrier) : null;
+      const drv = a.driver && !car ? await resolveDriver(user, a.driver) : null;
       const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined,
         podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined } });
       if (c.existed) return Object.assign({ already_existed: true, note: 'A load with this PO # already exists; nothing was changed. Use update_load or assign_driver to change it.' }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
       let custNote = null;
       if (cust) { const r = await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
         if ((r.load && r.load.customerId || '') !== cust.id) custNote = 'The load was created, but this login can’t set a customer on loads, so ' + cust.name + ' was not added.'; }
-      if (drv) await api(user, 'POST', '/api/loads/' + c.load.id + '/assign-driver', { json: { driverId: drv.id, truck: a.truck || '', trailer: a.trailer || '' } });
+      let carNote = null, drv2 = drv;
+      if (car) {
+        try { const d2 = await putCarrier(user, c.load.id, car); if (a.driver) drv2 = await resolveDriver(user, a.driver, d2.load); }
+        catch (e) { carNote = 'The load was created, but ' + (e.message || 'the carrier or driver could not be set') + ' Fix it with assign_carrier / assign_driver.'; drv2 = null; }
+      }
+      if (drv2) await api(user, 'POST', '/api/loads/' + c.load.id + '/assign-driver', { json: { driverId: drv2.id, truck: a.truck || '', trailer: a.trailer || '' } });
+      if (carNote) custNote = (custNote ? custNote + ' ' : '') + carNote;
       return Object.assign({ created: true }, custNote ? { warning: custNote } : {}, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
     } },
 
@@ -787,12 +821,36 @@ const TOOLS = [
       return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
     } },
 
-  { name: 'assign_driver', title: 'Assign a driver',
-    description: 'Puts a driver (and optionally truck/trailer) on a load. Its ready-to-sign documents go to that driver’s phone.',
-    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), driver: str('Driver name, phone, or id from list_drivers'), truck: str('Truck #'), trailer: str('Trailer #') }, required: ['load', 'driver'] },
+  { name: 'assign_carrier', title: 'Assign a carrier',
+    description: 'Puts a carrier on a load (a broker picks from its approved carriers; see list_carriers). Then assign_driver can pick one of that carrier’s drivers.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), carrier: str('Carrier name, MC #, DOT # or id') }, required: ['load', 'carrier'] },
     run: async (user, a, base) => {
       needCompany(user);
-      const d = await resolveLoad(user, a.load), drv = await resolveDriver(user, a.driver);
+      const d = await resolveLoad(user, a.load), car = await resolveCarrier(user, a.carrier);
+      const d2 = await putCarrier(user, d.load.id, car);
+      const drvs = db.prepare(`SELECT name FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(car.id).map(x => x.name);
+      return Object.assign({ assigned_carrier: car.name, carrier_drivers: drvs }, loadDetail(d2, base));
+    } },
+  { name: 'list_carriers', title: 'List carriers',
+    description: 'Lists the carriers this account can put on a load (a broker’s approved carriers) with their drivers. Optionally filter by name, MC # or DOT #.',
+    inputSchema: { type: 'object', properties: { search: str('Part of a carrier name, MC # or DOT #') } }, annotations: { readOnlyHint: true },
+    run: async (user, a) => {
+      needCompany(user);
+      const q = norm(a.search || ''), qd = String(a.search || '').replace(/\D/g, '');
+      const list = (await carrierList(user)).filter(c => !q || norm(c.name).indexOf(q) >= 0 || (qd && (String(c.mcNumber || '') === qd || String(c.dotNumber || '') === qd)));
+      return { carriers: list.slice(0, 100).map(c => ({ id: c.id, name: c.name, mc: c.mcNumber || null, dot: c.dotNumber || null,
+        drivers: db.prepare(`SELECT name, phone FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(c.id).map(x => x.name + (x.phone ? ' (' + x.phone + ')' : '')) })) };
+    } },
+
+  { name: 'assign_driver', title: 'Assign a driver',
+    description: 'Puts a driver (and optionally truck/trailer) on a load. The driver can be one of your own or a driver of the carrier on the load; pass carrier to put that carrier on the load first. Its ready-to-sign documents go to that driver’s phone.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), driver: str('Driver name, phone, or id'),
+      carrier: str('Optional: carrier to put on the load first (name, MC #, DOT # or id)'), truck: str('Truck #'), trailer: str('Trailer #') }, required: ['load', 'driver'] },
+    run: async (user, a, base) => {
+      needCompany(user);
+      let d = await resolveLoad(user, a.load);
+      if (a.carrier) d = await putCarrier(user, d.load.id, await resolveCarrier(user, a.carrier));
+      const drv = await resolveDriver(user, a.driver, d.load);
       // The assign endpoint overwrites truck/trailer, so keep the load's current ones unless new ones were given.
       const truck = a.truck != null ? a.truck : (d.load.truck || ''), trailer = a.trailer != null ? a.trailer : (d.load.trailer || '');
       await api(user, 'POST', '/api/loads/' + d.load.id + '/assign-driver', { json: { driverId: drv.id, truck, trailer } });
@@ -955,7 +1013,7 @@ const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for trucking. Loads are identified by the customer PO #. ' +
   'Before creating a load, check list_customers and list_drivers so names match; add_customer only when the company truly is not on the list. ' +
   'To get a document ready for the driver: attach it, call review_pages and confirm the pages with the user, trim_document, then place_signatures. To attach a PDF you hold as a file, use get_upload_link and POST the file to the link (or give the link to the user). Documents attached with attach_document or an upload link still need their signature boxes placed in HaulProof (signature_setup_link) before a driver can sign. ' +
-  'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. ' +
+  'Assigning a driver sends the load to their phone, so confirm the driver with the user when unsure. A broker puts one of its approved carriers on a load with create_load or assign_carrier (carrier = name, MC # or DOT #); after that, assign_driver can pick that carrier’s drivers (list_carriers shows them). ' +
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
