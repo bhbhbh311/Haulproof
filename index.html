@@ -2994,7 +2994,7 @@
           acVerified = true; acAllowed = c.allowedToOperate || ''; $('acVerified').innerHTML = '<span style="color:var(--ok);font-weight:600;">✓ FMCSA-verified</span>' + (c.allowedToOperate === 'Y' ? ' · allowed to operate' : ' · check operating status');
         });
       } else {
-        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY). You can still type the carrier in below as an override.' : 'No FMCSA match — type details below to add as an admin override.') + '</div>';
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY). You can still type the carrier in below as an override.' : 'No FMCSA match — type details below to add as an admin override.' + (r.hint ? ' ' + r.hint : '')) + '</div>';
         acVerified = false; acAllowed = ''; $('acVerified').innerHTML = '<span style="color:var(--warn)">Will be saved as an admin override (not FMCSA-verified).</span>';
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -3061,7 +3061,7 @@
           abVerified = true; abAllowed = c.allowedToOperate || ''; $('abVerified').innerHTML = '<span style="color:var(--ok);font-weight:600;">✓ FMCSA-verified</span>' + (c.allowedToOperate === 'Y' ? ' · authority active' : ' · check authority status');
         });
       } else {
-        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY). You can still type the broker in below as an override.' : 'No FMCSA match — type details below to add as an admin override.') + '</div>';
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY). You can still type the broker in below as an override.' : 'No FMCSA match — type details below to add as an admin override.' + (r.hint ? ' ' + r.hint : '')) + '</div>';
         abVerified = false; abAllowed = ''; $('abVerified').innerHTML = '<span style="color:var(--warn)">Will be saved as an admin override (not FMCSA-verified).</span>';
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
@@ -3117,7 +3117,7 @@
             () => { $('bcResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">Carrier approved ✓</div>'; $('bcSearch').value = ''; loadApprovedCarriers(); });
         });
       } else {
-        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY).' : 'No FMCSA match for that carrier.') + '</div>';
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet (add FMCSA_WEBKEY).' : 'No FMCSA match for that carrier.' + (r.hint ? ' ' + r.hint : '')) + '</div>';
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
@@ -3167,7 +3167,7 @@
           await addWithAuthority('/api/carriers/roster', { name: c.name, mcNumber: c.mcNumber, dotNumber: c.dotNumber, fmcsaVerified: true, allowedToOperate: c.allowedToOperate, address: c.address, kind: b.dataset.kind }, () => { $('ccrResults').innerHTML = '<div class="umsg-ok" style="font-size:13px;font-weight:600;">' + (b.dataset.kind === 'broker' ? 'Broker' : 'Carrier') + ' saved ✓</div>'; $('ccrSearch').value = ''; loadCustCarriers(); });
         });
       } else {
-        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet.' : 'No FMCSA match for that carrier.') + '</div>';
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn’t switched on yet.' : 'No FMCSA match for that carrier.' + (r.hint ? ' ' + r.hint : '')) + '</div>';
       }
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   };
@@ -7045,7 +7045,7 @@
         box.innerHTML = html;
         box.querySelectorAll('.carPick').forEach(b => b.onclick = () => broker ? assignBrokerFromFmcsa(r.fmcsa[+b.dataset.i]) : assignFromFmcsa(r.fmcsa[+b.dataset.i]));
       } else {
-        const why = r.configured === false ? 'FMCSA lookup isn’t switched on yet (needs the FMCSA key).' : 'No FMCSA match for that ' + by.toUpperCase() + '.';
+        const why = r.configured === false ? 'FMCSA lookup isn’t switched on yet (needs the FMCSA key).' : 'No FMCSA match for that ' + by.toUpperCase() + '.' + (r.hint ? ' ' + r.hint : '');
         html = '<div class="ssoNote warn" style="display:block;">' + why + '</div>';
         if (isAdmin()) {
           html += `<div style="margin-top:10px;"><p class="sub">Admin override — add this ${noun} manually (not FMCSA-verified):</p>
@@ -8828,7 +8828,7 @@
             <td style="text-align:right;"><button class="cmpAdd" data-i="${i}" style="padding:5px 10px;font-size:12px;">Add to roster</button></td></tr>`).join('') + '</tbody></table>' + fmcsaDisclaimerHtml();
         box.querySelectorAll('.cmpAdd').forEach(b => b.onclick = () => cmpAdd(r.fmcsa[+b.dataset.i], true));
       } else {
-        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn\'t switched on yet — add manually below.' : 'No FMCSA match — add manually below.') + '</div>' +
+        box.innerHTML = '<div class="ssoNote warn" style="display:block;">' + (r.configured === false ? 'FMCSA lookup isn\'t switched on yet — add manually below.' : 'No FMCSA match — add manually below.' + (r.hint ? ' ' + r.hint : '')) + '</div>' +
           `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
             <div><label>Name</label><input id="cmpMName" value="${by === 'name' ? esc(val) : ''}"></div>
             <div style="max-width:110px;"><label>MC#</label><input id="cmpMMc" value="${by === 'mc' ? esc(val) : ''}"></div>

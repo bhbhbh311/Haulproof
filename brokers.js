@@ -23,7 +23,7 @@ router.get('/lookup', requireAuth, async (req, res) => {
   const mc = (req.query.mc || '').trim(), dot = (req.query.dot || '').trim(), name = (req.query.name || '').trim();
   if (!mc && !dot && !name) return res.status(400).json({ error: 'Search by name, MC#, or DOT#' });
   const fm = await fmcsaLookup({ mc, dot, name });
-  res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null });
+  res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null, hint: fm.hint || null });
 });
 
 // List saved brokers. Active only unless ?includeInactive=1.
