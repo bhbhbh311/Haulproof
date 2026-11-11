@@ -369,7 +369,9 @@ async function checkImportRow(row, listOrg, brokerList) {
   if (!out.dotNumber) {
     const f = await dotFromMc(out.mcNumber);
     if (!f) return Object.assign(out, { status: 'error', message: 'FMCSA didn’t answer — try again' });
-    if (f.missing) return Object.assign(out, { status: 'notfound', message: 'No company on FMCSA with MC ' + out.mcNumber + ' — check the number' });
+    if (f.missing) return Object.assign(out, { status: 'notfound', message: out.mcNumber.length >= 8
+      ? 'FMCSA can’t look up the newer 8-digit MC numbers yet (MC ' + out.mcNumber + '). Use the DOT # for this one.'
+      : 'No company on FMCSA with MC ' + out.mcNumber + ' — check the number' });
     out.dotNumber = f.dot; out.name = f.name;
   }
   const org = db.prepare(`SELECT * FROM orgs WHERE dotNumber = ? AND kind = ? LIMIT 1`).get(out.dotNumber, kind) || db.prepare(`SELECT * FROM orgs WHERE dotNumber = ? AND kind IN ('carrier','broker') LIMIT 1`).get(out.dotNumber);
@@ -579,6 +581,8 @@ async function fmcsaLookup({ mc, dot, name }) {
   url += (url.includes('?') ? '&' : '?') + 'webKey=' + encodeURIComponent(WEBKEY);
   try {
     const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const newMc = mc && !dot && String(mc).replace(/\D/g, '').length >= 8;
+    if (r.status === 404 && newMc) return { configured: true, results: [], hint: 'FMCSA can’t look up the newer 8-digit MC numbers yet. Search by DOT # instead.' };
     if (!r.ok) return { configured: true, results: [], error: 'FMCSA returned ' + r.status };
     const json = await r.json();
     // Keep the list short so the follow-up MC# lookups stay quick.
@@ -613,7 +617,8 @@ async function fmcsaLookup({ mc, dot, name }) {
       if (c.dotNumber) saveSnapshotForDot(c.dotNumber, c.snapshot);
     };
     for (let i = 0; i < carriers.length; i += 4) await Promise.all(carriers.slice(i, i + 4).map((c, k) => one(c, i + k)));
-    return { configured: true, results: carriers };
+    // FMCSA's newer 8-digit MC numbers (e.g. MC-52752007) can't be looked up yet, on QCMobile or SAFER; the DOT # can.
+    return { configured: true, results: carriers, hint: !carriers.length && newMc ? 'FMCSA can’t look up the newer 8-digit MC numbers yet. Search by DOT # instead.' : undefined };
   } catch (e) {
     return { configured: true, results: [], error: 'Could not reach FMCSA' };
   }
@@ -624,7 +629,7 @@ router.get('/lookup', requireAuth, async (req, res) => {
   const mc = (req.query.mc || '').trim(), dot = (req.query.dot || '').trim(), name = (req.query.name || '').trim();
   if (!mc && !dot && !name) return res.status(400).json({ error: 'Search by name, MC#, or DOT#' });
   const fm = await fmcsaLookup({ mc, dot, name });
-  res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null });
+  res.json({ configured: fm.configured, fmcsa: fm.results, error: fm.error || null, hint: fm.hint || null });
 });
 
 // Customers this carrier has hauled for (used for the "offer a document to a customer" picker).
