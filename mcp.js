@@ -624,6 +624,23 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number') } }, annotations: { readOnlyHint: true },
     run: async (user, a) => { const n = norm(a.search), dg = String(a.search || '').replace(/\D/g, ''); return { drivers: (await drivers(user)).filter(d => !n || norm(d.name).indexOf(n) >= 0 || (dg.length >= 3 && String(d.phone || '').replace(/\D/g, '').indexOf(dg) >= 0)).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null })) }; } },
 
+  { name: 'update_driver', title: 'Change a driver',
+    description: 'Changes one of this account’s drivers: name, phone, email, or reset their PIN so they pick a new one next time they open their link. Their link and loads stay the same. Confirm the change with the user first.',
+    inputSchema: { type: 'object', properties: { driver: str('Current driver name, phone, or id from list_drivers'), name: str('New full name'), phone: str('New phone ("" clears it)'),
+      email: str('New email ("" clears it)'), reset_pin: { type: 'boolean', description: 'true = the driver picks a new PIN next time' } }, required: ['driver'] },
+    run: async (user, a) => {
+      needCompany(user);
+      const drv = await resolveDriver(user, a.driver), body = {};
+      if (a.name != null) { if (!String(a.name).trim()) throw new ToolError('The new name can’t be empty.'); body.name = String(a.name).trim(); }
+      if (a.phone != null) body.phone = String(a.phone).trim();
+      if (a.email != null) body.email = String(a.email).trim();
+      if (a.reset_pin) body.resetPin = true;
+      if (!Object.keys(body).length) throw new ToolError('Nothing to change — pass name, phone, email or reset_pin.');
+      const r = await api(user, 'PUT', '/api/drivers/' + drv.id, { json: body });
+      const d = r.driver || {};
+      return { updated: true, was: driverLabel(drv), now: { name: d.name, phone: d.phone || null, email: d.email || null, has_pin: !!d.hasPin, link: d.link } };
+    } },
+
   { name: 'add_drivers', title: 'Add drivers',
     description: 'Adds one or more drivers to this account (same as the portal\'s Drivers → Import). A driver whose name is already on the roster is skipped. Each new driver gets a personal link to open on their phone; they set their own PIN on first use. Confirm the list with the user before adding.',
     inputSchema: { type: 'object', properties: { drivers: { type: 'array', minItems: 1, maxItems: 200, description: 'Drivers to add',
