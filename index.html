@@ -5030,7 +5030,7 @@
   }
   // In-app document viewer — fetches the PDF with the session cookie and shows it in a modal, so viewing a
   // document never depends on a new browser tab (which can show blank while loading, or be popup-blocked).
-  var _docViewerUrl = null;
+  var _docViewerUrl = null, _docViewerBlob = null;
   async function openDocViewer(p) {
     if (!p || !p.fileUrl) { alert('No document to open yet.'); return; }
     const modal = $('docViewer'); if (!modal) { window.open(p.fileUrl, '_blank'); return; }
@@ -5045,7 +5045,7 @@
       if (!resp.ok) throw new Error('That document could not be opened (' + resp.status + '). Try refreshing.');
       const blob = await resp.blob();
       if (_docViewerUrl) { try { URL.revokeObjectURL(_docViewerUrl); } catch (e) {} }
-      _docViewerUrl = URL.createObjectURL(blob);
+      _docViewerUrl = URL.createObjectURL(blob); _docViewerBlob = blob;
       if (frame) { frame.src = _docViewerUrl; frame.style.display = 'block'; }
       if (loading) loading.style.display = 'none';
     } catch (e) {
@@ -5056,6 +5056,7 @@
     const modal = $('docViewer'); if (modal) modal.classList.add('hide');
     const frame = $('docViewerFrame'); if (frame) frame.src = 'about:blank';
     if (_docViewerUrl) { try { URL.revokeObjectURL(_docViewerUrl); } catch (e) {} _docViewerUrl = null; }
+    _docViewerBlob = null;
   }
   if ($('docViewerClose')) $('docViewerClose').onclick = closeDocViewer;
   if ($('docViewer')) $('docViewer').addEventListener('click', e => { if (e.target === $('docViewer')) closeDocViewer(); });
@@ -5063,6 +5064,15 @@
     if (!_docViewerUrl) return;
     var nm = (($('docViewerName') && $('docViewerName').textContent) || 'document').replace(/[^\w.-]+/g, '_');
     if (!/\.pdf$/i.test(nm)) nm += '.pdf';
+    // On a phone: the share sheet (Save to Files, Print, Mail). Safari on iPhone ignores "download" and shows the PDF
+    // from page memory instead, which breaks ("WebKitBlobResource error 1") once the viewer closes or the tab reloads.
+    const mobile = /iP(hone|ad|od)|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+    if (mobile && _docViewerBlob && navigator.canShare && window.File) {
+      try { const f = new File([_docViewerBlob], nm, { type: 'application/pdf' });
+        if (navigator.canShare({ files: [f] })) { navigator.share({ files: [f], title: nm }).catch(() => {}); return; } } catch (e) {}
+      // no share sheet: open the saved copy from the server in its own tab (a real address, so it never breaks)
+      const nt = $('docViewerNewTab'); if (nt && nt.href) { window.open(nt.href, '_blank'); return; }
+    }
     const a = document.createElement('a'); a.href = _docViewerUrl; a.download = nm; document.body.appendChild(a); a.click();
     setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 500);
   };
