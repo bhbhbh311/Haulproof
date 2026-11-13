@@ -680,6 +680,15 @@
     <div class="actions"><button class="btn ghost" id="modalCancel" type="button">Cancel</button><button class="btn primary" id="adoptBtn" type="button">Adopt &amp; place</button></div>
   </div>
 </div>
+<!-- Comments box on the paperwork: always optional. The receiver can type something or skip it. -->
+<div class="modal" id="commentModal">
+  <div class="sheet">
+    <h2 id="commentTitle">Comments</h2>
+    <p>Optional. Add anything that should be on the paperwork, like damage or a short count. Nothing to add? Tap <b>No comments</b>.</p>
+    <label class="f"><span><b id="commentLbl" style="font-weight:inherit;">Comments</b> <em style="color:var(--muted);font-style:normal;">optional</em></span><textarea id="commentText" rows="3" placeholder="e.g. 2 bundles scratched" style="width:100%;box-sizing:border-box;"></textarea></label>
+    <div class="actions"><button class="btn ghost" id="commentSkip" type="button">No comments</button><button class="btn primary" id="commentSave" type="button">Save comments</button></div>
+  </div>
+</div>
 <!-- In-app camera: live view with a page outline so drivers frame the BOL up close (sharper scans) -->
 <div id="camView" aria-hidden="true">
   <video id="camVideo" autoplay playsinline muted></video>
@@ -3440,11 +3449,19 @@ window.__startApp=function(){
   function screenRect(rec,x,y,w,h){ var tl=rec.vp.convertToViewportPoint(x,y+h), br=rec.vp.convertToViewportPoint(x+w,y);
     return {left:Math.min(tl[0],br[0]),top:Math.min(tl[1],br[1]),w:Math.abs(br[0]-tl[0]),h:Math.abs(br[1]-tl[1])}; }
   function esc2(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+  // A typed-text box on the paperwork is always optional. Boxes labelled "Notes" (the old default), "Note",
+  // "Remarks" or left unlabelled show as "Comments", so receivers see one name; a box dispatch named something
+  // else (e.g. "Seal #") keeps its name. Only what people see changes; the saved label stays as it was.
+  function textLabel(label){ var l=String(label==null?"":label).trim(); return (!l || /^(notes?|remarks?|comments?)$/i.test(l)) ? "Comments" : l; }
+  function valueLabel(o){ return o.kind==="text" ? textLabel(o.label) : (o.label||(o.kind==="time"?"Time":"Initials")); }
   function valueContent(o){
-    var lab=o.label||(o.kind==="time"?"Time":(o.kind==="text"?"Text":"Initials"));
+    var lab=valueLabel(o);
     if(o.value){ return '<span class="lab">'+esc2(o.value)+'</span>'; }
-    return '<span class="lab">'+(o.kind==="time"?"🕒 ":(o.kind==="initials"?"✎ ":"＋ "))+esc2(lab)+'</span>';
+    if(o.kind==="text") return '<span class="lab">＋ '+esc2(lab)+' (optional)</span>';
+    return '<span class="lab">'+(o.kind==="time"?"🕒 ":"✎ ")+esc2(lab)+'</span>';
   }
+  // Empty text boxes left on the page — optional, so they never block signing or finishing.
+  function blankTextBoxes(){ return fields.filter(function(f){ return f.kind==="text" && !(f.value && String(f.value).trim()); }); }
   function addField(rec,kind,r,x,y,w,h,label){
     var sr=screenRect(rec,x,y,w,h), el=document.createElement("div");
     var isSig=(kind==="sig"||kind==="sigdate");
@@ -3489,7 +3506,8 @@ window.__startApp=function(){
   }
   // Fill a non-signature value field (initials / arrive-leave time / free text). Filled anytime, any order.
   function onValue(o){
-    var lab=o.label||(o.kind==="time"?"time":(o.kind==="text"?"text":"initials"));
+    if(o.kind==="text"){ openComments(o); return; }
+    var lab=valueLabel(o).toLowerCase();
     var def=o.value;
     if(!def){ if(o.kind==="time") def=timeStr(new Date()); else if(o.kind==="initials") def=initialsFor(o.role); else def=""; }
     var v=window.prompt("Enter "+lab+(o.kind==="initials"?" ("+o.role+")":"")+":", def||"");
@@ -3498,6 +3516,27 @@ window.__startApp=function(){
     o.el.querySelector(".content").innerHTML=valueContent(o);
     o.el.classList.toggle("filled", !!o.value);
   }
+  // Comments sheet: type something and save, or tap "No comments" to leave it blank. Either way signing goes on.
+  var _commentField=null;
+  function setValue(o, v){
+    o.value=String(v==null?"":v).replace(/\s+/g," ").trim();   // one line on the PDF
+    o.el.querySelector(".content").innerHTML=valueContent(o);
+    o.el.classList.toggle("filled", !!o.value);
+    try{ updateProgress(); }catch(e){}
+  }
+  function openComments(o){
+    _commentField=o; var lab=textLabel(o.label);
+    $("commentTitle").textContent=lab; $("commentLbl").textContent=lab;
+    $("commentText").value=o.value||"";
+    $("commentModal").classList.add("on");
+    setTimeout(function(){ try{ $("commentText").focus(); }catch(e){} },40);
+  }
+  function closeComments(v){
+    var o=_commentField; _commentField=null; $("commentModal").classList.remove("on");
+    if(o) setValue(o, v);
+  }
+  $("commentSave").addEventListener("click", function(){ closeComments($("commentText").value); });
+  $("commentSkip").addEventListener("click", function(){ closeComments(""); });
   // One-off (no template): drop a single combined signature+date box per role (wide, for side-by-side).
   function placeGroup(rec,r,x,y){ addField(rec,"sigdate",r,x,y,250,44); }
   function wireDrag(obj,onClick){
@@ -3575,8 +3614,9 @@ window.__startApp=function(){
   var _finishing=false;
   // When the last signature lands we can skip the extra "Finish" tap and go straight to building the PDF + the
   // send screen — BUT only in the clean case: the Customer PO # is already filled (finish() requires it), and there
-  // are no value fields (initials / arrive-leave time / notes) the driver still needs to type. Otherwise we leave
-  // the manual Finish tap in place so nothing gets skipped.
+  // are no value fields (initials / arrive-leave time / comments) still empty. Otherwise we leave the manual Finish
+  // tap in place so the receiver still gets a chance at the comments box. Comments are optional: finish() never
+  // asks for them, and the banner says so.
   function autoFinishOK(){
     try{
       var po = $("poNum") ? $("poNum").value.trim() : "";
@@ -3608,7 +3648,7 @@ window.__startApp=function(){
     var r=role(),rs=roleSigs(r),done=rs.filter(function(f){return f.signed;}).length,tot=rs.length,all=sigs().every(function(f){return f.signed;});
     $("roleChip").textContent=r; $("roleChip").classList.toggle("driver",r==="Driver");
     $("progText").textContent=done+" of "+tot+" signed"; $("meterFill").style.width=(tot?Math.round(done/tot*100):0)+"%";
-    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; var fl=setFinishBtn(btn); $("progSub").textContent="All signatures collected — tap "+fl; btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); }   // bulge the finish action so it's clear that's the next tap
+    if(all){ bn.classList.add("done"); $("roleChip").textContent="Complete"; var fl=setFinishBtn(btn); $("progSub").textContent=blankTextBoxes().length ? ("All signatures collected — add comments if you want (optional), or tap "+fl) : ("All signatures collected — tap "+fl); btn.classList.remove("primary"); btn.classList.add("success"); btn.classList.add("lead-cta"); }   // bulge the finish action so it's clear that's the next tap
     else { bn.classList.remove("done"); $("progSub").textContent="Tap the button to sign as "+r; btn.textContent="✍ Sign as "+r; btn.classList.add("primary"); btn.classList.remove("success"); btn.classList.add("lead-cta"); }   // always pulse the "sign next" action, not just for first-timers
   }
   $("nextBtn").addEventListener("click", function(){
