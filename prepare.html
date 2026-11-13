@@ -525,7 +525,7 @@
     if(kind==='initials') return (label||'Initials')+' · '+role;
     if(kind==='date') return label||(role&&role!=='Pickup'?role+' · Date':'Date');
     if(kind==='time') return label||'Time';
-    if(kind==='text') return label||'Text';
+    if(kind==='text') return (!label || /^\s*(notes?|remarks?|comments?)\s*$/i.test(label)) ? 'Comments (optional)' : label;
     if(kind==='pickupdate') return 'Pickup date';
     if(AUTO_TIME_KINDS[kind]) return AUTO_TIME_KINDS[kind];
     return role;
@@ -725,7 +725,8 @@
     }
     return el;
   }
-  function defaultLabel(kind){ return kind==='time'?'Time':(kind==='text'?'Notes':(kind==='initials'?'Initials':'')); }
+  // New text boxes are "Comments" — what the receiver sees on the phone (old "Notes" boxes show as Comments there too).
+  function defaultLabel(kind){ return kind==='time'?'Time':(kind==='text'?'Comments':(kind==='initials'?'Initials':'')); }
 
   function addField(rec,e){
     var r=rec.div.getBoundingClientRect();
