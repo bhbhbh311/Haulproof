@@ -720,6 +720,15 @@ router.post('/for-carrier/:carrierId/:driverId/email-link', requireAuth, require
   } catch (e) { console.error('broker email-link', e); return res.status(500).json({ error: 'Email could not be sent right now' }); }
 });
 
+// Text the carrier's driver their link through Twilio (broker view).
+router.post('/for-carrier/:carrierId/:driverId/text-link', requireAuth, requireDriverManager, async (req, res) => {
+  const g = brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) return res.status(g.code || 403).json({ code: g.errcode, error: g.error });
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ? AND orgId = ?`).get(req.params.driverId, req.params.carrierId);
+  if (!d) return res.status(404).json({ error: 'Driver not found' });
+  return textDriverLink(req, res, d, g.carrier.name);
+});
+
 // The signed-in office login's own driver record, if they also drive (same company, same email).
 router.get('/me', requireAuth, (req, res) => {
   const d = driverForLogin(req.user.orgId, req.user.email);
@@ -850,6 +859,33 @@ router.post('/:id/email-link', requireAuth, requireDriverManager, async (req, re
     return res.status(502).json({ error: 'Email could not be sent right now' + (r && r.error ? ' (' + r.error + ')' : '') });
   } catch (e) { console.error('email-link', e); return res.status(500).json({ error: 'Email could not be sent right now' }); }
 });
+
+// Text a driver their personal link through Twilio (needs the Twilio settings in Render; see twilio.js).
+router.post('/:id/text-link', requireAuth, requireDriverManager, async (req, res) => {
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(req.params.id);
+  if (!d || !sameOrg(req, d.orgId)) return res.status(404).json({ error: 'Driver not found' });
+  const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(d.orgId);
+  return textDriverLink(req, res, d, org ? org.name : '');
+});
+// The text itself: short, with the link on its own last line so phones show a preview card.
+function driverLinkSms(first, orgName, link) {
+  return (orgName || 'Dispatch') + ': here\'s your HaulProof driver app' + (first ? ', ' + first : '') + '. Tap the link, pick your own PIN, and your loads show up there.\n' + link;
+}
+async function textDriverLink(req, res, d, orgName) {
+  const T = require('./twilio');
+  if (!T.configured()) return res.status(400).json({ code: 'sms_off', error: 'Texting isn’t set up yet. Use Copy link, or Text link on your phone.' });
+  if (!d.phone) return res.status(400).json({ error: 'This driver has no phone number on file. Add one first.' });
+  if (d.active === 0) return res.status(400).json({ error: 'This driver is turned off' });
+  const link = require('./driverlink').driverLink(req, d);
+  const first = (d.name || '').split(/\s+/)[0] || '';
+  try {
+    const r = await T.sendText({ to: d.phone, body: driverLinkSms(first, orgName, link), orgId: req.user.orgId || null, driverId: d.id, sentBy: req.user.email || null });
+    return res.json({ ok: true, sentTo: r.to, status: r.status });
+  } catch (e) {
+    if (e instanceof T.SmsError) return res.status(502).json({ error: e.message });
+    console.error('text-link', e); return res.status(500).json({ error: 'The text could not be sent right now' });
+  }
+}
 
 // Remove a driver.
 router.delete('/:id', requireAuth, requireDriverManager, (req, res) => {

@@ -23,7 +23,19 @@ function reqOut(r) {
     phone: r.phone, company: r.company, mcNumber: r.mcNumber, dotNumber: r.dotNumber, targetCompany: r.targetCompany,
     note: r.note, status: r.status, thread: parseThread(r.thread), createdOrgId: r.createdOrgId, createdDriverId: r.createdDriverId,
     createdAt: r.createdAt, decidedAt: r.decidedAt,
+    existingCompany: (r.kind === 'company' && r.status !== 'granted') ? ((existingCompanyFor(r.orgType, r.mcNumber, r.dotNumber) || {}).name || null) : null,
     invitedBy: r.refOrgId ? ((db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(r.refOrgId) || {}).name || null) : null };
+}
+// A carrier/broker that already has an account (e.g. a broker added it by MC #) — matched by MC # or DOT #,
+// digits only, so "MC937175" and "937175" are the same company. Approving a request then JOINS that account
+// instead of creating a second company with the same name.
+const digits = s => String(s || '').replace(/\D+/g, '').replace(/^0+/, '');
+function existingCompanyFor(orgType, mc, dot) {
+  if (!['carrier', 'broker'].includes(orgType)) return null;
+  const m = digits(mc), d = digits(dot);
+  if (!m && !d) return null;
+  return db.prepare(`SELECT * FROM orgs WHERE kind = ? AND active = 1 AND mergedInto IS NULL ORDER BY createdAt`).all(orgType)
+    .find(o => (m && digits(o.mcNumber) === m) || (d && digits(o.dotNumber) === d)) || null;
 }
 function pushThread(r, from, text) {
   const th = parseThread(r.thread); th.push({ from, text, at: Date.now() });
@@ -151,6 +163,16 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
           }
         }
         return res.status(409).json({ error: 'That email already has a login' });
+      }
+      // Already on HaulProof under the same MC/DOT: add this person as an admin of that account.
+      const same = b.newCompany ? null : existingCompanyFor(orgType, r.mcNumber, r.dotNumber);
+      if (same) {
+        const link = passwordLink(req, createUser({ email: adminEmail, name: r.contactName, role: 'admin', password: crypto.randomBytes(16).toString('hex'), orgId: same.id }).id);
+        db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), same.id, r.id);
+        pushThread(r, 'admin', `Approved — added to the existing ${orgType} account "${same.name}"; login emailed.`);
+        sendMail({ to: r.email, subject: 'Your HaulProof login is ready',
+          text: `You now have a login for "${same.name}" on HaulProof.\n\nYour login is ${adminEmail}. Open this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+        return res.json({ ok: true, kind: 'company', orgType, orgId: same.id, adminEmail, adminLink: link, joined: true, company: same.name });
       }
       const orgId = crypto.randomUUID();
       db.prepare(`INSERT INTO orgs (id, name, deviceKey, kind, roles, parentId, contactName, contactEmail, contactPhone, mcNumber, dotNumber, active, createdAt)

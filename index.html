@@ -2021,6 +2021,8 @@
   function enterApp(u) {
     user = u;
     try { if (u && u.orgId) refreshOrgLabels(); } catch(e){}
+    // Is server texting (Twilio) set up? Then "Text link" sends from here instead of opening Messages.
+    api('/api/me').then(function (me) { window.__textingOn = !!(me && me.textingOn); }).catch(function () {});
     try { maybeShowHelpBanner(u); } catch(e){}
     refreshOrgFields();   // make sure the Simple-mode field flags are current regardless of how we signed in
     const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -2854,7 +2856,7 @@
     const when = x.createdAt ? new Date(x.createdAt).toLocaleString() : '';
     const statusChip = '<span class="chip '+(x.status==='granted'?'signed':x.status==='denied'?'received':'prepared')+'">'+(x.status==='granted'?'Approved':x.status==='denied'?'Denied':'Pending')+'</span>';
     const what = x.kind==='authority' ? ('wants <b>'+esc(x.company||'')+'</b> as a '+esc(x.orgType||'carrier')+' — no active FMCSA authority'+(x.targetCompany?' · for '+esc(x.targetCompany):''))
-      : x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')+(x.invitedBy?' <span class="chip signed" style="font-size:11px;">🎁 Invited by '+esc(x.invitedBy)+'</span>':'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
+      : x.kind==='company' ? ((x.orgType||'customer')+' account'+(x.company?' — '+esc(x.company):'')+(x.invitedBy?' <span class="chip signed" style="font-size:11px;">🎁 Invited by '+esc(x.invitedBy)+'</span>':'')+(x.existingCompany?' <span class="chip prepared" style="font-size:11px;">Already on HaulProof as '+esc(x.existingCompany)+' — Grant adds them to it</span>':'')) : ('driver'+(x.targetCompany?' → '+esc(x.targetCompany):''));
     const thread = (x.thread||[]).map(m=>'<div style="font-size:12px;margin:2px 0;color:var(--muted);"><b>'+(m.from==='admin'?'You':'Them')+':</b> '+esc(m.text)+'</div>').join('');
     let actions = '';
     if (x.status==='pending'){
@@ -2885,7 +2887,7 @@
       msg.style.color='var(--muted)'; msg.textContent='Granting…';
       try { const r = await api('/api/requests/'+id+'/grant', {method:'POST', body: JSON.stringify(body)});
         if (r.kind==='authority') alert('Approved — '+r.company+' was added to their list with an authority warning.');
-        else if (r.kind==='company') { if (r.merged) alert('Approved — the role was added to their existing account.'); else if (r.adminLink) showLoginLink(r.adminLink, r.adminEmail); }
+        else if (r.kind==='company') { if (r.merged) alert('Approved — the role was added to their existing account.'); else if (r.joined) { alert('Approved — '+r.adminEmail+' was added as an admin of the existing account "'+r.company+'". They were emailed a link to choose their password.'); } else if (r.adminLink) showLoginLink(r.adminLink, r.adminEmail); }
         else alert('Driver added to '+r.company+'.\n\nLink: '+r.link+'\n\nWe emailed it to them. They pick their own PIN the first time they open it.');
         loadRequests();
         // Refresh the management lists + tab counts so a just-granted account shows up right away (no stale count).
@@ -3188,6 +3190,22 @@
     const body = co + ': here\'s your HaulProof driver app' + (first ? ', ' + first : '') + '. Tap the link, pick your own PIN, and your loads show up there.\n' + d.link;
     return 'sms:' + (n ? '+' + n : '') + '?&body=' + encodeURIComponent(body);
   }
+  // The "Text link" control: with Twilio on and a phone # saved, a button that texts from the server (works on a PC);
+  // otherwise the old link that opens Messages on this device. url = where to POST (own driver or a carrier's driver).
+  function drvTextHtml(d, url, pad) {
+    if (!d.link) return '';
+    if (window.__textingOn && d.phone) return '<button class="ghost drvText" data-url="' + esc(url) + '" title="Texts ' + esc(d.phone) + ' their link from HaulProof" style="padding:' + pad + ';font-size:12px;">Text link</button>';
+    return '<a class="ghost btnlink" href="' + esc(drvSmsHref(d)) + '" title="' + (d.phone ? 'Opens Messages on your phone with their number and link filled in; you press send' : 'No phone # saved: Messages opens with the link filled in and you pick who to send it to') + '" style="padding:' + pad + ';font-size:12px;">Text link</a>';
+  }
+  // One handler for every server "Text link" button on the page.
+  document.addEventListener('click', async function (e) {
+    const b = e.target.closest && e.target.closest('.drvText'); if (!b) return;
+    e.preventDefault(); if (b.disabled) return;
+    b.disabled = true; b.textContent = 'Texting…';
+    try { const r = await api(b.dataset.url, { method: 'POST', body: '{}' }); b.textContent = 'Texted ✓'; b.title = 'Sent to ' + (r.sentTo || ''); }
+    catch (err) { b.textContent = 'Failed'; alert(err.message); }
+    setTimeout(function () { b.textContent = 'Text link'; b.disabled = false; }, 2200);
+  });
   // --- Drivers (shared: customer admin uses own org; super passes an orgId) ---
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
@@ -3198,7 +3216,7 @@
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${d.email ? `<button class="ghost drvEmail" data-id="${d.id}" title="Email ${esc(d.email)} their link + home-screen steps" style="padding:6px 10px;font-size:12px;">Email</button>` : ''}
         <button class="ghost drvCopy" data-link="${esc(d.link)}" data-name="${esc(d.name || 'Driver')}" style="padding:6px 10px;font-size:12px;">Copy link</button>
-        ${d.link ? `<a class="ghost btnlink" href="${esc(drvSmsHref(d))}" title="${d.phone ? 'Opens Messages on your phone with their number and link filled in; you press send' : 'No phone # saved: Messages opens with the link filled in and you pick who to send it to'}" style="padding:6px 10px;font-size:12px;">Text link</a>` : ''}
+        ${drvTextHtml(d, '/api/drivers/' + d.id + '/text-link', '6px 10px')}
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
@@ -6834,7 +6852,7 @@
         + '<div style="flex:1;min-width:120px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + off
         + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + added + '</div>'
         + '<button class="ghost bdCopy" data-link="' + esc(d.link) + '" data-name="' + esc(d.name || 'Driver') + '" style="padding:5px 9px;font-size:12px;">Copy link</button>'
-        + (d.link ? '<a class="ghost btnlink" href="' + esc(drvSmsHref(d)) + '" title="Opens Messages on your phone with their link filled in; you press send" style="padding:5px 9px;font-size:12px;">Text link</a>' : '')
+        + drvTextHtml(d, '/api/drivers/for-carrier/' + encodeURIComponent(curLoad.carrierId) + '/' + encodeURIComponent(d.id) + '/text-link', '5px 9px')
         + (d.email ? ('<button class="ghost bdEmail" data-id="' + esc(d.id) + '" style="padding:5px 9px;font-size:12px;">Email link</button>') : '')
         + '</div>';
     }).join('');

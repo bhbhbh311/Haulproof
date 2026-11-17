@@ -13,6 +13,17 @@ process.env.DATA_DIR = DATA_DIR;
 const PORT = 3400 + Math.floor(Math.random() * 500);
 const B = `http://127.0.0.1:${PORT}`;
 const PW = crypto.randomBytes(9).toString('hex');
+// A stand-in for Twilio, so "Text link" is tested end to end without texting anyone
+const http = require('http');
+const smsSent = [];
+const TW_PORT = PORT + 1000;
+const twilioFake = http.createServer((req, res) => {
+  let body = ''; req.on('data', c => body += c); req.on('end', () => {
+    const f = new URLSearchParams(body); smsSent.push({ url: req.url, auth: req.headers.authorization, to: f.get('To'), from: f.get('From'), body: f.get('Body') });
+    res.writeHead(201, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ sid: 'SM' + smsSent.length, status: 'queued' }));
+  });
+}).listen(TW_PORT, '127.0.0.1');
+Object.assign(process.env, { TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'tok-test', TWILIO_FROM: '+18884017286', TWILIO_API_BASE: 'http://127.0.0.1:' + TW_PORT });
 const { db } = require('../db');
 const { createUser } = require('../auth');
 
@@ -31,7 +42,7 @@ test.before(async () => {
   for (let i = 0; i < 160; i++) { try { const r = await fetch(B + '/api/app-version'); if (r.ok) return; } catch (e) {} await new Promise(r => setTimeout(r, 250)); }
   throw new Error('server did not start');
 });
-test.after(() => { if (server) server.kill(); });
+test.after(() => { if (server) server.kill(); twilioFake.close(); });
 
 async function login(email) {
   const r = await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: PW }) });
@@ -313,6 +324,64 @@ test('master admin adds a company: no admin password; the first admin gets a lin
   assert.equal(rcv.status, 201, JSON.stringify(rcv.body)); assert.ok(rcv.body.adminLink);
   const noLogin = await master('POST', '/api/receivers', { name: 'Receiver Without Login' });
   assert.equal(noLogin.status, 201); assert.equal(noLogin.body.adminLink, null);
+});
+
+test('access request for a carrier already on HaulProof (same MC #) joins that account instead of making a second one', async () => {
+  const master = await login('master@test.example');
+  const real = org('JOINME TRANSPORT LLC', 'carrier');
+  db.prepare('UPDATE orgs SET mcNumber = ?, active = 1 WHERE id = ?').run('937175', real);
+  const sub = await fetch(B + '/api/requests', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'company', orgType: 'carrier', contactName: 'Ed Dispatch', email: 'ed@joinme.example', company: 'JOINME TRANSPORT LLC', mcNumber: 'MC 937175' }) });
+  assert.equal(sub.status, 200, 'request submitted');
+  const list = (await master('GET', '/api/requests')).body;
+  const req = (list.requests || list).find(x => x.email === 'ed@joinme.example');
+  assert.equal(req.existingCompany, 'JOINME TRANSPORT LLC', 'the inbox says it will join the existing account');
+  const g = await master('POST', '/api/requests/' + req.id + '/grant', {});
+  assert.equal(g.status, 200, JSON.stringify(g.body));
+  assert.equal(g.body.joined, true); assert.equal(g.body.orgId, real);
+  assert.equal(db.prepare('SELECT orgId, role FROM users WHERE email = ?').get('ed@joinme.example').orgId, real);
+  assert.equal(db.prepare(`SELECT COUNT(*) n FROM orgs WHERE name = 'JOINME TRANSPORT LLC'`).get().n, 1, 'no second company');
+});
+
+test('merge a duplicate company: its logins and drivers move to the real one, it is turned off; one with loads is refused', async () => {
+  const master = await login('master@test.example');
+  const keep = org('DUPE CARRIER LLC', 'carrier'), dupe = org('DUPE CARRIER LLC', 'carrier');
+  createUser({ email: 'ed@dupe.example', name: 'Ed', role: 'admin', password: PW, orgId: dupe });
+  createUser({ email: 'haulproofhelp+dupe@haulproofepod.com', name: 'HaulProof Help', role: 'admin', password: PW, orgId: dupe });
+  db.prepare('INSERT INTO drivers (id, orgId, name, token, active, createdAt) VALUES (?,?,?,?,1,?)').run(id(), dupe, 'Dupe Driver', 'drv_' + id(), Date.now());
+  const m = await master('POST', '/api/orgs/' + dupe + '/merge-into', { intoId: keep });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.deepEqual(m.body.movedLogins, ['ed@dupe.example']); assert.deepEqual(m.body.movedDrivers, ['Dupe Driver']);
+  assert.equal(db.prepare('SELECT orgId FROM users WHERE email = ?').get('ed@dupe.example').orgId, keep);
+  assert.equal(db.prepare('SELECT orgId FROM users WHERE email = ?').get('haulproofhelp+dupe@haulproofepod.com').orgId, dupe, 'support login stays behind');
+  const d = db.prepare('SELECT active, mergedInto FROM orgs WHERE id = ?').get(dupe);
+  assert.deepEqual([d.active, d.mergedInto], [0, keep]);
+  assert.equal((await master('POST', '/api/orgs/' + dupe + '/merge-into', { intoId: keep })).status, 400, 'not twice');
+  const busy = org('BUSY CARRIER', 'carrier');
+  db.prepare("INSERT INTO loads (id, orgId, poNumber, carrierId, status, createdAt) VALUES (?,?,?,?, 'open', ?)").run(id(), broker, 'BUSY-1', busy, Date.now());
+  const refused = await master('POST', '/api/orgs/' + busy + '/merge-into', { intoId: keep });
+  assert.equal(refused.status, 400); assert.match(refused.body.error, /already has 1 load/);
+  assert.equal((await (await login('brk@test.example'))('POST', '/api/orgs/' + dupe + '/merge-into', { intoId: keep })).status, 403, 'master admin only');
+});
+
+test('Text link: with Twilio set up, the server texts the driver their link from the HaulProof number; no phone or texting off is said plainly', async () => {
+  const brk = await login('brk@test.example');
+  assert.equal((await brk('GET', '/api/me')).body.textingOn, true, 'the portal knows texting is on');
+  const drv = id(), bare = id();
+  db.prepare('INSERT INTO drivers (id, orgId, name, phone, token, active, createdAt) VALUES (?,?,?,?,?,1,?)').run(drv, broker, 'Shaun Test', '970-596-3477', 'drv_' + id(), Date.now());
+  db.prepare('INSERT INTO drivers (id, orgId, name, token, active, createdAt) VALUES (?,?,?,?,1,?)').run(bare, broker, 'No Phone', 'drv_' + id(), Date.now());
+  const before = smsSent.length;
+  const r = await brk('POST', '/api/drivers/' + drv + '/text-link', {});
+  assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.sentTo, '+19705963477');
+  const m = smsSent[before];
+  assert.equal(m.to, '+19705963477'); assert.equal(m.from, '+18884017286'); assert.match(m.url, /\/Accounts\/ACtest\/Messages\.json$/);
+  assert.equal(m.auth, 'Basic ' + Buffer.from('ACtest:tok-test').toString('base64'));
+  assert.match(m.body, /Test Broker LLC: here's your HaulProof driver app, Shaun\./); assert.match(m.body, /\/go\/[A-Z0-9]{10}$/);
+  assert.equal(db.prepare('SELECT status FROM sms_log WHERE driverId = ?').get(drv).status, 'queued', 'logged');
+  const none = await brk('POST', '/api/drivers/' + bare + '/text-link', {});
+  assert.equal(none.status, 400); assert.match(none.body.error, /no phone number/);
+  assert.equal((await (await login('ship@test.example'))('POST', '/api/drivers/' + drv + '/text-link', {})).status, 404, 'another company can’t text our driver');
+  assert.equal(smsSent.length, before + 1, 'nothing else was sent');
 });
 
 // ---- Paper BOL (tracking) loads: status taps + a photo of the BOL the receiver signed on paper ----

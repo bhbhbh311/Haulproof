@@ -494,6 +494,20 @@ const TOOLS = [
       return { now_working_in: o.name, type: o.kind, acting_as: 'HaulProof Help', note: 'Changes from here on are made in ' + o.name + '.' };
     } },
 
+  { name: 'merge_companies', title: 'Merge a duplicate company (master admin)', masterOnly: true,
+    description: 'Master admin only: when the same company has two HaulProof accounts (e.g. a carrier added by MC # and again by its dispatcher’s access request), '
+      + 'moves the duplicate’s team logins and drivers into the real account and turns the duplicate off (kept for history). Refuses if the duplicate already has loads or documents. '
+      + 'Use list_companies to get both ids (names repeat). Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { duplicate: str('The duplicate company’s id (it gets turned off)'), keep: str('The real company’s id (everything moves here)') }, required: ['duplicate', 'keep'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      const { mergeCompanyInto, MergeError } = require('./merge');
+      try { const r = mergeCompanyInto(String(a.duplicate || '').trim(), String(a.keep || '').trim());
+        console.log('[mcp] master admin ' + user._master.email + ' merged ' + r.from + ' into ' + r.into);
+        return r; }
+      catch (e) { if (e instanceof MergeError) throw new ToolError(e.message); throw e; }
+    } },
+
   { name: 'set_company_active', title: 'Turn a company off or on (master admin)', masterOnly: true,
     description: 'Master admin only: turns a company (customer, carrier, broker or receiver) off or back on, the same as Deactivate / Reactivate in Master Admin. '
       + 'Off locks out its logins and driver links and hides it from carrier and customer pick lists; nothing is deleted, and turning it back on restores everything. '
@@ -639,6 +653,17 @@ const TOOLS = [
       const r = await api(user, 'PUT', '/api/drivers/' + drv.id, { json: body });
       const d = r.driver || {};
       return { updated: true, was: driverLabel(drv), now: { name: d.name, phone: d.phone || null, email: d.email || null, has_pin: !!d.hasPin, link: d.link } };
+    } },
+
+  { name: 'text_driver_link', title: 'Text a driver their link',
+    description: 'Texts one of this account’s drivers their personal HaulProof link through Twilio (same as Text link in HaulProof → Drivers). Needs the driver’s phone # and Twilio set up in Render. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { driver: str('Driver name, phone, or id from list_drivers') }, required: ['driver'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      needCompany(user);
+      const drv = await resolveDriver(user, a.driver);
+      const r = await api(user, 'POST', '/api/drivers/' + drv.id + '/text-link', { json: {} });
+      return { texted: driverLabel(drv), to: r.sentTo, status: r.status };
     } },
 
   { name: 'add_drivers', title: 'Add drivers',

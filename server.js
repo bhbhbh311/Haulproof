@@ -113,7 +113,8 @@ app.get('/api/me', requireAuth, (req, res) => {
   // Per-org "Simple mode" field flags, so the UI knows on load which optional inputs to show.
   let orgFields = {}; try { orgFields = resolveUiFlags(req.user.orgId); } catch (e) {}
   let orgLabels = {}; try { orgLabels = require('./loadfields').labels(req.user.orgId); } catch (e) {}
-  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }), orgFields, orgLabels });
+  let textingOn = false; try { textingOn = require('./twilio').configured(); } catch (e) {}
+  res.json({ user: Object.assign({}, req.user, { mustChangePassword, capabilities, betaAccess }), orgFields, orgLabels, textingOn });
 });
 
 // Read / save the per-org "Simple mode" field flags. Any admin (or super) of the org can change them; the change

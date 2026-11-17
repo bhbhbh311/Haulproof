@@ -40,6 +40,13 @@ router.post('/:id/active', requireAuth, requireSuper, (req, res) => {
   res.json({ org: orgOut(req, db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(o.id)) });
 });
 
+// Merge a duplicate company (any type) into the real one: its logins and drivers move, it is turned off.
+router.post('/:id/merge-into', requireAuth, requireSuper, express.json(), (req, res) => {
+  const { mergeCompanyInto, MergeError } = require('./merge');
+  try { res.json({ ok: true, ...mergeCompanyInto(req.params.id, (req.body && req.body.intoId || '').trim()) }); }
+  catch (e) { if (e instanceof MergeError) return res.status(400).json({ error: e.message }); console.error('merge', e); res.status(500).json({ error: 'Could not merge' }); }
+});
+
 // Create a customer + its first admin login. The admin is emailed a link to choose their own password.
 router.post('/', requireAuth, requireSuper, (req, res) => {
   const b = req.body || {};
