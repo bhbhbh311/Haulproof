@@ -529,6 +529,7 @@ const TOOLS = [
 
   { name: 'delete_load', title: 'Delete a load',
     description: 'Deletes one load and its documents, the same as Delete in Documents / Loads: recoverable, a master admin can restore it from the recovery bin. '
+      + 'If only the carrier cancelled and the load still runs, use unassign_carrier instead — never delete the load for that. '
       + 'Only the company that owns the load can delete it. Call it first without confirm to see what would go (PO #, documents, how many are signed), '
       + 'tell the user, and call again with confirm true only after they say yes.',
     inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), confirm: { type: 'boolean', description: 'true = delete it now (only after the user agreed)' } }, required: ['load'] },
@@ -889,6 +890,18 @@ const TOOLS = [
       const d2 = await putCarrier(user, d.load.id, car);
       const drvs = db.prepare(`SELECT name FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(car.id).map(x => x.name);
       return Object.assign({ assigned_carrier: car.name, carrier_drivers: drvs }, loadDetail(d2, base));
+    } },
+  { name: 'unassign_carrier', title: 'Take the carrier off a load',
+    description: 'When a carrier cancels: takes the carrier off the load, with its driver, truck and trailer, and pulls the unsigned documents off that driver’s phone. The load, its customer and its documents stay, ready for a new carrier (assign_carrier). Use this, not delete_load, when only the carrier changes. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id') }, required: ['load'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a, base) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      if (!d.load.carrierId) throw new ToolError('That load has no carrier on it.');
+      const was = d.load.carrierName;
+      await api(user, 'POST', '/api/loads/' + d.load.id + '/unassign-carrier', { json: {} });
+      return Object.assign({ removed_carrier: was }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
     } },
   { name: 'list_carriers', title: 'List carriers',
     description: 'Lists the carriers this account can put on a load (a broker’s approved carriers) with their drivers. Optionally filter by name, MC # or DOT #.',

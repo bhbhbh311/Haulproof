@@ -115,6 +115,26 @@ test('a company that owns a load and gave it to a carrier can add that carrier\'
   assert.ok(mine.some(x => x.loadId === l.id && x.noDoc), 'the carrier\'s driver sees the load');
 });
 
+test('carrier cancels: unassigning the carrier also takes its driver off, and the load leaves that driver’s phone', async () => {
+  const api = await login('brk@test.example');
+  const l = (await api('POST', '/api/loads', { poNumber: 'CANCEL-1' })).body.load;
+  db.prepare('UPDATE loads SET carrierId = ?, carrierName = ? WHERE id = ?').run(carrier, 'Test Carrier Inc', l.id);
+  const p = pod(broker, l.id, 'prepared');
+  const drv = (await api('POST', `/api/drivers/for-carrier/${carrier}`, { name: 'Cancel Driver', phone: '555-0199' })).body.driver;
+  assert.equal((await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: drv.id, truck: '14' })).status, 200);
+  const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(drv.id).token;
+  assert.ok((await asDriver(tok)('GET', '/api/drivers/my-loads')).body.loads.some(x => x.loadId === l.id), 'on the driver’s phone');
+  const u = await api('POST', `/api/loads/${l.id}/unassign-carrier`, {});
+  assert.equal(u.status, 200, JSON.stringify(u.body));
+  const row = db.prepare('SELECT carrierId, driverName, truck, assignedDriverId FROM loads WHERE id = ?').get(l.id);
+  assert.deepEqual([row.carrierId, row.driverName, row.truck, row.assignedDriverId], [null, null, null, null]);
+  assert.equal(db.prepare('SELECT assignedDriverId FROM pods WHERE id = ?').get(p).assignedDriverId, null);
+  assert.equal(db.prepare('SELECT status FROM pods WHERE id = ?').get(p).status, 'prepared', 'the BOL stays set up for the next carrier');
+  assert.ok(!(await asDriver(tok)('GET', '/api/drivers/my-loads')).body.loads.some(x => x.loadId === l.id), 'gone from the driver’s phone');
+  const hist = (await api('GET', `/api/loads/${l.id}/history`)).body.events;
+  assert.ok(hist.some(e => /Carrier unassigned \(Test Carrier Inc\); driver Cancel Driver taken off too/.test(e.detail)));
+});
+
 // ---- AI connector: a token for a login, then tools/call the way Claude does ----
 function mcpToken(email) {
   const u = db.prepare('SELECT id FROM users WHERE email = ?').get(email);

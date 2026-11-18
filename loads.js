@@ -518,18 +518,33 @@ router.post('/:id/unassign-carrier', requireAuth, (req, res) => {
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const newStatus = (!load.brokerId && load.status === 'assigned') ? 'open' : load.status;
   db.prepare(`UPDATE loads SET carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
+  const dropped = load.carrierId ? dropCarrierDriver(load, load.carrierId) : null;
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'carrier_assigned',
-    detail: 'Carrier unassigned' + (load.carrierName ? ' (' + load.carrierName + ')' : ''), actor: actorOf(req) });
+    detail: 'Carrier unassigned' + (load.carrierName ? ' (' + load.carrierName + ')' : '') + (dropped ? '; driver ' + dropped + ' taken off too' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
+// A carrier that's taken off a load (it cancelled) takes its driver with it: the load's driver, truck and trailer are
+// cleared and its unsigned documents leave that driver's phone, so the load is clean for the next carrier. Signed
+// documents keep who signed them. A driver from the load owner's own company is left alone. Returns the name dropped.
+function dropCarrierDriver(load, carrierId) {
+  const drv = load.assignedDriverId ? db.prepare(`SELECT id, name, orgId FROM drivers WHERE id = ?`).get(load.assignedDriverId) : null;
+  const carriersDriver = drv ? String(drv.orgId || '') === String(carrierId) : !!load.driverName;
+  if (!carriersDriver) return null;
+  db.prepare(`UPDATE loads SET driverName = NULL, truck = NULL, trailer = NULL, assignedDriverId = NULL WHERE id = ?`).run(load.id);
+  const carrierDrivers = db.prepare(`SELECT id FROM drivers WHERE orgId = ?`).all(carrierId).map(d => d.id);
+  if (carrierDrivers.length) db.prepare(`UPDATE pods SET assignedDriverId = NULL, assignedDriverName = NULL
+     WHERE loadId = ? AND status IN ('received','prepared','awaiting_build') AND assignedDriverId IN (${carrierDrivers.map(() => '?').join(',')})`).run(load.id, ...carrierDrivers);
+  return (drv && drv.name) || load.driverName || 'the driver';
+}
 // Unassign the broker from a load (owner or super). Also clears any carrier the broker had put on it.
 router.post('/:id/unassign-broker', requireAuth, (req, res) => {
   const load = ownedLoad(req, req.params.id);
   if (!load) return res.status(404).json({ error: 'Load not found' });
   const newStatus = load.status === 'assigned' ? 'open' : load.status;
   db.prepare(`UPDATE loads SET brokerId = NULL, brokerName = NULL, carrierId = NULL, carrierName = NULL, status = ? WHERE id = ?`).run(newStatus, load.id);
+  const dropped = load.carrierId ? dropCarrierDriver(load, load.carrierId) : null;
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'broker_assigned',
-    detail: 'Broker unassigned' + (load.brokerName ? ' (' + load.brokerName + ')' : ''), actor: actorOf(req) });
+    detail: 'Broker unassigned' + (load.brokerName ? ' (' + load.brokerName + ')' : '') + (dropped ? '; driver ' + dropped + ' taken off too' : ''), actor: actorOf(req) });
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
