@@ -365,6 +365,17 @@ async function resolveCarrier(user, ref) {
   }
   return pickOne(list, ref, 'carrier', c => c.name);
 }
+// A broker working on one of its approved carriers' rosters (drivers / team logins), same as the portal's
+// Approved carriers → Drivers & logins. The server checks the carrier is on the approved list and allows it.
+const CARRIER_OPT = 'Optional: a carrier on your approved list (name, MC # or DOT #) — work on THAT carrier’s people instead of your own account';
+async function carrierDrivers(user, car) {
+  return ((await api(user, 'GET', '/api/drivers/for-carrier/' + encodeURIComponent(car.id))).drivers || []);
+}
+function pickDriver(list, ref) {
+  const r = String(ref || '').trim(), digits = r.replace(/\D/g, '');
+  if (digits.length >= 7) { const byPhone = list.filter(d => String(d.phone || '').replace(/\D/g, '').endsWith(digits.slice(-10))); if (byPhone.length === 1) return byPhone[0]; }
+  return pickOne(list, ref, 'driver', d => d.name);
+}
 async function putCarrier(user, loadId, carrier) {
   await api(user, 'POST', '/api/loads/' + loadId + '/assign-carrier', { json: { carrierId: carrier.id } });
   return api(user, 'GET', '/api/loads/' + loadId);
@@ -635,16 +646,33 @@ const TOOLS = [
       return { removed: st.name }; } },
 
   { name: 'list_drivers', title: 'List drivers',
-    description: 'Lists this account’s active drivers. Optionally filter by name or phone.',
-    inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number') } }, annotations: { readOnlyHint: true },
-    run: async (user, a) => { const n = norm(a.search), dg = String(a.search || '').replace(/\D/g, ''); return { drivers: (await drivers(user)).filter(d => !n || norm(d.name).indexOf(n) >= 0 || (dg.length >= 3 && String(d.phone || '').replace(/\D/g, '').indexOf(dg) >= 0)).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null })) }; } },
+    description: 'Lists this account’s active drivers, or (with carrier) an approved carrier’s drivers with each one’s personal link, so the user can text it from their own phone. Optionally filter by name or phone.',
+    inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number'), carrier: str(CARRIER_OPT) } }, annotations: { readOnlyHint: true },
+    run: async (user, a) => { const n = norm(a.search), dg = String(a.search || '').replace(/\D/g, '');
+      const match = d => !n || norm(d.name).indexOf(n) >= 0 || (dg.length >= 3 && String(d.phone || '').replace(/\D/g, '').indexOf(dg) >= 0);
+      if (a.carrier) { needCompany(user); const car = await resolveCarrier(user, a.carrier);
+        return { carrier: car.name, drivers: (await carrierDrivers(user, car)).filter(match).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null, active: !!d.active, link: d.link || null, added_by: d.addedByName || null })),
+          note: 'Each link is that driver’s own. Share it only with that driver.' }; }
+      return { drivers: (await drivers(user)).filter(match).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null })) }; } },
 
   { name: 'update_driver', title: 'Change a driver',
-    description: 'Changes one of this account’s drivers: name, phone, email, or reset their PIN so they pick a new one next time they open their link. Their link and loads stay the same. Confirm the change with the user first.',
+    description: 'Changes one of this account’s drivers (or, with carrier, an approved carrier’s driver): name, phone, email, turn them off/on (carrier only), or reset their PIN (own drivers only) so they pick a new one next time they open their link. Their link and loads stay the same. Confirm the change with the user first.',
     inputSchema: { type: 'object', properties: { driver: str('Current driver name, phone, or id from list_drivers'), name: str('New full name'), phone: str('New phone ("" clears it)'),
-      email: str('New email ("" clears it)'), reset_pin: { type: 'boolean', description: 'true = the driver picks a new PIN next time' } }, required: ['driver'] },
+      email: str('New email ("" clears it)'), reset_pin: { type: 'boolean', description: 'true = the driver picks a new PIN next time' },
+      active: { type: 'boolean', description: 'Carrier drivers only: false turns the driver off, true back on' }, carrier: str(CARRIER_OPT) }, required: ['driver'] },
     run: async (user, a) => {
       needCompany(user);
+      if (a.carrier) {
+        const car = await resolveCarrier(user, a.carrier), drv = pickDriver(await carrierDrivers(user, car), a.driver), body = {};
+        if (a.reset_pin) throw new ToolError('A carrier driver’s PIN can only be reset by the carrier.');
+        if (a.name != null) { if (!String(a.name).trim()) throw new ToolError('The new name can’t be empty.'); body.name = String(a.name).trim(); }
+        if (a.phone != null) body.phone = String(a.phone).trim();
+        if (a.email != null) body.email = String(a.email).trim();
+        if (a.active != null) body.active = !!a.active;
+        if (!Object.keys(body).length) throw new ToolError('Nothing to change — pass name, phone, email or active.');
+        const d = (await api(user, 'PUT', '/api/drivers/for-carrier/' + encodeURIComponent(car.id) + '/' + encodeURIComponent(drv.id), { json: body })).driver || {};
+        return { updated: true, carrier: car.name, was: driverLabel(drv), now: { name: d.name, phone: d.phone || null, email: d.email || null, active: !!d.active, link: d.link || null } };
+      }
       const drv = await resolveDriver(user, a.driver), body = {};
       if (a.name != null) { if (!String(a.name).trim()) throw new ToolError('The new name can’t be empty.'); body.name = String(a.name).trim(); }
       if (a.phone != null) body.phone = String(a.phone).trim();
@@ -657,22 +685,37 @@ const TOOLS = [
     } },
 
   { name: 'text_driver_link', title: 'Text a driver their link',
-    description: 'Texts one of this account’s drivers their personal HaulProof link through Twilio (same as Text link in HaulProof → Drivers). Needs the driver’s phone # and Twilio set up in Render. Confirm with the user first.',
-    inputSchema: { type: 'object', properties: { driver: str('Driver name, phone, or id from list_drivers') }, required: ['driver'] },
+    description: 'Texts one of this account’s drivers (or, with carrier, an approved carrier’s driver) their personal HaulProof link through Twilio (same as Text link in HaulProof). Needs the driver’s phone # and Twilio set up. If texting fails, give the user the link from list_drivers (with carrier) to send from their own phone. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { driver: str('Driver name, phone, or id from list_drivers'), carrier: str(CARRIER_OPT) }, required: ['driver'] },
     annotations: { readOnlyHint: false, destructiveHint: false },
     run: async (user, a) => {
       needCompany(user);
+      if (a.carrier) {
+        const car = await resolveCarrier(user, a.carrier), drv = pickDriver(await carrierDrivers(user, car), a.driver);
+        const r = await api(user, 'POST', '/api/drivers/for-carrier/' + encodeURIComponent(car.id) + '/' + encodeURIComponent(drv.id) + '/text-link', { json: {} });
+        return { texted: driverLabel(drv), carrier: car.name, to: r.sentTo, status: r.status };
+      }
       const drv = await resolveDriver(user, a.driver);
       const r = await api(user, 'POST', '/api/drivers/' + drv.id + '/text-link', { json: {} });
       return { texted: driverLabel(drv), to: r.sentTo, status: r.status };
     } },
 
   { name: 'add_drivers', title: 'Add drivers',
-    description: 'Adds one or more drivers to this account (same as the portal\'s Drivers → Import). A driver whose name is already on the roster is skipped. Each new driver gets a personal link to open on their phone; they set their own PIN on first use. Confirm the list with the user before adding.',
+    description: 'Adds one or more drivers to this account (same as the portal\'s Drivers → Import), or with carrier, to an approved carrier\'s account (same as Approved carriers → Drivers & logins). A driver whose name is already on the roster is skipped. Each new driver gets a personal link to open on their phone; they set their own PIN on first use. Confirm the list with the user before adding.',
     inputSchema: { type: 'object', properties: { drivers: { type: 'array', minItems: 1, maxItems: 200, description: 'Drivers to add',
-      items: { type: 'object', properties: { name: str('Driver full name'), phone: str('Phone (optional)'), email: str('Email (optional) — lets dispatch email them their link') }, required: ['name'] } } }, required: ['drivers'] },
+      items: { type: 'object', properties: { name: str('Driver full name'), phone: str('Phone (optional)'), email: str('Email (optional) — lets dispatch email them their link') }, required: ['name'] } }, carrier: str(CARRIER_OPT) }, required: ['drivers'] },
     run: async (user, a) => { needCompany(user);
       const records = (a.drivers || []).map(d => ({ name: String(d.name || '').trim(), phone: d.phone ? String(d.phone).trim() : '', email: d.email ? String(d.email).trim() : '' })).filter(d => d.name);
+      if (a.carrier) {
+        const car = await resolveCarrier(user, a.carrier), out = [], errors = []; let skipped = 0;
+        for (const rec of records) {
+          try { const d = (await api(user, 'POST', '/api/drivers/for-carrier/' + encodeURIComponent(car.id), { json: rec })).driver || {};
+            out.push({ name: d.name, phone: d.phone || null, email: d.email || null, link: d.link || null }); }
+          catch (e) { if (/DUPLICATE_NAME/.test(e.message || '')) skipped++; else if (errors.length < 8) errors.push(rec.name + ': ' + e.message); }
+        }
+        return { carrier: car.name, added: out.length, skipped, errors, drivers: out,
+          note: 'Skipped = a driver with that name is already on ' + car.name + '’s roster. Send each driver their own link privately (text_driver_link with carrier, or from your phone).' };
+      }
       const r = await api(user, 'POST', '/api/drivers/import', { json: { records } });
       return { added: r.created || 0, skipped: r.skipped || 0, errors: r.errors || [],
         drivers: (r.drivers || []).map(d => ({ name: d.name, email: d.email || null, link: d.link || null })),
@@ -682,8 +725,20 @@ const TOOLS = [
     description: 'Creates portal logins for people on this account (same as Team logins → Import). Role is dispatcher (default), sales, or admin — admins get a copy of every signed document and can manage the account, so only use admin when the user asks for it. Existing emails are skipped (use send_password_link for them). HaulProof emails each new person their own link to choose their password; pass send_invite false to get the links back instead. Confirm the list and roles with the user before creating.',
     inputSchema: { type: 'object', properties: { logins: { type: 'array', minItems: 1, maxItems: 200, description: 'Logins to create',
       items: { type: 'object', properties: { email: str('Work email'), name: str('Full name'), role: { type: 'string', enum: ['dispatcher', 'sales', 'admin'], description: 'Default dispatcher' } }, required: ['email'] } },
-      send_invite: { type: 'boolean', description: 'Email each new person their set-up link (default true). false = return the links to hand out yourself.' } }, required: ['logins'] },
+      send_invite: { type: 'boolean', description: 'Email each new person their set-up link (default true). false = return the links to hand out yourself.' },
+      carrier: str(CARRIER_OPT + '. Roles there are admin or dispatcher; each new person is always emailed their link.') }, required: ['logins'] },
     run: async (user, a) => { needCompany(user);
+      if (a.carrier) {
+        const car = await resolveCarrier(user, a.carrier), out = [], errors = []; let skipped = 0;
+        for (const l of (a.logins || [])) {
+          const email = String(l.email || '').trim(); if (!email) continue;
+          try { const r = await api(user, 'POST', '/api/users/for-carrier/' + encodeURIComponent(car.id), { json: { email, name: l.name ? String(l.name).trim() : '', role: l.role === 'admin' ? 'admin' : 'dispatcher' } });
+            out.push({ email: r.user.email, name: r.user.name || null, role: r.user.role, emailed: true }); }
+          catch (e) { if (/already has a login/i.test(e.message || '')) skipped++; else if (errors.length < 8) errors.push(email + ': ' + e.message); }
+        }
+        return { carrier: car.name, created: out.length, skipped, errors, logins: out,
+          note: 'Each new person at ' + car.name + ' was emailed a link to choose their password. Skipped = that email already has a HaulProof login.' };
+      }
       const send = a.send_invite !== false;
       const records = (a.logins || []).map(l => ({ email: String(l.email || '').trim(), name: l.name ? String(l.name).trim() : '', role: l.role || 'dispatcher' })).filter(l => l.email);
       const r = await api(user, 'POST', '/api/users/import', { json: { records, sendEmail: send } });

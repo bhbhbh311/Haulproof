@@ -178,6 +178,30 @@ function mcpToken(email) {
   };
 }
 
+test('connector: a broker dispatcher works an approved carrier’s drivers and logins (carrier option)', async () => {
+  createUser({ email: 'brkdisp@test.example', name: 'Broker Dispatcher', role: 'dispatcher', password: PW, orgId: broker });
+  const car = org('Connector Carrier LLC', 'carrier');
+  const call = mcpToken('brkdisp@test.example');
+  assert.equal((await call('add_drivers', { carrier: 'Connector Carrier', drivers: [{ name: 'Nope' }] })).err, true, 'not approved yet');
+  db.prepare('INSERT INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)').run(broker, car, Date.now());
+  const add = await call('add_drivers', { carrier: 'Connector Carrier', drivers: [{ name: 'Cora Driver', phone: '555-0303' }, { name: 'Cora Driver' }] });
+  assert.equal(add.err, false, JSON.stringify(add.out));
+  assert.deepEqual([add.out.carrier, add.out.added, add.out.skipped], ['Connector Carrier LLC', 1, 1]);
+  assert.match(add.out.drivers[0].link, /\/go\//);
+  assert.equal(db.prepare('SELECT orgId FROM drivers WHERE name = ?').get('Cora Driver').orgId, car, 'in the carrier’s account');
+  const ls = await call('list_drivers', { carrier: 'Connector Carrier' });
+  assert.deepEqual(ls.out.drivers.map(d => [d.name, d.phone, !!d.link]), [['Cora Driver', '555-0303', true]]);
+  const up = await call('update_driver', { carrier: 'Connector Carrier', driver: '555-0303', phone: '913-488-0404' });
+  assert.equal(up.err, false, JSON.stringify(up.out)); assert.equal(up.out.now.phone, '913-488-0404');
+  assert.equal((await call('update_driver', { carrier: 'Connector Carrier', driver: 'Cora Driver', reset_pin: true })).err, true, 'PIN stays the carrier’s');
+  const tx = await call('text_driver_link', { carrier: 'Connector Carrier', driver: 'Cora Driver' });
+  assert.equal(tx.err, false, JSON.stringify(tx.out)); assert.equal(smsSent[smsSent.length - 1].to, '+19134880404');
+  const lg = await call('add_team_logins', { carrier: 'Connector Carrier', logins: [{ email: 'boss@connector.example', name: 'Boss', role: 'admin' }] });
+  assert.equal(lg.err, false, JSON.stringify(lg.out)); assert.deepEqual([lg.out.created, lg.out.logins[0].role], [1, 'admin']);
+  assert.equal(db.prepare('SELECT orgId FROM users WHERE email = ?').get('boss@connector.example').orgId, car);
+  assert.equal((await call('add_team_logins', { carrier: 'Connector Carrier', logins: [{ email: 'boss@connector.example' }] })).out.skipped, 1);
+});
+
 test('connector: a company deletes its own load — preview first, then only with confirm, and it can be restored', async () => {
   const api = await login('ship@test.example');
   const l = (await api('POST', '/api/loads', { poNumber: 'DEL-1' })).body.load;
