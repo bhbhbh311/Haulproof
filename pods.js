@@ -188,6 +188,13 @@ function gpsUrl(s) {
   const m = String(s).match(/-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?/);
   return m ? 'https://www.google.com/maps?q=' + encodeURIComponent(m[0].replace(/\s+/g, '')) : null;
 }
+// " near 37.55553, -90.16512" for the history line (same wording as pickup / en route, so the portal links it to a map).
+function signedNear(s) {
+  const j = s ? safeJson(s) : null;
+  if (j && typeof j.lat === 'number' && typeof j.lng === 'number') return ' near ' + j.lat.toFixed(5) + ', ' + j.lng.toFixed(5);
+  const m = s ? String(s).match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/) : null;
+  return m ? ' near ' + Number(m[1]).toFixed(5) + ', ' + Number(m[2]).toFixed(5) : '';
+}
 function rowOut(r) {
   const gpsStr = (r.gps && typeof r.gps === 'string' && r.gps.indexOf(',') > -1) ? r.gps : (r.gps ? (safeJson(r.gps) || null) : null);
   const gpsText = (gpsStr && typeof gpsStr === 'object' && gpsStr.lat != null) ? (gpsStr.lat + ',' + gpsStr.lng) : (typeof gpsStr === 'string' ? gpsStr : null);
@@ -478,7 +485,7 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
       }
     } catch (e) {}
     logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'signed',
-      detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : paperSigned ? ('Photo of the paper BOL signed by the receiver' + (meta.stopNumber ? ' (Stop ' + meta.stopNumber + ')' : '')) : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : ''), actor: meta.driver || 'driver' });
+      detail: (redoOf ? 'Redo signed — pick which signed copy to keep' : paperSigned ? ('Photo of the paper BOL signed by the receiver' + (meta.stopNumber ? ' (Stop ' + meta.stopNumber + ')' : '')) : 'Signed POD received') + (meta.driver ? ' — driver ' + meta.driver : '') + signedNear(meta.gps), actor: meta.driver || 'driver' });
     // A redo: both signed copies wait for dispatch to pick one; the customer copy is held until then.
     if (redoOf) { try { db.prepare(`UPDATE pods SET redoOf = ?, pickPending = 1 WHERE id = ?`).run(redoOf, id); db.prepare(`UPDATE pods SET pickPending = 1 WHERE id = ?`).run(redoOf); } catch (e) {} }
     // Server check of the required delivery steps (check-in at this stop, the company's own delivery steps). A signed

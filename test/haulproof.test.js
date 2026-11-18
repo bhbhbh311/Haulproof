@@ -253,6 +253,25 @@ test('driver signs: the signed PDF lands on the load by PO #, a retry is not fil
   assert.equal(bad.status, 422);
 });
 
+test('where the driver signed shows on the load: the stop carries the spot and the history line links to it', async () => {
+  const { PDFDocument } = require('pdf-lib');
+  const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Gps Driver' })).body.driver;
+  const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token;
+  const l = (await api('POST', '/api/loads', { poNumber: 'SIGN-GPS-1' })).body.load;
+  await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: d.id });
+  const r = await fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': tok, 'Content-Type': 'application/pdf',
+    'X-POD-PO': 'SIGN-GPS-1', 'X-POD-Type': 'BOL', 'X-POD-Name': 'Signed BOL', 'X-POD-ClientId': 'phone-gps-1', 'X-POD-SignedAt': String(Date.now()),
+    'X-POD-GPS': '37.555525229,-90.165122819', 'X-POD-GPS-Source': 'gps' } });
+  assert.ok(r.status < 300, 'upload ok: ' + r.status);
+  const one = (await api('GET', `/api/loads/${l.id}`)).body;
+  assert.deepEqual(one.pods[0].gps, { lat: 37.555525229, lng: -90.165122819 });
+  assert.equal(one.pods[0].gpsSource, 'gps');
+  const hist = (await api('GET', `/api/loads/${l.id}/history`)).body.events;
+  assert.ok(hist.some(e => e.type === 'signed' && / near 37\.55553, -90\.16512$/.test(e.detail)), 'signed line ends with where');
+});
+
 test('connector: the master admin can list receivers already merged into another, with where they went', async () => {
   const keep = org('Merge Test Steel', 'receiver'), old = org('MERGE TEST STEEL', 'receiver');
   db.prepare('UPDATE orgs SET active = 0, mergedInto = ?, city = ? WHERE id = ?').run(keep, 'Denver', old);

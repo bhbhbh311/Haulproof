@@ -4673,6 +4673,12 @@
         + (pm === 'paper' ? ' <label style="display:inline;font-weight:400;font-size:13px;margin-left:8px;">Delivery stops <input id="ldPaperStops" type="number" min="1" max="20" value="' + ps + '" style="width:64px;padding:4px 6px;"></label>' : '')
         + ' <span id="ldPodMsg" style="font-size:12.5px;"></span>']);
     }
+    // On my way (driver tapped "On my way" — time + where they were). Only shown once it's happened.
+    if (curLoad.enRouteAt) {
+      let et = ''; try { et = new Date(curLoad.enRouteAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
+      const emap = gpsLinkHtml(curLoad.enRouteGps);
+      rows.push(['On my way', '<span style="font-weight:700;">🚚 Set off ' + esc(et) + '</span>' + (emap ? ' · ' + emap : '')]);
+    }
     // Pickup (driver tapped "Pickup complete" — GPS + time, no signature). Only shown once it's happened.
     if (curLoad.pickedUpAt) {
       let pt = ''; try { pt = new Date(curLoad.pickedUpAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
@@ -4782,14 +4788,26 @@
     box.innerHTML = _ldFields.map(f => '<div><label>' + esc(f.name) + (f.required ? ' <span style="color:var(--bad);font-weight:700;text-transform:none;letter-spacing:0;">required</span>' : ' <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span>') + '</label>'
       + '<input class="ldCfInput" data-id="' + f.id + '" type="' + (f.kind === 'date' ? 'date' : 'text') + '"' + (f.kind === 'number' ? ' inputmode="decimal"' : '') + ' value="' + esc(f.value || '') + '"></div>').join('');
   }
+  // GPS → a "📍 lat, lng" link that opens Google Maps. Accepts {lat,lng}, its JSON, or "lat,lng".
+  function gpsLinkHtml(g, label) {
+    try {
+      if (typeof g === 'string') { const t = g.trim(); if (t.charAt(0) === '{') g = JSON.parse(t); else { const m = t.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/); g = m ? { lat: +m[1], lng: +m[2] } : null; } }
+    } catch (e) { g = null; }
+    if (!g || typeof g.lat !== 'number' || typeof g.lng !== 'number' || isNaN(g.lat) || isNaN(g.lng)) return '';
+    return '<a href="https://www.google.com/maps?q=' + g.lat + ',' + g.lng + '" target="_blank" rel="noopener" title="Open this spot in Google Maps" style="white-space:nowrap;">📍 ' + (label ? esc(label) + ' ' : '') + g.lat.toFixed(4) + ', ' + g.lng.toFixed(4) + '</a>';
+  }
+  // History lines say "… near 39.01614, -94.13597" — make that spot a map link (text is escaped first).
+  function historyDetailHtml(text) {
+    return esc(text || '').replace(/near (-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)/g, (m, a, b) => 'near ' + gpsLinkHtml({ lat: +a, lng: +b }));
+  }
   function stopTimesHtml() {
     if (!fieldOn('stopTimes') && !_ldStopTimes.length) return '';
     const src = { pickup: 'auto at pickup complete', delivery: 'auto when documents were sent', dispatch: 'set by dispatch', driver: 'driver' };
     return stopTimeSlots().map((s, i) => {
       const t = s.t, dur = (t.inAt && t.outAt) ? (t.outAt - t.inAt) : 0, long = dur > 2 * 3600000;
       const parts = [];
-      parts.push(t.inAt ? 'In ' + esc(_fmtStopTime(t.inAt)) : '<span class="ld-missing">No time in</span>');
-      parts.push(t.outAt ? 'Out ' + esc(_fmtStopTime(t.outAt)) + (t.outSource && src[t.outSource] ? ' <span style="color:var(--muted);font-size:12px;">(' + src[t.outSource] + ')</span>' : '') : '<span class="ld-missing">No time out</span>');
+      parts.push(t.inAt ? 'In ' + esc(_fmtStopTime(t.inAt)) + (t.inGps ? ' ' + gpsLinkHtml(t.inGps) : '') : '<span class="ld-missing">No time in</span>');
+      parts.push(t.outAt ? 'Out ' + esc(_fmtStopTime(t.outAt)) + (t.outGps ? ' ' + gpsLinkHtml(t.outGps) : '') + (t.outSource && src[t.outSource] ? ' <span style="color:var(--muted);font-size:12px;">(' + src[t.outSource] + ')</span>' : '') : '<span class="ld-missing">No time out</span>');
       if (dur) parts.push('<b style="color:' + (long ? '#b5731a' : '#146c2e') + ';">' + _onSite(dur) + ' on site' + (long ? ' ⚠' : '') + '</b>');
       return '<div class="stRow" data-i="' + i + '" style="margin:2px 0;"><b>' + s.label + ':</b> ' + parts.join(' · ') +
         ' <button type="button" class="ghost stEdit" data-i="' + i + '" style="padding:2px 8px;font-size:11.5px;margin-left:6px;">Edit</button></div>';
@@ -5171,13 +5189,13 @@
         ${showRep ? `<td>${editing
           ? (() => { const effRep = p.salesRepUserId || customerDefaultRepId(); return `<select class="ldRepEdit" data-id="${p.id}" data-current="${p.salesRepUserId || ''}" style="padding:6px;min-width:140px;"><option value="">— none —</option>${(_repList||[]).map(u => `<option value="${u.id}"${u.id===effRep?' selected':''}>${esc(u.name || u.email)}${u.role==='sales'?' (sales)':''}</option>`).join('')}<option value="__add__">＋ Add new sales rep…</option></select>`; })()
           : ((() => { const u = (_repList||[]).find(x => x.id === p.salesRepUserId); return u ? esc(u.name || u.email) : '<span class="empty">—</span>'; })())}</td>` : ''}
-        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload' || (p.redoOf && p.status === 'prepared')) ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.redoOf && p.status === 'prepared' ? 'Sent to driver again' : p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? (p.paperSigned ? 'Signed on paper (photo)' : 'Signed') : p.status === 'emailed' ? (p.paperSigned ? 'Signed on paper · emailed' : 'Emailed') : 'On file'}</span>${p.redoOf && p.status === 'prepared' && p.assignedDriverName ? `<div class="sub" style="font-size:12px;margin-top:3px;">${esc(p.assignedDriverName)}</div>` : ''}${emailFailBadge(p)}</td>
+        <td><span class="chip ${p.status}"${(p.status === 'awaiting_build' || p.status === 'needs_reupload' || (p.redoOf && p.status === 'prepared')) ? ' style="background:var(--warn-soft);color:var(--warn);"' : ''}>${p.redoOf && p.status === 'prepared' ? 'Sent to driver again' : p.status === 'awaiting_build' ? 'From driver — needs setup' : p.status === 'needs_reupload' ? ('Re-shoot sent to driver' + (p.rejectedPage ? ' — p.' + p.rejectedPage : '')) : p.status === 'prepared' ? 'Ready to sign' : p.status === 'signed' ? (p.paperSigned ? 'Signed on paper (photo)' : 'Signed') : p.status === 'emailed' ? (p.paperSigned ? 'Signed on paper · emailed' : 'Emailed') : 'On file'}</span>${p.redoOf && p.status === 'prepared' && p.assignedDriverName ? `<div class="sub" style="font-size:12px;margin-top:3px;">${esc(p.assignedDriverName)}</div>` : ''}${(p.status === 'signed' || p.status === 'emailed') && (p.signedAt || p.gps) ? `<div style="font-size:12px;margin-top:4px;color:var(--muted);">Signed${p.signedAt ? ' ' + esc(new Date(p.signedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) : ''}${p.gps ? ' · ' + gpsLinkHtml(p.gps) + (p.gpsSource === 'network' ? ' <span title="Location came from WiFi/cell, not GPS — approximate">(approx.)</span>' : '') : ' · no location'}</div>` : ''}${emailFailBadge(p)}</td>
         <td style="text-align:right;white-space:nowrap;">
           ${p.dupWarn ? `<div style="margin-bottom:6px;background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;font-size:12px;color:var(--warn);text-align:left;white-space:normal;max-width:320px;margin-left:auto;">⚠ <b>Possible duplicate</b> — this PO already had a document waiting for setup. &nbsp;<button class="ldDupKeep btn-ok btn-sm" data-id="${p.id}" type="button">Keep it</button> &nbsp;<button class="ldDupDiscard btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}" type="button">Discard</button></div>` : ''}
           ${p.status === 'needs_reupload'
             ? `<span style="color:var(--bad);font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
-            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;">Open ↗</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;" title="The signed PDF exactly as it was emailed (with any proof photos)">📄 Open PDF</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
             : ''}
           ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
           ${p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build') ? `&nbsp;<button class="ghost ldRedoCancel btn-sm" data-id="${p.id}" type="button" title="Take the redo back off the driver's phone; the first signed copy stays">Cancel redo</button>` : ''}
@@ -7176,7 +7194,7 @@
       if (!r.events.length) { box.innerHTML = '<div class="empty">No history yet.</div>'; return; }
       box.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
         <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:130px;">${fmtTS(e.createdAt)}</div>
-        <div><div>${esc(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div></div>
+        <div><div>${historyDetailHtml(e.detail || e.type)}</div><div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div></div>
       </div>`).join('');
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
   }
@@ -7192,7 +7210,7 @@
       if (!r.events || !r.events.length) { body.innerHTML = '<div class="empty">No history recorded yet.</div>'; return; }
       body.innerHTML = r.events.map(e => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);">
         <div style="color:var(--muted);font-size:12px;white-space:nowrap;min-width:120px;">${fmtTS(e.createdAt)}</div>
-        <div><div>${esc(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div>` : ''}</div>
+        <div><div>${historyDetailHtml(e.detail || e.type)}</div>${e.actor ? `<div style="color:var(--muted);font-size:12px;">${esc(whoLabel(e.actor))}</div>` : ''}</div>
       </div>`).join('');
     } catch (err) { body.innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
   }
