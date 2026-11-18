@@ -1630,7 +1630,8 @@
           <span id="orgNotifyMsg" style="font-size:13px;font-weight:600;"></span>
         </div>
       </div>
-      <div id="optoutToolBox" style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;">
+      <button class="ghost" id="optoutToggle" type="button" aria-expanded="false" aria-controls="optoutToolBox" style="margin:0 0 14px;">🚫 Someone not getting emails? ▾</button>
+      <div id="optoutToolBox" class="hide" style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;">
         <label style="display:block;">🚫 Someone not getting emails?</label>
         <p class="sub" style="margin:2px 0 8px;">Check whether an address unsubscribed (and when), then resume it if they’ve asked to receive emails again. Documents and status updates are tracked separately. You can resume team logins in your own company; a master admin handles anyone else.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -7549,6 +7550,16 @@
       m.textContent = 'Saved ✓'; m.style.color = 'var(--ok, green)'; setTimeout(() => { m.textContent = ''; }, 1800);
     } catch (e) { m.textContent = e.message; m.style.color = 'var(--danger)'; }
   };
+  // "Someone not getting emails?" — a button that opens (and closes) the look-up box.
+  if ($('optoutToggle')) $('optoutToggle').onclick = () => {
+    const box = $('optoutToolBox'); if (!box) return;
+    const open = box.classList.contains('hide');
+    box.classList.toggle('hide', !open);
+    $('optoutToggle').textContent = '🚫 Someone not getting emails? ' + (open ? '▴' : '▾');
+    $('optoutToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open && $('optoutEmail')) $('optoutEmail').focus();
+  };
+  if ($('optoutEmail')) $('optoutEmail').addEventListener('keydown', e => { if (e.key === 'Enter' && $('optoutCheck')) { e.preventDefault(); $('optoutCheck').click(); } });
   // "Someone not getting emails?" — check an address against the unsubscribe list and resume it if asked.
   if ($('optoutCheck')) $('optoutCheck').onclick = async () => {
     const e = ($('optoutEmail').value || '').trim(); const out = $('optoutResult');
