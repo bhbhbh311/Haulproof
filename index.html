@@ -1692,7 +1692,7 @@
           <div class="settile"><label class="hp-switch"><input type="checkbox" id="ft_monthlyReport"><span class="hp-track"></span></label>
             <div><div><b>Monthly summary email</b><span id="ft_monthlyReport_state" class="hp-switch-state"></span></div><div class="settile-help">On the 1st: loads delivered, documents signed, drivers active, anything worth a look.</div></div></div>
           <div class="settile" id="brokerDriversSetting"><label class="hp-switch"><input type="checkbox" id="ft_allowBrokerDrivers"><span class="hp-track"></span></label>
-            <div><div><b>Let brokers add drivers for us</b><span id="ft_allowBrokerDrivers_state" class="hp-switch-state"></span></div><div class="settile-help">A broker that assigns you a load can add your driver so they get the link right away.</div></div></div>
+            <div><div><b>Let brokers add drivers and logins for us</b><span id="ft_allowBrokerDrivers_state" class="hp-switch-state"></span></div><div class="settile-help">A broker you haul for can add and update your drivers and add team logins, so your drivers get their link right away.</div></div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ftSave" type="button">Save fields</button><span id="ftMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
@@ -3101,10 +3101,78 @@
           <td><b>${esc(c.name)}</b>${authWarnHtml(c)}</td>
           <td class="mono">${esc(c.mcNumber) || '—'} / ${esc(c.dotNumber) || '—'}</td>
           <td style="white-space:nowrap;">${c.fmcsaVerified ? '<span class="chip signed">Verified</span>' : '<span class="chip received">Override</span>'}${fmcsaSnapBtn(c, 'carrier')}</td>
-          <td style="text-align:right;"><button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
-        </tr>`).join('') + '</tbody></table>';
+          <td style="text-align:right;white-space:nowrap;"><button class="ghost bcHelp" data-id="${c.id}" data-name="${esc(c.name)}" type="button" style="padding:6px 10px;font-size:12px;" title="See and add this carrier’s drivers and team logins for them">👥 Drivers &amp; logins</button> <button class="ghost bcRemove" data-id="${c.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button></td>
+        </tr><tr class="bcHelpRow hide" data-for="${c.id}"><td colspan="4" style="background:var(--surface2,var(--sunk));"><div class="bcHelpBox"></div></td></tr>`).join('') + '</tbody></table>';
       box.querySelectorAll('.bcRemove').forEach(b => b.onclick = async () => { try { await api('/api/brokers/my-carriers/' + b.dataset.id, { method: 'DELETE' }); loadApprovedCarriers(); } catch (e) { alert(e.message); } });
+      box.querySelectorAll('.bcHelp').forEach(b => b.onclick = () => {
+        const row = box.querySelector('.bcHelpRow[data-for="' + b.dataset.id + '"]'); if (!row) return;
+        const open = row.classList.contains('hide');
+        row.classList.toggle('hide', !open);
+        if (open) renderCarrierHelp(b.dataset.id, b.dataset.name, row.querySelector('.bcHelpBox'));
+      });
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  // Broker helping a carrier: its drivers (add, edit, turn off, send the link) and its team logins (add).
+  async function renderCarrierHelp(cid, cname, host) {
+    if (!host) return;
+    host.innerHTML = '<div class="sub" style="margin:6px 0;">Loading…</div>';
+    const enc = encodeURIComponent(cid);
+    let dr, us;
+    try { [dr, us] = await Promise.all([api('/api/drivers/for-carrier/' + enc), api('/api/users/for-carrier/' + enc)]); }
+    catch (e) { host.innerHTML = '<div class="umsg-err" style="margin:6px 0;">' + esc(e.message || 'Could not load') + '</div>'; return; }
+    const drivers = dr.drivers || [], users = us.users || [];
+    const inp = 'style="padding:6px 8px;font-size:13px;min-width:0;"';
+    host.innerHTML =
+      '<div style="padding:8px 4px;">'
+      + '<div style="font-weight:700;margin-bottom:4px;">Drivers at ' + esc(cname) + '</div>'
+      + (drivers.length ? drivers.map(d => '<div class="chDrv" data-id="' + esc(d.id) + '" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);">'
+          + '<div class="chDrvView" style="flex:1;min-width:160px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + (d.active ? '' : ' <span class="sub" style="color:var(--danger);">(off)</span>')
+          + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + (d.email ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.email) + '</span>' : '') + '</div>'
+          + '<button class="ghost chCopy" data-link="' + esc(d.link || '') + '" data-name="' + esc(d.name || 'Driver') + '" type="button" style="padding:5px 9px;font-size:12px;">Copy link</button>'
+          + drvTextHtml(d, '/api/drivers/for-carrier/' + enc + '/' + encodeURIComponent(d.id) + '/text-link', '5px 9px')
+          + '<button class="ghost chEdit" type="button" style="padding:5px 9px;font-size:12px;">Edit</button>'
+          + '</div>').join('') : '<div class="sub" style="margin:0 0 4px;">No drivers yet.</div>')
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input class="chDName" placeholder="Driver name" ' + inp + '><input class="chDPhone" placeholder="Cell #" ' + inp + '><input class="chDEmail" placeholder="Email (optional)" ' + inp + '><button class="chDAdd" type="button" style="padding:6px 12px;font-size:12.5px;">＋ Add driver</button><span class="chDMsg" style="font-size:12.5px;"></span></div>'
+      + '<div style="font-weight:700;margin:16px 0 4px;">Team logins at ' + esc(cname) + '</div>'
+      + (users.length ? users.map(u => '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;"><b>' + esc(u.name || u.email) + '</b><span class="sub" style="font-size:12px;">' + esc(u.email) + ' · ' + esc(u.role) + (u.signedIn ? ' · signed in' : ' · not signed in yet') + '</span></div>').join('') : '<div class="sub" style="margin:0 0 4px;">No team logins yet.</div>')
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input class="chUEmail" placeholder="Email" ' + inp + '><input class="chUName" placeholder="Name (optional)" ' + inp + '><select class="chURole" ' + inp + '><option value="admin">Admin</option><option value="dispatcher">Dispatcher</option></select><button class="chUAdd" type="button" style="padding:6px 12px;font-size:12.5px;">＋ Add login</button><span class="chUMsg" style="font-size:12.5px;"></span></div>'
+      + '<div class="sub" style="font-size:12px;margin-top:6px;">New logins get an email to choose their own password.</div>'
+      + '</div>';
+    const q = s => host.querySelector(s);
+    if (typeof attachPhoneFormat === 'function') { try { const ph = q('.chDPhone'); if (ph) { ph.id = 'chDPhone_' + cid.replace(/[^\w]/g, ''); attachPhoneFormat(ph.id); } } catch (e) {} }
+    host.querySelectorAll('.chCopy').forEach(b => b.onclick = async () => { const ok = await copyRichLink(b.dataset.link, 'HaulProof — ' + (b.dataset.name || 'Driver')); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => { b.textContent = 'Copy link'; }, 1600); });
+    host.querySelectorAll('.chDrv').forEach(row => {
+      const d = drivers.find(x => x.id === row.dataset.id); const eb = row.querySelector('.chEdit'); if (!d || !eb) return;
+      eb.onclick = () => {
+        row.innerHTML = '<input class="eN" value="' + esc(d.name || '') + '" placeholder="Name" ' + inp + '><input class="eP" value="' + esc(d.phone || '') + '" placeholder="Cell #" ' + inp + '><input class="eE" value="' + esc(d.email || '') + '" placeholder="Email" ' + inp + '>'
+          + '<label style="display:inline;font-size:12.5px;font-weight:400;"><input type="checkbox" class="eA"' + (d.active ? ' checked' : '') + ' style="width:auto;"> Active</label>'
+          + '<button class="eS" type="button" style="padding:5px 10px;font-size:12px;">Save</button><button class="ghost eC" type="button" style="padding:5px 10px;font-size:12px;">Cancel</button><span class="eM" style="font-size:12px;"></span>';
+        row.querySelector('.eC').onclick = () => renderCarrierHelp(cid, cname, host);
+        row.querySelector('.eS').onclick = async () => {
+          try { await api('/api/drivers/for-carrier/' + enc + '/' + encodeURIComponent(d.id), { method: 'PUT', body: JSON.stringify({ name: row.querySelector('.eN').value, phone: row.querySelector('.eP').value, email: row.querySelector('.eE').value, active: row.querySelector('.eA').checked }) }); renderCarrierHelp(cid, cname, host); }
+          catch (e) { const m = row.querySelector('.eM'); m.textContent = e.message; m.className = 'eM umsg-err'; }
+        };
+      };
+    });
+    q('.chDAdd').onclick = async () => {
+      const m = q('.chDMsg'), name = q('.chDName').value.trim(), phone = q('.chDPhone').value.trim(), email = q('.chDEmail').value.trim();
+      if (!name) { m.textContent = 'Enter a name'; m.className = 'chDMsg umsg-err'; return; }
+      m.textContent = 'Adding…'; m.className = 'chDMsg';
+      const send = (dup) => api('/api/drivers/for-carrier/' + enc, { method: 'POST', body: JSON.stringify({ name, phone, email, allowDuplicateName: !!dup }) });
+      try { await send(false); renderCarrierHelp(cid, cname, host); }
+      catch (e) {
+        if (/DUPLICATE_NAME/.test(e.message || '') && confirm(e.message.replace(/^DUPLICATE_NAME:\s*/, '') + '\n\nAdd anyway as a second driver with the same name?')) {
+          try { await send(true); renderCarrierHelp(cid, cname, host); } catch (e2) { m.textContent = e2.message; m.className = 'chDMsg umsg-err'; }
+        } else { m.textContent = /DUPLICATE_NAME/.test(e.message || '') ? '' : e.message; m.className = 'chDMsg umsg-err'; }
+      }
+    };
+    q('.chUAdd').onclick = async () => {
+      const m = q('.chUMsg'), email = q('.chUEmail').value.trim(), name = q('.chUName').value.trim(), role = q('.chURole').value;
+      if (!email) { m.textContent = 'Enter an email'; m.className = 'chUMsg umsg-err'; return; }
+      m.textContent = 'Adding…'; m.className = 'chUMsg';
+      try { await api('/api/users/for-carrier/' + enc, { method: 'POST', body: JSON.stringify({ email, name, role }) }); renderCarrierHelp(cid, cname, host); }
+      catch (e) { m.textContent = e.message; m.className = 'chUMsg umsg-err'; }
+    };
   }
   $('bcToggle').onclick = () => { $('bcForm').classList.toggle('hide'); if (!$('bcForm').classList.contains('hide')) $('bcSearch').focus(); };
   $('bcLookup').onclick = async () => {

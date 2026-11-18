@@ -115,6 +115,33 @@ test('a company that owns a load and gave it to a carrier can add that carrier\'
   assert.ok(mine.some(x => x.loadId === l.id && x.noDoc), 'the carrier\'s driver sees the load');
 });
 
+test('a broker helps an approved carrier: adds and edits its drivers and adds its team logins, no load needed', async () => {
+  const api = await login('brk@test.example');
+  const helped = org('Helped Carrier LLC', 'carrier'), stranger = org('Stranger Carrier LLC', 'carrier');
+  db.prepare('INSERT INTO broker_carriers (brokerId, carrierId, createdAt) VALUES (?,?,?)').run(broker, helped, Date.now());
+  // not on the approved list: no access
+  assert.equal((await api('GET', `/api/drivers/for-carrier/${stranger}`)).status, 403);
+  assert.equal((await api('POST', `/api/users/for-carrier/${stranger}`, { email: 'x@stranger.example' })).status, 403);
+  // approved: drivers
+  const add = await api('POST', `/api/drivers/for-carrier/${helped}`, { name: 'Helped Driver', phone: '555-0101' });
+  assert.equal(add.status, 201, JSON.stringify(add.body));
+  const ed = await api('PUT', `/api/drivers/for-carrier/${helped}/${add.body.driver.id}`, { phone: '555-0202', email: 'hd@helped.example' });
+  assert.equal(ed.status, 200, JSON.stringify(ed.body)); assert.equal(ed.body.driver.phone, '555-0202');
+  assert.equal((await api('PUT', `/api/drivers/for-carrier/${helped}/${add.body.driver.id}`, { email: 'nope' })).status, 400);
+  // approved: team logins (in the carrier's account, not the broker's)
+  const u = await api('POST', `/api/users/for-carrier/${helped}`, { email: 'Owner@Helped.example', name: 'Owner', role: 'admin' });
+  assert.equal(u.status, 201, JSON.stringify(u.body)); assert.match(u.body.link, /\/login-info\?t=/);
+  assert.equal(db.prepare('SELECT orgId, role FROM users WHERE email = ?').get('owner@helped.example').orgId, helped);
+  assert.equal((await api('POST', `/api/users/for-carrier/${helped}`, { email: 'owner@helped.example' })).status, 409, 'one login per email');
+  const list = (await api('GET', `/api/users/for-carrier/${helped}`)).body.users;
+  assert.deepEqual(list.map(x => [x.email, x.role, x.signedIn]), [['owner@helped.example', 'admin', false]]);
+  // a carrier that turns the option off manages its own people
+  db.prepare('UPDATE orgs SET uiFlags = ? WHERE id = ?').run(JSON.stringify({ allowBrokerDrivers: false }), helped);
+  assert.equal((await api('POST', `/api/users/for-carrier/${helped}`, { email: 'late@helped.example' })).status, 403);
+  // the one-time switch-on for every existing carrier ran
+  assert.ok(db.prepare("SELECT 1 FROM app_once WHERE key = '2026-11-18-carriers-allow-broker-help'").get());
+});
+
 test('carrier cancels: unassigning the carrier also takes its driver off, and the load leaves that driver’s phone', async () => {
   const api = await login('brk@test.example');
   const l = (await api('POST', '/api/loads', { poNumber: 'CANCEL-1' })).body.load;

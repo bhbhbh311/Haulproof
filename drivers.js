@@ -669,10 +669,28 @@ function brokerMayManageCarrier(req, carrierId) {
   let flags = {}; try { flags = resolveUiFlags(carrierId); } catch (e) {}
   if (!flags.allowBrokerDrivers) return { ok: false, code: 403, errcode: 'broker_drivers_off', error: carrier.name + ' hasn’t turned on broker-added drivers, so only they can manage their roster.' };
   if (isSuper) return { ok: true, carrier };
-  const link = db.prepare(`SELECT 1 FROM loads WHERE (brokerId IS ? OR orgId IS ?) AND carrierId IS ? LIMIT 1`).get(req.user.orgId || null, req.user.orgId || null, carrierId);
-  if (!link) return { ok: false, code: 403, error: 'You can only manage drivers for a carrier you’ve assigned one of your loads to.' };
+  // The broker works with this carrier: it's on their approved-carrier list, or they've given it a load.
+  const link = db.prepare(`SELECT 1 FROM broker_carriers WHERE brokerId IS ? AND carrierId IS ?`).get(req.user.orgId || null, carrierId)
+    || db.prepare(`SELECT 1 FROM loads WHERE (brokerId IS ? OR orgId IS ?) AND carrierId IS ? LIMIT 1`).get(req.user.orgId || null, req.user.orgId || null, carrierId);
+  if (!link) return { ok: false, code: 403, error: 'You can only manage drivers for a carrier on your approved list.' };
   return { ok: true, carrier };
 }
+// Edit a carrier's driver on the broker's behalf: name, phone, email, or turn them off / back on.
+router.put('/for-carrier/:carrierId/:driverId', requireAuth, requireDriverManager, (req, res) => {
+  const g = brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) return res.status(g.code || 403).json({ code: g.errcode, error: g.error });
+  const d = db.prepare(`SELECT * FROM drivers WHERE id = ? AND orgId = ?`).get(req.params.driverId, req.params.carrierId);
+  if (!d) return res.status(404).json({ error: 'Driver not found' });
+  const b = req.body || {};
+  const name = b.name !== undefined ? String(b.name || '').trim() : d.name;
+  if (!name) return res.status(400).json({ error: "Enter the driver's name" });
+  const phone = b.phone !== undefined ? (String(b.phone || '').trim() || null) : d.phone;
+  const email = b.email !== undefined ? (String(b.email || '').trim() || null) : d.email;
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+  const active = b.active !== undefined ? (b.active ? 1 : 0) : d.active;
+  db.prepare(`UPDATE drivers SET name = ?, phone = ?, email = ?, active = ? WHERE id = ?`).run(name, phone, email, active, d.id);
+  res.json({ driver: brokerDriverOut(req, db.prepare(`SELECT * FROM drivers WHERE id = ?`).get(d.id)) });
+});
 function brokerDriverOut(req, d) {
   return Object.assign(driverOut(req, d), { addedByOrgId: d.addedByOrgId || null, addedByName: d.addedByName || null });
 }
@@ -898,3 +916,4 @@ router.delete('/:id', requireAuth, requireDriverManager, (req, res) => {
 module.exports = router;
 module.exports.driverForLogin = driverForLogin;
 module.exports.newDriverToken = newToken;
+module.exports.brokerMayManageCarrier = brokerMayManageCarrier;

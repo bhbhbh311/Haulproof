@@ -522,6 +522,23 @@ addColumn('pods', 'redoOf', 'TEXT');              // on a redo: the signed copy 
 addColumn('pods', 'pickPending', 'INTEGER');      // 1 while two signed copies of a stop wait for dispatch to pick one
 addColumn('pods', 'notUsedAt', 'INTEGER');        // when this signed copy was archived as not used (a mistake)
 addColumn('pods', 'notUsedBy', 'TEXT');           // who archived it
+// One-time data changes: each key runs once per database, then is recorded so it never runs again.
+db.exec(`CREATE TABLE IF NOT EXISTS app_once (key TEXT PRIMARY KEY, doneAt INTEGER)`);
+function runOnce(key, fn) {
+  if (db.prepare(`SELECT 1 FROM app_once WHERE key = ?`).get(key)) return;
+  try { fn(); db.prepare(`INSERT INTO app_once (key, doneAt) VALUES (?, ?)`).run(key, Date.now()); }
+  catch (e) { console.error('runOnce ' + key + ' failed', e.message); }
+}
+// 2026-11-18: for now every carrier lets the brokers it hauls for add/edit its drivers and team logins
+// (allowBrokerDrivers ON). A carrier can still turn it off in Settings afterwards.
+runOnce('2026-11-18-carriers-allow-broker-help', () => {
+  const rows = db.prepare(`SELECT id, uiFlags FROM orgs WHERE kind = 'carrier' OR roles LIKE '%"carrier"%'`).all();
+  const set = db.prepare(`UPDATE orgs SET uiFlags = ? WHERE id = ?`);
+  for (const o of rows) {
+    let f = {}; try { f = o.uiFlags ? (JSON.parse(o.uiFlags) || {}) : {}; } catch (e) { f = {}; }
+    if (f.allowBrokerDrivers === false) { f.allowBrokerDrivers = true; set.run(JSON.stringify(f), o.id); }
+  }
+});
 addColumn('pods', 'notUsedPrevStatus', 'TEXT');   // its status before ('signed' / 'emailed'), to restore it   // forgot-password link: the temp password only takes effect when the link is opened   // the customer whose contact this is; NULL = the receiver's own people (master admin)
 
 module.exports = { db, DATA_DIR };

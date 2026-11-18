@@ -156,6 +156,47 @@ router.post('/change-password', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- BROKER helping a CARRIER: list and add the carrier's team logins on its behalf. Same gate as a broker adding
+//     the carrier's drivers (carrier allows it via allowBrokerDrivers, and is on the broker's approved list or has
+//     one of its loads). Broker admins and dispatchers may do it. Defined before '/:id'. ---
+function brokerCarrierGate(req, res) {
+  if (!['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) { res.status(403).json({ error: 'Not allowed' }); return null; }
+  const g = require('./drivers').brokerMayManageCarrier(req, req.params.carrierId);
+  if (!g.ok) { res.status(g.code || 403).json({ code: g.errcode, error: g.error }); return null; }
+  return g.carrier;
+}
+router.get('/for-carrier/:carrierId', requireAuth, (req, res) => {
+  const carrier = brokerCarrierGate(req, res); if (!carrier) return;
+  const users = db.prepare(`SELECT id, email, name, role, createdAt, lastLoginAt FROM users WHERE orgId = ? AND role != 'superadmin' AND email NOT LIKE 'haulproofhelp+%' ORDER BY createdAt DESC`).all(carrier.id)
+    .map(u => ({ id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, signedIn: !!u.lastLoginAt }));
+  res.json({ carrier: { id: carrier.id, name: carrier.name }, users });
+});
+router.post('/for-carrier/:carrierId', requireAuth, (req, res) => {
+  const carrier = brokerCarrierGate(req, res); if (!carrier) return;
+  const b = req.body || {};
+  const em = String(b.email || '').toLowerCase().trim();
+  const name = String(b.name || '').trim();
+  if (!EMAIL_RE.test(em)) return res.status(400).json({ error: 'Enter a valid email address' });
+  const role = b.role === 'admin' ? 'admin' : 'dispatcher';
+  if (db.prepare('SELECT id FROM users WHERE email = ?').get(em)) return res.status(409).json({ error: 'That email already has a login' });
+  try {
+    const temp = crypto.randomBytes(4).toString('hex');
+    const u = createUser({ email: em, name, role, password: temp, orgId: carrier.id });
+    try { db.prepare('UPDATE users SET mustChangePassword = 1 WHERE id = ?').run(u.id); } catch (e) {}
+    const token = crypto.randomBytes(24).toString('hex');
+    const now = Date.now(), expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+    db.prepare('DELETE FROM login_links WHERE userId = ?').run(u.id);
+    db.prepare('INSERT INTO login_links (token, userId, tempPassword, expiresAt, createdAt) VALUES (?,?,?,?,?)').run(token, u.id, temp, expiresAt, now);
+    const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
+    const link = origin + '/login-info?t=' + token;
+    const by = req.user.orgName || 'Your broker';
+    sendMail({ to: em, subject: 'Your HaulProof login is ready',
+      text: `${by} set you up on HaulProof${name ? ', ' + name : ''} for ${carrier.name}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+    try { require('./events').logEvent({ orgId: carrier.id, type: 'note', detail: `${by} added team login ${em} (${role}) for ${carrier.name}`, actor: req.user.email }); } catch (e) {}
+    res.status(201).json({ user: { id: u.id, email: em, name, role }, link, expiresAt });
+  } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }
+});
+
 // --- Super-admin maintenance: a login is unique by email across the WHOLE system, but logins are only
 //     listed per-account — so a login attached to a deleted/hidden org becomes invisible while still
 //     blocking its email. These two routes let a super-admin locate and clear such a stray login.
