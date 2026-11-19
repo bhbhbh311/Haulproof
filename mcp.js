@@ -558,6 +558,22 @@ const TOOLS = [
         note: 'Deleted. It can be restored from the recovery bin by a master admin.' });
     } },
 
+  { name: 'file_signed_bol', title: 'File a driver’s upload as another load’s signed BOL',
+    description: 'For a driver who started his own load and uploaded the BOL the receiver already signed, instead of sending the photo from the load he was given. '
+      + 'Moves that document onto the right load (it must be assigned to the same carrier) as the stop’s signed paper BOL, keeping the upload’s time and GPS; '
+      + 'switches that load to paper BOL, shows it completed, emails the signed copy to the usual list, and deletes the driver’s now-empty load (recoverable). '
+      + 'Work in the carrier’s company (use_company) when the stray load is the carrier’s own. Confirm the document and the load with the user first.',
+    inputSchema: { type: 'object', properties: { document: str('Id of the driver’s uploaded document (from get_load)'), load: str('PO #, load #, or load id it is the signed BOL for'),
+      stop: { type: 'integer', minimum: 1, description: 'Stop number on that load (default 1)' } }, required: ['document', 'load'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      const r = await api(user, 'POST', '/api/pods/' + encodeURIComponent(String(a.document).trim()) + '/file-as-signed', { json: { loadId: d.load.id, stopNumber: a.stop || 1 } });
+      return { filed: true, po_number: r.poNumber, stop: r.stop, removed_empty_load: r.removedLoad || null, emailing_to: r.recipients || [],
+        note: 'Filed as the signed paper BOL. The signed copy is emailing in the background; the load history shows the result.' };
+    } },
+
   { name: 'list_customers', title: 'List customers',
     description: 'Lists the companies on this account’s customer list (the customer a load is for). Optionally filter by name.',
     inputSchema: { type: 'object', properties: { search: str('Part of a customer name to filter by') } }, annotations: { readOnlyHint: true },

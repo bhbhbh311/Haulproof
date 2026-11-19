@@ -5267,6 +5267,7 @@
             ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;" title="The signed PDF exactly as it was emailed (with any proof photos)">📄 Open PDF</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
             : ''}
           ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
+          ${(!p.redoOf && (p.status === 'awaiting_build' || p.status === 'prepared') && p.fileUrl) ? `<button class="ghost ldFileSigned btn-sm" data-id="${p.id}" type="button" title="The driver uploaded the BOL the receiver already signed, on his own load instead of the one he was given. File it there as the signed paper BOL, with this upload's time and GPS.">✅ Signed BOL for another load</button>&nbsp;` : ''}
           ${p.redoOf && (p.status === 'prepared' || p.status === 'awaiting_build') ? `&nbsp;<button class="ghost ldRedoCancel btn-sm" data-id="${p.id}" type="button" title="Take the redo back off the driver's phone; the first signed copy stays">Cancel redo</button>` : ''}
           ${(p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed' && !(p.redoOf && p.status === 'prepared')) ? `<a class="dl ldSign" href="/prepare?id=${encodeURIComponent(p.id)}" style="color:var(--primary);font-weight:600;" title="Set up the signature boxes — saving releases this document to the driver">✍ Setup signatures</a>` : ''}
           ${editing ? `&nbsp;<button class="ghost ldDocRm btn-danger btn-sm" data-id="${p.id}" data-name="${esc(p.filename||'this document')}">Remove</button>` : ''}
@@ -5298,6 +5299,25 @@
       message: 'The clean copy comes off the driver’s phone. The first signed copy stays as the stop’s document.',
       onOk: async () => { try { await api('/api/pods/' + b.dataset.id + '/cancel-redo', { method: 'POST' }); openLoad(curLoad.id); } catch (e) { alert(e.message); } }
     }));
+    // A driver's stray upload of an already-signed BOL → file it on the load he was given, as its signed paper BOL.
+    box.querySelectorAll('.ldFileSigned').forEach(b => b.onclick = async () => {
+      const q = (prompt('Which load is this the signed BOL for? Type its PO # or load #.') || '').trim();
+      if (!q) return;
+      let found = [];
+      try { found = ((await api('/api/loads?q=' + encodeURIComponent(q))).results || []).filter(l => l.id !== curLoad.id); } catch (e) { return alert(e.message); }
+      const exact = found.filter(l => [l.poNumber, l.loadNumber].some(v => v && String(v).trim().toLowerCase() === q.toLowerCase()));
+      const pick = exact.length === 1 ? exact[0] : (found.length === 1 ? found[0] : null);
+      if (!pick) return alert(found.length ? 'More than one load matches “' + q + '”: ' + found.slice(0, 8).map(l => l.poNumber || l.loadNumber).join(', ') + '. Type the full PO #.' : 'No load matches “' + q + '”.');
+      confirmDialog({
+        title: 'File as the signed BOL for ' + (pick.poNumber || pick.loadNumber) + '?', okLabel: 'Yes, file it',
+        message: 'This document becomes the signed paper BOL on ' + (pick.poNumber || pick.loadNumber) + (pick.customer ? ' (' + pick.customer + ')' : '') +
+          ', with this upload’s time and GPS. That load switches to paper BOL, shows completed, and the signed copy is emailed as usual. This load is then empty and gets deleted (recoverable).',
+        onOk: async () => {
+          try { const r = await api('/api/pods/' + b.dataset.id + '/file-as-signed', { method: 'POST', body: JSON.stringify({ loadId: pick.id }) }); openLoad(r.loadId); }
+          catch (e) { alert(e.message); }
+        }
+      });
+    });
     box.querySelectorAll('.ldDocRm').forEach(b => b.onclick = () => confirmDialog({
       title: 'Delete this document?',
       message: 'Remove “' + (b.dataset.name || 'this document') + '”? This can’t be undone — you can upload a corrected file to this stop afterward.',

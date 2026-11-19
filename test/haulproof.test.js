@@ -504,6 +504,47 @@ test('paper BOL load: the driver sees it as paper; each stop\'s photo is its sig
   assert.equal((await api('PUT', '/api/loads/' + l.id, { podMode: 'banana' })).body.load.podMode, null);
 });
 
+test('driver uploaded the signed BOL on his own load: dispatch files it on the load he was given, as its signed paper BOL with the upload\'s GPS', async () => {
+  const { PDFDocument } = require('pdf-lib');
+  const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
+  createUser({ email: 'car-fs@test.example', name: 'Carrier Admin', role: 'admin', password: PW, orgId: carrier });
+  const car = await login('car-fs@test.example');
+  const d = (await car('POST', '/api/drivers', { name: 'Stray Driver' })).body.driver;
+  const tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token;
+  // the broker's load, given to the carrier, not set up yet
+  const target = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, createdBy, createdAt) VALUES (?,?,?,?,?,?,'assigned','brk@test.example',?)`)
+    .run(target, broker, '9351', '9351-0', carrier, 'Test Carrier Inc', Date.now());
+  // the driver starts his own load with the receiver's BL # and hands the signed BOL to dispatch
+  const up = await fetch(B + '/api/pods/ingest', { method: 'POST', body: pdf, headers: { 'X-Api-Key': tok, 'Content-Type': 'application/pdf',
+    'X-POD-PO': 'BL-541', 'X-POD-Status': 'prepared', 'X-POD-Build': 'dispatch', 'X-POD-GPS': '38.10000,-97.20000', 'X-POD-ClientId': 'stray-1', 'X-POD-Name': 'PO BL-541' } });
+  const { podId, loadId: strayLoad } = await up.json();
+  assert.equal(db.prepare('SELECT status FROM pods WHERE id = ?').get(podId).status, 'awaiting_build');
+  // a company that isn't on either load can't move it
+  assert.equal((await (await login('ship@test.example'))('POST', `/api/pods/${podId}/file-as-signed`, { loadId: target })).status, 404);
+  // not onto a load another carrier hauls
+  const elsewhere = id();
+  db.prepare(`INSERT INTO loads (id, orgId, poNumber, status, createdAt) VALUES (?,?,?,'open',?)`).run(elsewhere, carrier, 'OWN-X', Date.now());
+  db.prepare(`UPDATE loads SET carrierId = ? WHERE id = ?`).run(broker, elsewhere);
+  db.prepare(`UPDATE loads SET orgId = ? WHERE id = ?`).run(broker, elsewhere);
+  assert.equal((await car('POST', `/api/pods/${podId}/file-as-signed`, { loadId: elsewhere })).status, 404);
+  const r = await car('POST', `/api/pods/${podId}/file-as-signed`, { loadId: target });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.removedLoad, 'BL-541', 'the driver\'s empty load is removed');
+  const p = db.prepare('SELECT * FROM pods WHERE id = ?').get(podId);
+  assert.deepEqual([p.loadId, p.orgId, p.poNumber, p.stopNumber, p.paperSigned, p.gps], [target, broker, '9351-0', 1, 1, '38.10000,-97.20000']);
+  assert.ok(['signed', 'emailed'].includes(p.status));
+  assert.equal(db.prepare('SELECT podMode FROM loads WHERE id = ?').get(target).podMode, 'paper');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM loads WHERE id = ?').get(strayLoad).n, 0);
+  const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ?').all(target).map(e => e.detail).join('\n');
+  assert.match(hist, /Photo of the paper BOL signed by the receiver — driver Stray Driver near 38\.10*, -97\.20* · filed by car-fs@test\.example from the driver’s upload on load BL-541/);
+  // the broker sees it completed on its load
+  const bl = (await (await login('brk@test.example'))('GET', '/api/loads/' + target)).body;
+  assert.ok((bl.pods || []).some(x => x.id === podId && ['signed', 'emailed'].includes(x.status)));
+  // once filed it can't be filed again
+  assert.equal((await car('POST', `/api/pods/${podId}/file-as-signed`, { loadId: target })).status, 409);
+});
+
 test('paper BOL photo: another company\'s driver can\'t file onto someone else\'s load by its id', async () => {
   const { PDFDocument } = require('pdf-lib');
   const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());

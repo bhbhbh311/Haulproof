@@ -10,7 +10,7 @@ const { emailPodCopy } = require('./mailer');
 const emailRetry = require('./emailretry');
 const { logEvent } = require('./events');
 const stoptimes = require('./stoptimes');
-const { stashDoc } = require('./trash');
+const { stashDoc, stashLoad } = require('./trash');
 const notify = require('./notify');
 const { filterOptedOut } = require('./optout');
 const { descendantOrgIds } = require('./hierarchy');
@@ -515,87 +515,153 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
       stoptimes.autoOut({ load, kind: 'delivery', stopNumber: (sp && sp.stopNumber) || 1, at: Number(meta.signedAt) || Date.now(),
         gps: meta.gps, by: meta.driver || (req.driver && req.driver.name) || null, source: 'delivery', fallbackOrgId: req.org && req.org.id });
     } catch (e) {}
-    // Also email the completed doc to the receiver's people who asked for the BOL.
-    let bolEmails = [];
-    try {
-      const p = db.prepare(`SELECT receiverId FROM pods WHERE id = ?`).get(id);
-      // The receiver's own people, plus contacts THIS load's customer added — never another customer's contacts.
-      if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != '' AND (ownerOrgId IS NULL OR ownerOrgId IN (?, ?))`).all(p.receiverId, load.orgId || '', orgId || '').map(r => r.email);
-    } catch (e) {}
-    // Stop-completed updates → this stop's sales rep + this load's subscribers + the account master list (all team logins).
-    let notifyEmails = [];
-    try {
-      const p = db.prepare(`SELECT salesRepUserId FROM pods WHERE id = ?`).get(id);
-      if (p && p.salesRepUserId) { const u = db.prepare(`SELECT email FROM users WHERE id = ?`).get(p.salesRepUserId); if (u && u.email) notifyEmails.push(u.email); }
-      db.prepare(`SELECT u.email FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(load.id).forEach(r => notifyEmails.push(r.email));
-      db.prepare(`SELECT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId WHERE onf.orgId IS ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(orgId).forEach(r => notifyEmails.push(r.email));
-      // The load's customer's assigned sales reps also get the stop-completed update (covers customers with
-      // several reps — each of them is notified, not just the single per-stop rep above).
-      if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => notifyEmails.push(e));
-      // Dispatch ALWAYS gets a copy: the admins of every org on this load (its owner, plus the assigned
-      // carrier and broker) and whoever created it. This guarantees a completed stop reaches a real person
-      // even when no sales rep / subscriber / notify list was set up. Duplicates are removed by the Set below.
-      const notifyOrgs = [load.orgId, load.carrierId, load.brokerId].filter(Boolean);
-      if (notifyOrgs.length) {
-        const ph = notifyOrgs.map(() => '?').join(',');
-        db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != '' AND email NOT LIKE 'haulproofhelp+%'`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
-        // Plus each org's "always CC" completion addresses (set in the portal) — a reliable dispatch inbox that
-        // doesn't have to be a login, so it gets EVERY stop regardless of the consignee typed at signing.
-        db.prepare(`SELECT notifyEmails AS ne FROM orgs WHERE id IN (${ph})`).all(...notifyOrgs).forEach(r => {
-          (r.ne || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean).forEach(e => notifyEmails.push(e));
-        });
-      }
-      if (load.createdBy && /@/.test(load.createdBy)) notifyEmails.push(load.createdBy);
-    } catch (e) {}
-    // The load's assigned customer's contacts who are flagged to receive signed documents.
-    let customerEmails = [];
-    try { if (load && load.customerId) customerEmails = customerDocEmails(load.customerId); } catch (e) {}
-    // The built-in HaulProof Help logins never get copies (they're only HaulProof's way in to support a company).
-    const allRecipients = Array.from(new Set([...(meta.recipients || []), ...bolEmails, ...notifyEmails, ...customerEmails])).filter(e => !/^haulproofhelp\+/i.test(e));
+    const allRecipients = signedPodRecipients(id, load, orgId, meta.recipients);
     // The signed document is saved — answer the driver's phone now. Emailing the copies (one message per
     // recipient, each can take seconds or fail) carries on in the background, so the driver never waits on email.
     res.json({ ok: true, podId: id, loadId: load.id, emailed: false, emailQueued: !!(allRecipients.length && !redoOf), recipients: allRecipients });
-    let mail = { sent: false };
-    if (allRecipients.length && !redoOf) {
-      // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
-      // carries the condition photos. Falls back to the raw file when there are none.
-      let combined = null;
-      try { const pr = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(id); combined = await combinedPodBytes(pr); } catch (e) {}
-      mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath, contentBytes: combined });
-      if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
-      emailRetry.recordEmailResult(id, allRecipients, mail);
-    }
-    // Persist the FULL recipient list on the record (not just the consignee email typed at signing) and
-    // record an 'emailed' event on the load history — an audit trail of exactly who was notified.
-    try {
-      db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(allRecipients), id);
-      const stopRow = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
-      const stopTag = (stopRow && stopRow.stopNumber) ? ('Stop ' + stopRow.stopNumber + ' — ') : '';
-      const sentTo = mail.sentTo || allRecipients;
-      const blocked = mail.blocked || [];
-      const optNote = blocked.length ? ' (skipped ' + blocked.length + ' opted-out: ' + blocked.join(', ') + ')' : '';
-      let detail;
-      if (redoOf) detail = stopTag + 'Redo signed — customer copy held until dispatch picks which signed copy to keep';
-      else if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
-      else if (mail.sent) detail = stopTag + 'Emailed to ' + sentTo.length + ' recipient' + (sentTo.length > 1 ? 's' : '') + ': ' + sentTo.join(', ') + optNote;
-      else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + sentTo.join(', ') + optNote;
-      else if (blocked.length && !sentTo.length) detail = stopTag + 'Not emailed — all ' + blocked.length + ' recipient(s) opted out: ' + blocked.join(', ');
-      else detail = stopTag + 'Email NOT sent' + (mail.error ? ' (' + mail.error + ')' : '') + ' — intended recipients: ' + allRecipients.join(', ');
-      logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'emailed', detail, actor: meta.driver || 'driver' });
-    } catch (e) {}
-    // If this signature completed the WHOLE load (every doc signed/emailed), notify the Always-notify team — once.
-    try {
-      const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used')`).get(load.id);
-      if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
-        const lr = db.prepare(`SELECT completeNotifiedAt FROM loads WHERE id = ?`).get(load.id);
-        if (!lr || !lr.completeNotifiedAt) {
-          db.prepare(`UPDATE loads SET completeNotifiedAt = ? WHERE id = ?`).run(Date.now(), load.id);
-          notify.notifyLoadComplete({ load, poNumber: load.poNumber || meta.poNumber });
-        }
-      }
-    } catch (e) {}
+    const mail = await emailSignedPod({ id, load, orgId, meta, filepath, allRecipients, redoOf, actor: meta.driver || 'driver' });
     console.log('[INGEST] DONE pod=' + id + ' load=' + load.id + ' emailed=' + (!!mail.sent));
   } catch (e) { console.error('[INGEST] FAILED', e); if (!res.headersSent) res.status(500).json({ error: 'Ingest failed' }); }
+});
+
+// Everyone who gets the signed copy of a finished stop: the receiver's BOL contacts, the sales rep, the load's
+// subscribers, the org's notify list, the admins of every company on the load (and their "always CC" inboxes), whoever
+// created the load, and the customer's document contacts. Never the built-in HaulProof Help logins.
+function signedPodRecipients(id, load, orgId, extra) {
+  // Also email the completed doc to the receiver's people who asked for the BOL.
+  let bolEmails = [];
+  try {
+    const p = db.prepare(`SELECT receiverId FROM pods WHERE id = ?`).get(id);
+    // The receiver's own people, plus contacts THIS load's customer added — never another customer's contacts.
+    if (p && p.receiverId) bolEmails = db.prepare(`SELECT email FROM receiver_contacts WHERE receiverId = ? AND receiveBol = 1 AND email IS NOT NULL AND TRIM(email) != '' AND (ownerOrgId IS NULL OR ownerOrgId IN (?, ?))`).all(p.receiverId, load.orgId || '', orgId || '').map(r => r.email);
+  } catch (e) {}
+  // Stop-completed updates → this stop's sales rep + this load's subscribers + the account master list (all team logins).
+  let notifyEmails = [];
+  try {
+    const p = db.prepare(`SELECT salesRepUserId FROM pods WHERE id = ?`).get(id);
+    if (p && p.salesRepUserId) { const u = db.prepare(`SELECT email FROM users WHERE id = ?`).get(p.salesRepUserId); if (u && u.email) notifyEmails.push(u.email); }
+    db.prepare(`SELECT u.email FROM load_subscribers ls JOIN users u ON u.id = ls.userId WHERE ls.loadId = ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(load.id).forEach(r => notifyEmails.push(r.email));
+    db.prepare(`SELECT u.email FROM org_notify onf JOIN users u ON u.id = onf.userId WHERE onf.orgId IS ? AND u.email IS NOT NULL AND TRIM(u.email) != ''`).all(orgId).forEach(r => notifyEmails.push(r.email));
+    // The load's customer's assigned sales reps also get the stop-completed update (covers customers with
+    // several reps — each of them is notified, not just the single per-stop rep above).
+    if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => notifyEmails.push(e));
+    // Dispatch ALWAYS gets a copy: the admins of every org on this load (its owner, plus the assigned
+    // carrier and broker) and whoever created it. This guarantees a completed stop reaches a real person
+    // even when no sales rep / subscriber / notify list was set up. Duplicates are removed by the Set below.
+    const notifyOrgs = [load.orgId, load.carrierId, load.brokerId].filter(Boolean);
+    if (notifyOrgs.length) {
+      const ph = notifyOrgs.map(() => '?').join(',');
+      db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != '' AND email NOT LIKE 'haulproofhelp+%'`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
+      // Plus each org's "always CC" completion addresses (set in the portal) — a reliable dispatch inbox that
+      // doesn't have to be a login, so it gets EVERY stop regardless of the consignee typed at signing.
+      db.prepare(`SELECT notifyEmails AS ne FROM orgs WHERE id IN (${ph})`).all(...notifyOrgs).forEach(r => {
+        (r.ne || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean).forEach(e => notifyEmails.push(e));
+      });
+    }
+    if (load.createdBy && /@/.test(load.createdBy)) notifyEmails.push(load.createdBy);
+  } catch (e) {}
+  // The load's assigned customer's contacts who are flagged to receive signed documents.
+  let customerEmails = [];
+  try { if (load && load.customerId) customerEmails = customerDocEmails(load.customerId); } catch (e) {}
+  // The built-in HaulProof Help logins never get copies (they're only HaulProof's way in to support a company).
+  return Array.from(new Set([...(extra || []), ...bolEmails, ...notifyEmails, ...customerEmails])).filter(e => !/^haulproofhelp\+/i.test(e));
+}
+
+// Email a finished stop's signed copy, record who got it on the load history, and tell the Always-notify team when
+// that finished the whole load. Runs after the caller has answered (it can take a while).
+async function emailSignedPod({ id, load, orgId, meta, filepath, allRecipients, redoOf, actor }) {
+  let mail = { sent: false };
+  if (allRecipients.length && !redoOf) {
+    // Attach the signed PDF WITH its proof photos appended (pickup + this stop's delivery), so the customer's copy
+    // carries the condition photos. Falls back to the raw file when there are none.
+    let combined = null;
+    try { const pr = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(id); combined = await combinedPodBytes(pr); } catch (e) {}
+    mail = await emailPodCopy({ to: allRecipients, pod: { ...meta, id, filename: meta.filename }, filePath: filepath, contentBytes: combined });
+    if (mail.sent) db.prepare(`UPDATE pods SET status='emailed' WHERE id=?`).run(id);
+    emailRetry.recordEmailResult(id, allRecipients, mail);
+  }
+  // Persist the FULL recipient list on the record (not just the consignee email typed at signing) and
+  // record an 'emailed' event on the load history — an audit trail of exactly who was notified.
+  try {
+    db.prepare(`UPDATE pods SET recipients = ? WHERE id = ?`).run(JSON.stringify(allRecipients), id);
+    const stopRow = db.prepare(`SELECT stopNumber FROM pods WHERE id = ?`).get(id);
+    const stopTag = (stopRow && stopRow.stopNumber) ? ('Stop ' + stopRow.stopNumber + ' — ') : '';
+    const sentTo = mail.sentTo || allRecipients;
+    const blocked = mail.blocked || [];
+    const optNote = blocked.length ? ' (skipped ' + blocked.length + ' opted-out: ' + blocked.join(', ') + ')' : '';
+    let detail;
+    if (redoOf) detail = stopTag + 'Redo signed — customer copy held until dispatch picks which signed copy to keep';
+    else if (!allRecipients.length) detail = stopTag + 'No recipients configured — nothing emailed';
+    else if (mail.sent) detail = stopTag + 'Emailed to ' + sentTo.length + ' recipient' + (sentTo.length > 1 ? 's' : '') + ': ' + sentTo.join(', ') + optNote;
+    else if (mail.simulated) detail = stopTag + 'Email simulated (SMTP not configured) — would have gone to: ' + sentTo.join(', ') + optNote;
+    else if (blocked.length && !sentTo.length) detail = stopTag + 'Not emailed — all ' + blocked.length + ' recipient(s) opted out: ' + blocked.join(', ');
+    else detail = stopTag + 'Email NOT sent' + (mail.error ? ' (' + mail.error + ')' : '') + ' — intended recipients: ' + allRecipients.join(', ');
+    logEvent({ orgId, loadId: load.id, poNumber: meta.poNumber || load.poNumber, type: 'emailed', detail, actor });
+  } catch (e) {}
+  // If this signature completed the WHOLE load (every doc signed/emailed), notify the Always-notify team — once.
+  try {
+    const st = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status IN ('signed','emailed') THEN 1 ELSE 0 END) AS done FROM pods WHERE loadId = ? AND status NOT IN ('parked','not_used')`).get(load.id);
+    if (st && Number(st.total) > 0 && Number(st.done) === Number(st.total)) {
+      const lr = db.prepare(`SELECT completeNotifiedAt FROM loads WHERE id = ?`).get(load.id);
+      if (!lr || !lr.completeNotifiedAt) {
+        db.prepare(`UPDATE loads SET completeNotifiedAt = ? WHERE id = ?`).run(Date.now(), load.id);
+        notify.notifyLoadComplete({ load, poNumber: load.poNumber || meta.poNumber });
+      }
+    }
+  } catch (e) {}
+  return mail;
+}
+
+// ---- File a driver's stray upload as the signed paper BOL of the load it belongs to. ----
+// A driver sometimes starts his own load and uploads the BOL the receiver already signed, instead of sending the photo
+// from the load he was given. This moves that document onto the right load (same carrier) as the stop's signed paper
+// BOL, keeping the upload's time and GPS, switches the load to paper BOL, and emails the signed copy as usual.
+// The driver's now-empty load is deleted (recoverable from the recovery bin).
+router.post('/:id/file-as-signed', requireAuth, express.json(), async (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  if (['signed', 'emailed', 'not_used'].indexOf(pod.status) >= 0) return res.status(409).json({ error: 'This document is already a signed copy on its load.' });
+  if (!pod.filepath || !fs.existsSync(pod.filepath)) return res.status(404).json({ error: 'The document file is not available' });
+  const target = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(String((req.body && req.body.loadId) || ''));
+  if (!target) return res.status(404).json({ error: 'Pick the load this BOL belongs to' });
+  if (target.id === pod.loadId) return res.status(400).json({ error: 'The document is already on that load' });
+  const my = req.user.orgId || null;
+  if (!isSuperReq(req) && [target.orgId, target.carrierId, target.brokerId].indexOf(my) < 0) return res.status(404).json({ error: 'Load not found' });
+  // Only onto a load the same carrier hauls — the driver's company must be the one on the load he was given.
+  const src = pod.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(pod.loadId) : null;
+  const driverCo = (src && src.carrierId) || pod.orgId || null;
+  if (!driverCo || [target.carrierId, target.orgId].indexOf(driverCo) < 0) return res.status(409).json({ error: 'That load isn’t assigned to the carrier who uploaded this document.' });
+  const stop = Math.max(1, parseInt((req.body && req.body.stopNumber) || 1, 10) || 1);
+  const onStop = db.prepare(`SELECT id, status FROM pods WHERE loadId = ? AND COALESCE(stopNumber, 1) = ? AND status NOT IN ('parked','not_used')`).all(target.id, stop);
+  if (onStop.length) return res.status(409).json({ error: 'Stop ' + stop + ' on that load already has a document (' + onStop.map(p => p.status).join(', ') + '). Remove it first, or pick another stop.' });
+  const who = req.user.email || req.user.name || 'dispatch', signedAt =Number(pod.signedAt) || Number(pod.uploadedAt) || Date.now();
+  db.transaction(() => {
+    db.prepare(`UPDATE pods SET orgId = ?, loadId = ?, poNumber = ?, loadNumber = ?, stopNumber = ?, status = 'signed', paperSigned = 1, dupWarn = 0, signedAt = ? WHERE id = ?`)
+      .run(target.orgId || null, target.id, target.poNumber || null, target.loadNumber || null, stop, signedAt, pod.id);
+    db.prepare(`UPDATE loads SET podMode = 'paper', paperStops = MAX(COALESCE(paperStops, 1), ?), podModeAuto = 0 WHERE id = ?`).run(stop, target.id);
+    if (!(target.driverName || '').trim() && pod.driver) db.prepare(`UPDATE loads SET driverName = ? WHERE id = ?`).run(pod.driver, target.id);
+  })();
+  const drv = pod.driver || pod.assignedDriverName || null;
+  logEvent({ orgId: target.orgId, loadId: target.id, poNumber: target.poNumber, type: 'signed',
+    detail: 'Photo of the paper BOL signed by the receiver' + (stop > 1 ? ' (Stop ' + stop + ')' : '') + (drv ? ' — driver ' + drv : '') + signedNear(pod.gps) +
+      ' · filed by ' + who + ' from the driver’s upload on ' + (src && src.poNumber ? 'load ' + src.poNumber : 'another load'), actor: who });
+  // The delivery is out when the signed BOL was sent, as with a photo from the load's own card.
+  try { stoptimes.autoOut({ load: target, kind: 'delivery', stopNumber: stop, at: signedAt, gps: pod.gps, by: drv, source: 'delivery', fallbackOrgId: driverCo }); } catch (e) {}
+  // The driver's own load is now empty: delete it (recoverable), the same as Delete on the Loads page.
+  let removedLoad = null;
+  if (src && src.id !== target.id && db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ?`).get(src.id).c === 0) {
+    try {
+      try { stashLoad(src, 0, who); } catch (e) { console.error('file-as-signed: stash empty load', e.message); }
+      db.prepare(`DELETE FROM loads WHERE id = ?`).run(src.id);
+      logEvent({ orgId: src.orgId, loadId: src.id, poNumber: src.poNumber, type: 'deleted', detail: 'Empty load removed — its document was filed as the signed BOL on load ' + (target.poNumber || target.id), actor: who });
+      removedLoad = src.poNumber || src.id;
+    } catch (e) { console.error('file-as-signed: remove empty load', e.message); }
+  }
+  const fresh = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(pod.id);
+  const allRecipients = signedPodRecipients(pod.id, target, target.orgId, safeJson(pod.recipients) || []);
+  res.json({ ok: true, podId: pod.id, loadId: target.id, poNumber: target.poNumber, stop, removedLoad, emailQueued: allRecipients.length > 0, recipients: allRecipients });
+  const meta = { orgId: fresh.orgId, poNumber: fresh.poNumber, loadNumber: fresh.loadNumber, consignee: fresh.consignee, docType: fresh.docType, filename: fresh.filename, signedAt };
+  try { await emailSignedPod({ id: pod.id, load: target, orgId: target.orgId, meta, filepath: fresh.filepath, allRecipients, actor: who }); } catch (e) { console.error('file-as-signed: email', e.message); }
 });
 
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
