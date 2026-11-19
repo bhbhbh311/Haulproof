@@ -368,6 +368,7 @@ async function resolveCarrier(user, ref) {
 // A broker working on one of its approved carriers' rosters (drivers / team logins), same as the portal's
 // Approved carriers → Drivers & logins. The server checks the carrier is on the approved list and allows it.
 const CARRIER_OPT = 'Optional: a carrier on your approved list (name, MC # or DOT #) — work on THAT carrier’s people instead of your own account';
+const PICKUP_DESC = 'Pickup appointment, Central time: e.g. "11/20 8:00 AM", "11/20 7-3" (window, checked from its start), "11/20" (date only, checked from 8 AM) or "2026-11-20T08:00". Puts the load on the check-on list when the driver isn’t “On my way” close to it.';
 async function carrierDrivers(user, car) {
   return ((await api(user, 'GET', '/api/drivers/for-carrier/' + encodeURIComponent(car.id))).drivers || []);
 }
@@ -416,6 +417,8 @@ function loadDetail(d, base) {
   return Object.assign(loadSummary(d.load), {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
     delivery: d.load.podMode === 'paper' ? 'paper BOL (driver sends a photo of the signed BOL' + ((d.load.paperStops || 1) > 1 ? ', ' + d.load.paperStops + ' stops' : '') + ')' : d.load.podMode === 'epod' ? 'ePOD (signed on the phone)' : 'not set',
+    pickup: d.load.pickupAt ? require('./checkon').fmtCT(d.load.pickupAt) + ' Central' + (d.load.pickupNote ? ' (' + d.load.pickupNote + ')' : '') : 'not set',
+    driver_status: d.load.pickedUpAt ? 'picked up ' + require('./checkon').fmtCT(d.load.pickedUpAt) : d.load.enRouteAt ? 'on the way since ' + require('./checkon').fmtCT(d.load.enRouteAt) : 'not on the way yet',
     // the company's own load fields (Release #, Trailer #…) with this load's values
     load_fields: (d.loadFields || []).length ? Object.fromEntries(d.loadFields.map(f => [f.name, f.value || (f.required ? '(missing, required)' : '')])) : undefined,
     documents: (d.pods || []).filter(p => p.status !== 'parked' && p.status !== 'not_used').map(p => ({ id: p.id, stop: p.stopNumber, type: p.docType, filename: p.filename, status: (DOC_STATUS[p.status] || p.status) + (p.paperSigned ? ' (photo of the paper BOL)' : ''), receiver: p.receiverName || null, signature_setup_link: base + '/prepare?id=' + p.id })),
@@ -904,16 +907,18 @@ const TOOLS = [
       driver: str('Driver name, phone, or id — your own driver, or the carrier’s driver when carrier is set'),
       truck: str('Truck #'), trailer: str('Trailer #'),
       delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
-      delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' } }, required: ['po_number'] },
+      delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' },
+      pickup: str(PICKUP_DESC) }, required: ['po_number'] },
     run: async (user, a, base) => {
       needCompany(user);
       const po = String(a.po_number || '').trim(); if (!po) throw new ToolError('po_number is required.');
+      if (a.pickup && !require('./checkon').parsePickup(a.pickup)) throw new ToolError('Couldn’t read the pickup time "' + a.pickup + '". Use e.g. 11/20 8:00 AM, 11/20 7-3, or 2026-11-20T08:00 (Central).');
       // Resolve names first so a typo fails before anything is created.
       const cust = a.customer ? await resolveCustomer(user, a.customer) : null;
       const car = a.carrier ? await resolveCarrier(user, a.carrier) : null;
       const drv = a.driver && !car ? await resolveDriver(user, a.driver) : null;
       const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined,
-        podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined } });
+        podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined, pickup: a.pickup || undefined } });
       if (c.existed) return Object.assign({ already_existed: true, note: 'A load with this PO # already exists; nothing was changed. Use update_load or assign_driver to change it.' }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
       let custNote = null;
       if (cust) { const r = await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
@@ -933,7 +938,8 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { load: str('Current PO #, load #, or load id'), po_number: str('New PO #'), load_number: str('New load #'), customer: str('Customer name or id, or "none"'),
       delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
       delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' },
-      fields: { type: 'object', description: 'The company’s own load fields by name, e.g. {"Release #": "R-4471"}; "" clears one', additionalProperties: { type: 'string' } } }, required: ['load'] },
+      fields: { type: 'object', description: 'The company’s own load fields by name, e.g. {"Release #": "R-4471"}; "" clears one', additionalProperties: { type: 'string' } },
+      pickup: str(PICKUP_DESC + ' "none" clears it.') }, required: ['load'] },
     run: async (user, a, base) => {
       needCompany(user);
       const d = await resolveLoad(user, a.load);
@@ -943,8 +949,9 @@ const TOOLS = [
       if (a.customer != null) body.customerId = /^(none|null|)$/i.test(String(a.customer).trim()) ? '' : (await resolveCustomer(user, a.customer)).id;
       if (a.delivery != null) { body.podMode = a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : ''; if (a.delivery_stops) body.deliveryStops = a.delivery_stops; }
       else if (a.delivery_stops) { body.podMode = d.load.podMode || 'paper'; body.deliveryStops = a.delivery_stops; }
+      if (a.pickup != null) body.pickup = /^(none|null|)$/i.test(String(a.pickup).trim()) ? '' : String(a.pickup).trim();
       const hasFields = a.fields && typeof a.fields === 'object' && Object.keys(a.fields).length;
-      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer, delivery or fields.');
+      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer, delivery, pickup or fields.');
       if (hasFields) await api(user, 'PUT', '/api/loads/' + d.load.id + '/fields', { json: { values: a.fields } , headers: { 'X-HP-Via': 'connector' } });
       if (!Object.keys(body).length) return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
       const r = await api(user, 'PUT', '/api/loads/' + d.load.id, { json: body });
@@ -962,6 +969,22 @@ const TOOLS = [
       const drvs = db.prepare(`SELECT name FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(car.id).map(x => x.name);
       return Object.assign({ assigned_carrier: car.name, carrier_drivers: drvs }, loadDetail(d2, base));
     } },
+  { name: 'check_on_drivers', title: 'Loads to check on',
+    description: 'The check-on list: loads whose pickup appointment is within 2 hours (or past) where the driver hasn’t tapped “On my way” in HaulProof, loads an hour past pickup time not picked up, and loads within 4 hours of pickup with no driver. Each has the pickup time (Central), why, and the carrier and driver phone numbers to call. Loads only show here once they have a pickup time (create_load / update_load pickup). Also says who gets the check-on emails.',
+    inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true },
+    run: async (user, a, base) => {
+      needCompany(user);
+      const r = await api(user, 'GET', '/api/loads/check-on');
+      return { count: r.items.length, emails_go_to: r.emails, rules: r.rules,
+        loads: r.items.map(i => ({ load: i.loadNumber || i.poNumber, po_number: i.poNumber, customer: i.customer, pickup: i.pickupText, why: i.reason,
+          minutes_until_pickup: i.minutesUntilPickup, carrier: i.carrier, carrier_phone: i.carrierPhone, driver: i.driver, driver_phone: i.driverPhone,
+          portal_link: base + '/app?load=' + encodeURIComponent(i.id) })) };
+    } },
+  { name: 'set_check_on_emails', title: 'Who gets the check-on emails',
+    description: 'Sets who is emailed the check-on list as loads become due (pickup close and the driver not “On my way”). Pass one or more emails; an empty list turns the emails off. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { emails: { type: 'array', items: { type: 'string' }, description: 'Email addresses' } }, required: ['emails'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => { needCompany(user); const r = await api(user, 'PUT', '/api/loads/check-on/settings', { json: { emails: a.emails || [] } }); return { emails_go_to: r.emails }; } },
   { name: 'ask_carrier_for_driver', title: 'Ask the carrier who’s driving',
     description: 'For a load with a carrier but no driver: emails the carrier (their dispatch / rate con email) that we need their driver to run this load through HaulProof, with a short form for the driver’s name and cell #. When they answer, the driver is added under the carrier, put on the load and texted their HaulProof link, and you get an email. If the carrier has no HaulProof login yet, that email also becomes the carrier’s admin login. Dispatchers can use it. Confirm the email with the user first.',
     inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), email: str('Carrier’s email to ask (dispatch or rate con email)'),
@@ -1174,6 +1197,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (add_team_logins emails each new person their link; send_password_link resends one) (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
   'A broker adds, changes or texts the drivers and team logins OF ONE OF ITS APPROVED CARRIERS by passing carrier (name, MC # or DOT #) to list_drivers, add_drivers, update_driver, text_driver_link and add_team_logins — never add a carrier’s driver to the broker’s own roster; then assign_driver puts that driver on the load. ' +
+  'Give each load its pickup appointment (create_load / update_load pickup, Central time). check_on_drivers then lists loads whose pickup is close or past and the driver hasn’t tapped “On my way” (or picked up), with phone numbers to call; set_check_on_emails picks who is emailed as loads become due. ' +
   'When a load has a carrier but no driver, use ask_carrier_for_driver with the carrier’s email: the carrier answers with the driver’s name and cell, and HaulProof puts the driver on the load and texts the link (it also sets up the carrier’s admin login if they have none). ' +
   'When a driver uploaded the BOL the receiver already signed on a load he started himself (an extra load with the receiver’s BL # and no customer) instead of the load he was given, follow the fix_stray_signed_bol prompt: file_signed_bol moves it onto the right load as the signed paper BOL with its GPS and emails it. ' +
   'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer. The company’s own load fields and names for standard fields: list_load_fields / rename_field / add_load_field / change_load_field; fill them on a load with update_load fields. Confirm changes with the user first.';

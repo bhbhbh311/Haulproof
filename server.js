@@ -282,6 +282,7 @@ app.post('/api/auth/help', (req, res) => {
 
 // --- resources ---
 app.use('/api/loads', require('./driverrequest').router);   // POST /:id/request-driver: ask the carrier who's driving
+app.use('/api/loads', require('./checkon').router);   // GET /check-on: pickups close/past with the driver not on the way
 app.use('/api/loads', loadsRouter);
 app.use('/api/driver-request', require('./driverrequest').publicRouter);
 app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
@@ -799,6 +800,7 @@ try { backfillSupportAdmins(); } catch (e) { console.error('backfillSupportAdmin
 const PORT = process.env.PORT || 4000;
 try { digest.startDailyDigest(); } catch (e) { console.error('digest arm', e && e.message); }
 try { require('./emailretry').startRetryLoop(); } catch (e) { console.error('email retry loop', e.message); }   // retry failed signed-copy emails
+try { require('./checkon').start(); } catch (e) { console.error('check-on', e.message); }   // email the check-on list as loads become due
 app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);
   console.log('Email: ' + (require('./resendmail').resendConfigured() ? 'Resend as ' + require('./resendmail').fromAddr() : require('./graphmail').graphConfigured() ? 'Microsoft Graph as ' + (process.env.MS_SENDER || process.env.MAIL_FROM || '?') : process.env.SMTP_HOST ? 'SMTP' : 'NOT set up (emails are only simulated)') + ' · Off-site backups: ' + (require('./graphmail').graphConfigured() && (process.env.BACKUP_SHAREPOINT_SITE || process.env.BACKUP_ONEDRIVE_USER) ? 'on (' + (process.env.BACKUP_SHAREPOINT_SITE ? 'SharePoint ' + process.env.BACKUP_SHAREPOINT_SITE : 'OneDrive ' + process.env.BACKUP_ONEDRIVE_USER) + ')' : 'off'));

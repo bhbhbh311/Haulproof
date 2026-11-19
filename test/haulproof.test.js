@@ -843,3 +843,53 @@ test('text delivery tracking: Twilio reports back (signed); a text that did not 
   assert.equal((hist().match(/NOT delivered/g) || []).length, 1);
   assert.equal(await report({ MessageSid: 'SMnotours', MessageStatus: 'delivered' }), 200);
 });
+
+test('check-on list: pickup close and the driver not "On my way" (or no driver, or past pickup) lists the load with numbers to call; emailed once per reason', async () => {
+  const CO = require('../checkon');
+  // reading pickup times (Central)
+  assert.equal(CO.parsePickup('11/20/2026 8:00 AM').at, Date.UTC(2026, 10, 20, 14, 0));
+  assert.deepEqual(CO.parsePickup('11/20/2026 7-3'), { at: Date.UTC(2026, 10, 20, 13, 0), note: '7-3' });
+  assert.deepEqual(CO.parsePickup('2026-11-20'), { at: Date.UTC(2026, 10, 20, 14, 0), note: 'date only' });
+  assert.equal(CO.parsePickup('2026-11-20T14:30').at, Date.UTC(2026, 10, 20, 20, 30));
+  assert.equal(CO.parsePickup('2026-07-01 0630').at, Date.UTC(2026, 6, 1, 11, 30), 'summer is CDT');
+  assert.equal(CO.parsePickup('next tuesday'), null);
+  const brk = await login('brk@test.example');
+  const car = org('Check Carrier LLC', 'carrier');
+  db.prepare('UPDATE orgs SET contactPhone = ? WHERE id = ?').run('8165550111', car);
+  const drv = id();
+  db.prepare('INSERT INTO drivers (id, orgId, name, phone, token, active, createdAt) VALUES (?,?,?,?,?,1,?)').run(drv, car, 'Carl Check', '9135550122', 'drv_' + id(), Date.now());
+  const H = 3600e3, now = Date.now();
+  const mk = async (po, pickup, withDriver) => {
+    const l = (await brk('POST', '/api/loads', { poNumber: po, pickup })).body.load;
+    db.prepare('UPDATE loads SET carrierId = ?, carrierName = ?, status = ? WHERE id = ?').run(car, 'Check Carrier LLC', 'assigned', l.id);
+    if (withDriver) db.prepare('UPDATE loads SET driverName = ?, assignedDriverId = ? WHERE id = ?').run('Carl Check', drv, l.id);
+    return l;
+  };
+  const soon = await mk('CHK-SOON', now + 1 * H, true);       // within 2h, not on the way
+  const later = await mk('CHK-LATER', now + 5 * H, true);     // not yet
+  const nod = await mk('CHK-NODRV', now + 3 * H, false);      // no driver, within 4h
+  const late = await mk('CHK-LATE', now - 2 * H, true);       // past pickup, not picked up
+  assert.ok(soon.pickupAt, 'pickup saved on create');
+  const list = async () => (await brk('GET', '/api/loads/check-on')).body;
+  let r = await list();
+  const by = Object.fromEntries(r.items.map(i => [i.poNumber, i]));
+  assert.equal(by['CHK-SOON'].stage, 'not_en_route'); assert.equal(by['CHK-SOON'].driverPhone, '913-555-0122'); assert.equal(by['CHK-SOON'].carrierPhone, '816-555-0111');
+  assert.equal(by['CHK-NODRV'].stage, 'no_driver'); assert.equal(by['CHK-LATE'].stage, 'late_pickup');
+  assert.equal(by['CHK-LATER'], undefined, 'five hours out is not due yet');
+  assert.deepEqual(r.items.slice(0, 1).map(i => i.poNumber), ['CHK-LATE'], 'past pickup first');
+  // the driver taps "On my way": off the list
+  db.prepare('UPDATE loads SET enRouteAt = ? WHERE id = ?').run(Date.now(), soon.id);
+  r = await list(); assert.ok(!r.items.some(i => i.poNumber === 'CHK-SOON'));
+  // emails: set who gets them, then each due load is emailed once
+  assert.equal((await brk('PUT', '/api/loads/check-on/settings', { emails: 'nope' })).status, 400);
+  assert.deepEqual((await brk('PUT', '/api/loads/check-on/settings', { emails: 'Disp@Test.example, ops@test.example' })).body.emails, ['disp@test.example', 'ops@test.example']);
+  const first = (await CO.tick(Date.now(), { anyHour: true })).find(s => s.org === 'Test Broker LLC');
+  assert.ok(first && first.loads.includes('CHK-NODRV') && first.loads.includes('CHK-LATE'), JSON.stringify(first));
+  const second = (await CO.tick(Date.now(), { anyHour: true })).find(s => s.org === 'Test Broker LLC');
+  assert.equal(second, undefined, 'nothing new: no second email');
+  assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND detail LIKE 'Check-on reminder%'").get(late.id).detail, /Past the pickup time and not picked up/);
+  // edit: change the pickup on the load; an unreadable one is refused
+  assert.equal((await brk('PUT', '/api/loads/' + later.id, { pickup: 'whenever' })).status, 400);
+  const ed = await brk('PUT', '/api/loads/' + later.id, { pickup: '', pickupNote: '' });
+  assert.equal(ed.body.load.pickupAt, null);
+});

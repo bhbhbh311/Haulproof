@@ -1169,6 +1169,15 @@
         <div class="hpanel"><h2>Needs attention</h2><div id="homeCarAlerts"></div><div id="homeAttnList"><div class="hempty">Loading…</div></div></div>
         <div class="hpanel"><h2>Drivers today</h2><div id="homeDrivers"><div class="hempty">Loading…</div></div></div>
       </div>
+      <div class="hpanels hide" id="homeCheckOnWrap" style="margin-top:14px;">
+        <div class="hpanel" style="grid-column:1/-1;"><h2>Check on these <span style="font-weight:400;font-size:13px;color:var(--muted)">pickup close or past and the driver isn't "On my way"</span></h2>
+          <div id="homeCheckOn"><div class="hempty">Loading…</div></div>
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;">
+            <span style="color:var(--muted)">Email this list as loads come due to:</span>
+            <input id="checkOnEmails" placeholder="name@company.com" style="flex:1;min-width:220px;font-size:13px;padding:6px 9px;">
+            <button type="button" class="ghost btn-sm" id="checkOnEmailsSave">Save</button><span id="checkOnMsg" style="font-weight:600;"></span>
+          </div></div>
+      </div>
     </div>
 
     <div class="card" id="loadsCard">
@@ -1264,6 +1273,16 @@
             <span id="ldUploadMsg" style="font-size:13px;font-weight:600;"></span>
           </div>
         </div>
+      </div>
+      <div style="margin-top:18px;" id="ldPickupSection">
+        <h1 style="font-size:16px;margin:0 0 6px;">Pickup appointment <span style="font-weight:400;font-size:13px;color:var(--muted)">Central time</span></h1>
+        <p class="sub" style="margin:0 0 8px;">If the driver hasn't tapped "On my way" 2 hours before this, the load goes on the <b>Check on these</b> list on the Dashboard (and its email).</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="datetime-local" id="ldPickup" style="width:auto;">
+          <input id="ldPickupNote" maxlength="80" placeholder="Window / note, e.g. 7-3 FCFS" style="flex:1;min-width:160px;">
+          <button type="button" id="ldPickupSave">Save</button><span id="ldPickupMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="ldPickupStatus" class="sub" style="margin-top:6px;"></div>
       </div>
       <div style="margin-top:18px;" id="ldInsSection">
         <h1 style="font-size:16px;margin:0 0 6px;">Special instructions for the driver</h1>
@@ -2943,6 +2962,47 @@
   // The company whose own driver hauls it (e.g. Brown Strauss): the HQ view's location, else the signed-in company.
   const ownTruckCo = l => (l && (l.location || l.orgName)) || ((user && user.orgName && (!l || !l.orgId || l.orgId === user.orgId)) ? user.orgName : '') || 'Own driver';
   const ownTruckTag = l => '<span class="chip signed" title="Their own driver hauls this load; no carrier needed">' + esc(ownTruckCo(l)) + '</span>';
+  // "Check on these" (Dashboard): loads whose pickup is close or past and the driver isn't on the way, with numbers to call
+  async function loadCheckOn() {
+    const wrap = $('homeCheckOn'); if (!wrap) return;
+    let r; try { r = await api('/api/loads/check-on'); } catch (e) { $('homeCheckOnWrap').classList.add('hide'); return; }
+    $('homeCheckOnWrap').classList.remove('hide');
+    if (document.activeElement !== $('checkOnEmails')) $('checkOnEmails').value = (r.emails || []).join(', ');
+    const tel = p => p ? ` <a href="tel:${esc(p)}">${esc(p)}</a>` : '';
+    const col = { late_pickup: 'var(--bad)', not_en_route: 'var(--warn)', no_driver: 'var(--violet)' };
+    wrap.innerHTML = (r.items || []).length ? r.items.map(i => `<div class="hli"><span class="dot" style="background:${col[i.stage] || 'var(--warn)'}"></span><div class="t"><b>${esc(i.reason)}</b> · ${esc(i.loadNumber || i.poNumber)} · pickup ${esc(i.pickupText)}
+        <div class="s">${esc(i.carrier || 'No carrier')}${tel(i.carrierPhone)} · driver ${esc(i.driver || '—')}${tel(i.driverPhone)}${i.customer ? ' · ' + esc(i.customer) : ''}</div></div>
+        <button type="button" class="ghost cOpen" data-id="${esc(i.id)}">Open</button></div>`).join('')
+      : '<div class="hempty">Nobody to check on: every load picking up soon has its driver on the way. (A load shows here only once it has a pickup appointment.)</div>';
+    wrap.querySelectorAll('.cOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+  }
+  if ($('checkOnEmailsSave')) $('checkOnEmailsSave').onclick = async () => {
+    const m = $('checkOnMsg'); m.style.color = ''; m.textContent = 'Saving…';
+    try { const r = await api('/api/loads/check-on/settings', { method: 'PUT', body: JSON.stringify({ emails: $('checkOnEmails').value }) });
+      m.style.color = 'var(--ok)'; m.textContent = r.emails.length ? '✓ Saved' : '✓ Emails off'; }
+    catch (e) { m.style.color = 'var(--bad)'; m.textContent = e.message || 'Could not save'; }
+  };
+  // Pickup appointment on a load (Central time): puts it on the check-on list when the driver isn't on the way
+  function renderLdPickup(){
+    const inp = $('ldPickup'); if (!inp || !curLoad) return;
+    const mine = user && (user.role === 'superadmin' || (curLoad.orgId || null) === (user.orgId || null));
+    if (document.activeElement !== inp) {
+      if (curLoad.pickupAt) {
+        const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(curLoad.pickupAt)).map(x => [x.type, x.value]));
+        inp.value = p.year + '-' + p.month + '-' + p.day + 'T' + p.hour + ':' + p.minute;
+      } else inp.value = '';
+      $('ldPickupNote').value = curLoad.pickupNote && curLoad.pickupNote !== 'date only' ? curLoad.pickupNote : '';
+    }
+    inp.disabled = !mine; $('ldPickupNote').disabled = !mine; $('ldPickupSave').classList.toggle('hide', !mine);
+    const st = curLoad.pickedUpAt ? '✓ Picked up' : curLoad.enRouteAt ? '🚚 Driver is on the way' : curLoad.pickupAt ? 'Driver hasn’t tapped “On my way” yet' : '';
+    $('ldPickupStatus').textContent = st; $('ldPickupMsg').textContent = '';
+  }
+  if ($('ldPickupSave')) $('ldPickupSave').onclick = async () => {
+    if (!curLoad) return; const msg = $('ldPickupMsg'); msg.style.color = ''; msg.textContent = 'Saving…';
+    try { const r = await api('/api/loads/' + encodeURIComponent(curLoad.id), { method: 'PUT', body: JSON.stringify({ pickup: $('ldPickup').value, pickupNote: $('ldPickupNote').value }) });
+      if (r && r.load) { curLoad.pickupAt = r.load.pickupAt; curLoad.pickupNote = r.load.pickupNote; } msg.style.color = 'var(--ok)'; msg.textContent = '✓ Saved'; }
+    catch (e) { msg.style.color = 'var(--bad)'; msg.textContent = e.message || 'Could not save'; }
+  };
   // Special instructions on a load: the company that owns it writes them; everyone on the load sees them
   function renderLdInstructions(){
     const ta = $('ldIns'); if (!ta || !curLoad) return;
@@ -4082,6 +4142,7 @@
       return `<div class="hli"><span class="dot" style="background:${onRoad ? 'var(--warn)' : next ? 'var(--primary)' : 'var(--ok)'}"></span><div class="t"><b>${esc(n)}</b><div class="s">${sub}</div></div>${pill}</div>`;
     }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
     document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+    loadCheckOn();
     document.querySelectorAll('#homeCard .hRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));   // retry right here, no detour into the load
   }
   // The AI banner sits on the Dashboard, under the greeting.
@@ -6913,6 +6974,7 @@
     if (curLoad.brokerName) parts.push('Broker: <b>' + esc(curLoad.brokerName) + '</b>' + warn(curLoad.brokerAuthWarning, curLoad.brokerId) + (canUnassign ? unassignBtn('broker') : ''));
     if (curLoad.carrierName) parts.push('Carrier: <b>' + esc(curLoad.carrierName) + '</b>' + warn(curLoad.carrierAuthWarning, curLoad.carrierId) + (canUnassign ? unassignBtn('carrier') : ''));
     renderLdInstructions();
+    renderLdPickup();
     if (!parts.length && ownTruck(curLoad)) parts.push(ownTruckTag(curLoad) + ' ' + esc(curLoad.driverName) + ' <span style="color:var(--muted);font-size:12.5px;">· their own driver, no carrier needed</span>');
     $('ldCarrierNow').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '<span class="ld-missing">Not assigned yet.</span>';
     $('ldCarrierNow').querySelectorAll('.ldUnassign').forEach(b => b.onclick = () => unassignParty(b.dataset.kind));

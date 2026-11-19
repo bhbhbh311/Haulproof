@@ -93,6 +93,7 @@ router.post('/', requireAuth, (req, res) => {
     const existing = db.prepare(`SELECT * FROM loads WHERE orgId IS ? AND poNumber = ?`).get(orgId, poNumber);
     if (existing) {
       if (chosen && chosen !== existing.podMode) db.prepare(`UPDATE loads SET podMode = ?, paperStops = ?, podModeAuto = 0 WHERE id = ?`).run(chosen, paperStops, existing.id);
+      try { require('./checkon').applyPickup(existing, req.body || {}, actorOf(req)); } catch (e) {}   // a resend can fill in the pickup time
       return res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(existing.id), req), existed: true });
     }
   }
@@ -103,8 +104,13 @@ router.post('/', requireAuth, (req, res) => {
   db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, instructions, podMode, paperStops, podModeAuto, status, createdBy, createdAt)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
     .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, instructions, podMode, paperStops, podModeAuto, req.user.email, Date.now());
-  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
+  let load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : '') + (podMode ? ' · ' + POD_MODES[podMode] : ''), actor: actorOf(req) });
+  // Pickup appointment: never blocks creating the load. A time it can't read falls back to just the date.
+  const CO = require('./checkon'), pb = req.body || {};
+  try { CO.applyPickup(load, pb, actorOf(req)); }
+  catch (e) { try { if (pb.pickup) CO.applyPickup(load, { pickup: String(pb.pickup).trim().split(/\s+/)[0] }, actorOf(req)); } catch (e2) {} }
+  load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   res.json({ load: loadOut(load, req), existed: false });
 });
 
@@ -433,6 +439,9 @@ router.put('/:id', requireAuth, (req, res) => {
       logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: ins ? 'Special instructions for the driver updated' : 'Special instructions removed', actor: actorOf(req) });
     }
   }
+  // Pickup appointment (Central time): drives the check-on list
+  try { require('./checkon').applyPickup(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), b, actorOf(req)); }
+  catch (e) { if (e.status === 400) return res.status(400).json({ error: e.message }); throw e; }
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
