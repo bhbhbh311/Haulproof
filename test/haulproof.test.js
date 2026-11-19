@@ -588,6 +588,28 @@ test('short driver link: /go/<code> opens the driver app with that driver\'s key
   assert.equal((await fetch(B + '/go/NOTAREALONE', { redirect: 'manual' })).status, 404);
   const html = await (await fetch(B + '/driver')).text();
   assert.match(html, /property="og:title" content="HaulProof Driver"/, 'a tidy preview when the link is texted');
+  assert.match(html, /og:image" content="[^"]+\/icons\/share-card\.png"/);
+  const card = await fetch(B + '/icons/share-card.png');
+  assert.equal(card.status, 200); assert.equal(card.headers.get('content-type'), 'image/png');
+});
+
+test('texted driver link preview: iMessage gets the HaulProof card saying whose paper BOL upload it is, and never the driver\'s key', async () => {
+  const carrier = org('Preview Carrier LLC', 'carrier');
+  createUser({ email: 'car-prev@test.example', name: 'Carrier Prev', role: 'admin', password: PW, orgId: carrier });
+  const car = await login('car-prev@test.example');
+  const d = (await car('POST', '/api/drivers', { name: 'Preview Pete' })).body.driver;
+  const code = d.link.split('/go/')[1], tok = db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token;
+  const imsg = { 'User-Agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 facebookexternalhit/1.1 Facebot Twitterbot/1.0' };
+  let r = await fetch(B + '/go/' + code, { redirect: 'manual', headers: imsg });
+  let html = await r.text();
+  assert.equal(r.status, 200); assert.ok(!html.includes(tok), 'the preview never carries the driver\'s key');
+  assert.match(html, /share-card\.png/); assert.match(html, /og:title" content="HaulProof Driver"/);
+  db.prepare(`INSERT INTO loads (id, orgId, poNumber, carrierId, podMode, status, createdAt) VALUES (?,?,?,?,?,'assigned',?)`).run(id(), broker, 'PREV-1', carrier, 'paper', Date.now() + 5000);
+  html = await (await fetch(B + '/go/' + code, { headers: imsg })).text();
+  assert.match(html, /og:title" content="Test Broker · HaulProof Driver"/);
+  assert.match(html, /Test Broker’s paper BOL upload: once the paperwork is signed, send a photo of the BOL here and it goes to your company and Test Broker\./);
+  // a person tapping the link still goes straight into the app
+  assert.equal((await fetch(B + '/go/' + code, { redirect: 'manual' })).status, 302);
 });
 
 test('how drivers deliver: new loads start with the company setting, a customer\'s own setting wins, and a hand-picked one stays put', async () => {

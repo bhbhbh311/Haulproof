@@ -514,7 +514,8 @@ try {
 
   // 4) The platform master admin (super-admin) — manages all customers. Same password as ADMIN_PASSWORD
   //    unless SUPERADMIN_PASSWORD is set, so no extra secret to configure.
-  const superEm = (process.env.SUPERADMIN_EMAIL || 'bharris@callahantrans.com').toLowerCase().trim();
+  //    The address comes only from Render (SUPERADMIN_EMAIL); an existing master admin is never touched when it's unset.
+  const superEm = (process.env.SUPERADMIN_EMAIL || '').toLowerCase().trim();
   const superPw = process.env.SUPERADMIN_PASSWORD || process.env.ADMIN_PASSWORD;
   if (superEm && superPw) {
     const ex = db.prepare('SELECT * FROM users WHERE email = ?').get(superEm);
@@ -563,6 +564,38 @@ app.post('/unsubscribe', express.urlencoded({ extended: false }), doUnsub); // e
 // Auto-points at this server's origin. Device key is NOT embedded; pass it once via ?k=KEY
 // (share that link privately) or drivers set it in the app's Outbox.
 let DRIVER_HTML = null, DRIVER_MTIME = 0;
+// The wide HaulProof card shown when a driver link is texted or emailed (1200x630, the size message apps expect).
+const SHARE_BASE = (process.env.PORTAL_URL || 'https://haulproofepod.com').replace(/\/+$/, '');
+const SHARE_IMAGE_TAGS = '<meta property="og:image" content="' + SHARE_BASE + '/icons/share-card.png">'
+  + '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
+  + '<meta property="og:image:alt" content="HaulProof driver app">'
+  + '<meta name="twitter:card" content="summary_large_image">';
+let SHARE_CARD = null; try { SHARE_CARD = fs.readFileSync(path.join(__dirname, 'assets', 'share-card.png')); } catch (e) {}
+app.get('/icons/share-card.png', (_req, res) => { if (!SHARE_CARD) return res.status(404).end(); res.set('Cache-Control', 'public, max-age=86400'); res.type('png').send(SHARE_CARD); });
+// Link-preview fetchers (iMessage, Facebook/WhatsApp, Slack, etc.) get the card without following the driver's key.
+const PREVIEW_BOT = /facebookexternalhit|Facebot|Twitterbot|Slackbot|WhatsApp|TelegramBot|Discordbot|LinkedInBot|SkypeUriPreview|Applebot|Google-PageRenderer|redditbot|Embedly|vkShare|Pinterest|bingbot|preview/i;
+// "CALLAHAN TRANSPORTATION INC" -> "Callahan Transportation"
+const tidyCo = (n) => String(n || '').replace(/[,.]?\s+(INC|LLC|LLP|CO|CORP|CORPORATION|LTD|COMPANY)\.?$/i, '').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).trim();
+// What the driver's link is for, said in the preview: whose loads, and where the signed BOL goes. Taken from the driver's
+// newest load from another company (the broker or shipper who gave it to his carrier).
+function driverPreview(d) {
+  let from = null, mode = null;
+  try {
+    const l = db.prepare(`SELECT l.podMode, o.name AS fromName FROM loads l JOIN orgs o ON o.id = COALESCE(l.brokerId, l.orgId)
+       WHERE (l.assignedDriverId = ? OR l.carrierId = ?) AND COALESCE(l.brokerId, l.orgId) IS NOT ? ORDER BY l.createdAt DESC LIMIT 1`).get(d.id, d.orgId || '', d.orgId || null);
+    if (l) { from = tidyCo(l.fromName); mode = l.podMode; }
+  } catch (e) {}
+  const title = from ? from + ' · HaulProof Driver' : 'HaulProof Driver';
+  const desc = !from ? 'Your loads, status buttons and BOL signing, right on your phone. No app store.'
+    : mode === 'epod' ? from + '’s ePOD: the receiver and you sign the BOL on your phone, and it goes to your company and ' + from + '.'
+    : from + '’s paper BOL upload: once the paperwork is signed, send a photo of the BOL here and it goes to your company and ' + from + '.';
+  return { title, desc };
+}
+const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const previewCard = (p) => '<!doctype html><html><head><meta charset="utf-8"><title>' + escAttr(p.title) + '</title>'
+  + '<meta property="og:site_name" content="HaulProof"><meta property="og:title" content="' + escAttr(p.title) + '">'
+  + '<meta property="og:description" content="' + escAttr(p.desc) + '"><meta name="description" content="' + escAttr(p.desc) + '">'
+  + '<meta property="og:type" content="website">' + SHARE_IMAGE_TAGS + '</head><body>' + escAttr(p.desc) + '</body></html>';
 function driverHtml() {
   try {
     const p = path.join(__dirname, 'haulproof_driver.html');
@@ -583,7 +616,7 @@ function driverHtml() {
       + '<meta property="og:title" content="HaulProof Driver">'
       + '<meta property="og:description" content="Your loads, status buttons and BOL signing, right on your phone. No app store.">'
       + '<meta property="og:type" content="website">'
-      + '<meta property="og:image" content="' + ((process.env.PORTAL_URL || 'https://haulproofepod.com').replace(/\/+$/, '')) + '/icons/icon-512.png">';
+      + SHARE_IMAGE_TAGS;
     // The service worker (network-first, auto-updating) is registered by the driver page itself, in its last-but-one
     // <script>, which also decides when it's safe to reload onto a new build. Don't register it here as well.
     // Establish the driver's device key on every open. Priority: ?k= from their personal link → whatever the
@@ -602,6 +635,7 @@ app.get('/go/:code', (req, res) => {
     + '<div style="font:17px/1.5 system-ui,sans-serif;max-width:420px;margin:60px auto;padding:0 20px;text-align:center"><h1 style="font-size:20px">This driver link isn’t active</h1>'
     + '<p>Ask your dispatcher to send you a new one.</p></div>');
   res.set('Cache-Control', 'no-store');
+  if (PREVIEW_BOT.test(String(req.get('user-agent') || ''))) return res.type('html').send(previewCard(driverPreview(d)));
   res.redirect(302, '/driver?k=' + encodeURIComponent(d.token));
 });
 app.get('/driver', (req, res) => {
