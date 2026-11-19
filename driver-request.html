@@ -29,6 +29,9 @@
   .ok{color:var(--ok);font-size:40px;text-align:center}
   .note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.5;text-align:center}
   #loading{text-align:center;color:var(--muted);padding:20px}
+  .agree{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:11px;background:#f8faff;font-size:13.5px;line-height:1.45;margin:4px 0 6px;color:var(--ink)}
+  .agree input{width:20px;height:20px;margin-top:1px;flex:none}
+  .agree a{color:var(--primary)}
 </style>
 </head>
 <body>
@@ -44,6 +47,7 @@
       <form id="f">
         <div class="field"><label for="nm">Driver's name</label><input class="inp" id="nm" autocomplete="name" required maxlength="80"></div>
         <div class="field"><label for="ph">Driver's cell #</label><input class="inp" id="ph" type="tel" inputmode="tel" autocomplete="tel" required placeholder="555-555-5555"></div>
+        <label class="agree"><input type="checkbox" id="ok"><span>The driver agreed to receive text messages from <b>Callahan Transportation, Inc.</b> through HaulProof (HaulProof Driver Text Alerts) at this number: their HaulProof driver link, load assignments and delivery/BOL updates. Message frequency varies. Message and data rates may apply. Reply STOP to opt out, HELP for help. <a href="/sms#terms" target="_blank" rel="noopener">Terms &amp; privacy</a></span></label>
         <div class="ferr" id="ferr"></div>
         <button class="btn" id="go" type="submit">Send</button>
       </form>
@@ -77,7 +81,7 @@
   $('f').addEventListener('submit', async e => {
     e.preventDefault(); $('ferr').textContent = ''; $('go').disabled = true; $('go').textContent = 'Sending…';
     try {
-      const r = await fetch('/api/driver-request/' + encodeURIComponent(t), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('nm').value, phone: $('ph').value }) });
+      const r = await fetch('/api/driver-request/' + encodeURIComponent(t), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('nm').value, phone: $('ph').value, consent: $('ok').checked }) });
       const j = await r.json();
       if (!r.ok) { $('ferr').textContent = j.error || 'That did not go through. Try again.'; return; }
       $('ask').style.display = 'none'; $('done').style.display = '';
@@ -86,6 +90,7 @@
       else {
         txt($('doneSub'), 'Tap below to text ' + j.driver + ' their HaulProof link from your phone.');
         const body = j.broker + ': here\'s your HaulProof driver app for ' + j.loadLabel + '. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it.\n' + j.link;
+        if (!j.consent) txt($('doneSub'), 'We didn\'t text ' + j.driver + ' because the box saying they agreed to texts wasn\'t checked. Tap below to text them their HaulProof link from your phone.');
         const btn = $('textBtn'); btn.href = 'sms:+1' + j.phone + '?&body=' + encodeURIComponent(body); btn.style.display = '';
         txt($('doneNote'), 'Or send them this link: ' + j.link);
       }

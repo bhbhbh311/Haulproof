@@ -887,7 +887,7 @@ router.post('/:id/text-link', requireAuth, requireDriverManager, async (req, res
 });
 // The text itself: short, with the link on its own last line so phones show a preview card.
 function driverLinkSms(first, orgName, link) {
-  return (orgName || 'Dispatch') + ': here\'s your HaulProof driver app' + (first ? ', ' + first : '') + '. Tap the link, pick your own PIN, and your loads show up there.\n' + link;
+  return (orgName || 'Dispatch') + ': here\'s your HaulProof driver app' + (first ? ', ' + first : '') + '. Tap the link, pick your own PIN, and your loads show up there. Reply STOP to opt out.\n' + link;
 }
 async function textDriverLink(req, res, d, orgName) {
   const T = require('./twilio');

@@ -134,14 +134,18 @@ publicRouter.post('/:token', express.json(), async (req, res) => {
   try { db.prepare(`SELECT id FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId = ?`).all(load.id, drv.id).forEach(p => notify.notifyDriverReady(p.id)); } catch (e) {}
   db.prepare(`UPDATE driver_requests SET answeredAt = ?, driverId = ? WHERE token = ?`).run(Date.now(), drv.id, r.token);
   const link = require('./driverlink').driverLink(req, drv);
-  // Text the driver their link (when texting is set up); otherwise the carrier gets a Text button on the page.
+  // Text the driver their link only when the carrier checked "the driver agreed to texts" (or the driver opted in on
+  // /sms themselves); otherwise, or when texting isn't set up, the carrier gets a Text button on the page.
+  const C = require('./smsconsent');
+  const consent = req.body && req.body.consent === true;
+  if (consent) C.record({ phone, name: drv.name, source: 'carrier-form:' + r.email, consentText: C.CARRIER_CONSENT_TEXT, ip: req.ip });
   let texted = false;
   const T = require('./twilio');
-  if (T.configured()) {
+  if (T.configured() && (consent || C.has(phone))) {
     try {
       await T.sendText({ to: phone, orgId: carrier.id, driverId: drv.id, sentBy: r.email,
         loadId: load.id, notifyEmail: r.notifyEmail || null, link, driverName: drv.name, callbackBase: originOf(req),
-        body: `${askerOf(load)}: here's your HaulProof driver app for ${loadLabel(load)}, ${drv.name.split(/\s+/)[0]}. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it.\n${link}` });
+        body: `${askerOf(load)}: here's your HaulProof driver app for ${loadLabel(load)}, ${drv.name.split(/\s+/)[0]}. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it. Reply STOP to opt out.\n${link}` });
       texted = true;
     } catch (e) { console.error('driver request text', e.message); }
   }
@@ -151,7 +155,7 @@ publicRouter.post('/:token', express.json(), async (req, res) => {
   if (who.length) sendMail({ to: who, subject: `${carrier.name} gave the driver for ${loadLabel(load)}: ${drv.name}`,
     text: `${carrier.name} says ${drv.name} (${phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}) is driving ${loadLabel(load)}. ` +
       (texted ? 'HaulProof sent the driver a text with their link. If the text doesn’t get through, you’ll get another email saying so.' : 'HaulProof couldn’t text the driver, so the carrier was shown a button to text the link from their phone. You can also send it yourself.') + `\n\nDriver's link: ${link}` }).catch(() => {});
-  res.json({ ok: true, driver: drv.name, phone, link, texted, broker: askerOf(load), loadLabel: loadLabel(load) });
+  res.json({ ok: true, driver: drv.name, phone, link, texted, consent: consent || C.has(phone), broker: askerOf(load), loadLabel: loadLabel(load) });
 });
 
 module.exports = { router, publicRouter, createRequest };

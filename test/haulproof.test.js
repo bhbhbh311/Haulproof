@@ -787,9 +787,15 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
   assert.equal((await fetch(B + '/driver-request?t=' + t)).status, 200);
   const post = (body) => fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async x => ({ status: x.status, body: await x.json() }));
   assert.equal((await post({ name: 'Ned Driver', phone: '555-01' })).status, 400, 'needs a 10-digit cell');
+  // the carrier didn't check "the driver agreed to texts": the driver goes on the load but isn't texted
+  const noConsent = await post({ name: 'Ned Driver', phone: '(417) 260-5588' });
+  assert.equal(noConsent.status, 200, JSON.stringify(noConsent.body));
+  assert.deepEqual([noConsent.body.texted, noConsent.body.consent], [false, false], 'no text without consent');
   const before = smsSent.length;
-  const ok = await post({ name: 'Ned Driver', phone: '(417) 260-5588' });
+  const ok = await post({ name: 'Ned Driver', phone: '(417) 260-5588', consent: true });
   assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.texted, true);
+  assert.equal(smsSent.length, before + 1, 'texted only once, after consent');
+  assert.match(db.prepare('SELECT consentText, source FROM sms_consent WHERE phone = ?').get('4172605588').source, /^carrier-form:dispatch@askcarrier\.example$/);
   const d = db.prepare('SELECT * FROM drivers WHERE orgId = ? AND name = ?').get(car, 'Ned Driver');
   assert.equal(d.phone, '4172605588');
   const l = db.prepare('SELECT driverName, assignedDriverId FROM loads WHERE id = ?').get(lid);
@@ -817,7 +823,7 @@ test('text delivery tracking: Twilio reports back (signed); a text that did not 
   assert.equal(ask.err, false, JSON.stringify(ask.out));
   const t = new URL(ask.out.form_link).searchParams.get('t');
   const before = smsSent.length;
-  const ok = await fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Tess Track', phone: '913-555-0177' }) }).then(r => r.json());
+  const ok = await fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Tess Track', phone: '913-555-0177', consent: true }) }).then(r => r.json());
   assert.equal(ok.texted, true);
   // the text asks Twilio to report its result to us
   const sent = smsSent[before];
@@ -939,4 +945,21 @@ test('call notes: a note on a load shows as its latest note (connector and check
   await brk('POST', '/api/loads/' + lid + '/note', { note: '' });
   assert.equal(db.prepare('SELECT lastNote FROM loads WHERE id = ?').get(lid).lastNote, null);
   assert.equal((await (await login('ship@test.example'))('POST', '/api/loads/' + lid + '/note', { note: 'x' })).status, 404, 'another company can’t');
+});
+
+test('HaulProof Driver Text Alerts: public opt-in page with terms, consent required and recorded', async () => {
+  for (const p of ['/sms', '/sms-terms']) {
+    const r = await fetch(B + p); assert.equal(r.status, 200);
+    const html = await r.text();
+    assert.match(html, /HaulProof Driver Text Alerts/); assert.match(html, /Callahan Transportation, Inc\./);
+    assert.match(html, /Reply <b>STOP<\/b>/); assert.match(html, /Message and data rates may apply/);
+    assert.match(html, /do not sell, rent or share your mobile number/);
+  }
+  const optin = body => fetch(B + '/api/sms/optin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async x => ({ status: x.status, body: await x.json() }));
+  assert.equal((await optin({ name: 'Opt Driver', phone: '816-555-0142' })).status, 400, 'the box must be checked');
+  assert.equal((await optin({ name: 'Opt Driver', phone: '555', consent: true })).status, 400);
+  const ok = await optin({ name: 'Opt Driver', phone: '+1 (816) 555-0142', consent: true });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.phone, '8165550142');
+  const row = db.prepare('SELECT * FROM sms_consent WHERE phone = ?').get('8165550142');
+  assert.equal(row.source, 'sms-page'); assert.match(row.consentText, /Reply STOP to opt out/);
 });
