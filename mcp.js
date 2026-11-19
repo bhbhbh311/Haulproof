@@ -1160,7 +1160,28 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'For "what needs my attention" use needs_attention. To send a customer their signed POD or resend failed emails use send_signed_copy (confirm addresses first). For billing, get_signed_documents lists signed PDFs with 7-day download links. ' +
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (add_team_logins emails each new person their link; send_password_link resends one) (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
+  'A broker adds, changes or texts the drivers and team logins OF ONE OF ITS APPROVED CARRIERS by passing carrier (name, MC # or DOT #) to list_drivers, add_drivers, update_driver, text_driver_link and add_team_logins — never add a carrier’s driver to the broker’s own roster; then assign_driver puts that driver on the load. ' +
+  'When a driver uploaded the BOL the receiver already signed on a load he started himself (an extra load with the receiver’s BL # and no customer) instead of the load he was given, follow the fix_stray_signed_bol prompt: file_signed_bol moves it onto the right load as the signed paper BOL with its GPS and emails it. ' +
   'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer. The company’s own load fields and names for standard fields: list_load_fields / rename_field / add_load_field / change_load_field; fill them on a load with update_load fields. Confirm changes with the user first.';
+
+// Saved playbooks ("skills") for jobs that take several tools in a set order. Claude shows them as prompts the user can
+// pick; the connector instructions point to them so Claude also follows them on its own.
+const PROMPTS = [
+  { name: 'fix_stray_signed_bol', title: 'File a driver’s stray signed BOL on the right load',
+    description: 'A driver started his own load and uploaded the BOL the receiver already signed, instead of sending the photo from the load he was given. Put it on the right load as the completed paper BOL, with its GPS, and email it.',
+    arguments: [{ name: 'carrier', description: 'The carrier (name, MC # or DOT #)', required: false }, { name: 'load', description: 'Our load # or PO # it belongs to, if known', required: false }],
+    text: a => [
+      'Fix a driver’s stray signed BOL in HaulProof' + (a.carrier ? ' for carrier ' + a.carrier : '') + (a.load ? ' (our load ' + a.load + ')' : '') + '. Steps:',
+      '1. whoami. If you are the Master Admin, find the carrier with list_companies and use_company it (the stray load lives in the carrier’s own company). Tell the user which company you are in.',
+      '2. find_loads with no search. The stray load is the one the driver started: usually the receiver’s BL # as its PO #, no customer, status open, a document "needs signature setup". get_load it to get the document id.',
+      '3. review_pages on that document to read what it is (shipper, receiver, BL #, signed / stamped received). Match it to our load: find_loads by the customer or carrier, or use the load the user named. In the FMS, the load’s origin, destination and customer should agree with the BOL.',
+      '4. Show the user: the stray load (PO #, driver, upload time), what the page is, and the load it belongs to. Ask before changing anything.',
+      '5. On yes: file_signed_bol with the document id and our load (stop 1 unless it is a later stop). It switches that load to paper BOL, completes the stop with the upload’s time and GPS, emails the signed copy to the usual list (AP included), and deletes the empty stray load (recoverable).',
+      '6. Report what the result says: the load, who it was emailed to, and that the stray load was removed. If you switched companies, use_company back to the user’s own company and say so.',
+      'In the portal the same thing is the "Signed BOL for another load" button on that document.'
+    ].join('\n') },
+];
+const PROMPT_BY_NAME = {}; PROMPTS.forEach(p => { PROMPT_BY_NAME[p.name] = p; });
 
 async function handleRpc(msg, user, base) {
   const id = msg.id;
@@ -1169,10 +1190,16 @@ async function handleRpc(msg, user, base) {
   switch (msg.method) {
     case 'initialize': {
       const asked = msg.params && msg.params.protocolVersion;
-      return ok({ protocolVersion: PROTOCOLS.indexOf(asked) >= 0 ? asked : PROTOCOLS[0], capabilities: { tools: { listChanged: false } },
+      return ok({ protocolVersion: PROTOCOLS.indexOf(asked) >= 0 ? asked : PROTOCOLS[0], capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
         serverInfo: { name: 'haulproof', title: 'HaulProof', version: '1.0.0' }, instructions: INSTRUCTIONS });
     }
     case 'ping': return ok({});
+    case 'prompts/list': return ok({ prompts: PROMPTS.map(p => ({ name: p.name, title: p.title, description: p.description, arguments: p.arguments })) });
+    case 'prompts/get': {
+      const p = PROMPT_BY_NAME[(msg.params && msg.params.name) || ''];
+      if (!p) return fail(-32602, 'Unknown prompt');
+      return ok({ description: p.description, messages: [{ role: 'user', content: { type: 'text', text: p.text((msg.params && msg.params.arguments) || {}) } }] });
+    }
     case 'tools/list': return ok({ tools: TOOLS.filter(t => !t.masterOnly || user._master).map(t => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })) });
     case 'tools/call': {
       const p = msg.params || {}, tool = TOOL_BY_NAME[p.name];

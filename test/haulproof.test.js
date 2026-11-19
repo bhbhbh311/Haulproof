@@ -545,6 +545,21 @@ test('driver uploaded the signed BOL on his own load: dispatch files it on the l
   assert.equal((await car('POST', `/api/pods/${podId}/file-as-signed`, { loadId: target })).status, 409);
 });
 
+test('connector: the stray signed BOL playbook is offered as a prompt and named in the instructions', async () => {
+  const u = db.prepare('SELECT id FROM users WHERE email = ?').get('brk@test.example');
+  const tok = 'test_' + crypto.randomBytes(12).toString('hex');
+  db.prepare("INSERT INTO oauth_tokens (tokenHash, kind, clientId, userId, expiresAt, createdAt) VALUES (?, 'access', ?, ?, ?, ?)")
+    .run(crypto.createHash('sha256').update(tok).digest('hex'), 'test-client-prompts', u.id, Date.now() + 3600e3, Date.now());
+  const rpc = async (method, params) => (await (await fetch(B + '/mcp', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const init = (await rpc('initialize', { protocolVersion: '2025-06-18' })).result;
+  assert.ok(init.capabilities.prompts); assert.match(init.instructions, /fix_stray_signed_bol/); assert.match(init.instructions, /never add a carrier’s driver to the broker’s own roster/);
+  assert.ok((await rpc('prompts/list')).result.prompts.some(p => p.name === 'fix_stray_signed_bol'));
+  const got = (await rpc('prompts/get', { name: 'fix_stray_signed_bol', arguments: { carrier: '3 BS', load: '125351' } })).result;
+  assert.match(got.messages[0].content.text, /for carrier 3 BS \(our load 125351\)[\s\S]*file_signed_bol/);
+  assert.ok((await rpc('prompts/get', { name: 'nope' })).error);
+});
+
 test('paper BOL photo: another company\'s driver can\'t file onto someone else\'s load by its id', async () => {
   const { PDFDocument } = require('pdf-lib');
   const doc = await PDFDocument.create(); doc.addPage([612, 792]); const pdf = Buffer.from(await doc.save());
