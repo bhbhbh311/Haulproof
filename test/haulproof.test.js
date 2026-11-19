@@ -925,3 +925,18 @@ test('add signed BOL: an already-signed paper BOL is filed on the stop as signed
   assert.equal(await post(pdf, { 'X-Stop': '3' }, shipCk), 404);
   assert.ok(brk);
 });
+
+test('call notes: a note on a load shows as its latest note (connector and check-on list) and stays in the history; empty clears it', async () => {
+  const lid = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, status, pickupAt, createdAt) VALUES (?,?,?,?,'assigned',?,?)`).run(lid, broker, '125999N', '125999N-0', Date.now() - 2 * 3600e3, Date.now());
+  const call = mcpToken('brk@test.example');
+  const r = await call('add_load_note', { load: '125999N', note: 'Called Kenny at J5, driver is Mike, ETA 2 PM' });
+  assert.equal(r.err, false, JSON.stringify(r.out)); assert.match(r.out.last_note, /^Called Kenny at J5, driver is Mike, ETA 2 PM \(Broker, /);
+  const brk = await login('brk@test.example');
+  const item = (await brk('GET', '/api/loads/check-on')).body.items.find(i => i.poNumber === '125999N-0');
+  assert.equal(item.lastNote, 'Called Kenny at J5, driver is Mike, ETA 2 PM');
+  assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND type = 'note'").get(lid).detail, /📝 Called Kenny/);
+  await brk('POST', '/api/loads/' + lid + '/note', { note: '' });
+  assert.equal(db.prepare('SELECT lastNote FROM loads WHERE id = ?').get(lid).lastNote, null);
+  assert.equal((await (await login('ship@test.example'))('POST', '/api/loads/' + lid + '/note', { note: 'x' })).status, 404, 'another company can’t');
+});

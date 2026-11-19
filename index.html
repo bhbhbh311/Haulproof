@@ -2984,6 +2984,20 @@
       openLoad(curLoad.id);
     } catch (e) { m.style.color = 'var(--bad)'; m.textContent = e.message; }
   };
+  // Call notes: the latest note on a load ("Called Kenny, driver is Mike, ETA 2 PM"), shown under it on the Dashboard lists
+  function noteLine(l) {
+    if (!l || !l.lastNote) return '';
+    const when = l.lastNoteAt ? new Date(l.lastNoteAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+    return `<div class="s" style="margin-top:2px;color:var(--ink)">📝 ${esc(l.lastNote)} <span style="color:var(--muted)">· ${esc(l.lastNoteBy || '')}${when ? ', ' + esc(when) : ''}</span></div>`;
+  }
+  async function saveLoadNote(id, current) {
+    const text = prompt('Note for this load (what you found out when you called). It shows here and is kept in the load\'s history.\nLeave empty to clear the note.', current || '');
+    if (text === null) return;
+    try { await api('/api/loads/' + encodeURIComponent(id) + '/note', { method: 'POST', body: JSON.stringify({ note: text }) }); }
+    catch (e) { return alert(e.message || 'Could not save the note'); }
+    try { await loadLoads(); } catch (e) {}
+    loadCheckOn();
+  }
   // "Check on these" (Dashboard): loads whose pickup is close or past and the driver isn't on the way, with numbers to call
   async function loadCheckOn() {
     const wrap = $('homeCheckOn'); if (!wrap) return;
@@ -2993,10 +3007,11 @@
     const tel = p => p ? ` <a href="tel:${esc(p)}">${esc(p)}</a>` : '';
     const col = { late_pickup: 'var(--bad)', not_en_route: 'var(--warn)', no_driver: 'var(--violet)' };
     wrap.innerHTML = (r.items || []).length ? r.items.map(i => `<div class="hli"><span class="dot" style="background:${col[i.stage] || 'var(--warn)'}"></span><div class="t"><b>${esc(i.reason)}</b> · ${esc(i.loadNumber || i.poNumber)} · pickup ${esc(i.pickupText)}
-        <div class="s">${esc(i.carrier || 'No carrier')}${tel(i.carrierPhone)} · driver ${esc(i.driver || '—')}${tel(i.driverPhone)}${i.customer ? ' · ' + esc(i.customer) : ''}</div></div>
-        <button type="button" class="ghost cOpen" data-id="${esc(i.id)}">Open</button></div>`).join('')
+        <div class="s">${esc(i.carrier || 'No carrier')}${tel(i.carrierPhone)} · driver ${esc(i.driver || '—')}${tel(i.driverPhone)}${i.customer ? ' · ' + esc(i.customer) : ''}</div>${noteLine(i)}</div>
+        <button type="button" class="ghost cNote" data-id="${esc(i.id)}" title="Save a note: what you found out when you called">📝 Note</button><button type="button" class="ghost cOpen" data-id="${esc(i.id)}">Open</button></div>`).join('')
       : '<div class="hempty">Nobody to check on: every load picking up soon has its driver on the way. (A load shows here only once it has a pickup appointment.)</div>';
     wrap.querySelectorAll('.cOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+    wrap.querySelectorAll('.cNote').forEach(b => b.onclick = () => saveLoadNote(b.dataset.id, ((r.items || []).find(x => x.id === b.dataset.id) || {}).lastNote));
   }
   if ($('checkOnEmailsSave')) $('checkOnEmailsSave').onclick = async () => {
     const m = $('checkOnMsg'); m.style.color = ''; m.textContent = 'Saving…';
@@ -4146,7 +4161,9 @@
     const shownItems = items.slice(0, 8);
     drawCarrierAlerts();
     $('homeAttnList').innerHTML = (shownItems.length || _carAlerts.length) && !shownItems.length ? '' : shownItems.length
-      ? shownItems.map(i => `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]} hOpen" data-id="${i[5]}">${i[3]}</button></div>`).join('')
+      ? shownItems.map(i => { const L = loads.find(x => x.id === i[5]) || {};
+          return `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div>${noteLine(L)}</div>` +
+            `<button type="button" class="ghost hNote" data-id="${i[5]}" title="Save a note: what you found out when you called">📝 Note</button><button type="button" class="${i[4]} hOpen" data-id="${i[5]}">${i[3]}</button></div>`; }).join('')
         + (items.length > shownItems.length ? `<div class="hempty">+ ${items.length - shownItems.length} more — see the Loads list</div>` : '')
       : '<div class="hempty">All caught up — nothing needs attention right now.</div>';
     // Drivers today: everyone with a load in progress, plus who finished a delivery today.
@@ -4166,6 +4183,7 @@
       return `<div class="hli"><span class="dot" style="background:${onRoad ? 'var(--warn)' : next ? 'var(--primary)' : 'var(--ok)'}"></span><div class="t"><b>${esc(n)}</b><div class="s">${sub}</div></div>${pill}</div>`;
     }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
     document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
+    document.querySelectorAll('#homeAttnList .hNote').forEach(b => b.onclick = () => saveLoadNote(b.dataset.id, (loads.find(x => x.id === b.dataset.id) || {}).lastNote));
     loadCheckOn();
     document.querySelectorAll('#homeCard .hRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));   // retry right here, no detour into the load
   }

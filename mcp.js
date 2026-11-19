@@ -420,6 +420,7 @@ function loadDetail(d, base) {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
     delivery: d.load.podMode === 'paper' ? 'paper BOL (driver sends a photo of the signed BOL' + ((d.load.paperStops || 1) > 1 ? ', ' + d.load.paperStops + ' stops' : '') + ')' : d.load.podMode === 'epod' ? 'ePOD (signed on the phone)' : 'not set',
     pickup: d.load.pickupAt ? require('./checkon').fmtCT(d.load.pickupAt) + ' Central' + (d.load.pickupNote ? ' (' + d.load.pickupNote + ')' : '') : 'not set',
+    last_note: d.load.lastNote ? d.load.lastNote + ' (' + (d.load.lastNoteBy || '') + ', ' + require('./checkon').fmtCT(d.load.lastNoteAt) + ')' : null,
     driver_status: d.load.pickedUpAt ? 'picked up ' + require('./checkon').fmtCT(d.load.pickedUpAt) : d.load.enRouteAt ? 'on the way since ' + require('./checkon').fmtCT(d.load.enRouteAt) : 'not on the way yet',
     // the company's own load fields (Release #, Trailer #…) with this load's values
     load_fields: (d.loadFields || []).length ? Object.fromEntries(d.loadFields.map(f => [f.name, f.value || (f.required ? '(missing, required)' : '')])) : undefined,
@@ -980,8 +981,18 @@ const TOOLS = [
       const r = await api(user, 'GET', '/api/loads/check-on');
       return { count: r.items.length, emails_go_to: r.emails, rules: r.rules,
         loads: r.items.map(i => ({ load: i.loadNumber || i.poNumber, po_number: i.poNumber, customer: i.customer, pickup: i.pickupText, why: i.reason,
-          minutes_until_pickup: i.minutesUntilPickup, carrier: i.carrier, carrier_phone: i.carrierPhone, driver: i.driver, driver_phone: i.driverPhone,
+          minutes_until_pickup: i.minutesUntilPickup, carrier: i.carrier, carrier_phone: i.carrierPhone, driver: i.driver, driver_phone: i.driverPhone, last_note: i.lastNote || null,
           portal_link: base + '/app?load=' + encodeURIComponent(i.id) })) };
+    } },
+  { name: 'add_load_note', title: 'Save a call note on a load',
+    description: 'Saves a short note on a load, e.g. what the carrier said on a check call ("Called Kenny at J5, driver is Mike, ETA 2 PM"). It shows as the load’s latest note on the Dashboard and the check-on list/email, and is kept in the load’s history. note "" clears the latest note.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), note: str('The note (up to 500 characters)') }, required: ['load', 'note'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a, base) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      await api(user, 'POST', '/api/loads/' + d.load.id + '/note', { json: { note: String(a.note || '') } });
+      return Object.assign({ saved: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
     } },
   { name: 'set_check_on_emails', title: 'Who gets the check-on emails',
     description: 'Sets who is emailed the check-on list as loads become due (pickup close and the driver not “On my way”). Pass one or more emails; an empty list turns the emails off. Confirm with the user first.',

@@ -8,7 +8,8 @@ const { db } = require('./db');
 const { requireAuth } = require('./auth');
 const { logEvent } = require('./events');
 
-for (const [t, c] of [['loads', 'pickupAt INTEGER'], ['loads', 'pickupNote TEXT'], ['loads', 'checkOnStage TEXT'], ['orgs', 'checkOnEmails TEXT']]) {
+for (const [t, c] of [['loads', 'pickupAt INTEGER'], ['loads', 'pickupNote TEXT'], ['loads', 'checkOnStage TEXT'], ['orgs', 'checkOnEmails TEXT'],
+  ['loads', 'lastNote TEXT'], ['loads', 'lastNoteAt INTEGER'], ['loads', 'lastNoteBy TEXT']]) {   // the latest call note ("Called Kenny, driver is Mike")
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch (e) {}
 }
 
@@ -110,7 +111,8 @@ function dueList(orgId, now = Date.now()) {
       pickupAt: l.pickupAt, pickupNote: l.pickupNote, pickupText: fmtCT(l.pickupAt) + (l.pickupNote && l.pickupNote !== 'date only' ? ' (' + l.pickupNote + ')' : l.pickupNote === 'date only' ? ' (date only)' : ''),
       minutesUntilPickup: Math.round(until / MIN), stage, reason: REASON[stage],
       carrier: l.carrierName || null, carrierPhone: fmtPhone(l.carrierPhone), driver: l.driverName || null, driverPhone: fmtPhone(l.driverPhone),
-      enRouteAt: l.enRouteAt || null, alerted: l.checkOnStage === stage });
+      enRouteAt: l.enRouteAt || null, alerted: l.checkOnStage === stage,
+      lastNote: l.lastNote || null, lastNoteAt: l.lastNoteAt || null, lastNoteBy: l.lastNoteBy || null });
   }
   const rank = { late_pickup: 0, not_en_route: 1, no_driver: 2 };
   return out.sort((a, b) => rank[a.stage] - rank[b.stage] || a.pickupAt - b.pickupAt);
@@ -121,7 +123,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&am
 function emailFor(items, fresh) {
   const row = i => `<tr><td style="padding:6px 8px;border-top:1px solid #e3e9f2"><a href="${portalBase()}/app?load=${encodeURIComponent(i.id)}">${esc(i.loadNumber || i.poNumber)}</a><br><span style="color:#5a6b82">${esc(i.customer || '')}</span></td>
     <td style="padding:6px 8px;border-top:1px solid #e3e9f2">${esc(i.pickupText)}${i.origin ? '<br><span style="color:#5a6b82">' + esc(i.origin) + '</span>' : ''}</td>
-    <td style="padding:6px 8px;border-top:1px solid #e3e9f2"><b>${esc(i.reason)}</b></td>
+    <td style="padding:6px 8px;border-top:1px solid #e3e9f2"><b>${esc(i.reason)}</b>${i.lastNote ? '<br><span style="color:#5a6b82">📝 ' + esc(i.lastNote) + ' (' + esc(i.lastNoteBy || '') + ', ' + esc(fmtCT(i.lastNoteAt)) + ')</span>' : ''}</td>
     <td style="padding:6px 8px;border-top:1px solid #e3e9f2">${esc(i.carrier || '')}${i.carrierPhone ? '<br><a href="tel:' + esc(i.carrierPhone) + '">' + esc(i.carrierPhone) + '</a>' : ''}</td>
     <td style="padding:6px 8px;border-top:1px solid #e3e9f2">${esc(i.driver || '—')}${i.driverPhone ? '<br><a href="tel:' + esc(i.driverPhone) + '">' + esc(i.driverPhone) + '</a>' : ''}</td></tr>`;
   const table = list => `<table style="border-collapse:collapse;font-size:14px;width:100%"><tr style="text-align:left;color:#5a6b82;font-size:12px"><th style="padding:6px 8px">Load</th><th style="padding:6px 8px">Pickup</th><th style="padding:6px 8px">Why</th><th style="padding:6px 8px">Carrier</th><th style="padding:6px 8px">Driver</th></tr>${list.map(row).join('')}</table>`;
@@ -176,6 +178,20 @@ router.get('/check-on', requireAuth, (req, res) => {
   const o = db.prepare(`SELECT checkOnEmails FROM orgs WHERE id = ?`).get(org);
   res.json({ items: dueList(org), emails: String((o && o.checkOnEmails) || '').split(/[;,\s]+/).filter(Boolean),
     rules: { notEnRouteMinutesBefore: LEAD_EN_ROUTE / MIN, noDriverMinutesBefore: LEAD_NO_DRIVER / MIN, latePickupMinutesAfter: LATE_PICKUP / MIN } });
+});
+// A call note on a load ("Called Kenny at J5, driver is Mike, ETA 2 PM"): shown as the load's latest note on the Dashboard
+// and the check-on list/email, and kept in the load's history. Empty text clears the latest note (history stays).
+router.post('/:id/note', requireAuth, express.json(), (req, res) => {
+  if (!['admin', 'dispatcher', 'superadmin', 'sales'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
+  const my = req.user.orgId || null;
+  if (!load || (req.user.role !== 'superadmin' && [load.orgId, load.brokerId, load.carrierId].indexOf(my) < 0)) return res.status(404).json({ error: 'Load not found' });
+  const text = String((req.body && req.body.note) || '').trim().slice(0, 500);
+  const who = (req.user.name || req.user.email || 'dispatch').split(/\s+/)[0];
+  const now = Date.now();
+  db.prepare(`UPDATE loads SET lastNote = ?, lastNoteAt = ?, lastNoteBy = ? WHERE id = ?`).run(text || null, text ? now : null, text ? who : null, load.id);
+  if (text) logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'note', detail: '📝 ' + text, actor: req.user.email || who });
+  res.json({ ok: true, lastNote: text || null, lastNoteAt: text ? now : null, lastNoteBy: text ? who : null });
 });
 router.put('/check-on/settings', requireAuth, express.json(), (req, res) => {
   if (!['admin', 'dispatcher', 'superadmin'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
