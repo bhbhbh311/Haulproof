@@ -4140,7 +4140,9 @@
     picks.forEach(l => items.push(['var(--violet)', `<b>Pick the signed copy to keep</b> · ${po(l)}`, 'A stop was signed twice — the customer copy is on hold until you choose', 'Pick', '', l.id]));
     failed.forEach(l => items.push(['var(--bad)', `<b>Email failed</b> · ${po(l)}`, 'The signed copy didn\'t go out — pick who gets it and try again', 'Retry email', 'ghost btn-danger hRetry', l.id]));
     setup.forEach(l => items.push(['var(--violet)', `<b>Signature boxes not placed</b> · ${po(l)}`, 'The driver can\'t sign until it\'s set up', 'Set up', '', l.id]));
-    nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver</b> · ${po(l)}`, esc(l.customer || l.consignee || 'Assign a driver to send it to their phone'), 'Assign', 'ghost', l.id]));
+    nodrv.forEach(l => items.push(['var(--warn)', `<b>No driver yet</b> · ${po(l)}`,
+      (l.carrierName ? '<b>' + esc(l.carrierName) + '</b> hasn’t named the driver' + (l.customer ? ' · ' + esc(l.customer) : '') : esc(l.customer || l.consignee || 'Assign a carrier and driver to send it to their phone')),
+      l.carrierName ? 'Open' : 'Assign', 'ghost', l.id]));
     const shownItems = items.slice(0, 8);
     drawCarrierAlerts();
     $('homeAttnList').innerHTML = (shownItems.length || _carAlerts.length) && !shownItems.length ? '' : shownItems.length
