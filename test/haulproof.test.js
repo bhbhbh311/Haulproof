@@ -190,7 +190,7 @@ test('connector: a broker dispatcher works an approved carrier’s drivers and l
   assert.match(add.out.drivers[0].link, /\/go\//);
   assert.equal(db.prepare('SELECT orgId FROM drivers WHERE name = ?').get('Cora Driver').orgId, car, 'in the carrier’s account');
   const ls = await call('list_drivers', { carrier: 'Connector Carrier' });
-  assert.deepEqual(ls.out.drivers.map(d => [d.name, d.phone, !!d.link]), [['Cora Driver', '555-0303', true]]);
+  assert.deepEqual(ls.out.drivers.map(d => [d.name, d.phone, !!d.link, d.opened_link]), [['Cora Driver', '555-0303', true, false]], 'not opened yet: no PIN');
   const up = await call('update_driver', { carrier: 'Connector Carrier', driver: '555-0303', phone: '913-488-0404' });
   assert.equal(up.err, false, JSON.stringify(up.out)); assert.equal(up.out.now.phone, '913-488-0404');
   assert.equal((await call('update_driver', { carrier: 'Connector Carrier', driver: 'Cora Driver', reset_pin: true })).err, true, 'PIN stays the carrier’s');
