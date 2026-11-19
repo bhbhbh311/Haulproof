@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   lastUsedAt   INTEGER
 );
 `);
+// Upload links can file the PDF as the stop's already-signed BOL (signed = 1), with its signed date and no email
+for (const c of ['signed INTEGER', 'signedAt INTEGER', 'noEmail INTEGER', 'note TEXT']) { try { db.exec(`ALTER TABLE upload_links ADD COLUMN ${c}`); } catch (e) {} }
 
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -1057,15 +1059,42 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {
       load: str('PO #, load #, or load id'), filename: str('File name, e.g. "BOL-4821.pdf"'),
       stop_number: { type: 'integer', minimum: 1, description: 'Stop number (default 1)' },
-      doc_type: { type: 'string', enum: ['BOL', 'POD', 'LUMPER', 'OTHER'], description: 'Document type (default BOL)' } }, required: ['load'] },
+      doc_type: { type: 'string', enum: ['BOL', 'POD', 'LUMPER', 'OTHER'], description: 'Document type (default BOL)' },
+      signed: { type: 'boolean', description: 'true = the PDF is a BOL that is ALREADY SIGNED (a paper copy the carrier sent in): it is filed as the stop’s signed paper BOL instead of “needs signature setup”, and an unsigned BOL on that stop is set aside as not used. Confirm with the user first.' },
+      signed_date: str('With signed: the date it was signed/delivered, YYYY-MM-DD (default today)'),
+      email: { type: 'boolean', description: 'With signed: email the signed copy to the load’s contacts as usual (default false: AP already has it)' },
+      note: str('With signed: where it came from, e.g. "from the AP inbox, BOL\'s/(OTHER) MISC BOLs"') }, required: ['load'] },
     run: async (user, a, base) => {
       needCompany(user);
       const d = await resolveLoad(user, a.load); needOwner(user, d.load);
       const token = crypto.randomBytes(24).toString('base64url'), exp = Date.now() + UPLOAD_LINK_MS;
-      db.prepare(`INSERT INTO upload_links (tokenHash, userId, loadId, stopNumber, docType, filename, expiresAt) VALUES (?,?,?,?,?,?,?)`)
-        .run(sha(token), user.id, d.load.id, Math.max(1, parseInt(a.stop_number, 10) || 1), a.doc_type || 'BOL', String(a.filename || 'document.pdf').slice(0, 120), exp);
+      const sd = String(a.signed_date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      db.prepare(`INSERT INTO upload_links (tokenHash, userId, loadId, stopNumber, docType, filename, expiresAt, signed, signedAt, noEmail, note) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(sha(token), user.id, d.load.id, Math.max(1, parseInt(a.stop_number, 10) || 1), a.doc_type || 'BOL', String(a.filename || 'document.pdf').slice(0, 120), exp,
+          a.signed ? 1 : 0, sd ? Date.UTC(+sd[1], +sd[2] - 1, +sd[3], 18) : null, a.email ? 0 : 1, a.note ? String(a.note).slice(0, 200) : null);
       return { upload_url: base + '/u/' + token, expires_at: new Date(exp).toISOString(), po_number: d.load.poNumber,
+        files_as: a.signed ? 'the stop’s signed paper BOL' + (a.email ? ' (emailed)' : ' (not emailed)') : 'needs signature setup',
         how_to_use: 'POST the PDF to upload_url with Content-Type: application/pdf (one file, max 20 MB, one use). Or open upload_url in a browser to choose the file.' };
+    } },
+  { name: 'add_signed_bol', title: 'File an already-signed BOL',
+    description: 'Files a BOL that was ALREADY SIGNED (the paper copy a carrier sent to AP, a scan) on a load’s stop as its signed paper BOL, given as file_base64 or a public file_url. For a file on disk, use get_upload_link with signed: true instead. An unsigned BOL still on that stop is set aside as not used (it leaves the driver’s phone); a stop that already has a signed copy is refused. Not emailed unless email: true. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), file_base64: str('The PDF, base64-encoded'), file_url: str('Public https link to the PDF'),
+      filename: str('File name'), stop_number: { type: 'integer', minimum: 1, description: 'Stop number (default 1)' }, signed_date: str('Date signed/delivered, YYYY-MM-DD (default today)'),
+      email: { type: 'boolean', description: 'Email the signed copy to the load’s contacts (default false)' }, note: str('Where it came from') }, required: ['load'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a, base) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load); needOwner(user, d.load);
+      let buf;
+      if (a.file_base64) { buf = Buffer.from(String(a.file_base64).replace(/^data:[^,]*,/, ''), 'base64'); if (buf.length > MAX_DOC_BYTES) throw new ToolError('That file is too large (max 20 MB).'); }
+      else if (a.file_url) buf = await fetchPdfFromUrl(a.file_url);
+      else throw new ToolError('Pass the PDF as file_base64 or file_url, or use get_upload_link with signed: true.');
+      const sd = String(a.signed_date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      try {
+        const out = await require('./pods').fileSignedBol({ load: d.load, buf, stop: a.stop_number, filename: a.filename, signedAt: sd ? Date.UTC(+sd[1], +sd[2] - 1, +sd[3], 18) : null,
+          note: a.note, actor: user.email || user.name, email: !!a.email });
+        return Object.assign({ filed: true, stop: out.stop, unsigned_set_aside: out.setAside, emailed: out.emailed }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
+      } catch (e) { if (e.status) throw new ToolError(e.message); throw e; }
     } },
   { name: 'review_pages', title: 'Review a document’s pages',
     description: 'Reads every page of a document on a load and labels it (bill of lading, terms, mill/material certificate, invoice…), and suggests which pages to keep for the driver to sign. Changes nothing — show the user the plan, then call trim_document with the pages they approve. Uses AI (about 1–3¢ per document).',
@@ -1309,11 +1338,17 @@ router.post('/u/:token', express.raw({ type: () => true, limit: '21mb' }), async
   const claim = db.prepare(`UPDATE upload_links SET usedAt = ? WHERE tokenHash = ? AND usedAt IS NULL`).run(Date.now(), row.tokenHash);
   if (!claim.changes) return res.status(404).json({ error: 'This upload link was already used.' });
   try {
+    if (row.signed) {   // an already-signed BOL: filed as the stop's signed paper BOL
+      if (buf.length > MAX_DOC_BYTES) throw new ToolError('That file is too large (max 20 MB).');
+      const out = await require('./pods').fileSignedBol({ load, buf, stop: row.stopNumber, filename: row.filename, signedAt: row.signedAt, note: row.note, actor: user.email || user.name, email: !row.noEmail });
+      return res.json({ ok: true, document_id: out.podId, stop: out.stop, po_number: load.poNumber, status: 'signed', unsigned_set_aside: out.setAside, emailed: out.emailed });
+    }
     const out = await attachPdf(user, load, buf, { stop: row.stopNumber, docType: row.docType, filename: row.filename }, baseUrl(req));
     res.json({ ok: true, document_id: out.document_id, stop: out.stop, po_number: out.po_number, status: out.status, signature_setup_link: out.signature_setup_link });
   } catch (e) {
     db.prepare(`UPDATE upload_links SET usedAt = NULL WHERE tokenHash = ?`).run(row.tokenHash);   // a bad file doesn't burn the link
-    res.status(e instanceof ToolError ? 400 : 500).json({ error: e instanceof ToolError ? e.message : 'Upload failed' });
+    const known = e instanceof ToolError || e.status;
+    res.status(known ? (e.status || 400) : 500).json({ error: known ? e.message : 'Upload failed' });
   }
 });
 

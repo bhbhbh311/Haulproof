@@ -1249,6 +1249,8 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
           <button class="ghost hide" id="ldAddStopToggle" type="button" style="display:none !important;">＋ Add stop / documents</button>
+          <span><button class="ghost btn-sm" id="ldSignedBolBtn" type="button" title="File a BOL that was already signed (the paper copy the carrier sent in) as this stop's signed BOL">✔ Add signed BOL</button>
+            <input type="file" id="ldSignedBolFile" accept="application/pdf" style="display:none"><span id="ldSignedBolMsg" style="font-size:13px;font-weight:600;margin-left:6px;"></span></span>
         </div>
         <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
         <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
@@ -2962,6 +2964,26 @@
   // The company whose own driver hauls it (e.g. Brown Strauss): the HQ view's location, else the signed-in company.
   const ownTruckCo = l => (l && (l.location || l.orgName)) || ((user && user.orgName && (!l || !l.orgId || l.orgId === user.orgId)) ? user.orgName : '') || 'Own driver';
   const ownTruckTag = l => '<span class="chip signed" title="Their own driver hauls this load; no carrier needed">' + esc(ownTruckCo(l)) + '</span>';
+  // "Add signed BOL": file a BOL that's already signed (paper copy from the carrier / AP inbox) as a stop's signed BOL
+  if ($('ldSignedBolBtn')) $('ldSignedBolBtn').onclick = () => { if (curLoad) $('ldSignedBolFile').click(); };
+  if ($('ldSignedBolFile')) $('ldSignedBolFile').onchange = async () => {
+    const f = $('ldSignedBolFile').files[0], m = $('ldSignedBolMsg'); $('ldSignedBolFile').value = '';
+    if (!f || !curLoad) return;
+    const stop = (prompt('File "' + f.name + '" as the SIGNED BOL for which stop?', '1') || '').trim();
+    if (!stop) return;
+    const date = (prompt('Date it was signed / delivered (YYYY-MM-DD):', new Date().toISOString().slice(0, 10)) || '').trim();
+    const email = confirm('Also email the signed copy to this load\'s contacts?\n\nOK = email it   ·   Cancel = just file it (AP already has it)');
+    m.style.color = ''; m.textContent = 'Filing…';
+    try {
+      const r = await fetch('/api/pods/office-signed', { method: 'POST', credentials: 'include', body: await f.arrayBuffer(),
+        headers: { 'Content-Type': 'application/pdf', 'X-Load': encodeURIComponent(curLoad.id), 'X-Stop': encodeURIComponent(stop), 'X-Filename': encodeURIComponent(f.name),
+          'X-Signed-Date': encodeURIComponent(date), 'X-No-Email': email ? '0' : '1' } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Could not file it');
+      m.style.color = 'var(--ok)'; m.textContent = '✓ Filed as signed' + (j.setAside ? ' (unsigned BOL set aside)' : '') + (j.emailed ? ' and emailed' : '');
+      openLoad(curLoad.id);
+    } catch (e) { m.style.color = 'var(--bad)'; m.textContent = e.message; }
+  };
   // "Check on these" (Dashboard): loads whose pickup is close or past and the driver isn't on the way, with numbers to call
   async function loadCheckOn() {
     const wrap = $('homeCheckOn'); if (!wrap) return;

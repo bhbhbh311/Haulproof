@@ -893,3 +893,35 @@ test('check-on list: pickup close and the driver not "On my way" (or no driver, 
   const ed = await brk('PUT', '/api/loads/' + later.id, { pickup: '', pickupNote: '' });
   assert.equal(ed.body.load.pickupAt, null);
 });
+
+test('add signed BOL: an already-signed paper BOL is filed on the stop as signed (upload link or portal), the unsigned BOL leaves the driver, nothing emailed; a second one is refused', async () => {
+  const lid = id(), unsigned = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, status, podMode, createdAt) VALUES (?,?,?,?,'assigned','epod',?)`).run(lid, broker, '125361', '125361', Date.now());
+  db.prepare("INSERT INTO pods (id, orgId, loadId, poNumber, stopNumber, docType, filename, filepath, status, uploadedAt, fields) VALUES (?,?,?,?,1,'BOL','BOL 125361.pdf','/dev/null','prepared',?,'[]')").run(unsigned, broker, lid, '125361', Date.now());
+  const call = mcpToken('brk@test.example');
+  const link = await call('get_upload_link', { load: '125361', filename: '125361 MASONMADE.pdf', signed: true, signed_date: '2026-11-18', note: 'from the AP inbox' });
+  assert.equal(link.err, false, JSON.stringify(link.out)); assert.match(link.out.files_as, /signed paper BOL \(not emailed\)/);
+  const pdf = Buffer.from('%PDF-1.4\n% signed BOL\n%%EOF\n');
+  const up = await fetch(link.out.upload_url, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: pdf }).then(async r => ({ status: r.status, body: await r.json() }));
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.deepEqual([up.body.status, up.body.unsigned_set_aside, up.body.emailed], ['signed', 1, false]);
+  const pods = db.prepare('SELECT id, status, paperSigned, signedAt FROM pods WHERE loadId = ? ORDER BY uploadedAt').all(lid);
+  assert.equal(pods.find(p => p.id === unsigned).status, 'not_used', 'the unsigned ePOD BOL is set aside');
+  const signed = pods.find(p => p.id !== unsigned);
+  assert.deepEqual([signed.status, signed.paperSigned, signed.signedAt], ['signed', 1, Date.UTC(2026, 10, 18, 18)]);
+  const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ?').all(lid).map(e => e.detail).join('\n');
+  assert.match(hist, /Signed BOL filed by the office: 125361 MASONMADE\.pdf · from the AP inbox · the unsigned BOL on this stop was set aside as not used · not emailed/);
+  // the same stop again is refused, from the portal too
+  const brk = await login('brk@test.example');
+  const again = await fetch(B + '/api/pods/office-signed', { method: 'POST', headers: { cookie: (await (await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brk@test.example', password: PW }) })).headers.get('set-cookie')).split(';')[0],
+    'Content-Type': 'application/pdf', 'X-Load': lid, 'X-No-Email': '1' }, body: pdf });
+  assert.equal(again.status, 409);
+  // portal: stop 2 works; not a PDF is refused; another company can't
+  const cookie = (await (await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brk@test.example', password: PW }) })).headers.get('set-cookie')).split(';')[0];
+  const post = (body, extra, ck = cookie) => fetch(B + '/api/pods/office-signed', { method: 'POST', headers: Object.assign({ cookie: ck, 'Content-Type': 'application/pdf', 'X-Load': lid, 'X-No-Email': '1' }, extra || {}), body }).then(r => r.status);
+  assert.equal(await post(Buffer.from('not a pdf'), { 'X-Stop': '2' }), 415);
+  assert.equal(await post(pdf, { 'X-Stop': '2' }), 200);
+  const shipCk = (await (await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'ship@test.example', password: PW }) })).headers.get('set-cookie')).split(';')[0];
+  assert.equal(await post(pdf, { 'X-Stop': '3' }, shipCk), 404);
+  assert.ok(brk);
+});

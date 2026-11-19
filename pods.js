@@ -1301,6 +1301,57 @@ router.post('/:id/reshoot-page', requireAuth, raw, (req, res) => {
   } catch (e) { console.error('reshoot-page', e.message); res.status(500).json({ error: 'Could not send the page back' }); }
 });
 
+// ---- Office files a BOL that was already signed (paper copy the carrier sent in, a scan from the AP inbox) ----
+// Puts the PDF on the load's stop as its signed paper BOL. An unsigned document still on that stop (the ePOD BOL the
+// driver never signed, one waiting for setup) is set aside as "not used" so it leaves the driver's phone; a stop that
+// already has a signed copy is refused. email=false skips the signed-copy email (AP already has it).
+async function fileSignedBol({ load, buf, stop, filename, signedAt, note, actor, email = true }) {
+  const bad = (status, msg) => Object.assign(new Error(msg), { status });
+  if (!load) throw bad(404, 'Load not found');
+  if (!buf || !buf.length) throw bad(400, 'Empty file');
+  if (buf.slice(0, 5).toString('latin1') !== '%PDF-') throw bad(415, 'That file is not a PDF');
+  stop = Math.max(1, parseInt(stop, 10) || 1);
+  const onStop = db.prepare(`SELECT id, status FROM pods WHERE loadId = ? AND COALESCE(stopNumber, 1) = ? AND status NOT IN ('parked','not_used')`).all(load.id, stop);
+  if (onStop.some(p => p.status === 'signed' || p.status === 'emailed')) throw bad(409, 'Stop ' + stop + ' on load ' + (load.loadNumber || load.poNumber) + ' already has a signed copy.');
+  const who = actor || 'dispatch', now = Date.now(), at = Number(signedAt) || now;
+  const id = crypto.randomUUID(), filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
+  fs.writeFileSync(filepath, buf);
+  const name = String(filename || ('BOL ' + (load.loadNumber || load.poNumber || '') + '.pdf')).slice(0, 120);
+  const setAside = onStop.length;
+  db.transaction(() => {
+    for (const p of onStop) db.prepare(`UPDATE pods SET notUsedPrevStatus = status, status = 'not_used', notUsedAt = ?, notUsedBy = ? WHERE id = ?`).run(now, who, p.id);
+    db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, stopNumber, docType, filename, filepath, sizeBytes, fields, recipients, signedAt, status, paperSigned, uploadedAt)
+       VALUES (?,?,?,?,?,?,?, 'BOL', ?,?,?, '[]','[]', ?, 'signed', 1, ?)`)
+      .run(id, load.orgId || null, load.id, load.loadNumber || null, load.poNumber || null, load.consignee || null, stop, name, filepath, buf.length, at, now);
+  })();
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'signed',
+    detail: 'Signed BOL filed by the office' + (stop > 1 ? ' (Stop ' + stop + ')' : '') + ': ' + name + (note ? ' · ' + note : '') +
+      (setAside ? ' · the unsigned BOL on this stop was set aside as not used' : '') + (email ? '' : ' · not emailed'), actor: who });
+  const fresh = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(id);
+  let recipients = [];
+  if (email) {
+    recipients = signedPodRecipients(id, load, load.orgId, []);
+    const meta = { orgId: fresh.orgId, poNumber: fresh.poNumber, loadNumber: fresh.loadNumber, consignee: fresh.consignee, docType: 'BOL', filename: name, signedAt: at };
+    emailSignedPod({ id, load, orgId: load.orgId, meta, filepath, allRecipients: recipients, actor: who }).catch(e => console.error('signed-bol email', e.message));
+  }
+  return { podId: id, stop, setAside, emailed: !!email && recipients.length > 0, recipients };
+}
+// Portal: POST the PDF with X-Load (load id), optional X-Stop, X-Filename, X-Signed-Date (YYYY-MM-DD), X-No-Email: 1
+router.post('/office-signed', requireAuth, raw, async (req, res) => {
+  try {
+    if (!['admin', 'dispatcher', 'superadmin'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
+    const dec = decoder(req.headers), h = req.headers;
+    const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get((dec(h['x-load']) || '').trim());
+    const my = req.user.orgId || null;
+    if (!load || (!isSuperReq(req) && [load.orgId, load.brokerId].indexOf(my) < 0)) return res.status(404).json({ error: 'Load not found' });
+    const d = (dec(h['x-signed-date']) || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const out = await fileSignedBol({ load, buf: req.body, stop: dec(h['x-stop']), filename: dec(h['x-filename']), signedAt: d ? Date.UTC(+d[1], +d[2] - 1, +d[3], 18) : null,
+      actor: req.user.email || req.user.name, email: !/^(1|true|yes)$/i.test(String(h['x-no-email'] || '')) });
+    res.json(Object.assign({ ok: true }, out));
+  } catch (e) { if (e.status) return res.status(e.status).json({ error: e.message }); console.error('office-signed', e); res.status(500).json({ error: 'Could not file the signed BOL' }); }
+});
+
 router.canAccess = canAccess;
+router.fileSignedBol = fileSignedBol;
 router.combinedPodBytes = combinedPodBytes;   // used by emailretry.js to resend   // shared with the AI placement routes (aiplace.js)
 module.exports = router;
