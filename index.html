@@ -1337,7 +1337,8 @@
           <div class="row" style="grid-template-columns:1fr;margin-bottom:10px;">
             <div><label>Assign a driver <span id="ldDrvSelectHint" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">pick from your drivers — routes the load to their phone</span></label>
               <select id="ldDrvSelect"><option value="">— choose a driver —</option></select>
-              <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button></div>
+              <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button>
+              <button type="button" id="ldAskCarrier" class="ghost" style="display:none;margin-top:6px;font-size:12px;padding:5px 9px;" title="Email the carrier a short form for the driver’s name and cell #. The driver is then put on this load and texted their link.">✉ Ask the carrier who’s driving</button></div>
           </div>
           <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
         </div>
@@ -4340,6 +4341,7 @@
       // driver is their main action here). The header shows who's set.
       populateLdDrivers();
       if ($('ldDrvBody')) { $('ldDrvBody').classList.toggle('hide', !carrierUser); $('ldDrvCaret').textContent = carrierUser ? '▾' : '▸'; }
+      if ($('ldAskCarrier')) $('ldAskCarrier').style.display = (curLoad.carrierId && !curLoad.driverName && !isCarrierUser()) ? '' : 'none';
       if ($('ldDrvSummary')) { const _drvSet = !!curLoad.driverName; $('ldDrvSummary').textContent = _drvSet ? (curLoad.driverName + (curLoad.truck ? (' · Truck ' + curLoad.truck) : '')) : 'Not set — tap to add'; $('ldDrvSummary').classList.toggle('ld-missing', !_drvSet); }
       populateSalesRep();
       if ($('ldSalesRep')) $('ldSalesRep').value = '';
@@ -8930,6 +8932,18 @@
     await populateLdDrivers();
     if (id && $('ldDrvSelect')) { $('ldDrvSelect').value = id; _ldSelectedDriverId = id; ssSync($('ldDrvSelect')); }
   } });
+  // "Ask the carrier who's driving": email the carrier a form for the driver's name and cell #; the answer puts the
+  // driver on this load and texts them the link. A carrier with no login yet gets one from this email.
+  if ($('ldAskCarrier')) $('ldAskCarrier').onclick = async () => {
+    if (!curLoad || !curLoad.carrierId) return alert('Put a carrier on the load first.');
+    const email = (prompt('Email ' + (curLoad.carrierName || 'the carrier') + ' to ask who’s driving ' + (curLoad.loadNumber || curLoad.poNumber) + '.\n\nTheir dispatch or rate con email:') || '').trim();
+    if (!email) return;
+    try {
+      const r = await api('/api/loads/' + curLoad.id + '/request-driver', { method: 'POST', body: JSON.stringify({ email }) });
+      alert(r.alreadyAsked ? ('Already asked ' + r.sentTo + ' today. You’ll get an email when they answer.')
+        : ('Sent to ' + r.sentTo + '. When they answer, the driver goes on this load and gets the link by text, and you get an email.' + (r.adminCreated ? '\n\n' + r.sentTo + ' was also set up as ' + (curLoad.carrierName || 'the carrier') + '’s HaulProof login.' : '')));
+    } catch (e) { alert(e.message); }
+  };
   // "Not set — tap to add" opens the driver section and jumps straight to creating a driver.
   if ($('ldDrvSummary')) $('ldDrvSummary').onclick = (e) => {
     if (curLoad && curLoad.driverName) return;   // already set → let the header toggle behave normally

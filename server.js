@@ -281,7 +281,9 @@ app.post('/api/auth/help', (req, res) => {
 });
 
 // --- resources ---
+app.use('/api/loads', require('./driverrequest').router);   // POST /:id/request-driver: ask the carrier who's driving
 app.use('/api/loads', loadsRouter);
+app.use('/api/driver-request', require('./driverrequest').publicRouter);   // public: the carrier's "who's driving" form
 app.use('/api/pods', require('./aiplace'));
 app.use('/api/ai-usage', require('./aiplace').usageRouter);   // master admin: AI cost report + per-company AI settings
 app.use('/api/pods', require('./emailretry').router);   // POST /:id/resend-email   // AI signature-box placement (before the /:id routes)
@@ -527,6 +529,7 @@ try {
 // --- signature setup screen + its pdf.js engine ---
 app.get('/prepare', (_req, res) => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'); res.sendFile(path.join(__dirname, 'prepare.html')); });
 app.get('/request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'request.html')); });
+app.get('/driver-request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'driver-request.html')); });
 app.get('/login-info', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'login-info.html')); });
 app.get('/help', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'help.html')); });
 

@@ -765,3 +765,43 @@ test('connector: new team logins are emailed their set-up link; send_password_li
   // only this account's logins
   assert.equal((await mcpToken('ship@test.example')('send_password_link', { login: 'new.disp@test.example' })).err, true);
 });
+
+test('ask the carrier who’s driving: the carrier answers on the form, the driver goes on the load and is texted the link, and the carrier gets its first login', async () => {
+  createUser({ email: 'askdisp@test.example', name: 'Ask Dispatcher', role: 'dispatcher', password: PW, orgId: broker });
+  const car = org('Ask Carrier LLC', 'carrier');
+  const lid = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, origin, consignee, createdAt) VALUES (?,?,?,?,?,?,'assigned',?,?,?)`)
+    .run(lid, broker, '125302', '125302-0', car, 'Ask Carrier LLC', 'Joplin, MO', 'Dana Inc, Tulsa, OK', Date.now());
+  const call = mcpToken('askdisp@test.example');
+  const r = await call('ask_carrier_for_driver', { load: '125302', email: 'Dispatch@AskCarrier.example' });
+  assert.equal(r.err, false, JSON.stringify(r.out));
+  assert.equal(r.out.sent_to, 'dispatch@askcarrier.example'); assert.equal(r.out.carrier_admin_login_created, true);
+  const admin = db.prepare('SELECT orgId, role FROM users WHERE email = ?').get('dispatch@askcarrier.example');
+  assert.deepEqual([admin.orgId, admin.role], [car, 'admin'], 'carrier’s first login, its admin');
+  const again = await call('ask_carrier_for_driver', { load: '125302', email: 'dispatch@askcarrier.example' });
+  assert.equal(again.out.form_link, r.out.form_link, 'asked once a day, not twice');
+  // the carrier's form (no sign-in)
+  const t = new URL(r.out.form_link).searchParams.get('t');
+  const page = await (await fetch(B + '/api/driver-request/' + t)).json();
+  assert.deepEqual([page.broker, page.loadNumber, page.origin, page.destination, page.driver], ['Test Broker', '125302', 'Joplin, MO', 'Dana Inc, Tulsa, OK', null]);
+  assert.equal((await fetch(B + '/driver-request?t=' + t)).status, 200);
+  const post = (body) => fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async x => ({ status: x.status, body: await x.json() }));
+  assert.equal((await post({ name: 'Ned Driver', phone: '555-01' })).status, 400, 'needs a 10-digit cell');
+  const before = smsSent.length;
+  const ok = await post({ name: 'Ned Driver', phone: '(417) 260-5588' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.texted, true);
+  const d = db.prepare('SELECT * FROM drivers WHERE orgId = ? AND name = ?').get(car, 'Ned Driver');
+  assert.equal(d.phone, '4172605588');
+  const l = db.prepare('SELECT driverName, assignedDriverId FROM loads WHERE id = ?').get(lid);
+  assert.deepEqual([l.driverName, l.assignedDriverId], ['Ned Driver', d.id]);
+  assert.equal(smsSent[before].to, '+14172605588'); assert.match(smsSent[before].body, /Test Broker: here's your HaulProof driver app for load 125302 \(PO 125302-0\), Ned\./);
+  // answering again with the same cell keeps the same driver (no duplicate)
+  await post({ name: 'Ned D.', phone: '4172605588' });
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drivers WHERE orgId = ?').get(car).n, 1);
+  // only the broker's own loads; a bad link says so
+  assert.equal((await mcpToken('ship@test.example')('ask_carrier_for_driver', { load: '125302', email: 'x@y.example' })).err, true);
+  assert.equal((await fetch(B + '/api/driver-request/nope')).status, 404);
+  const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ? ORDER BY createdAt').all(lid).map(e => e.detail).join('\n');
+  assert.match(hist, /Asked Ask Carrier LLC \(dispatch@askcarrier\.example\) for the driver's name and cell #; set up dispatch@askcarrier\.example/);
+  assert.match(hist, /Driver Ned Driver \(417-260-5588\) given by Ask Carrier LLC; HaulProof link texted/);
+});

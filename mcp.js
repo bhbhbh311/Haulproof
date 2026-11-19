@@ -962,6 +962,19 @@ const TOOLS = [
       const drvs = db.prepare(`SELECT name FROM drivers WHERE orgId = ? AND active = 1 ORDER BY name`).all(car.id).map(x => x.name);
       return Object.assign({ assigned_carrier: car.name, carrier_drivers: drvs }, loadDetail(d2, base));
     } },
+  { name: 'ask_carrier_for_driver', title: 'Ask the carrier who’s driving',
+    description: 'For a load with a carrier but no driver: emails the carrier (their dispatch / rate con email) that we need their driver to run this load through HaulProof, with a short form for the driver’s name and cell #. When they answer, the driver is added under the carrier, put on the load and texted their HaulProof link, and you get an email. If the carrier has no HaulProof login yet, that email also becomes the carrier’s admin login. Dispatchers can use it. Confirm the email with the user first.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), email: str('Carrier’s email to ask (dispatch or rate con email)'),
+      notify_email: str('Who gets the answer (default: your login’s email)') }, required: ['load', 'email'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      if (!d.load.carrierId) throw new ToolError('That load has no carrier yet. Use assign_carrier first.');
+      const r = await api(user, 'POST', '/api/loads/' + d.load.id + '/request-driver', { json: { email: a.email, notifyEmail: a.notify_email || undefined } });
+      return { asked: r.carrier, sent_to: r.sentTo, carrier_admin_login_created: !!r.adminCreated, form_link: r.link, load: d.load.poNumber,
+        next: 'When the carrier answers, the driver is put on the load and texted the link. find_loads / get_load shows the driver.' };
+    } },
   { name: 'unassign_carrier', title: 'Take the carrier off a load',
     description: 'When a carrier cancels: takes the carrier off the load, with its driver, truck and trailer, and pulls the unsigned documents off that driver’s phone. The load, its customer and its documents stay, ready for a new carrier (assign_carrier). Use this, not delete_load, when only the carrier changes. Confirm with the user first.',
     inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id') }, required: ['load'] },
@@ -1161,6 +1174,7 @@ const INSTRUCTIONS = 'HaulProof is an electronic proof-of-delivery system for tr
   'If you are connected as the Master Admin, call whoami first; use list_companies and use_company to pick the company, and always tell the user which company you are working in before creating or changing anything. ' +
   'To set up an account in bulk, add_drivers and add_team_logins take a list (add_team_logins emails each new person their link; send_password_link resends one) (e.g. from a spreadsheet the user shares); confirm names, emails and roles first. ' +
   'A broker adds, changes or texts the drivers and team logins OF ONE OF ITS APPROVED CARRIERS by passing carrier (name, MC # or DOT #) to list_drivers, add_drivers, update_driver, text_driver_link and add_team_logins — never add a carrier’s driver to the broker’s own roster; then assign_driver puts that driver on the load. ' +
+  'When a load has a carrier but no driver, use ask_carrier_for_driver with the carrier’s email: the carrier answers with the driver’s name and cell, and HaulProof puts the driver on the load and texts the link (it also sets up the carrier’s admin login if they have none). ' +
   'When a driver uploaded the BOL the receiver already signed on a load he started himself (an extra load with the receiver’s BL # and no customer) instead of the load he was given, follow the fix_stray_signed_bol prompt: file_signed_bol moves it onto the right load as the signed paper BOL with its GPS and emails it. ' +
   'For a list of carriers or brokers (MC# or DOT#), run check_carriers, show the user the results, then add_carriers; flagged ones need HaulProof\'s approval (ask_haulproof).' + ' What drivers must do (On my way, check-in times, photos, and the company’s own steps like a seal #) is set with get_driver_steps / set_driver_step / add_driver_step, for the whole company or as an exception for one customer. The company’s own load fields and names for standard fields: list_load_fields / rename_field / add_load_field / change_load_field; fill them on a load with update_load fields. Confirm changes with the user first.';
 

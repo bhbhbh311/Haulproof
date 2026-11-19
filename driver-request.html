@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Who's driving?</title>
+<style>
+  :root{ --primary:#1655d1; --primary-dark:#0f3fa6; --ink:#0e1a2d; --muted:#5a6b82; --line:#e3e9f2; --bg:#eef3fb; --ok:#12b76a; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;}
+  .card{background:#fff;width:100%;max-width:440px;border-radius:18px;box-shadow:0 20px 50px -20px rgba(16,44,110,.35);padding:28px 22px;}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:20px;justify-content:center;margin-bottom:6px;}
+  .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:grid;place-items:center;}
+  h1{font-size:19px;margin:14px 0 4px;text-align:center}
+  .sub{color:var(--muted);font-size:14.5px;text-align:center;margin:0 0 18px;line-height:1.45}
+  .load{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;background:#fbfcff;font-size:14.5px;line-height:1.5}
+  .load b{font-size:16px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
+  .inp{width:100%;font:inherit;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+  .inp:focus{outline:2px solid var(--primary);outline-offset:1px}
+  .btn{display:block;width:100%;text-align:center;background:var(--primary);color:#fff;font-weight:700;font-size:16px;
+    padding:14px;border-radius:12px;text-decoration:none;margin-top:8px;border:none;cursor:pointer}
+  .btn:disabled{opacity:.6;cursor:default}
+  .ferr{color:#c0392b;font-size:14px;min-height:20px;margin:4px 0}
+  .err{color:#c0392b;text-align:center;font-size:15px;padding:16px 0}
+  .ok{color:var(--ok);font-size:40px;text-align:center}
+  .note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.5;text-align:center}
+  #loading{text-align:center;color:var(--muted);padding:20px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="mark" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5V16H3V7.5Z" fill="#fff"/><path d="M15 10h3.2l2.8 3.2V16H15v-6Z" fill="#cfe0ff"/><circle cx="7" cy="17.5" r="2" fill="#0f3fa6"/><circle cx="17" cy="17.5" r="2" fill="#0f3fa6"/></svg></span>HaulProof</div>
+    <div id="loading">Loading the load…</div>
+    <div id="bad" class="err" style="display:none"></div>
+
+    <div id="ask" style="display:none">
+      <h1>Who's driving?</h1>
+      <p class="sub" id="askSub"></p>
+      <div class="load" id="loadBox"></div>
+      <form id="f">
+        <div class="field"><label for="nm">Driver's name</label><input class="inp" id="nm" autocomplete="name" required maxlength="80"></div>
+        <div class="field"><label for="ph">Driver's cell #</label><input class="inp" id="ph" type="tel" inputmode="tel" autocomplete="tel" required placeholder="555-555-5555"></div>
+        <div class="ferr" id="ferr"></div>
+        <button class="btn" id="go" type="submit">Send</button>
+      </form>
+      <p class="note">We'll text the driver their HaulProof link. They tap it, pick a PIN, and the load is there. After delivery they send the signed BOL from it.</p>
+    </div>
+
+    <div id="done" style="display:none">
+      <div class="ok">✓</div>
+      <h1 id="doneTitle">Thank you</h1>
+      <p class="sub" id="doneSub"></p>
+      <a class="btn" id="textBtn" style="display:none">Text the driver the link</a>
+      <p class="note" id="doneNote"></p>
+    </div>
+  </div>
+<script>
+  const $ = id => document.getElementById(id);
+  const t = new URLSearchParams(location.search).get('t') || '';
+  const fmt = p => String(p || '').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+  function bad(msg) { $('loading').style.display = 'none'; $('ask').style.display = 'none'; $('bad').textContent = msg; $('bad').style.display = ''; }
+  function txt(el, s) { el.textContent = s; }
+  fetch('/api/driver-request/' + encodeURIComponent(t)).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
+    if (!ok) return bad(j.error || 'This link does not work.');
+    if (j.done) return bad('This load is already complete. Thank you!');
+    $('loading').style.display = 'none'; $('ask').style.display = '';
+    txt($('askSub'), j.broker + ' needs your driver to run this load through HaulProof for the BOL.');
+    const box = $('loadBox'); box.textContent = '';
+    const b = document.createElement('b'); b.textContent = 'Load ' + (j.loadNumber || j.poNumber); box.appendChild(b);
+    [j.carrier, j.origin && ('From: ' + j.origin), j.destination && ('To: ' + j.destination)].filter(Boolean).forEach(s => { box.appendChild(document.createElement('br')); box.appendChild(document.createTextNode(s)); });
+    if (j.driver) { $('nm').value = j.driver.name || ''; $('ph').value = fmt(j.driver.phone); }
+  }).catch(() => bad('Could not load this page. Check your signal and try again.'));
+  $('f').addEventListener('submit', async e => {
+    e.preventDefault(); $('ferr').textContent = ''; $('go').disabled = true; $('go').textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/driver-request/' + encodeURIComponent(t), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('nm').value, phone: $('ph').value }) });
+      const j = await r.json();
+      if (!r.ok) { $('ferr').textContent = j.error || 'That did not go through. Try again.'; return; }
+      $('ask').style.display = 'none'; $('done').style.display = '';
+      txt($('doneTitle'), 'Thank you, ' + j.driver + ' is on the load');
+      if (j.texted) { txt($('doneSub'), 'We texted ' + j.driver + ' (' + fmt(j.phone) + ') their HaulProof link.'); }
+      else {
+        txt($('doneSub'), 'Tap below to text ' + j.driver + ' their HaulProof link from your phone.');
+        const body = j.broker + ': here\'s your HaulProof driver app for ' + j.loadLabel + '. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it.\n' + j.link;
+        const btn = $('textBtn'); btn.href = 'sms:+1' + j.phone + '?&body=' + encodeURIComponent(body); btn.style.display = '';
+        txt($('doneNote'), 'Or send them this link: ' + j.link);
+      }
+    } catch (err) { $('ferr').textContent = 'That did not go through. Check your signal and try again.'; }
+    finally { $('go').disabled = false; $('go').textContent = 'Send'; }
+  });
+</script>
+</body>
+</html>
