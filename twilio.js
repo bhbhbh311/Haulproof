@@ -9,6 +9,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS sms_log (
   id TEXT PRIMARY KEY, orgId TEXT, driverId TEXT, toNumber TEXT NOT NULL, body TEXT, status TEXT NOT NULL,
   twilioSid TEXT, error TEXT, sentBy TEXT, at INTEGER NOT NULL)`);
 
+// Delivery tracking: each text asks Twilio to report its final status (delivered / undelivered / failed) back to
+// /api/twilio/status. loadId and notifyEmail say which load's history gets the result and who hears when it fails.
+for (const c of ['loadId TEXT', 'notifyEmail TEXT', 'errorCode TEXT', 'link TEXT', 'driverName TEXT', 'updatedAt INTEGER']) {
+  try { db.exec(`ALTER TABLE sms_log ADD COLUMN ${c}`); } catch (e) {}
+}
+
 const API = () => (process.env.TWILIO_API_BASE || 'https://api.twilio.com').replace(/\/+$/, '');
 const configured = () => !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && (process.env.TWILIO_FROM || process.env.TWILIO_MESSAGING_SERVICE_SID));
 
@@ -21,15 +27,18 @@ function toE164(phone) {
 
 class SmsError extends Error {}
 
-async function sendText({ to, body, orgId = null, driverId = null, sentBy = null }, { fetchFn = fetch } = {}) {
+// callbackBase: the site's own address (https://haulproofepod.com); Twilio posts the delivery result there.
+async function sendText({ to, body, orgId = null, driverId = null, sentBy = null, loadId = null, notifyEmail = null, link = null, driverName = null, callbackBase = null }, { fetchFn = fetch } = {}) {
   if (!configured()) throw new SmsError('Texting isn’t set up yet (Twilio settings in Render)');
   const num = toE164(to);
   if (!num) throw new SmsError('That phone number doesn’t look like a US mobile number');
   const form = new URLSearchParams({ To: num, Body: body });
   if (process.env.TWILIO_MESSAGING_SERVICE_SID) form.set('MessagingServiceSid', process.env.TWILIO_MESSAGING_SERVICE_SID);
   else form.set('From', process.env.TWILIO_FROM);
-  const log = (status, sid, error) => db.prepare(`INSERT INTO sms_log (id, orgId, driverId, toNumber, body, status, twilioSid, error, sentBy, at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run(crypto.randomUUID(), orgId, driverId, num, body, status, sid || null, error || null, sentBy, Date.now());
+  if (callbackBase) form.set('StatusCallback', callbackBase.replace(/\/+$/, '') + '/api/twilio/status');
+  const log = (status, sid, error) => db.prepare(`INSERT INTO sms_log (id, orgId, driverId, toNumber, body, status, twilioSid, error, sentBy, at, loadId, notifyEmail, link, driverName)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(crypto.randomUUID(), orgId, driverId, num, body, status, sid || null, error || null, sentBy, Date.now(), loadId, notifyEmail, link, driverName);
   let r, j = {};
   try {
     r = await fetchFn(`${API()}/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, {
@@ -48,4 +57,60 @@ async function sendText({ to, body, orgId = null, driverId = null, sentBy = null
   return { sid: j.sid, to: num, status: j.status || 'queued' };
 }
 
-module.exports = { configured, toE164, sendText, SmsError };
+// ---- Twilio's delivery report: POST /api/twilio/status (form fields MessageSid, MessageStatus, ErrorCode) ----
+// Only Twilio can post it: the X-Twilio-Signature header must be the HMAC-SHA1 (auth token) of the URL plus the sorted
+// fields. The final result goes on the text's sms_log row and the load's history; a text that didn't get through also
+// emails whoever should hear (the dispatcher) with the driver's link to send from their own phone.
+const FINAL = new Set(['delivered', 'undelivered', 'failed']);
+const WHY = {
+  30032: 'the HaulProof texting number is still waiting on Twilio’s toll-free verification',
+  30034: 'the HaulProof texting number isn’t registered for texting yet',
+  30003: 'the phone is off or can’t be reached', 30005: 'that number doesn’t exist or isn’t a cell phone',
+  30006: 'that number can’t get texts (landline or blocked)', 30007: 'the phone company filtered it as spam',
+  30008: 'unknown error from the phone company', 21610: 'the driver had replied STOP to our texts',
+};
+function signatureOk(url, params, sig) {
+  const tok = process.env.TWILIO_AUTH_TOKEN || '';
+  if (!tok || !sig) return false;
+  const data = url + Object.keys(params).sort().map(k => k + params[k]).join('');
+  const want = crypto.createHmac('sha1', tok).update(Buffer.from(data, 'utf8')).digest('base64');
+  const a = Buffer.from(want), b = Buffer.from(String(sig));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const fmtPhone = n => String(n || '').replace(/^\+1/, '').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+function statusRoute(originOf) {
+  const express = require('express');
+  const router = express.Router();
+  router.post('/status', express.urlencoded({ extended: false }), (req, res) => {
+    const p = req.body || {};
+    if (!signatureOk(originOf(req) + req.originalUrl, p, req.get('X-Twilio-Signature'))) return res.status(403).send('bad signature');
+    const row = p.MessageSid ? db.prepare(`SELECT * FROM sms_log WHERE twilioSid = ?`).get(String(p.MessageSid)) : null;
+    if (!row) return res.status(200).send('ok');   // not one of ours (or already gone): nothing to do
+    const status = String(p.MessageStatus || p.SmsStatus || '').toLowerCase();
+    const code = p.ErrorCode ? String(p.ErrorCode) : null;
+    const wasFinal = FINAL.has(row.status);
+    db.prepare(`UPDATE sms_log SET status = ?, errorCode = COALESCE(?, errorCode), updatedAt = ? WHERE id = ?`).run(status || row.status, code, Date.now(), row.id);
+    if (!FINAL.has(status) || wasFinal) return res.status(200).send('ok');   // still on its way, or already reported
+    const who = row.driverName || 'the driver', ph = fmtPhone(row.toNumber);
+    const why = code ? (WHY[code] || 'Twilio error ' + code) : '';
+    const load = row.loadId ? db.prepare(`SELECT id, orgId, poNumber, loadNumber FROM loads WHERE id = ?`).get(row.loadId) : null;
+    if (load) {
+      try {
+        require('./events').logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'note', actor: 'Twilio',
+          detail: status === 'delivered' ? `Text with the HaulProof link delivered to ${who} (${ph})`
+            : `Text with the HaulProof link NOT delivered to ${who} (${ph})${why ? ': ' + why : ''}. Send the driver the link from your phone` + (row.link ? ': ' + row.link : '') });
+      } catch (e) {}
+    }
+    if (status !== 'delivered' && row.notifyEmail) {
+      const what = load ? `load ${load.loadNumber && load.loadNumber !== load.poNumber ? load.loadNumber + ' (PO ' + load.poNumber + ')' : load.poNumber}` : 'their load';
+      require('./mailer').sendMail({ to: row.notifyEmail, subject: `Text didn't reach ${who} for ${what}: send the HaulProof link yourself`,
+        text: `HaulProof's text to ${who} (${ph}) with their driver link for ${what} was not delivered${why ? ': ' + why : ''}.\n\n` +
+          `Please text or call ${who} and send this link from your own phone:\n${row.link || '(open the driver in HaulProof and use Copy link)'}\n\n` +
+          `They tap it, pick a PIN, and the load is there.` }).catch(() => {});
+    }
+    res.status(200).send('ok');
+  });
+  return router;
+}
+
+module.exports = { configured, toE164, sendText, SmsError, statusRoute, signatureOk };

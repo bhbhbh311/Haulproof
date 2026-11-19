@@ -897,7 +897,11 @@ async function textDriverLink(req, res, d, orgName) {
   const link = require('./driverlink').driverLink(req, d);
   const first = (d.name || '').split(/\s+/)[0] || '';
   try {
-    const r = await T.sendText({ to: d.phone, body: driverLinkSms(first, orgName, link), orgId: req.user.orgId || null, driverId: d.id, sentBy: req.user.email || null });
+    const me = String(req.user.email || '');
+    const cur = db.prepare(`SELECT id FROM loads WHERE assignedDriverId = ? ORDER BY createdAt DESC LIMIT 1`).get(d.id);
+    const r = await T.sendText({ to: d.phone, body: driverLinkSms(first, orgName, link), orgId: req.user.orgId || null, driverId: d.id, sentBy: me || null,
+      loadId: cur ? cur.id : null, notifyEmail: me && !/^haulproofhelp\+/i.test(me) ? me : null, link, driverName: d.name,
+      callbackBase: require('./invite').originOf(req) });
     return res.json({ ok: true, sentTo: r.to, status: r.status });
   } catch (e) {
     if (e instanceof T.SmsError) return res.status(502).json({ error: e.message });

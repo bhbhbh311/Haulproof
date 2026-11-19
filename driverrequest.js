@@ -140,6 +140,7 @@ publicRouter.post('/:token', express.json(), async (req, res) => {
   if (T.configured()) {
     try {
       await T.sendText({ to: phone, orgId: carrier.id, driverId: drv.id, sentBy: r.email,
+        loadId: load.id, notifyEmail: r.notifyEmail || null, link, driverName: drv.name, callbackBase: originOf(req),
         body: `${askerOf(load)}: here's your HaulProof driver app for ${loadLabel(load)}, ${drv.name.split(/\s+/)[0]}. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it.\n${link}` });
       texted = true;
     } catch (e) { console.error('driver request text', e.message); }
@@ -149,7 +150,7 @@ publicRouter.post('/:token', express.json(), async (req, res) => {
   const who = [r.notifyEmail].filter(Boolean);
   if (who.length) sendMail({ to: who, subject: `${carrier.name} gave the driver for ${loadLabel(load)}: ${drv.name}`,
     text: `${carrier.name} says ${drv.name} (${phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}) is driving ${loadLabel(load)}. ` +
-      (texted ? 'HaulProof texted the driver their link.' : 'Texting isn’t set up, so the carrier was shown a button to text the driver the link.') + `\n\nDriver's link: ${link}` }).catch(() => {});
+      (texted ? 'HaulProof sent the driver a text with their link. If the text doesn’t get through, you’ll get another email saying so.' : 'HaulProof couldn’t text the driver, so the carrier was shown a button to text the link from their phone. You can also send it yourself.') + `\n\nDriver's link: ${link}` }).catch(() => {});
   res.json({ ok: true, driver: drv.name, phone, link, texted, broker: askerOf(load), loadLabel: loadLabel(load) });
 });
 

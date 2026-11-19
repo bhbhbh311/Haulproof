@@ -19,7 +19,7 @@ const smsSent = [];
 const TW_PORT = PORT + 1000;
 const twilioFake = http.createServer((req, res) => {
   let body = ''; req.on('data', c => body += c); req.on('end', () => {
-    const f = new URLSearchParams(body); smsSent.push({ url: req.url, auth: req.headers.authorization, to: f.get('To'), from: f.get('From'), body: f.get('Body') });
+    const f = new URLSearchParams(body); smsSent.push({ url: req.url, auth: req.headers.authorization, to: f.get('To'), from: f.get('From'), body: f.get('Body'), statusCallback: f.get('StatusCallback') });
     res.writeHead(201, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ sid: 'SM' + smsSent.length, status: 'queued' }));
   });
 }).listen(TW_PORT, '127.0.0.1');
@@ -804,4 +804,42 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
   const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ? ORDER BY createdAt').all(lid).map(e => e.detail).join('\n');
   assert.match(hist, /Asked Ask Carrier LLC \(dispatch@askcarrier\.example\) for the driver's name and cell #; set up dispatch@askcarrier\.example/);
   assert.match(hist, /Driver Ned Driver \(417-260-5588\) given by Ask Carrier LLC; HaulProof link texted/);
+});
+
+
+test('text delivery tracking: Twilio reports back (signed); a text that did not get through goes on the load and emails the dispatcher with the link', async () => {
+  const car = org('Track Carrier LLC', 'carrier');
+  const lid = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,?,'assigned',?)`)
+    .run(lid, broker, '125999', '125999-0', car, 'Track Carrier LLC', Date.now());
+  const call = mcpToken('brk@test.example');
+  const ask = await call('ask_carrier_for_driver', { load: '125999', email: 'office@trackcarrier.example', notify_email: 'disp@test.example' });
+  assert.equal(ask.err, false, JSON.stringify(ask.out));
+  const t = new URL(ask.out.form_link).searchParams.get('t');
+  const before = smsSent.length;
+  const ok = await fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Tess Track', phone: '913-555-0177' }) }).then(r => r.json());
+  assert.equal(ok.texted, true);
+  // the text asks Twilio to report its result to us
+  const sent = smsSent[before];
+  assert.equal(sent.statusCallback, B + '/api/twilio/status');
+  const sid = 'SM' + (before + 1);
+  const row = () => db.prepare('SELECT * FROM sms_log WHERE twilioSid = ?').get(sid);
+  assert.equal(row().loadId, lid); assert.equal(row().notifyEmail, 'disp@test.example');
+  const report = async (fields, sig) => {
+    const url = B + '/api/twilio/status';
+    const good = crypto.createHmac('sha1', 'tok-test').update(url + Object.keys(fields).sort().map(k => k + fields[k]).join('')).digest('base64');
+    return (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': sig === undefined ? good : sig }, body: new URLSearchParams(fields).toString() })).status;
+  };
+  assert.equal(await report({ MessageSid: sid, MessageStatus: 'undelivered', ErrorCode: '30032' }, 'forged'), 403, 'only Twilio can report');
+  assert.equal(row().status, 'queued');
+  assert.equal(await report({ MessageSid: sid, MessageStatus: 'sent' }), 200);
+  assert.equal(row().status, 'sent');
+  assert.equal(await report({ MessageSid: sid, MessageStatus: 'undelivered', ErrorCode: '30032' }), 200);
+  assert.deepEqual([row().status, row().errorCode], ['undelivered', '30032']);
+  const hist = () => db.prepare('SELECT detail FROM load_events WHERE loadId = ? ORDER BY createdAt').all(lid).map(e => e.detail).join('\n');
+  assert.match(hist(), /NOT delivered to Tess Track \(913-555-0177\): the HaulProof texting number is still waiting on Twilio’s toll-free verification\. Send the driver the link from your phone: http.*\/go\//);
+  // a late repeat of the final status doesn't log twice
+  await report({ MessageSid: sid, MessageStatus: 'undelivered', ErrorCode: '30032' });
+  assert.equal((hist().match(/NOT delivered/g) || []).length, 1);
+  assert.equal(await report({ MessageSid: 'SMnotours', MessageStatus: 'delivered' }), 200);
 });

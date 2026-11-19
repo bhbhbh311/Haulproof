@@ -283,7 +283,8 @@ app.post('/api/auth/help', (req, res) => {
 // --- resources ---
 app.use('/api/loads', require('./driverrequest').router);   // POST /:id/request-driver: ask the carrier who's driving
 app.use('/api/loads', loadsRouter);
-app.use('/api/driver-request', require('./driverrequest').publicRouter);   // public: the carrier's "who's driving" form
+app.use('/api/driver-request', require('./driverrequest').publicRouter);
+app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
 app.use('/api/pods', require('./aiplace'));
 app.use('/api/ai-usage', require('./aiplace').usageRouter);   // master admin: AI cost report + per-company AI settings
 app.use('/api/pods', require('./emailretry').router);   // POST /:id/resend-email   // AI signature-box placement (before the /:id routes)
