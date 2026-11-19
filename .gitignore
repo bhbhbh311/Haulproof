@@ -1,0 +1,10 @@
+# Installed libraries: Render runs npm install itself
+node_modules/
+# Local HaulProof databases and uploaded documents: company data never goes to GitHub
+data/
+*.db
+*.db-shm
+*.db-wal
+# Contact exports and other local files
+*.vcf
+.env
