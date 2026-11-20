@@ -5467,7 +5467,7 @@
           ${p.status === 'needs_reupload'
             ? `<span style="color:var(--bad);font-weight:600;font-size:12.5px;" title="${esc(p.rejectReason||'')}">⏳ Waiting on driver to re-shoot page ${p.rejectedPage || ''}</span>`
             : (p.status === 'signed' || p.status === 'emailed')
-            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;" title="The signed PDF exactly as it was emailed (with any proof photos)">📄 Open PDF</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
+            ? `<button class="dl ldOpenDoc" data-id="${p.id}" type="button" style="background:none;border:none;padding:0;font:inherit;color:var(--primary);cursor:pointer;" title="The signed PDF exactly as it was emailed (with any proof photos)">📄 Open PDF</button>&nbsp;<button class="ghost ldSendDoc btn-sm" data-id="${p.id}" type="button" title="Email a copy of this signed document to anyone you choose">✉ Email a copy</button>${p.paperSigned ? `&nbsp;<button class="ghost ldRetake btn-sm" data-id="${p.id}" type="button" title="The photo is blurry, cut off or the wrong page: the driver takes a new picture of the signed BOL. This photo goes to the recovery bin.">📷 Ask driver for a new photo</button>` : redoOutFor.has(p.id) ? '' : `&nbsp;<button class="ghost ldRedo btn-sm" data-id="${p.id}" type="button" title="The driver signs this stop again on a fresh copy (for a mistake or a practice run). This signed copy stays until you pick which one to keep.">✍ Have driver re-sign</button>`}`
             : ''}
           ${(p.fileUrl && p.status !== 'needs_reupload' && p.status !== 'signed' && p.status !== 'emailed') ? `<button class="ldReview ghost btn-sm" data-id="${p.id}" type="button" title="Open the document to look it over — crop a page, split a multi-page scan into stops, or send a bad page back to the driver to re-shoot">📄 Review</button>&nbsp;` : ''}
           ${(!p.redoOf && (p.status === 'awaiting_build' || p.status === 'prepared') && p.fileUrl) ? `<button class="ghost ldFileSigned btn-sm" data-id="${p.id}" type="button" title="The driver uploaded the BOL the receiver already signed, on his own load instead of the one he was given. File it there as the signed paper BOL, with this upload's time and GPS.">✅ Signed BOL for another load</button>&nbsp;` : ''}
@@ -5497,6 +5497,14 @@
     box.querySelectorAll('.ldSplit').forEach(b => b.onclick = () => openSplit(byId[b.dataset.id]));
     box.querySelectorAll('.ldSendDoc').forEach(b => b.onclick = () => openSendDoc(b.dataset.id));
     box.querySelectorAll('.ldRedo').forEach(b => b.onclick = () => openSendAgain(byId[b.dataset.id]));
+    // Paper BOL: nothing to re-sign on the phone — the driver just takes a new picture of the signed paper BOL
+    box.querySelectorAll('.ldRetake').forEach(b => b.onclick = async () => {
+      const why = prompt('Ask the driver for a new photo of the signed BOL?\n\nThis photo goes to the recovery bin and the stop goes back on the driver\'s phone as "Photo of the POD". What should they fix? (optional, e.g. "blurry", "page 2 cut off")', '');
+      if (why === null) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      try { await api('/api/pods/' + b.dataset.id + '/retake-photo', { method: 'POST', body: JSON.stringify({ reason: why }) }); openLoad(curLoad.id); }
+      catch (e) { alert(e.message || 'Could not ask for a new photo'); b.disabled = false; b.textContent = '📷 Ask driver for a new photo'; }
+    });
     box.querySelectorAll('.ldRedoCancel').forEach(b => b.onclick = () => confirmDialog({
       title: 'Cancel the redo?', okLabel: 'Cancel redo',
       message: 'The clean copy comes off the driver’s phone. The first signed copy stays as the stop’s document.',

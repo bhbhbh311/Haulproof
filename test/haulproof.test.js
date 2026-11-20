@@ -514,6 +514,15 @@ test('paper BOL load: the driver sees it as paper; each stop\'s photo is its sig
   // the load page shows the photo as signed on paper; the history says so
   const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ?').all(l.id).map(e => e.detail).join('\n');
   assert.match(hist, /Photo of the paper BOL signed by the receiver \(Stop 2\)/);
+  // a blurry photo: dispatch asks for a new one → the stop is back on the driver's phone; the new photo files as signed
+  const s2 = db.prepare('SELECT id FROM pods WHERE loadId = ? AND stopNumber = 2').get(l.id).id;
+  assert.equal((await api('POST', `/api/pods/${s2}/retake-photo`, { reason: 'blurry' })).status, 200);
+  assert.equal((await card()).length, 1, 'stop 2 needs its photo again');
+  assert.match(db.prepare("SELECT message FROM driver_notices WHERE kind = 'reupload' ORDER BY createdAt DESC").get().message, /new photo of the signed BOL.*stop 2.*blurry/);
+  const sharper = Buffer.concat([pdf, Buffer.from('\n% retake\n')]);
+  assert.ok((await fetch(B + '/api/pods/ingest', { method: 'POST', body: sharper, headers: { 'X-Api-Key': tok, 'Content-Type': 'application/pdf',
+    'X-POD-PO': 'PAPER-1', 'X-POD-Paper': '1', 'X-POD-LoadId': l.id, 'X-POD-Stop': '2', 'X-POD-ClientId': 'paper-s2-retake', 'X-POD-Name': 'Signed BOL - PO PAPER-1' } })).status < 300);
+  assert.equal((await card()).length, 0, 'done again');
   // Reset load (a test run): progress cleared, the signed photos go to the recovery bin, the load is back on the driver's list
   db.prepare('UPDATE loads SET enRouteAt = ?, pickedUpAt = ?, completeNotifiedAt = ? WHERE id = ?').run(Date.now(), Date.now(), Date.now(), l.id);
   const rs = await api('POST', `/api/loads/${l.id}/reset`);

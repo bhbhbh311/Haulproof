@@ -1186,6 +1186,31 @@ router.post('/:id/reject-page', requireAuth, express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Paper BOL: ask the driver for a NEW PHOTO of the signed BOL (blurry, cut off, wrong page). There's nothing to
+// re-sign on the phone, so the photo goes to the recovery bin (restorable) and the stop goes back on the driver's phone
+// as "Photo of the POD"; the new photo files as the stop's signed POD like the first one. The driver gets a notice. ----
+router.post('/:id/retake-photo', requireAuth, express.json(), (req, res) => {
+  const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, row)) return res.status(404).json({ error: 'Not found' });
+  if (!row.paperSigned) return res.status(409).json({ error: 'This isn’t a photo of a paper BOL — use “Have driver re-sign” instead.' });
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 400);
+  const load = row.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(row.loadId) : null;
+  const drvId = row.signedByDriverId || row.assignedDriverId || (load && load.assignedDriverId) || null;
+  try { stashDoc(row, 'doc', req.user.email); } catch (e) { console.error('retake stashDoc', e.message); }
+  db.prepare(`DELETE FROM pods WHERE id = ?`).run(row.id);
+  if (load) { try { db.prepare(`UPDATE loads SET completeNotifiedAt = NULL WHERE id = ?`).run(load.id); } catch (e) {} }
+  const stop = row.stopNumber ? ' (stop ' + row.stopNumber + ')' : '';
+  try { logEvent({ orgId: row.orgId, loadId: row.loadId, poNumber: row.poNumber, type: 'note',
+    detail: 'Asked the driver for a new photo of the signed BOL' + stop + (reason ? ': ' + reason : '') + ' — the old photo is in the recovery bin', actor: req.user.email }); } catch (e) {}
+  try {
+    if (drvId) db.prepare(`INSERT INTO driver_notices (id, driverId, orgId, kind, poNumber, loadNumber, message, actorName, actorEmail, seen, createdAt)
+      VALUES (?,?,?,?,?,?,?,?,?,0,?)`).run(crypto.randomUUID(), drvId, row.orgId || null, 'reupload', row.poNumber || null, row.loadNumber || null,
+      'Dispatch needs a new photo of the signed BOL' + (row.poNumber ? ' for PO ' + row.poNumber : '') + stop + (reason ? ': ' + reason : '') + '. Open the load and tap “Photo of the POD”.',
+      req.user.name || null, req.user.email || null, Date.now());
+  } catch (e) {}
+  res.json({ ok: true });
+});
+
 // ---- Driver RE-UPLOADS a corrected document after dispatch asked them to re-shoot a page. Device key. ----
 router.post('/:id/reupload', requireApiKey, enforceDriverPin, raw, (req, res) => {
   const row = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
