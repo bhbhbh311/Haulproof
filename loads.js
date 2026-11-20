@@ -313,6 +313,56 @@ router.post('/:id/clear-en-route', requireAuth, (req, res) => {
   res.json({ ok: true, load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
+// Reset the whole load back to "not started" (a driver's test run): clears On my way, pickup (time/GPS/photos),
+// delivery photos, in/out times, driver step answers and the "completed" mark. Every signed document goes to the
+// recovery bin (restorable); an ePOD stop gets a fresh unsigned copy of its clean original so the driver can sign
+// it again. The driver's unsigned stops and dispatch's setup are left alone. Logged in the load history.
+function resetLoad(load, actor) {
+  const now = Date.now(), done = { signedRemoved: 0, reissued: 0 };
+  const unlinkPhotos = (json, dir) => { try { (JSON.parse(json || '[]') || []).forEach(p => { if (p && /^[a-f0-9-]{36}$/i.test(p.id)) { try { fs.unlinkSync(path.join(DATA_DIR, dir, p.id + '.jpg')); } catch (e) {} } }); } catch (e) {} };
+  unlinkPhotos(load.pickedUpPhotos, 'pickup-photos'); unlinkPhotos(load.deliveredPhotos, 'delivery-photos');
+  for (const col of ['enRouteAt', 'enRouteGps', 'pickedUpAt', 'pickedUpGps', 'pickedUpPhotos', 'deliveredPhotos', 'completeNotifiedAt', 'checkOnStage']) {
+    try { db.prepare(`UPDATE loads SET ${col} = NULL WHERE id = ?`).run(load.id); } catch (e) {}   // a column not on this db yet is skipped
+  }
+  try { db.prepare(`DELETE FROM stop_times WHERE loadId = ?`).run(load.id); } catch (e) {}
+  try { db.prepare(`DELETE FROM step_answers WHERE loadId = ?`).run(load.id); } catch (e) {}
+  const pods = db.prepare(`SELECT * FROM pods WHERE loadId = ? AND (status IN ('signed','emailed') OR (redoOf IS NOT NULL AND status IN ('prepared','awaiting_build')))`).all(load.id);
+  for (const p of pods) {
+    // a "sign again" copy still out with the driver goes too — its signed original is being reset anyway
+    if (p.redoOf && p.status !== 'signed' && p.status !== 'emailed') { try { stashDoc(p, 'doc', actor); } catch (e) {} db.prepare(`DELETE FROM pods WHERE id = ?`).run(p.id); continue; }
+    if (p.originalFile && fs.existsSync(p.originalFile)) {   // ePOD: put the clean, unsigned stop back for the driver
+      let fields = '[]'; try { const f = JSON.parse(p.originalFields || '[]'); if (Array.isArray(f) && f.length) fields = JSON.stringify(f); } catch (e) {}
+      const id = crypto.randomUUID(), fp = path.join(DATA_DIR, 'pods', id + '.pdf');
+      fs.copyFileSync(p.originalFile, fp);
+      const drvId = p.signedByDriverId || p.assignedDriverId || load.assignedDriverId || null;
+      const drv = drvId ? db.prepare(`SELECT id, name FROM drivers WHERE id = ?`).get(drvId) : null;
+      db.prepare(`INSERT INTO pods (id, orgId, loadId, loadNumber, poNumber, consignee, receiverId, receiverName, stopNumber, salesRepUserId, docType, filename, filepath, sizeBytes, fields, recipients, status, assignedDriverId, assignedDriverName, uploadedAt)
+        VALUES (@id,@orgId,@loadId,@loadNumber,@poNumber,@consignee,@receiverId,@receiverName,@stopNumber,@salesRepUserId,@docType,@filename,@filepath,@sizeBytes,@fields,'[]',@status,@assignedDriverId,@assignedDriverName,@uploadedAt)`)
+        .run({ id, orgId: p.orgId || null, loadId: load.id, loadNumber: p.loadNumber || null, poNumber: p.poNumber || null, consignee: p.consignee || null,
+          receiverId: p.receiverId || null, receiverName: p.receiverName || null, stopNumber: p.stopNumber || null, salesRepUserId: p.salesRepUserId || null,
+          docType: p.docType || 'BOL', filename: String(p.filename || 'document').replace(/^Signed\s+/i, ''), filepath: fp, sizeBytes: fs.statSync(fp).size, fields,
+          status: fields !== '[]' ? 'prepared' : 'awaiting_build', assignedDriverId: drv ? drv.id : null, assignedDriverName: drv ? drv.name : null, uploadedAt: now });
+      done.reissued++;
+    }
+    try { stashDoc(p, 'doc', actor); } catch (e) { console.error('reset stashDoc', e.message); }
+    db.prepare(`DELETE FROM pods WHERE id = ?`).run(p.id);
+    done.signedRemoved++;
+  }
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'load_reset', actor,
+    detail: 'Load reset by dispatch (test run): On my way, pickup, in/out times and photos cleared'
+      + (done.signedRemoved ? '; ' + done.signedRemoved + ' signed document' + (done.signedRemoved === 1 ? '' : 's') + ' moved to the recovery bin' : '')
+      + (done.reissued ? '; ' + done.reissued + ' stop' + (done.reissued === 1 ? '' : 's') + ' back with the driver to sign' : '') });
+  return done;
+}
+router.post('/:id/reset', requireAuth, requireCap('delete_loadsdocs'), (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  try {
+    const r = resetLoad(load, actorOf(req));
+    res.json({ ok: true, ...r, load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
+  } catch (e) { console.error('reset load', e.message); res.status(500).json({ error: 'Could not reset the load' }); }
+});
+
 // Dispatch correction of a stop's in/out time: { kind: 'pickup' | 'delivery', stopNumber, inAt, outAt } where each
 // time is epoch ms, null to clear, or omitted to leave as is. Anyone who can manage the load may do it; it's logged.
 router.put('/:id/stop-times', requireAuth, (req, res) => {

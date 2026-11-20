@@ -514,6 +514,15 @@ test('paper BOL load: the driver sees it as paper; each stop\'s photo is its sig
   // the load page shows the photo as signed on paper; the history says so
   const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ?').all(l.id).map(e => e.detail).join('\n');
   assert.match(hist, /Photo of the paper BOL signed by the receiver \(Stop 2\)/);
+  // Reset load (a test run): progress cleared, the signed photos go to the recovery bin, the load is back on the driver's list
+  db.prepare('UPDATE loads SET enRouteAt = ?, pickedUpAt = ?, completeNotifiedAt = ? WHERE id = ?').run(Date.now(), Date.now(), Date.now(), l.id);
+  const rs = await api('POST', `/api/loads/${l.id}/reset`);
+  assert.equal(rs.status, 200, JSON.stringify(rs.body)); assert.equal(rs.body.signedRemoved, 2);
+  const after = db.prepare('SELECT enRouteAt, pickedUpAt, completeNotifiedAt FROM loads WHERE id = ?').get(l.id);
+  assert.deepEqual(after, { enRouteAt: null, pickedUpAt: null, completeNotifiedAt: null });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM pods WHERE loadId = ?').get(l.id).n, 0);
+  assert.equal((await card()).length, 1, 'back on the driver\'s list to run for real');
+  assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND type = 'load_reset'").get(l.id).detail, /2 signed documents moved to the recovery bin/);
   // dispatch can switch a load's delivery type, and nonsense is ignored
   assert.equal((await api('PUT', '/api/loads/' + l.id, { podMode: 'epod' })).body.load.podMode, 'epod');
   assert.equal((await api('PUT', '/api/loads/' + l.id, { podMode: 'banana' })).body.load.podMode, null);

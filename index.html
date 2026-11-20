@@ -4973,6 +4973,9 @@
       else if (awaiting > 0) label = '<span class="chip received">From driver — needs setup</span>';
       else if (total > 0) label = '<span class="chip prepared">Ready to sign</span>';
       else label = esc(curLoad.status || 'open');
+      // Reset the whole load (a driver's test run): shown once the driver has done anything on it
+      const started = curLoad.enRouteAt || curLoad.pickedUpAt || done > 0 || (_ldStopTimes || []).length || (curLoad.deliveredPhotos && curLoad.deliveredPhotos !== '[]');
+      if (started) label += ' <button id="ldResetLoad" type="button" class="ghost" title="Put this load back to not started — for a driver’s test run" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">↺ Reset load</button>';
       rows.push(['Status', label]);
     })();
     $('ldView').innerHTML = '<div style="display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:14px;align-items:baseline;">' +
@@ -4996,6 +4999,18 @@
       try { const r = await api('/api/loads/' + curLoad.id + '/clear-en-route', { method: 'POST' }); if (r && r.load) curLoad = r.load; renderLdView();
         try { loadHistory(curLoad.id); } catch (e) {} try { autoRefreshLoads(); } catch (e) {} }
       catch (e) { alert(e.message || 'Could not reset'); _ce.disabled = false; _ce.textContent = 'Reset'; }
+    };
+    // Reset the whole load (test run): everything the driver did is cleared and signed documents go to the recovery bin
+    const _rl = $('ldResetLoad');
+    if (_rl) _rl.onclick = async () => {
+      if (!curLoad || !confirm('Reset this whole load back to "not started"?\n\nUse this after a driver\'s test run. It clears On my way, the pickup, in/out times and photos, and moves the signed BOL / POD to the recovery bin (it can be restored). An ePOD stop goes back to the driver to sign again.\n\nAnything already emailed or sent to accounting is not pulled back.')) return;
+      _rl.disabled = true; _rl.textContent = 'Resetting…';
+      try {
+        await api('/api/loads/' + curLoad.id + '/reset', { method: 'POST' });
+        await refreshOpenLoadDetail();
+        try { loadHistory(curLoad.id); } catch (e) {}
+        try { autoRefreshLoads(); } catch (e) {}
+      } catch (e) { alert(e.message || 'Could not reset the load'); _rl.disabled = false; _rl.textContent = '↺ Reset load'; }
     };
     // Reset pickup (dispatch correction — clears the recorded pickup time/GPS/photos, driver can mark it again).
     const _cp = $('ldClearPickup');
