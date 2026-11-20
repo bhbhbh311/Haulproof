@@ -11,9 +11,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS sms_consent (
 
 const PROGRAM = 'HaulProof Driver Text Alerts';
 // The words the person agrees to (shown next to the checkbox on both forms; kept in step with sms.html)
-const CONSENT_TEXT = 'I agree to receive text messages from Callahan Transportation, Inc. through HaulProof (' + PROGRAM + ') ' +
-  'at the mobile number above: my HaulProof driver link, load assignments and delivery/BOL updates. ' +
-  'Message frequency varies (usually 1–5 per load). Message and data rates may apply. ' +
+const CONSENT_TEXT = 'I agree to receive text messages from Callahan Transportation, Inc. at the mobile number above about loads I haul ' +
+  'for Callahan: rate confirmation links, my HaulProof driver link, pickup and delivery stops with a link to update dispatch, ' +
+  'check-ins while the load is on the road, and reminders to send the signed BOL. ' +
+  'Message frequency varies (usually 2–6 per load). Message and data rates may apply. ' +
   'Reply STOP to opt out at any time, HELP for help. Consent is not a condition of any purchase or of hauling a load.';
 const CARRIER_CONSENT_TEXT = 'The driver agreed to receive text messages from Callahan Transportation, Inc. through HaulProof ' +
   '(' + PROGRAM + ') at this number: their HaulProof driver link, load assignments and delivery/BOL updates. ' +
