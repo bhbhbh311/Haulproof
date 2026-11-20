@@ -4203,13 +4203,14 @@
     nodrv.slice().sort(byPickup).forEach(l => items.push(['var(--warn)', `<b>No driver yet</b> · ${po(l)}${pickupWhen(l)}`,
       (l.carrierName ? '<b>' + esc(l.carrierName) + '</b> hasn’t named the driver' + (l.customer ? ' · ' + esc(l.customer) : '') : esc(l.customer || l.consignee || 'Assign a carrier and driver to send it to their phone')),
       l.carrierName ? 'Open' : 'Assign', 'ghost', l.id]));
-    const shownItems = items.slice(0, 8);
+    const shownItems = window._attnAll ? items : items.slice(0, 8);   // "+ N more" opens the whole list right here
     drawCarrierAlerts();
     $('homeAttnList').innerHTML = (shownItems.length || _carAlerts.length) && !shownItems.length ? '' : shownItems.length
       ? shownItems.map(i => { const L = loads.find(x => x.id === i[5]) || {};
           return `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div>${noteLine(L)}</div>` +
             `<button type="button" class="ghost hNote" data-id="${i[5]}" title="Save a note: what you found out when you called">📝 Note</button><button type="button" class="${i[4]} hOpen" data-id="${i[5]}">${i[3]}</button></div>`; }).join('')
-        + (items.length > shownItems.length ? `<div class="hempty">+ ${items.length - shownItems.length} more — see the Loads list</div>` : '')
+        + (items.length > shownItems.length ? `<button type="button" class="ghost hAttnMore" style="margin:8px 12px;font-size:13px;padding:6px 12px;">+ ${items.length - shownItems.length} more: show all ${items.length}</button>`
+          : (window._attnAll && items.length > 8 ? `<button type="button" class="ghost hAttnMore" style="margin:8px 12px;font-size:13px;padding:6px 12px;">Show fewer</button>` : ''))
       : '<div class="hempty">All caught up — nothing needs attention right now.</div>';
     // Drivers today: everyone with a load in progress, plus who finished a delivery today.
     const drv = {};
@@ -4229,6 +4230,7 @@
     }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
     document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
     document.querySelectorAll('#homeAttnList .hNote').forEach(b => b.onclick = () => { const L = loads.find(x => x.id === b.dataset.id) || {}; saveLoadNote(b.dataset.id, L.poNumber || L.loadNumber); });
+    document.querySelectorAll('#homeAttnList .hAttnMore').forEach(b => b.onclick = () => { window._attnAll = !window._attnAll; renderHome(loads); });
     loadCheckOn();
     document.querySelectorAll('#homeCard .hRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));   // retry right here, no detour into the load
   }
