@@ -104,6 +104,8 @@ router.post('/', requireAuth, (req, res) => {
   db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, customer, consignee, origin, destination, carrierId, carrierName, instructions, podMode, paperStops, podModeAuto, status, createdBy, createdAt)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'open', ?, ?)`)
     .run(id, orgId, loadNumber || null, poNumber || null, customer || null, consignee || null, origin || null, destination || null, carrierId, carrierName, instructions, podMode, paperStops, podModeAuto, req.user.email, Date.now());
+  { const b = req.body || {}, cut = v => String(v || '').trim().replace(/\s+/g, ' ').slice(0, 80) || null;
+    if (b.pickupPo || b.deliveryPo) db.prepare(`UPDATE loads SET pickupPo = ?, deliveryPo = ? WHERE id = ?`).run(cut(b.pickupPo), cut(b.deliveryPo), id); }
   let load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(id);
   logEvent({ orgId, loadId: id, poNumber: poNumber || null, type: 'created', detail: 'Load created' + (poNumber ? ' for PO ' + poNumber : '') + (podMode ? ' · ' + POD_MODES[podMode] : ''), actor: actorOf(req) });
   // Pickup appointment: never blocks creating the load. A time it can't read falls back to just the date.
@@ -483,6 +485,14 @@ router.put('/:id', requireAuth, (req, res) => {
     if (poNumber !== load.poNumber || orgIdNew !== load.orgId) db.prepare(`UPDATE pods SET poNumber = ?, orgId = ? WHERE loadId = ?`).run(poNumber, orgIdNew, load.id);
     logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: 'Load details updated' + (orgIdNew !== load.orgId ? ' (customer reassigned)' : ''), actor: actorOf(req) });
   }
+  // Pickup / delivery: city + state ("Osceola, AR") and the shipper's / receiver's own PO # for each, if they have one
+  const stopChanges = [];
+  for (const [k, label] of [['origin', 'Pickup city'], ['destination', 'Delivery city'], ['pickupPo', 'Pickup PO #'], ['deliveryPo', 'Delivery PO #']]) {
+    if (b[k] === undefined) continue;
+    const v = String(b[k] || '').trim().replace(/\s+/g, ' ').slice(0, 80) || null;
+    if (v !== (load[k] || null)) { db.prepare(`UPDATE loads SET ${k} = ? WHERE id = ?`).run(v, load.id); stopChanges.push(`${label}: ${v || '(blank)'}`); }
+  }
+  if (stopChanges.length) logEvent({ orgId: orgIdNew, loadId: load.id, poNumber, type: 'updated', detail: stopChanges.join('; '), actor: actorOf(req) });
   // Paper BOL vs ePOD: saved on its own too. Chosen by hand it stays put; otherwise it follows the customer's default.
   if (b.podMode !== undefined) {
     const pm = podModeFor(orgIdNew, b.podMode), ps = pm === 'paper' ? (stopsIn(b.deliveryStops) || load.paperStops || 1) : null;

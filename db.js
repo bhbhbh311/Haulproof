@@ -212,6 +212,8 @@ addColumn('loads', 'trailer', 'TEXT');
 addColumn('loads', 'brokerId', 'TEXT');    // a customer can hand a load to a broker, who then assigns the carrier
 addColumn('loads', 'brokerName', 'TEXT');
 addColumn('loads', 'customerId', 'TEXT');
+addColumn('loads', 'pickupPo', 'TEXT');     // the shipper's own PO # for the pickup, if it has one (origin = pickup "City, ST")
+addColumn('loads', 'deliveryPo', 'TEXT');   // the receiver's own PO # for the delivery, if it has one (destination = "City, ST")
 addColumn('pods', 'missingSteps', 'TEXT');   // required delivery steps the driver skipped (the signed doc is kept; dispatch is told)  // link to the owner org's own customer-list entry (customers.id)
 // Customer-list entries gained more detail + a contacts list (added to installs that already have the table).
 addColumn('customers', 'contactPhone', 'TEXT');

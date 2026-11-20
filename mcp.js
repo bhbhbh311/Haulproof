@@ -423,6 +423,8 @@ function loadDetail(d, base) {
     portal_link: base + '/app?load=' + encodeURIComponent(d.load.id),
     delivery: d.load.podMode === 'paper' ? 'paper BOL (driver sends a photo of the signed BOL' + ((d.load.paperStops || 1) > 1 ? ', ' + d.load.paperStops + ' stops' : '') + ')' : d.load.podMode === 'epod' ? 'ePOD (signed on the phone)' : 'not set',
     pickup: d.load.pickupAt ? require('./checkon').fmtCT(d.load.pickupAt) + ' Central' + (d.load.pickupNote ? ' (' + d.load.pickupNote + ')' : '') : 'not set',
+    pickup_city: d.load.origin || null, pickup_po: d.load.pickupPo || null,
+    delivery_city: d.load.destination || null, delivery_po: d.load.deliveryPo || null,
     last_note: d.load.lastNote ? d.load.lastNote + ' (' + (d.load.lastNoteBy || '') + ', ' + require('./checkon').fmtCT(d.load.lastNoteAt) + ')' : null,
     driver_status: d.load.pickedUpAt ? 'picked up ' + require('./checkon').fmtCT(d.load.pickedUpAt) : d.load.enRouteAt ? 'on the way since ' + require('./checkon').fmtCT(d.load.enRouteAt) : 'not on the way yet',
     // the company's own load fields (Release #, Trailer #…) with this load's values
@@ -470,6 +472,10 @@ async function fetchPdfFromUrl(url) {
 }
 
 const str = (description) => ({ type: 'string', description });
+// Where the load picks up and delivers, and each end's own PO # (the shipper's / receiver's), shown on the load page
+const STOP_PROPS = {
+  pickup_city: str('Pickup city and state, e.g. "Osceola, AR"'), delivery_city: str('Delivery city and state, e.g. "Catoosa, OK"'),
+  pickup_po: str('The shipper’s PO # for the pickup, if it has one'), delivery_po: str('The receiver’s PO # for the delivery, if it has one') };
 const TOOLS = [
   { name: 'whoami', title: 'Who am I connected as',
     description: 'Shows which HaulProof login and company this connection acts as, and what it can do.',
@@ -935,7 +941,7 @@ const TOOLS = [
       truck: str('Truck #'), trailer: str('Trailer #'),
       delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
       delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' },
-      pickup: str(PICKUP_DESC) }, required: ['po_number'] },
+      pickup: str(PICKUP_DESC), ...STOP_PROPS }, required: ['po_number'] },
     run: async (user, a, base) => {
       needCompany(user);
       const po = String(a.po_number || '').trim(); if (!po) throw new ToolError('po_number is required.');
@@ -945,7 +951,8 @@ const TOOLS = [
       const car = a.carrier ? await resolveCarrier(user, a.carrier) : null;
       const drv = a.driver && !car ? await resolveDriver(user, a.driver) : null;
       const c = await api(user, 'POST', '/api/loads', { json: { poNumber: po, loadNumber: String(a.load_number || '').trim() || undefined,
-        podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined, pickup: a.pickup || undefined } });
+        podMode: a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : undefined, deliveryStops: a.delivery_stops || undefined, pickup: a.pickup || undefined,
+        origin: a.pickup_city || undefined, destination: a.delivery_city || undefined, pickupPo: a.pickup_po || undefined, deliveryPo: a.delivery_po || undefined } });
       if (c.existed) return Object.assign({ already_existed: true, note: 'A load with this PO # already exists; nothing was changed. Use update_load or assign_driver to change it.' }, loadDetail(await api(user, 'GET', '/api/loads/' + c.load.id), base));
       let custNote = null;
       if (cust) { const r = await api(user, 'PUT', '/api/loads/' + c.load.id, { json: { customerId: cust.id } });
@@ -966,7 +973,7 @@ const TOOLS = [
       delivery: { type: 'string', enum: ['paper', 'epod', 'none'], description: 'How the driver delivers: paper = taps updates and sends a photo of the BOL the receiver signed on paper; epod = the BOL is signed on the phone; none = not set' },
       delivery_stops: { type: 'integer', minimum: 1, description: 'Paper BOL: how many delivery stops need a signed-BOL photo (default 1)' },
       fields: { type: 'object', description: 'The company’s own load fields by name, e.g. {"Release #": "R-4471"}; "" clears one', additionalProperties: { type: 'string' } },
-      pickup: str(PICKUP_DESC + ' "none" clears it.') }, required: ['load'] },
+      pickup: str(PICKUP_DESC + ' "none" clears it.'), ...STOP_PROPS }, required: ['load'] },
     run: async (user, a, base) => {
       needCompany(user);
       const d = await resolveLoad(user, a.load);
@@ -977,8 +984,10 @@ const TOOLS = [
       if (a.delivery != null) { body.podMode = a.delivery === 'paper' || a.delivery === 'epod' ? a.delivery : ''; if (a.delivery_stops) body.deliveryStops = a.delivery_stops; }
       else if (a.delivery_stops) { body.podMode = d.load.podMode || 'paper'; body.deliveryStops = a.delivery_stops; }
       if (a.pickup != null) body.pickup = /^(none|null|)$/i.test(String(a.pickup).trim()) ? '' : String(a.pickup).trim();
+      [['pickup_city', 'origin'], ['delivery_city', 'destination'], ['pickup_po', 'pickupPo'], ['delivery_po', 'deliveryPo']].forEach(([k, f]) => {
+        if (a[k] != null) body[f] = /^(none|null)$/i.test(String(a[k]).trim()) ? '' : String(a[k]).trim(); });
       const hasFields = a.fields && typeof a.fields === 'object' && Object.keys(a.fields).length;
-      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer, delivery, pickup or fields.');
+      if (!Object.keys(body).length && !hasFields) throw new ToolError('Nothing to change — pass po_number, load_number, customer, delivery, pickup, pickup_city, delivery_city, pickup_po, delivery_po or fields.');
       if (hasFields) await api(user, 'PUT', '/api/loads/' + d.load.id + '/fields', { json: { values: a.fields } , headers: { 'X-HP-Via': 'connector' } });
       if (!Object.keys(body).length) return Object.assign({ updated: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
       const r = await api(user, 'PUT', '/api/loads/' + d.load.id, { json: body });

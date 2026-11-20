@@ -868,6 +868,21 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
 });
 
 
+test('pickup and delivery: city/state and each end’s own PO # are saved on the load (portal and connector) and logged', async () => {
+  const brk = await login('brk@test.example');
+  const l = (await brk('POST', '/api/loads', { poNumber: 'STOPS-1', origin: 'Osceola, AR', destination: 'Catoosa, OK', pickupPo: 'BRS-7781' })).body.load;
+  assert.deepEqual([l.origin, l.destination, l.pickupPo, l.deliveryPo], ['Osceola, AR', 'Catoosa, OK', 'BRS-7781', null]);
+  const u = (await brk('PUT', '/api/loads/' + l.id, { destination: 'Tulsa, OK', deliveryPo: 'KM-55', pickupPo: '' })).body.load;
+  assert.deepEqual([u.destination, u.deliveryPo, u.pickupPo], ['Tulsa, OK', 'KM-55', null]);
+  assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND detail LIKE 'Delivery city%'").get(l.id).detail, /Delivery city: Tulsa, OK; Pickup PO #: \(blank\); Delivery PO #: KM-55/);
+  const call = mcpToken('brk@test.example');
+  const c = await call('create_load', { po_number: 'STOPS-2', pickup_city: 'Riverside, MO', delivery_city: 'Tulsa, OK', delivery_po: 'COG-9' });
+  assert.equal(c.err, false, JSON.stringify(c.out));
+  assert.deepEqual([c.out.pickup_city, c.out.delivery_city, c.out.delivery_po, c.out.pickup_po], ['Riverside, MO', 'Tulsa, OK', 'COG-9', null]);
+  const up = await call('update_load', { load: 'STOPS-2', pickup_po: 'SHIP-1' });
+  assert.equal(up.out.pickup_po, 'SHIP-1');
+});
+
 test('Loads search finds a load by PO #, load #, carrier, driver, customer and destination', async () => {
   const lid = id();
   db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierName, driverName, customer, destination, truck, status, createdAt) VALUES (?,?,?,?,?,?,?,?,?,'assigned',?)`)

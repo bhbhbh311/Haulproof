@@ -1234,6 +1234,14 @@
           <div><label>Customer PO #</label><input id="ldEditPo"></div>
           <div><label><span data-lbl="loadNumber">Load #</span> <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><input id="ldEditLoad"></div>
         </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+          <div><label>Pickup city, state</label><input id="ldEditOrigin" placeholder="e.g. Osceola, AR"></div>
+          <div><label>Delivery city, state</label><input id="ldEditDest" placeholder="e.g. Catoosa, OK"></div>
+        </div>
+        <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px;">
+          <div><label>Pickup PO <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">shipper's #, if any</span></label><input id="ldEditPickupPo"></div>
+          <div><label>Delivery PO <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">receiver's #, if any</span></label><input id="ldEditDeliveryPo"></div>
+        </div>
         <div class="row hide" id="ldEditFields" style="grid-template-columns:1fr 1fr;margin-top:10px;"></div>
         <div class="row hide" id="ldEditCustomerRow" style="grid-template-columns:1fr;margin-top:10px;">
           <div><label>Customer <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;" id="ldEditCustomerHint">which account owns this PO</span></label>
@@ -1954,16 +1962,28 @@
   // Renamed fields show everywhere: "#" names (PO #, Load #) are swapped wherever they appear; the others only where a
   // label or heading is exactly that word, so sentences that happen to say "customer" are left alone.
   let _relabelOn = false, _relabelObs = null;
+  // Text this already rewrote (so a second pass never rewrites it again: names can be swapped, PO # <-> Load #)
+  const _relabeled = new WeakMap();
   function relabelNode(root) {
     const hashes = Object.keys(LABEL_DEFAULTS).filter(k => LABEL_DEFAULTS[k].endsWith('#') && orgLabels[k] !== LABEL_DEFAULTS[k]);
     const words = Object.keys(LABEL_DEFAULTS).filter(k => !LABEL_DEFAULTS[k].endsWith('#') && orgLabels[k] !== LABEL_DEFAULTS[k]);
     if (!hashes.length && !words.length) return;
-    const fix = t => { let o = t; hashes.forEach(k => { o = o.split(LABEL_DEFAULTS[k]).join(orgLabels[k]); });
+    // All "#" names in ONE pass, so a swap (PO # → Load #, Load # → PO #) doesn't undo itself. "Customer PO #" is the
+    // main field's long name: it becomes just the company's name for it.
+    const map = {}; hashes.forEach(k => { map[LABEL_DEFAULTS[k]] = orgLabels[k]; });
+    if (map['PO #']) map['Customer PO #'] = map['PO #'];
+    const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+    const re = keys.length ? new RegExp(keys.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g') : null;
+    const fix = t => { let o = re ? t.replace(re, m => map[m]) : t;
       const tr = o.trim(); words.forEach(k => { if (tr === LABEL_DEFAULTS[k]) o = o.replace(LABEL_DEFAULTS[k], orgLabels[k]); }); return o; };
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentNode && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentNode.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
     const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
-    nodes.forEach(n => { if (n.parentNode && n.parentNode.closest && n.parentNode.closest('#loadFieldsHost, [data-nolbl]')) return; const v = fix(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; });
-    (root.querySelectorAll ? root.querySelectorAll('input[placeholder],textarea[placeholder]') : []).forEach(el => { if (el.closest('#loadFieldsHost')) return; const v = fix(el.placeholder); if (v !== el.placeholder) el.placeholder = v; });
+    nodes.forEach(n => { if (n.parentNode && n.parentNode.closest && n.parentNode.closest('#loadFieldsHost, [data-nolbl], [data-lbl]')) return;
+      if (_relabeled.get(n) === n.nodeValue) return;
+      const v = fix(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; _relabeled.set(n, n.nodeValue); });
+    (root.querySelectorAll ? root.querySelectorAll('input[placeholder],textarea[placeholder]') : []).forEach(el => { if (el.closest('#loadFieldsHost')) return;
+      if (el.dataset.relabeled === el.placeholder) return;
+      const v = fix(el.placeholder); if (v !== el.placeholder) el.placeholder = v; el.dataset.relabeled = el.placeholder; });
   }
   function applyOrgLabels(l) {
     if (l && typeof l === 'object') Object.keys(LABEL_DEFAULTS).forEach(k => { orgLabels[k] = l[k] || LABEL_DEFAULTS[k]; });
@@ -4529,6 +4549,8 @@
       renderLoadDocs(r.pods || []);
       $('ldStopForm').classList.add('hide');
       $('ldEditPo').value = curLoad.poNumber || ''; $('ldEditLoad').value = curLoad.loadNumber || '';
+      $('ldEditOrigin').value = curLoad.origin || ''; $('ldEditDest').value = curLoad.destination || '';
+      $('ldEditPickupPo').value = curLoad.pickupPo || ''; $('ldEditDeliveryPo').value = curLoad.deliveryPo || '';
       renderLdFieldInputs();
       $('ldEditMsg').textContent = ''; $('ldUploadMsg').textContent = '';
       $('ldStop').value = nextStopNumber(r.pods || []);
@@ -4895,6 +4917,11 @@
     rows.push([_own.poNumber ? '<span data-nolbl>Customer ' + esc(_own.poNumber) + '</span>' : 'Customer PO #', esc(curLoad.poNumber) || '—']);
     rows.push([_own.loadNumber ? '<span data-nolbl>' + esc(_own.loadNumber) + '</span>' : esc(lbl('loadNumber')), esc(curLoad.loadNumber) || '—']);
     if (curLoad.customer) rows.push(['Customer', esc(curLoad.customer)]);
+    // Pickup and delivery: city, state and that end's own PO #, if any
+    const _end = (place, po) => (place ? '<b>' + esc(place) + '</b>' : '<span style="color:var(--muted);">city not set</span>')
+      + (po ? ' · <span data-nolbl style="color:var(--muted);">PO #</span> <b>' + esc(po) + '</b>' : '');   // the shipper's/receiver's PO, never renamed
+    if (curLoad.origin || curLoad.pickupPo) rows.push(['<span data-nolbl>Pickup at</span>', _end(curLoad.origin, curLoad.pickupPo)]);
+    if (curLoad.destination || curLoad.deliveryPo) rows.push(['<span data-nolbl>Deliver to</span>', _end(curLoad.destination, curLoad.deliveryPo)]);
     // Consignee lives on each stop now (via the stop's receiver / delivered-to), not on the load.
     const asg = [];
     if (curLoad.brokerName) asg.push('Broker: ' + esc(curLoad.brokerName));
@@ -6917,7 +6944,8 @@
     $('ldEditMsg').textContent = 'Saving…'; $('ldEditMsg').className = '';
     {
       // 1) Basic fields (+ customer reassignment when a Master Admin picked a different one)
-      const body1 = { poNumber: po, loadNumber: $('ldEditLoad').value.trim() };   // consignee is per-stop now (via each stop's receiver)
+      const body1 = { poNumber: po, loadNumber: $('ldEditLoad').value.trim(),   // consignee is per-stop now (via each stop's receiver)
+        origin: $('ldEditOrigin').value.trim(), destination: $('ldEditDest').value.trim(), pickupPo: $('ldEditPickupPo').value.trim(), deliveryPo: $('ldEditDeliveryPo').value.trim() };
       const custRowShown = $('ldEditCustomerRow') && !$('ldEditCustomerRow').classList.contains('hide');
       if (user && user.role === 'superadmin' && custRowShown && $('ldEditCustomer') && !$('ldEditCustomer').classList.contains('hide') && $('ldEditCustomer').value) {
         body1.customerOrgId = $('ldEditCustomer').value;
