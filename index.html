@@ -3369,7 +3369,9 @@
     const b = e.target.closest && e.target.closest('.drvText'); if (!b) return;
     e.preventDefault(); if (b.disabled) return;
     b.disabled = true; b.textContent = 'Texting…';
-    try { const r = await api(b.dataset.url, { method: 'POST', body: '{}' }); b.textContent = 'Texted ✓'; b.title = 'Sent to ' + (r.sentTo || ''); }
+    try { const r = await api(b.dataset.url, { method: 'POST', body: '{}' });
+      if (r.askedYes) { b.textContent = 'Asked to reply YES'; b.title = 'This driver hasn’t agreed to our texts yet. They were texted to reply YES; their link goes out when they do.'; }
+      else { b.textContent = 'Texted ✓'; b.title = 'Sent to ' + (r.sentTo || ''); } }
     catch (err) { b.textContent = 'Failed'; alert(err.message); }
     setTimeout(function () { b.textContent = 'Text link'; b.disabled = false; }, 2200);
   });

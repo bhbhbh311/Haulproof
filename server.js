@@ -286,7 +286,8 @@ app.use('/api/loads', require('./checkon').router);   // GET /check-on: pickups 
 app.use('/api/loads', loadsRouter);
 app.use('/api/driver-request', require('./driverrequest').publicRouter);
 app.use('/api/sms', require('./smsconsent').publicRouter);
-app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
+app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));
+app.use('/api/twilio', require('./smsconsent').inboundRoute(require('./invite').originOf));   // drivers' replies: YES / STOP   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
 app.use('/api/pods', require('./aiplace'));
 app.use('/api/ai-usage', require('./aiplace').usageRouter);   // master admin: AI cost report + per-company AI settings
 app.use('/api/pods', require('./emailretry').router);   // POST /:id/resend-email   // AI signature-box placement (before the /:id routes)
@@ -535,6 +536,7 @@ app.get('/request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.s
 app.get('/driver-request', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'driver-request.html')); });
 // Public: HaulProof Driver Text Alerts sign-up, terms and privacy (the opt-in Twilio's toll-free verification links to)
 app.get(['/sms', '/sms-terms', '/text-alerts'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'sms.html')); });
+app.get(['/privacy', '/privacy-policy'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'privacy.html')); });
 app.get('/login-info', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'login-info.html')); });
 app.get('/help', (_req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'help.html')); });
 

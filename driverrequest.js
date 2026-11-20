@@ -134,28 +134,33 @@ publicRouter.post('/:token', express.json(), async (req, res) => {
   try { db.prepare(`SELECT id FROM pods WHERE loadId = ? AND status = 'prepared' AND assignedDriverId = ?`).all(load.id, drv.id).forEach(p => notify.notifyDriverReady(p.id)); } catch (e) {}
   db.prepare(`UPDATE driver_requests SET answeredAt = ?, driverId = ? WHERE token = ?`).run(Date.now(), drv.id, r.token);
   const link = require('./driverlink').driverLink(req, drv);
-  // Text the driver their link only when the carrier checked "the driver agreed to texts" (or the driver opted in on
-  // /sms themselves); otherwise, or when texting isn't set up, the carrier gets a Text button on the page.
+  // Text the driver only when the carrier checked "text the driver". A driver who hasn't agreed to our texts themselves
+  // (on /sms or by replying YES) first gets one text asking them to reply YES; their link is held until they do.
+  // Unchecked, or texting not set up: the carrier gets a Text button to send the link from their own phone.
   const C = require('./smsconsent');
   const consent = req.body && req.body.consent === true;
   if (consent) C.record({ phone, name: drv.name, source: 'carrier-form:' + r.email, consentText: C.CARRIER_CONSENT_TEXT, ip: req.ip });
-  let texted = false;
+  let texted = false, askedYes = false;
   const T = require('./twilio');
-  if (T.configured() && (consent || C.has(phone))) {
+  if (T.configured() && (consent || C.confirmed(phone))) {
     try {
-      await T.sendText({ to: phone, orgId: carrier.id, driverId: drv.id, sentBy: r.email,
+      const out = await C.sendOrAsk({ to: phone, orgId: carrier.id, driverId: drv.id, sentBy: r.email,
         loadId: load.id, notifyEmail: r.notifyEmail || null, link, driverName: drv.name, callbackBase: originOf(req),
-        body: `${askerOf(load)}: here's your HaulProof driver app for ${loadLabel(load)}, ${drv.name.split(/\s+/)[0]}. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it. Reply STOP to opt out.\n${link}` });
-      texted = true;
+        body: `${askerOf(load)}: here's your HaulProof driver app for ${loadLabel(load)}, ${drv.name.split(/\s+/)[0]}. Tap the link, pick your own PIN, and the load is there. After delivery, send the signed BOL from it. Reply STOP to opt out.\n${link}` },
+        { sender: askerOf(load), by: tidyCo(carrier.name) });
+      texted = !!out.sent; askedYes = !!out.askedYes;
     } catch (e) { console.error('driver request text', e.message); }
   }
+  const ph = phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
   logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_assigned',
-    detail: `Driver ${drv.name} (${phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}) given by ${carrier.name}` + (texted ? '; HaulProof link texted to the driver' : ''), actor: r.email });
+    detail: `Driver ${drv.name} (${ph}) given by ${carrier.name}` + (texted ? '; HaulProof link texted to the driver' : askedYes ? '; driver texted to reply YES, and their HaulProof link goes out when they do' : ''), actor: r.email });
   const who = [r.notifyEmail].filter(Boolean);
   if (who.length) sendMail({ to: who, subject: `${carrier.name} gave the driver for ${loadLabel(load)}: ${drv.name}`,
-    text: `${carrier.name} says ${drv.name} (${phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}) is driving ${loadLabel(load)}. ` +
-      (texted ? 'HaulProof sent the driver a text with their link. If the text doesn’t get through, you’ll get another email saying so.' : 'HaulProof couldn’t text the driver, so the carrier was shown a button to text the link from their phone. You can also send it yourself.') + `\n\nDriver's link: ${link}` }).catch(() => {});
-  res.json({ ok: true, driver: drv.name, phone, link, texted, consent: consent || C.has(phone), broker: askerOf(load), loadLabel: loadLabel(load) });
+    text: `${carrier.name} says ${drv.name} (${ph}) is driving ${loadLabel(load)}. ` +
+      (texted ? 'HaulProof sent the driver a text with their link. If the text doesn’t get through, you’ll get another email saying so.'
+        : askedYes ? 'HaulProof texted the driver asking them to reply YES to get our texts; their link goes out automatically when they do. If they don’t, send them the link yourself.'
+        : 'HaulProof couldn’t text the driver, so the carrier was shown a button to text the link from their phone. You can also send it yourself.') + `\n\nDriver's link: ${link}` }).catch(() => {});
+  res.json({ ok: true, driver: drv.name, phone, link, texted, askedYes, consent, broker: askerOf(load), loadLabel: loadLabel(load) });
 });
 
 module.exports = { router, publicRouter, createRequest };

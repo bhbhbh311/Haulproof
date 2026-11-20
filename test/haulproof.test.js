@@ -53,6 +53,12 @@ async function login(email) {
     return { status: x.status, body: await x.json().catch(() => ({})) };
   };
 }
+// A text a driver sends back to the HaulProof number, as Twilio posts it (signed with the auth token)
+async function inbound(fields, sig) {
+  const url = B + '/api/twilio/inbound';
+  const good = crypto.createHmac('sha1', 'tok-test').update(url + Object.keys(fields).sort().map(k => k + fields[k]).join('')).digest('base64');
+  return (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': sig === undefined ? good : sig }, body: new URLSearchParams(fields).toString() })).status;
+}
 const asDriver = token => async (method, url, body) => {
   const x = await fetch(B + url, { method, headers: { 'X-Api-Key': token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   return { status: x.status, body: await x.json().catch(() => ({})) };
@@ -461,17 +467,35 @@ test('Text link: with Twilio set up, the server texts the driver their link from
   db.prepare('INSERT INTO drivers (id, orgId, name, phone, token, active, createdAt) VALUES (?,?,?,?,?,1,?)').run(drv, broker, 'Shaun Test', '970-596-3477', 'drv_' + id(), Date.now());
   db.prepare('INSERT INTO drivers (id, orgId, name, token, active, createdAt) VALUES (?,?,?,?,1,?)').run(bare, broker, 'No Phone', 'drv_' + id(), Date.now());
   const before = smsSent.length;
+  // the driver hasn't agreed to our texts yet: one "reply YES" text, and the link waits
   const r = await brk('POST', '/api/drivers/' + drv + '/text-link', {});
-  assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.sentTo, '+19705963477');
+  assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.sentTo, '+19705963477'); assert.equal(r.body.askedYes, true);
   const m = smsSent[before];
   assert.equal(m.to, '+19705963477'); assert.equal(m.from, '+18884017286'); assert.match(m.url, /\/Accounts\/ACtest\/Messages\.json$/);
   assert.equal(m.auth, 'Basic ' + Buffer.from('ACtest:tok-test').toString('base64'));
-  assert.match(m.body, /Test Broker LLC: here's your HaulProof driver app, Shaun\./); assert.match(m.body, /\/go\/[A-Z0-9]{10}$/);
-  assert.equal(db.prepare('SELECT status FROM sms_log WHERE driverId = ?').get(drv).status, 'queued', 'logged');
+  assert.match(m.body, /^Test Broker LLC: we have this number to text you .*Reply YES to get them\..*Reply STOP to opt out, HELP for help\.$/); assert.doesNotMatch(m.body, /\/go\//, 'no link before YES');
+  assert.equal(db.prepare('SELECT status, kind FROM sms_log WHERE driverId = ?').get(drv).kind, 'optin', 'logged');
+  // pressing it again the same day doesn't ask twice
+  assert.equal((await brk('POST', '/api/drivers/' + drv + '/text-link', {})).body.askedYes, true);
+  assert.equal(smsSent.length, before + 1);
+  // a reply that isn't signed by Twilio is refused; the driver's YES sends the held link (once, though pressed twice)
+  assert.equal(await inbound({ From: '+19705963477', Body: 'YES' }, 'forged'), 403);
+  assert.equal(await inbound({ From: '+19705963477', Body: ' yes! ' }), 200);
+  assert.equal(smsSent.length, before + 2);
+  const link = smsSent[before + 1];
+  assert.equal(link.to, '+19705963477'); assert.match(link.body, /Test Broker LLC: here's your HaulProof driver app, Shaun\./); assert.match(link.body, /\/go\/[A-Z0-9]{10}$/);
+  assert.equal(db.prepare('SELECT source FROM sms_consent WHERE phone = ?').get('9705963477').source, 'sms-reply');
+  // now agreed: Text link sends the link right away
+  const now = await brk('POST', '/api/drivers/' + drv + '/text-link', {});
+  assert.equal(now.body.askedYes, false); assert.match(smsSent[before + 2].body, /here's your HaulProof driver app, Shaun/);
+  // STOP: nothing more goes out, and the button says so
+  assert.equal(await inbound({ From: '+19705963477', Body: 'Stop' }), 200);
+  const stopped = await brk('POST', '/api/drivers/' + drv + '/text-link', {});
+  assert.equal(stopped.status, 502); assert.match(stopped.body.error, /replied STOP/);
   const none = await brk('POST', '/api/drivers/' + bare + '/text-link', {});
   assert.equal(none.status, 400); assert.match(none.body.error, /no phone number/);
   assert.equal((await (await login('ship@test.example'))('POST', '/api/drivers/' + drv + '/text-link', {})).status, 404, 'another company can’t text our driver');
-  assert.equal(smsSent.length, before + 1, 'nothing else was sent');
+  assert.equal(smsSent.length, before + 3, 'nothing else was sent');
 });
 
 // ---- Paper BOL (tracking) loads: status taps + a photo of the BOL the receiver signed on paper ----
@@ -793,14 +817,21 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
   assert.deepEqual([noConsent.body.texted, noConsent.body.consent], [false, false], 'no text without consent');
   const before = smsSent.length;
   const ok = await post({ name: 'Ned Driver', phone: '(417) 260-5588', consent: true });
-  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.texted, true);
-  assert.equal(smsSent.length, before + 1, 'texted only once, after consent');
+  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.deepEqual([ok.body.texted, ok.body.askedYes], [false, true]);
+  assert.equal(smsSent.length, before + 1, 'one text: the YES ask');
   assert.match(db.prepare('SELECT consentText, source FROM sms_consent WHERE phone = ?').get('4172605588').source, /^carrier-form:dispatch@askcarrier\.example$/);
+  assert.equal(smsSent[before].to, '+14172605588');
+  assert.match(smsSent[before].body, /^Test Broker: Ask Carrier gave us this number to text you about loads you haul for us \(HaulProof Driver Text Alerts: .*\)\. Reply YES to get them\./);
   const d = db.prepare('SELECT * FROM drivers WHERE orgId = ? AND name = ?').get(car, 'Ned Driver');
   assert.equal(d.phone, '4172605588');
   const l = db.prepare('SELECT driverName, assignedDriverId FROM loads WHERE id = ?').get(lid);
   assert.deepEqual([l.driverName, l.assignedDriverId], ['Ned Driver', d.id]);
-  assert.equal(smsSent[before].to, '+14172605588'); assert.match(smsSent[before].body, /Test Broker: here's your HaulProof driver app for load 125302 \(PO 125302-0\), Ned\./);
+  // the driver replies YES: the held link goes out
+  assert.equal(await inbound({ From: '+14172605588', Body: 'Yes' }), 200);
+  assert.equal(smsSent.length, before + 2);
+  assert.match(smsSent[before + 1].body, /Test Broker: here's your HaulProof driver app for load 125302 \(PO 125302-0\), Ned\./);
+  // a later carrier form doesn't overwrite the driver's own YES
+  assert.equal(db.prepare('SELECT source FROM sms_consent WHERE phone = ?').get('4172605588').source, 'sms-reply');
   // answering again with the same cell keeps the same driver (no duplicate)
   await post({ name: 'Ned D.', phone: '4172605588' });
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drivers WHERE orgId = ?').get(car).n, 1);
@@ -809,7 +840,7 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
   assert.equal((await fetch(B + '/api/driver-request/nope')).status, 404);
   const hist = db.prepare('SELECT detail FROM load_events WHERE loadId = ? ORDER BY createdAt').all(lid).map(e => e.detail).join('\n');
   assert.match(hist, /Asked Ask Carrier LLC \(dispatch@askcarrier\.example\) for the driver's name and cell #; set up dispatch@askcarrier\.example/);
-  assert.match(hist, /Driver Ned Driver \(417-260-5588\) given by Ask Carrier LLC; HaulProof link texted/);
+  assert.match(hist, /Driver Ned Driver \(417-260-5588\) given by Ask Carrier LLC; driver texted to reply YES/);
 });
 
 
@@ -824,7 +855,7 @@ test('text delivery tracking: Twilio reports back (signed); a text that did not 
   const t = new URL(ask.out.form_link).searchParams.get('t');
   const before = smsSent.length;
   const ok = await fetch(B + '/api/driver-request/' + t, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Tess Track', phone: '913-555-0177', consent: true }) }).then(r => r.json());
-  assert.equal(ok.texted, true);
+  assert.equal(ok.askedYes, true);
   // the text asks Twilio to report its result to us
   const sent = smsSent[before];
   assert.equal(sent.statusCallback, B + '/api/twilio/status');
@@ -961,5 +992,11 @@ test('HaulProof Driver Text Alerts: public opt-in page with terms, consent requi
   const ok = await optin({ name: 'Opt Driver', phone: '+1 (816) 555-0142', consent: true });
   assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.phone, '8165550142');
   const row = db.prepare('SELECT * FROM sms_consent WHERE phone = ?').get('8165550142');
-  assert.equal(row.source, 'sms-page'); assert.match(row.consentText, /Reply STOP to opt out/);
+  assert.equal(row.source, 'sms-page'); assert.match(row.consentText, /Reply STOP to opt out/); assert.ok(row.confirmedAt, 'the driver agreed themselves');
+  assert.match(await (await fetch(B + '/sms')).text(), /href="\/privacy"/, 'privacy policy on the same site');
+  for (const p of ['/privacy', '/privacy-policy']) {
+    const r = await fetch(B + p); assert.equal(r.status, 200);
+    const html = await r.text();
+    assert.match(html, /Privacy policy/); assert.match(html, /do not sell, rent or share mobile numbers, text-message opt-in or consent/);
+  }
 });
