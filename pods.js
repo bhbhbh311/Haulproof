@@ -390,6 +390,18 @@ router.post('/ingest', requireApiKey, enforceDriverPin, raw, async (req, res) =>
     const filepath = path.join(DATA_DIR, 'pods', id + '.pdf');
     fs.writeFileSync(filepath, req.body);
     if (!load) load = findOrCreateLoad({ orgId, ...meta });
+    // Same document twice: the very same bytes already on this load in the last 30 minutes (a driver who tapped Send
+    // again after an error, so the phone queued it twice under two ids). Keep the first; don't file a second copy.
+    try {
+      const same = db.prepare(`SELECT id, loadId, filepath FROM pods WHERE loadId = ? AND stopNumber IS ? AND sizeBytes = ? AND uploadedAt > ? AND status NOT IN ('parked','not_used')`)
+        .all(load.id, meta.stopNumber || null, req.body.length, Date.now() - 30 * 60000)
+        .find(p => { try { return fs.readFileSync(p.filepath).equals(req.body); } catch (e) { return false; } });
+      if (same) {
+        try { fs.unlinkSync(filepath); } catch (e) {}
+        console.log('[INGEST] DUPLICATE bytes clientId=' + (meta.clientId || '') + ' -> existing pod ' + same.id + ' (no new doc created)');
+        return res.json({ ok: true, podId: same.id, loadId: same.loadId, duplicate: true });
+      }
+    } catch (e) {}
     // Show the driver who signed/created this on the load itself (when dispatch hasn't assigned one).
     if (req.driver && req.driver.name && !((load.driverName || '').trim())) {
       try { db.prepare(`UPDATE loads SET driverName = ? WHERE id = ?`).run(req.driver.name, load.id); load.driverName = req.driver.name; } catch (e) {}

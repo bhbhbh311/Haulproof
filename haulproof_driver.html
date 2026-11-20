@@ -2146,6 +2146,7 @@ window.__startApp=function(){
   }
 
   /* ============ SIGN flow ============ */
+  var _lastSaveId=null;   // {bytes, cid}: the upload id of the document on screen, reused if Send is tapped again
   var origBytes=null, fields=[], pageRecs=[], signedPdfBytes=null, curField=null, lastGps=null, currentStop=null;
   // Re-shoot mode: dispatch asked the driver to re-take a specific page. Holds the original PDF bytes + which
   // page to replace. When set, the capture screen's "Use these pages" merges the new shot into the original
@@ -3976,7 +3977,15 @@ window.__startApp=function(){
     var loadVal = ($("ldNum")&&$("ldNum").value.trim()) || (pulledMeta&&pulledMeta.loadNumber) || "";
     var custVal = ($("drvCustSel")&&$("drvCustSel").value) || (pulledMeta&&pulledMeta.customerId) || "";
     var bytes = origBytes;   // keep a reference; the doc is already in memory
-    var cid = genId();       // stable id so a retried upload (direct now, or queued later) can't duplicate
+    // Stable id so a retried upload (direct now, or queued later) can't duplicate — and the SAME photo sent again
+    // (the driver tapping Send a second time after an error) reuses it, so the server files it once, not twice.
+    if(!_lastSaveId || _lastSaveId.bytes!==origBytes) _lastSaveId={ bytes:origBytes, cid:genId() };
+    var cid = _lastSaveId.cid;
+    if(loadPods().some(function(p){ return p.id===cid && p.status!=="uploaded"; })){   // already queued from an earlier tap
+      toast("Already saved — it sends on its own as soon as HaulProof is reachable");
+      try{ syncOutbox(); }catch(_){}
+      showSavedConfirmation(poNum, null, paper); return;
+    }
     // ONLINE: upload straight to the load right now, from the copy in memory. This avoids stuffing a big
     // multi-photo PDF into the phone's limited browser storage (which was silently filling up and dropping
     // saves). No storage dependency = the save reliably reaches "Your loads".

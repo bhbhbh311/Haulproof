@@ -503,6 +503,10 @@ test('paper BOL load: the driver sees it as paper; each stop\'s photo is its sig
   assert.ok((await photo(1, 'paper-s1')).status < 300);
   const p1 = db.prepare('SELECT status, paperSigned, stopNumber FROM pods WHERE loadId = ?').all(l.id);
   assert.deepEqual(p1.map(p => [p.status, p.paperSigned, p.stopNumber]), [['signed', 1, 1]], 'filed on the load as stop 1, signed on paper');
+  // the same photo sent again under a new id (driver tapped Send twice after an error): filed once
+  const again = await (await photo(1, 'paper-s1-again')).json();
+  assert.equal(again.duplicate, true);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM pods WHERE loadId = ?').get(l.id).n, 1, 'no second copy');
   mine = await card();
   assert.equal(mine.length, 1, 'still on the list: stop 2 needs its photo'); assert.equal(mine[0].loadSigned, 1);
   assert.ok((await photo(2, 'paper-s2')).status < 300);
