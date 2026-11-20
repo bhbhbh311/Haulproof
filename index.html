@@ -4184,7 +4184,12 @@
     $('homeTiles').innerHTML = tiles.map(t => `<button type="button" class="htile${t[1] ? '' : ' zero'}" style="--c:${t[3]}" data-f="${t[0]}"><div class="v">${t[1]}</div><div class="l">${t[2]}</div></button>`).join('');
     $('homeTiles').querySelectorAll('.htile').forEach(b => b.onclick = () => showLoadsFiltered(b.dataset.f));
     // Needs attention: failed emails first (customers are waiting on them), then setups, then loads with no driver.
-    const po = (l) => esc(l.poNumber || l.loadNumber || 'Load');
+    // "125389-0" stays as is; a customer's own PO that doesn't carry our load # shows "Load 125270 (PO VEL111326JP02)"
+    const po = (l) => {
+      const p = String(l.poNumber || ''), n = String(l.loadNumber || '');
+      if (n && p && !p.startsWith(n)) return 'Load ' + esc(n) + ' <span style="font-weight:400;">(PO ' + esc(p) + ')</span>';
+      return esc(p || n || 'Load');
+    };
     // " · Pickup Fri 11/21 8:00 AM" (Central), or the window/FCFS note; red once it's past and not picked up
     const pickupWhen = (l) => {
       if (!l.pickupAt) return '';
