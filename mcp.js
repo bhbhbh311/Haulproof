@@ -716,13 +716,11 @@ const TOOLS = [
       if (a.carrier) {
         const car = await resolveCarrier(user, a.carrier), drv = pickDriver(await carrierDrivers(user, car), a.driver);
         const r = await api(user, 'POST', '/api/drivers/for-carrier/' + encodeURIComponent(car.id) + '/' + encodeURIComponent(drv.id) + '/text-link', { json: {} });
-        return { texted: driverLabel(drv), carrier: car.name, to: r.sentTo, status: r.status,
-          ...(r.askedYes ? { askedYes: true, note: 'The driver has not agreed to texts yet: they were texted to reply YES, and their link goes out when they do' } : {}) };
+        return { texted: driverLabel(drv), carrier: car.name, to: r.sentTo, status: r.status };
       }
       const drv = await resolveDriver(user, a.driver);
       const r = await api(user, 'POST', '/api/drivers/' + drv.id + '/text-link', { json: {} });
-      return { texted: driverLabel(drv), to: r.sentTo, status: r.status,
-        ...(r.askedYes ? { askedYes: true, note: 'The driver has not agreed to texts yet: they were texted to reply YES, and their link goes out when they do' } : {}) };
+      return { texted: driverLabel(drv), to: r.sentTo, status: r.status };
     } },
 
   { name: 'add_drivers', title: 'Add drivers',

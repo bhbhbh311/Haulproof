@@ -11,8 +11,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS sms_log (
 
 // Delivery tracking: each text asks Twilio to report its final status (delivered / undelivered / failed) back to
 // /api/twilio/status. loadId and notifyEmail say which load's history gets the result and who hears when it fails.
-// kind 'optin': the "reply YES" text a driver gets before their link (see smsconsent.js)
-for (const c of ['loadId TEXT', 'notifyEmail TEXT', 'errorCode TEXT', 'link TEXT', 'driverName TEXT', 'updatedAt INTEGER', 'kind TEXT']) {
+for (const c of ['loadId TEXT', 'notifyEmail TEXT', 'errorCode TEXT', 'link TEXT', 'driverName TEXT', 'updatedAt INTEGER']) {
   try { db.exec(`ALTER TABLE sms_log ADD COLUMN ${c}`); } catch (e) {}
 }
 
@@ -29,7 +28,7 @@ function toE164(phone) {
 class SmsError extends Error {}
 
 // callbackBase: the site's own address (https://haulproofepod.com); Twilio posts the delivery result there.
-async function sendText({ to, body, orgId = null, driverId = null, sentBy = null, loadId = null, notifyEmail = null, link = null, driverName = null, callbackBase = null, kind = null }, { fetchFn = fetch } = {}) {
+async function sendText({ to, body, orgId = null, driverId = null, sentBy = null, loadId = null, notifyEmail = null, link = null, driverName = null, callbackBase = null }, { fetchFn = fetch } = {}) {
   if (!configured()) throw new SmsError('Texting isn’t set up yet (Twilio settings in Render)');
   const num = toE164(to);
   if (!num) throw new SmsError('That phone number doesn’t look like a US mobile number');
@@ -37,9 +36,9 @@ async function sendText({ to, body, orgId = null, driverId = null, sentBy = null
   if (process.env.TWILIO_MESSAGING_SERVICE_SID) form.set('MessagingServiceSid', process.env.TWILIO_MESSAGING_SERVICE_SID);
   else form.set('From', process.env.TWILIO_FROM);
   if (callbackBase) form.set('StatusCallback', callbackBase.replace(/\/+$/, '') + '/api/twilio/status');
-  const log = (status, sid, error) => db.prepare(`INSERT INTO sms_log (id, orgId, driverId, toNumber, body, status, twilioSid, error, sentBy, at, loadId, notifyEmail, link, driverName, kind)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(crypto.randomUUID(), orgId, driverId, num, body, status, sid || null, error || null, sentBy, Date.now(), loadId, notifyEmail, link, driverName, kind);
+  const log = (status, sid, error) => db.prepare(`INSERT INTO sms_log (id, orgId, driverId, toNumber, body, status, twilioSid, error, sentBy, at, loadId, notifyEmail, link, driverName)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(crypto.randomUUID(), orgId, driverId, num, body, status, sid || null, error || null, sentBy, Date.now(), loadId, notifyEmail, link, driverName);
   let r, j = {};
   try {
     r = await fetchFn(`${API()}/2010-04-01/Accounts/${encodeURIComponent(process.env.TWILIO_ACCOUNT_SID)}/Messages.json`, {
@@ -98,9 +97,8 @@ function statusRoute(originOf) {
     if (load) {
       try {
         require('./events').logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'note', actor: 'Twilio',
-          detail: status === 'delivered' ? (row.kind === 'optin' ? `Texted ${who} (${ph}) asking them to reply YES to get HaulProof texts; their link goes out when they do`
-              : `Text with the HaulProof link delivered to ${who} (${ph})`)
-            : `Text ${row.kind === 'optin' ? 'asking to reply YES for the HaulProof link' : 'with the HaulProof link'} NOT delivered to ${who} (${ph})${why ? ': ' + why : ''}. Send the driver the link from your phone` + (row.link ? ': ' + row.link : '') });
+          detail: status === 'delivered' ? `Text with the HaulProof link delivered to ${who} (${ph})`
+            : `Text with the HaulProof link NOT delivered to ${who} (${ph})${why ? ': ' + why : ''}. Send the driver the link from your phone` + (row.link ? ': ' + row.link : '') });
       } catch (e) {}
     }
     if (status !== 'delivered' && row.notifyEmail) {

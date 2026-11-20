@@ -286,8 +286,7 @@ app.use('/api/loads', require('./checkon').router);   // GET /check-on: pickups 
 app.use('/api/loads', loadsRouter);
 app.use('/api/driver-request', require('./driverrequest').publicRouter);
 app.use('/api/sms', require('./smsconsent').publicRouter);
-app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));
-app.use('/api/twilio', require('./smsconsent').inboundRoute(require('./invite').originOf));   // drivers' replies: YES / STOP   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
+app.use('/api/twilio', require('./twilio').statusRoute(require('./invite').originOf));   // Twilio's signed delivery reports   // public: the carrier's "who's driving" form
 app.use('/api/pods', require('./aiplace'));
 app.use('/api/ai-usage', require('./aiplace').usageRouter);   // master admin: AI cost report + per-company AI settings
 app.use('/api/pods', require('./emailretry').router);   // POST /:id/resend-email   // AI signature-box placement (before the /:id routes)

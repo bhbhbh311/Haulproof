@@ -899,13 +899,10 @@ async function textDriverLink(req, res, d, orgName) {
   try {
     const me = String(req.user.email || '');
     const cur = db.prepare(`SELECT id FROM loads WHERE assignedDriverId = ? ORDER BY createdAt DESC LIMIT 1`).get(d.id);
-    // A driver who hasn't agreed to our texts themselves gets one "reply YES" text first; the link is held until they do.
-    const me_org = req.user.orgId ? db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(req.user.orgId) : null;
-    const sender = (me_org && me_org.name) || orgName;
-    const r = await require('./smsconsent').sendOrAsk({ to: d.phone, body: driverLinkSms(first, orgName, link), orgId: req.user.orgId || null, driverId: d.id, sentBy: me || null,
+    const r = await T.sendText({ to: d.phone, body: driverLinkSms(first, orgName, link), orgId: req.user.orgId || null, driverId: d.id, sentBy: me || null,
       loadId: cur ? cur.id : null, notifyEmail: me && !/^haulproofhelp\+/i.test(me) ? me : null, link, driverName: d.name,
-      callbackBase: require('./invite').originOf(req) }, { sender, by: me_org && orgName && me_org.name !== orgName ? orgName : '' });
-    return res.json({ ok: true, sentTo: r.to, status: r.status || null, askedYes: !!r.askedYes });
+      callbackBase: require('./invite').originOf(req) });
+    return res.json({ ok: true, sentTo: r.to, status: r.status });
   } catch (e) {
     if (e instanceof T.SmsError) return res.status(502).json({ error: e.message });
     console.error('text-link', e); return res.status(500).json({ error: 'The text could not be sent right now' });
