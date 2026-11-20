@@ -889,10 +889,17 @@ window.__startApp=function(){
     var hs=Object.keys(LBL_DEF).filter(function(k){ return LBL_DEF[k].slice(-1)==="#" && L[k] && L[k]!==LBL_DEF[k]; });
     var ws=Object.keys(LBL_DEF).filter(function(k){ return LBL_DEF[k].slice(-1)!=="#" && L[k] && L[k]!==LBL_DEF[k]; });
     if(!hs.length && !ws.length) return;
-    function fix(t){ var o=t; hs.forEach(function(k){ o=o.split(LBL_DEF[k]).join(L[k]); }); var tr=o.trim(); ws.forEach(function(k){ if(tr===LBL_DEF[k]) o=o.replace(LBL_DEF[k], L[k]); }); return o; }
+    // All "#" names in ONE pass so a swap (PO # <-> Load #) can't undo itself; text already rewritten is never rewritten again
+    if(!window._drvRelabeled) window._drvRelabeled=(typeof WeakMap!=="undefined") ? new WeakMap() : { get:function(){}, set:function(){} };
+    var _drvRelabeled=window._drvRelabeled;
+    var map={}; hs.forEach(function(k){ map[LBL_DEF[k]]=L[k]; });
+    var keys=Object.keys(map).sort(function(a,b){ return b.length-a.length; });
+    var re=keys.length ? new RegExp(keys.map(function(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }).join("|"),"g") : null;
+    function fix(t){ var o=re ? t.replace(re,function(m){ return map[m]; }) : t; var tr=o.trim(); ws.forEach(function(k){ if(tr===LBL_DEF[k]) o=o.replace(LBL_DEF[k], L[k]); }); return o; }
     var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), ns=[]; while(w.nextNode()) ns.push(w.currentNode);
-    ns.forEach(function(n){ if(n.parentNode && (/^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName) || (n.parentNode.closest && n.parentNode.closest("[data-nolbl]")))) return; var v=fix(n.nodeValue); if(v!==n.nodeValue) n.nodeValue=v; });
-    if(root.querySelectorAll) root.querySelectorAll("input[placeholder]").forEach(function(el){ var v=fix(el.placeholder); if(v!==el.placeholder) el.placeholder=v; });
+    ns.forEach(function(n){ if(n.parentNode && (/^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName) || (n.parentNode.closest && n.parentNode.closest("[data-nolbl]")))) return;
+      if(_drvRelabeled.get(n)===n.nodeValue) return; var v=fix(n.nodeValue); if(v!==n.nodeValue) n.nodeValue=v; _drvRelabeled.set(n, n.nodeValue); });
+    if(root.querySelectorAll) root.querySelectorAll("input[placeholder]").forEach(function(el){ if(el.dataset.relabeled===el.placeholder) return; var v=fix(el.placeholder); if(v!==el.placeholder) el.placeholder=v; el.dataset.relabeled=el.placeholder; });
   }
   // "BOL #" -> "BOL" for the short "PO 1234 · Load 5678" line on a load card
   function shortLbl(k){ var v=(_drvLbl&&_drvLbl[k])||LBL_DEF[k]; return String(v).replace(/\s*#\s*$/,""); }
@@ -914,7 +921,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-20a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-20b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
