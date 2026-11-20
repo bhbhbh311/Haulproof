@@ -158,7 +158,12 @@ router.get('/', requireAuth, (req, res) => {
   }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
-  if (q) { where.push(`(poNumber LIKE ? OR loadNumber LIKE ? OR customer LIKE ? OR consignee LIKE ? OR carrierName LIKE ?)`); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
+  // One box finds a load by PO #, load #, customer, consignee, carrier, driver, origin/destination, truck or trailer
+  if (q) {
+    const cols = ['poNumber', 'loadNumber', 'customer', 'consignee', 'carrierName', 'driverName', 'origin', 'destination', 'truck', 'trailer'];
+    where.push('(' + cols.map(c => `${c} LIKE ?`).join(' OR ') + ` OR customerId IN (SELECT id FROM customers WHERE name LIKE ?))`);
+    args.push(...cols.map(() => `%${q}%`), `%${q}%`);
+  }
   // Per-user archiving: each user can hide loads from their own list. The default list drops archived loads;
   // `?archived=1` shows ONLY the archived ones (the "Show archived" cleanup view). A search still looks across
   // everything (archived rows come back flagged so they can be found) so nothing is ever truly lost.

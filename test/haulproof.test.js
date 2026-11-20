@@ -843,6 +843,16 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
 });
 
 
+test('Loads search finds a load by PO #, load #, carrier, driver, customer and destination', async () => {
+  const lid = id();
+  db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierName, driverName, customer, destination, truck, status, createdAt) VALUES (?,?,?,?,?,?,?,?,?,'assigned',?)`)
+    .run(lid, broker, '126500', '126500-0', 'Searchy Hauling LLC', 'Rita Wheeler', 'Acme Mill', 'Salina, KS', 'T-77', Date.now());
+  const brk = await login('brk@test.example');
+  for (const q of ['126500', '126500-0', 'searchy', 'Rita', 'acme', 'salina', 'T-77']) {
+    assert.ok((await brk('GET', '/api/loads?q=' + encodeURIComponent(q))).body.results.some(l => l.id === lid), 'finds it by ' + q);
+  }
+});
+
 test('who’s driving: several loads asked of the same carrier email go out as ONE email, each load with its own form link', async () => {
   const car = org('Batch Carrier LLC', 'carrier');
   const mk = n => { const lid = id(); db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,?,'assigned',?)`)
