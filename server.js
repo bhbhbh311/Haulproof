@@ -675,6 +675,15 @@ self.addEventListener('activate', function(e){
     await self.clients.claim();
   })());
 });
+// While a new version deploys, the host answers 502/503/504 for ~30-60 s. Instead of that raw error page, show a
+// short "HaulProof is updating" screen that retries by itself and opens the app as soon as it's back.
+var UPDATING_HTML = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HaulProof</title>'
+  + '<body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0e1a2d;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px">'
+  + '<div><div style="font-size:44px">🚚</div><h1 style="font-size:22px;margin:12px 0 6px">HaulProof is updating</h1>'
+  + '<p style="color:#b9c6dc;font-size:16px;margin:0">Check back in about 30 seconds. This page will open the app by itself when it\\'s ready.</p>'
+  + '<p id="n" style="color:#7f93b5;font-size:14px;margin-top:18px">Trying again in 10 s…</p></div>'
+  + '<script>var s=10;setInterval(function(){s--;if(s<=0){location.reload();}else{document.getElementById("n").textContent="Trying again in "+s+" s…";}},1000);<\\/script></body>';
+function updatingPage(){ return new Response(UPDATING_HTML, { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }); }
 self.addEventListener('fetch', function(e){
   var req = e.request;
   if(req.method !== 'GET') return;                       // uploads / posts go straight to the network
@@ -685,6 +694,7 @@ self.addEventListener('fetch', function(e){
   e.respondWith((async function(){
     try {
       var fresh = await fetch(req);                       // network first
+      if(req.mode === 'navigate' && fresh && (fresh.status === 502 || fresh.status === 503 || fresh.status === 504)) return updatingPage();
       if(fresh && fresh.ok){
         var cacheable = req.mode === 'navigate'
           || url.pathname.indexOf('/icons/') === 0
