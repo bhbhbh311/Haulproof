@@ -64,6 +64,7 @@ function scopeOrgId(req) {
 function sameOrg(req, orgId) { return req.user.role === 'superadmin' ? true : (orgId || null) === (req.user.orgId || null); }
 function driverOut(req, d) {
   return { id: d.id, name: d.name, phone: d.phone, email: d.email || '', hasPin: !!d.pinHash, active: !!d.active, createdAt: d.createdAt,
+    linkOpenedAt: d.linkOpenedAt || null, linkLastOpenedAt: d.linkLastOpenedAt || null,   // when they tapped their link
     link: require('./driverlink').driverLink(req, d) };
 }
 

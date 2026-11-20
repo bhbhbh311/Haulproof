@@ -652,6 +652,10 @@ app.get('/driver', (req, res) => {
   // Durable per-device credential: when the driver opens their personal link (?k=token), remember the token in a
   // year-long cookie so it survives cleared storage, a dropped URL param, and Add-to-Home-Screen relaunches.
   const k = (req.query.k || '').toString().trim();
+  // The driver tapped their link (the short /go/ link lands here too): note it so dispatch sees it went through
+  if (k && !PREVIEW_BOT.test(String(req.get('user-agent') || ''))) {
+    try { const d = db.prepare(`SELECT id, name, pinHash FROM drivers WHERE token = ? AND active = 1`).get(k); if (d) require('./driverlink').noteLinkOpened(d); } catch (e) {}
+  }
   if (k) res.cookie('hp_driver_key', k, { sameSite: 'lax', secure: SESSION_SECURE, maxAge: 365 * 24 * 60 * 60 * 1000, path: '/' });
   // Ask the phone to revalidate every open so a new build is picked up instead of a stale cached copy.
   res.set('Cache-Control', 'no-cache, must-revalidate');

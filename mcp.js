@@ -352,7 +352,10 @@ function pickOne(list, ref, label, nameOf) {
 }
 async function customers(user) { return (await api(user, 'GET', '/api/customers')).customers || []; }
 async function drivers(user) { return ((await api(user, 'GET', '/api/drivers')).drivers || []).filter(d => d.active !== false && d.active !== 0); }
-const driverLabel = (d) => d.name + (d.phone ? ' (' + d.phone + ')' : (d.email ? ' (' + d.email + ')' : ''));
+// When a driver tapped their link (Central), for list_drivers
+const tapped = (d) => { const f = ms => ms ? require('./checkon').fmtCT(ms) + ' CT' : null;
+  return { link_first_tapped: f(d.linkOpenedAt), link_last_tapped: f(d.linkLastOpenedAt) }; };
+const driverLabel = (d) =>d.name + (d.phone ? ' (' + d.phone + ')' : (d.email ? ' (' + d.email + ')' : ''));
 // Carriers this login can put on a load: a broker's approved roster, otherwise every active carrier.
 async function carrierList(user) {
   if (user.orgKind === 'broker' || orgKindOf(user) === 'broker') return (await api(user, 'GET', '/api/brokers/my-carriers')).carriers || [];
@@ -668,15 +671,15 @@ const TOOLS = [
       return { removed: st.name }; } },
 
   { name: 'list_drivers', title: 'List drivers',
-    description: 'Lists this account’s active drivers, or (with carrier) an approved carrier’s drivers with each one’s personal link, so the user can text it from their own phone. opened_link = they opened their link and made their PIN. Optionally filter by name or phone.',
+    description: 'Lists this account’s active drivers, or (with carrier) an approved carrier’s drivers with each one’s personal link, so the user can text it from their own phone. opened_link = they opened their link and made their PIN; link_first_tapped / link_last_tapped = when they tapped their link (Central), even if they stopped before the PIN. Optionally filter by name or phone.',
     inputSchema: { type: 'object', properties: { search: str('Part of a driver name or phone number'), carrier: str(CARRIER_OPT) } }, annotations: { readOnlyHint: true },
     run: async (user, a) => { const n = norm(a.search), dg = String(a.search || '').replace(/\D/g, '');
       const match = d => !n || norm(d.name).indexOf(n) >= 0 || (dg.length >= 3 && String(d.phone || '').replace(/\D/g, '').indexOf(dg) >= 0);
       if (a.carrier) { needCompany(user); const car = await resolveCarrier(user, a.carrier);
         return { carrier: car.name, drivers: (await carrierDrivers(user, car)).filter(match).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null, active: !!d.active, link: d.link || null, added_by: d.addedByName || null,
-          opened_link: !!d.hasPin })),   // they opened their link and made their PIN (a tap that stops before the PIN screen isn't recorded)
+          opened_link: !!d.hasPin, ...tapped(d) })),   // opened_link: they opened their link and made their PIN
           note: 'Each link is that driver’s own. Share it only with that driver.' }; }
-      return { drivers: (await drivers(user)).filter(match).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null, opened_link: !!d.hasPin })) }; } },
+      return { drivers: (await drivers(user)).filter(match).map(d => ({ id: d.id, name: d.name, phone: d.phone || null, email: d.email || null, opened_link: !!d.hasPin, ...tapped(d) })) }; } },
 
   { name: 'update_driver', title: 'Change a driver',
     description: 'Changes one of this account’s drivers (or, with carrier, an approved carrier’s driver): name, phone, email, turn them off/on (carrier only), or reset their PIN (own drivers only) so they pick a new one next time they open their link. Their link and loads stay the same. Confirm the change with the user first.',

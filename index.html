@@ -3225,7 +3225,8 @@
       + '<div style="font-weight:700;margin-bottom:4px;">Drivers at ' + esc(cname) + '</div>'
       + (drivers.length ? drivers.map(d => '<div class="chDrv" data-id="' + esc(d.id) + '" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);">'
           + '<div class="chDrvView" style="flex:1;min-width:160px;"><b style="font-size:13.5px;">' + esc(d.name || 'Driver') + '</b>' + (d.active ? '' : ' <span class="sub" style="color:var(--danger);">(off)</span>')
-          + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + (d.email ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.email) + '</span>' : '') + '</div>'
+          + (d.phone ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.phone) + '</span>' : '') + (d.email ? ' <span class="sub" style="font-size:12px;">· ' + esc(d.email) + '</span>' : '')
+          + (d.linkLastOpenedAt ? ' <span class="sub" style="font-size:12px;">· opened link ' + esc(new Date(d.linkLastOpenedAt).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</span>' : '') + '</div>'
           + '<button class="ghost chCopy" data-link="' + esc(d.link || '') + '" data-name="' + esc(d.name || 'Driver') + '" type="button" style="padding:5px 9px;font-size:12px;">Copy link</button>'
           + drvTextHtml(d, '/api/drivers/for-carrier/' + enc + '/' + encodeURIComponent(d.id) + '/text-link', '5px 9px')
           + '<button class="ghost chEdit" type="button" style="padding:5px 9px;font-size:12px;">Edit</button>'
@@ -3377,7 +3378,7 @@
   function driverRowsHtml(drivers) {
     if (!drivers || !drivers.length) return '<tr><td colspan="5" class="empty">No drivers yet.</td></tr>';
     return drivers.map(d => `<tr>
-      <td><b>${esc(d.name)}</b>${d.hasPin ? ' <span class="chip signed" style="font-size:10px;" title="Link locked with a PIN">🔒 PIN</span>' : ' <span class="chip received" style="font-size:10px;" title="They pick their own PIN the first time they open their link">No PIN yet</span>'}${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
+      <td><b>${esc(d.name)}</b>${d.hasPin ? ' <span class="chip signed" style="font-size:10px;" title="Link locked with a PIN">🔒 PIN</span>' : ' <span class="chip received" style="font-size:10px;" title="They pick their own PIN the first time they open their link">No PIN yet</span>'}${d.linkLastOpenedAt ? `<div style="color:var(--muted);font-size:12px;" title="${d.linkOpenedAt ? 'First opened ' + esc(new Date(d.linkOpenedAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })) + ' CT' : ''}">Opened link ${esc(new Date(d.linkLastOpenedAt).toLocaleString('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>` : (d.hasPin ? '' : '<div style="color:var(--muted);font-size:12px;">Hasn’t opened their link yet</div>')}${d.email ? `<div style="color:var(--muted);font-size:12px;">${esc(d.email)}</div>` : ''}</td>
       <td>${esc(d.phone) || '—'}</td>
       <td><span class="chip ${d.active ? 'signed' : 'received'}">${d.active ? 'Active' : 'Off'}</span></td>
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">

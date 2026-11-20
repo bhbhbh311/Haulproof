@@ -27,4 +27,23 @@ function driverLink(req, d) {
 }
 const driverByCode = code => db.prepare(`SELECT * FROM drivers WHERE shortCode = ? COLLATE NOCASE`).get(String(code || '').trim());
 
-module.exports = { driverLink, shortCodeFor, driverByCode };
+// When a driver taps their link (before any PIN), so dispatch can see it went through: the first and latest time on
+// the driver, and a line in the history of each load they're on (at most once every 3 hours per load).
+for (const c of ['linkOpenedAt INTEGER', 'linkLastOpenedAt INTEGER']) { try { db.exec(`ALTER TABLE drivers ADD COLUMN ${c}`); } catch (e) {} }
+const THREE_H = 3 * 60 * 60 * 1000;
+function noteLinkOpened(d, now = Date.now()) {
+  if (!d || !d.id) return;
+  try {
+    db.prepare(`UPDATE drivers SET linkOpenedAt = COALESCE(linkOpenedAt, ?), linkLastOpenedAt = ? WHERE id = ?`).run(now, now, d.id);
+    const loads = db.prepare(`SELECT l.id, l.orgId, l.poNumber FROM loads l WHERE l.assignedDriverId = ?
+        AND (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed'))
+          < (CASE WHEN l.podMode = 'paper' THEN COALESCE(l.paperStops, 1) ELSE 1 END)
+      ORDER BY l.createdAt DESC LIMIT 20`).all(d.id);
+    const recent = db.prepare(`SELECT 1 FROM load_events WHERE loadId = ? AND type = 'driver_opened' AND createdAt > ? LIMIT 1`);
+    const { logEvent } = require('./events');
+    loads.forEach(l => { if (!recent.get(l.id, now - THREE_H)) logEvent({ orgId: l.orgId, loadId: l.id, poNumber: l.poNumber, type: 'driver_opened',
+      detail: `${d.name} opened their HaulProof link` + (d.pinHash ? '' : ' (no PIN yet)'), actor: d.name }); });
+  } catch (e) { console.error('link opened', e.message); }
+}
+
+module.exports = { driverLink, shortCodeFor, driverByCode, noteLinkOpened };

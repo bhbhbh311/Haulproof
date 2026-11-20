@@ -593,6 +593,28 @@ test('short driver link: /go/<code> opens the driver app with that driver\'s key
   assert.equal(card.status, 200); assert.equal(card.headers.get('content-type'), 'image/png');
 });
 
+test('a driver taps their link: dispatch sees when (driver list + the load\'s history), before any PIN; link previews and repeat taps don\'t add lines', async () => {
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Tap Test Tom', phone: '816-555-0191' })).body.driver;
+  assert.equal(d.linkOpenedAt, null, 'not opened yet');
+  const l = (await api('POST', '/api/loads', { poNumber: 'TAP-1' })).body.load;
+  await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: d.id });
+  const code = d.link.split('/go/')[1];
+  // an iMessage link preview isn't a tap
+  await fetch(B + '/go/' + code, { headers: { 'User-Agent': 'facebookexternalhit/1.1 Facebot Twitterbot/1.0' } });
+  assert.equal(db.prepare('SELECT linkOpenedAt FROM drivers WHERE id = ?').get(d.id).linkOpenedAt, null);
+  // the driver taps it: /go/ sends the phone on to /driver?k=…, which records it
+  const go = await fetch(B + '/go/' + code, { redirect: 'manual' });
+  await fetch(B + go.headers.get('location'));
+  const row = db.prepare('SELECT linkOpenedAt, linkLastOpenedAt FROM drivers WHERE id = ?').get(d.id);
+  assert.ok(row.linkOpenedAt && row.linkLastOpenedAt, 'first and latest tap saved');
+  const mine = (await api('GET', '/api/drivers')).body.drivers.find(x => x.id === d.id);
+  assert.equal(mine.linkOpenedAt, row.linkOpenedAt); assert.equal(mine.hasPin, false);
+  await fetch(B + go.headers.get('location'));
+  const lines = db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND type = 'driver_opened'").all(l.id);
+  assert.deepEqual(lines.map(e => e.detail), ['Tap Test Tom opened their HaulProof link (no PIN yet)'], 'one line, not one per tap');
+});
+
 test('texted driver link preview: iMessage gets the HaulProof card saying whose paper BOL upload it is, and never the driver\'s key', async () => {
   const carrier = org('Preview Carrier LLC', 'carrier');
   createUser({ email: 'car-prev@test.example', name: 'Carrier Prev', role: 'admin', password: PW, orgId: carrier });
