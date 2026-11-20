@@ -237,6 +237,14 @@ test('connector: the master admin turns a company off and back on; others never 
   const notMaster = await mcpToken('ship@test.example')('set_company_active', { company: 'Test Carrier Inc', active: false });
   assert.equal(notMaster.err, true, 'a company login can not use it');
   assert.equal(db.prepare('SELECT active FROM orgs WHERE id = ?').get(carrier).active, 1);
+  // rename a carrier HaulProof named from its owner's name: the carrier name on its loads follows
+  const ren = org('JIM JOHNSON', 'carrier'), rl = id();
+  db.prepare(`INSERT INTO loads (id, orgId, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,'assigned',?)`).run(rl, broker, 'REN-1', ren, 'JIM JOHNSON', Date.now());
+  const r = await master('rename_company', { company: ren, name: 'JIM-MAR TRANSPORTATION' });
+  assert.equal(r.err, false, JSON.stringify(r.out)); assert.deepEqual([r.out.now, r.out.loads_updated], ['JIM-MAR TRANSPORTATION', 1]);
+  assert.equal(db.prepare('SELECT name FROM orgs WHERE id = ?').get(ren).name, 'JIM-MAR TRANSPORTATION');
+  assert.equal(db.prepare('SELECT carrierName FROM loads WHERE id = ?').get(rl).carrierName, 'JIM-MAR TRANSPORTATION');
+  assert.equal((await mcpToken('ship@test.example')('rename_company', { company: ren, name: 'X' })).err, true, 'a company login can not rename');
 });
 
 // ---- driver buttons: the path a driver takes on a load, and what they can't touch ----

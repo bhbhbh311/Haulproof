@@ -547,6 +547,26 @@ const TOOLS = [
           + (ctx && ctx.orgId === o.id ? ' This connection was working in it, so pick another company with use_company.' : '') };
     } },
 
+  { name: 'rename_company', title: 'Rename a company (master admin)', masterOnly: true,
+    description: 'Master admin only: changes a company’s name, e.g. a carrier HaulProof named from its FMCSA legal (owner) name that goes by its DBA '
+      + '("JIM JOHNSON" → "JIM-MAR TRANSPORTATION"). For a carrier, the carrier name on its loads changes too. MC # and DOT # stay the same. '
+      + 'Use list_companies first to get the right one. Confirm the new name with the user first.',
+    inputSchema: { type: 'object', properties: { company: str('Company name or id from list_companies'), name: str('The new name') }, required: ['company', 'name'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      const all = db.prepare(`SELECT id, name, kind FROM orgs`).all();
+      const o = pickOne(all, a.company, 'company', x => x.name);
+      const name = String(a.name || '').trim().slice(0, 120);
+      if (!name) throw new ToolError('Give the new name');
+      if (name === o.name) return { company: o.name, type: o.kind, changed: false, note: 'It already has that name.' };
+      const loads = db.transaction(() => {
+        db.prepare(`UPDATE orgs SET name = ? WHERE id = ?`).run(name, o.id);
+        return o.kind === 'carrier' ? db.prepare(`UPDATE loads SET carrierName = ? WHERE carrierId = ?`).run(name, o.id).changes : 0;
+      })();
+      console.log('[mcp] master admin ' + user._master.email + ' renamed ' + o.name + ' (' + o.kind + ') to ' + name);
+      return { was: o.name, now: name, type: o.kind, changed: true, loads_updated: loads };
+    } },
+
   { name: 'delete_load', title: 'Delete a load',
     description: 'Deletes one load and its documents, the same as Delete in Documents / Loads: recoverable, a master admin can restore it from the recovery bin. '
       + 'If only the carrier cancelled and the load still runs, use unassign_carrier instead — never delete the load for that. '
