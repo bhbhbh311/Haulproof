@@ -2223,6 +2223,7 @@
   // signing a stop flips it from "Ready to sign" to "Signed" on its own — no manual refresh. We only touch the
   // read-only stops/documents table and the status line; we never re-run openLoad (which would scroll/reset the
   // card) and we skip entirely while the dispatcher is editing so we don't stomp on their in-progress changes.
+  var _ldDetailSig = null;   // what the open load looked like at the last refresh (skip a redraw when it's the same)
   async function refreshOpenLoadDetail() {
     try {
       if (document.hidden) return;
@@ -2234,6 +2235,12 @@
       // Bail if the dispatcher opened a different load or started editing while the request was in flight.
       if (!curLoad || curLoad.id !== r.load.id) return;
       if (det.classList.contains('editing') || det.classList.contains('hide') || det.querySelector('#ldView .stSave')) return;
+      // Nothing changed: leave the page alone. Redrawing anyway swaps out the buttons under the mouse — closing the
+      // PDF viewer and clicking "Open PDF" again fires this refresh (window focus / first click), and a click whose
+      // button is replaced between press and release does nothing, so it looked like the button needed a wait.
+      var sig = JSON.stringify([r.load, r.pods, r.stopTimes, r.stepAnswers, r.loadFields]);
+      if (sig === _ldDetailSig && curLoad && curLoad.id === r.load.id) return;
+      _ldDetailSig = sig;
       curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null;
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
       renderLdView();
@@ -4491,6 +4498,7 @@
     try {
       const r = await api('/api/loads/' + id);
       curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null; _ldBackFn = (opts && opts.back) || null;
+      _ldDetailSig = JSON.stringify([r.load, r.pods, r.stopTimes, r.stepAnswers, r.loadFields]);   // the next refresh only redraws if something changed
       $('loadsCard').classList.add('hide'); $('loadDetailCard').classList.remove('hide', 'tabhidden');
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
