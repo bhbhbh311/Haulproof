@@ -112,7 +112,7 @@ function dueList(orgId, now = Date.now()) {
       minutesUntilPickup: Math.round(until / MIN), stage, reason: REASON[stage],
       carrier: l.carrierName || null, carrierPhone: fmtPhone(l.carrierPhone), driver: l.driverName || null, driverPhone: fmtPhone(l.driverPhone),
       enRouteAt: l.enRouteAt || null, alerted: l.checkOnStage === stage,
-      lastNote: l.lastNote || null, lastNoteAt: l.lastNoteAt || null, lastNoteBy: l.lastNoteBy || null });
+      lastNote: l.lastNote || null, lastNoteAt: l.lastNoteAt || null, lastNoteBy: l.lastNoteBy || null, noteCount: noteCount(l.id) });
   }
   const rank = { late_pickup: 0, not_en_route: 1, no_driver: 2 };
   return out.sort((a, b) => rank[a.stage] - rank[b.stage] || a.pickupAt - b.pickupAt);
@@ -192,6 +192,20 @@ router.post('/:id/note', requireAuth, express.json(), (req, res) => {
   db.prepare(`UPDATE loads SET lastNote = ?, lastNoteAt = ?, lastNoteBy = ? WHERE id = ?`).run(text || null, text ? now : null, text ? who : null, load.id);
   if (text) logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'note', detail: '📝 ' + text, actor: req.user.email || who });
   res.json({ ok: true, lastNote: text || null, lastNoteAt: text ? now : null, lastNoteBy: text ? who : null });
+});
+// Every note on a load, newest first (the history keeps each one; the Dashboard shows only the newest)
+const NOTE_SQL = `FROM load_events WHERE loadId = ? AND type = 'note' AND detail LIKE '📝 %'`;
+function noteCount(loadId) { try { return db.prepare(`SELECT COUNT(*) AS n ${NOTE_SQL}`).get(loadId).n; } catch (e) { return 0; } }
+router.get('/:id/notes', requireAuth, (req, res) => {
+  const load = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(req.params.id);
+  const my = req.user.orgId || null;
+  if (!load || (req.user.role !== 'superadmin' && [load.orgId, load.brokerId, load.carrierId].indexOf(my) < 0)) return res.status(404).json({ error: 'Load not found' });
+  const nameOf = db.prepare(`SELECT name FROM users WHERE email = ? COLLATE NOCASE`);
+  const notes = db.prepare(`SELECT detail, actor, createdAt ${NOTE_SQL} ORDER BY createdAt DESC LIMIT 200`).all(load.id).map(e => {
+    const u = e.actor && e.actor.includes('@') ? nameOf.get(e.actor) : null;
+    return { text: e.detail.replace(/^📝 /, ''), by: u && u.name ? u.name : (e.actor || ''), at: e.createdAt };
+  });
+  res.json({ notes });
 });
 router.put('/check-on/settings', requireAuth, express.json(), (req, res) => {
   if (!['admin', 'dispatcher', 'superadmin'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });

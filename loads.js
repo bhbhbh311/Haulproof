@@ -198,6 +198,7 @@ router.get('/', requireAuth, (req, res) => {
   const redoStat = db.prepare(`SELECT SUM(CASE WHEN pickPending = 1 AND redoOf IS NOT NULL THEN 1 ELSE 0 END) AS pickpend,
      SUM(CASE WHEN redoOf IS NOT NULL AND status IN ('prepared','awaiting_build') THEN 1 ELSE 0 END) AS redoout
      FROM pods WHERE loadId = ?`);
+  const noteCount = db.prepare(`SELECT COUNT(*) AS n FROM load_events WHERE loadId = ? AND type = 'note' AND detail LIKE '📝 %'`);
   const out = rows.map(l => {
     // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak
     // the broker's carrier to the customer.
@@ -222,6 +223,7 @@ router.get('/', requireAuth, (req, res) => {
     if (o.pickPending) o.complete = false;
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     o.archived = archSet.has(l.id);   // this user has hidden this load from their own list
+    o.noteCount = l.lastNote ? noteCount.get(l.id).n : 0;   // call notes kept on the load (Dashboard: "2 earlier")
     return o;
   });
   res.json({ count: out.length, results: out, viewerKind: req.user.orgKind || null, archivedCount: archIds.length });

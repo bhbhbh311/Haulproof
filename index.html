@@ -1822,6 +1822,20 @@
 </div>
 
 <!-- SEND DOCUMENT (email a copy) modal -->
+<div id="noteModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="max-width:520px;width:100%;margin:0;max-height:90vh;overflow:auto;">
+    <h1 style="font-size:18px;margin-bottom:2px;" id="noteTitle">Notes</h1>
+    <p class="sub" style="margin-bottom:10px;">What you found out when you called. The newest note shows on the Dashboard; every note is kept below and in the load's history.</p>
+    <textarea id="noteText" rows="3" maxlength="500" placeholder="Add a new note…" style="width:100%;resize:vertical;"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:8px;">
+      <span id="noteMsg" class="sub" style="margin-right:auto;font-size:12.5px;"></span>
+      <button type="button" class="ghost" id="noteCancel">Close</button>
+      <button type="button" id="noteSave">Add note</button>
+    </div>
+    <div style="font-weight:700;margin:14px 0 4px;font-size:13.5px;">Earlier notes</div>
+    <div id="noteList" class="sub" style="font-size:13px;">Loading…</div>
+  </div>
+</div>
 <div id="sendDocModal" class="hide" style="position:fixed;inset:0;background:rgba(10,16,26,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;">
   <div class="card" style="max-width:480px;width:100%;margin:0;">
     <h1 style="font-size:18px;margin-bottom:2px;">Send document</h1>
@@ -2985,19 +2999,38 @@
     } catch (e) { m.style.color = 'var(--bad)'; m.textContent = e.message; }
   };
   // Call notes: the latest note on a load ("Called Kenny, driver is Mike, ETA 2 PM"), shown under it on the Dashboard lists
+  // Only the newest note shows; clicking it (or Note) opens all of them.
   function noteLine(l) {
     if (!l || !l.lastNote) return '';
     const when = l.lastNoteAt ? new Date(l.lastNoteAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
-    return `<div class="s" style="margin-top:2px;color:var(--ink)">📝 ${esc(l.lastNote)} <span style="color:var(--muted)">· ${esc(l.lastNoteBy || '')}${when ? ', ' + esc(when) : ''}</span></div>`;
+    return `<div class="s noteLine" data-id="${esc(l.id)}" data-po="${esc(l.poNumber || l.loadNumber || '')}" title="See all notes on this load" style="margin-top:2px;color:var(--ink);cursor:pointer">📝 ${esc(l.lastNote)} <span style="color:var(--muted)">· ${esc(l.lastNoteBy || '')}${when ? ', ' + esc(when) : ''}${l.noteCount > 1 ? ' · <u>' + (l.noteCount - 1) + ' earlier</u>' : ''}</span></div>`;
   }
-  async function saveLoadNote(id, current) {
-    const text = prompt('Note for this load (what you found out when you called). It shows here and is kept in the load\'s history.\nLeave empty to clear the note.', current || '');
-    if (text === null) return;
-    try { await api('/api/loads/' + encodeURIComponent(id) + '/note', { method: 'POST', body: JSON.stringify({ note: text }) }); }
-    catch (e) { return alert(e.message || 'Could not save the note'); }
+  // A click on a note line anywhere on the page opens that load's notes
+  document.addEventListener('click', e => { const n = e.target.closest && e.target.closest('.noteLine'); if (n && n.dataset.id) { e.preventDefault(); saveLoadNote(n.dataset.id, n.dataset.po); } });
+  let _noteLoad = null;
+  async function saveLoadNote(id, label) {
+    _noteLoad = id;
+    $('noteTitle').textContent = 'Notes' + (label ? ' · ' + label : '');
+    $('noteText').value = ''; $('noteMsg').textContent = ''; $('noteList').textContent = 'Loading…';
+    $('noteModal').classList.remove('hide'); setTimeout(() => $('noteText').focus(), 30);
+    try {
+      const r = await api('/api/loads/' + encodeURIComponent(id) + '/notes');
+      const list = r.notes || [];
+      $('noteList').innerHTML = list.length ? list.map(n => `<div style="padding:7px 0;border-top:1px solid var(--line);color:var(--ink)">${esc(n.text)}<div style="color:var(--muted);font-size:12px">${esc(n.by || '')}${n.at ? ' · ' + esc(new Date(n.at).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })) : ''}</div></div>`).join('') : 'No notes yet.';
+    } catch (e) { $('noteList').textContent = e.message || 'Could not load the notes'; }
+  }
+  function closeNote() { $('noteModal').classList.add('hide'); _noteLoad = null; }
+  $('noteCancel').onclick = closeNote;
+  $('noteModal').addEventListener('click', e => { if (e.target === $('noteModal') && !$('noteText').value.trim()) closeNote(); });
+  $('noteSave').onclick = async () => {
+    const text = $('noteText').value.trim(); if (!text || !_noteLoad) { $('noteMsg').textContent = 'Type a note first'; return; }
+    $('noteSave').disabled = true; $('noteMsg').textContent = 'Saving…';
+    try { await api('/api/loads/' + encodeURIComponent(_noteLoad) + '/note', { method: 'POST', body: JSON.stringify({ note: text }) }); }
+    catch (e) { $('noteMsg').textContent = e.message || 'Could not save the note'; $('noteSave').disabled = false; return; }
+    $('noteSave').disabled = false; closeNote();
     try { await loadLoads(); } catch (e) {}
     loadCheckOn();
-  }
+  };
   // "Check on these" (Dashboard): loads whose pickup is close or past and the driver isn't on the way, with numbers to call
   async function loadCheckOn() {
     const wrap = $('homeCheckOn'); if (!wrap) return;
@@ -3011,7 +3044,7 @@
         <button type="button" class="ghost cNote" data-id="${esc(i.id)}" title="Save a note: what you found out when you called">📝 Note</button><button type="button" class="ghost cOpen" data-id="${esc(i.id)}">Open</button></div>`).join('')
       : '<div class="hempty">Nobody to check on: every load picking up soon has its driver on the way. (A load shows here only once it has a pickup appointment.)</div>';
     wrap.querySelectorAll('.cOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
-    wrap.querySelectorAll('.cNote').forEach(b => b.onclick = () => saveLoadNote(b.dataset.id, ((r.items || []).find(x => x.id === b.dataset.id) || {}).lastNote));
+    wrap.querySelectorAll('.cNote').forEach(b => b.onclick = () => saveLoadNote(b.dataset.id, ((r.items || []).find(x => x.id === b.dataset.id) || {}).poNumber));
   }
   if ($('checkOnEmailsSave')) $('checkOnEmailsSave').onclick = async () => {
     const m = $('checkOnMsg'); m.style.color = ''; m.textContent = 'Saving…';
@@ -4195,7 +4228,7 @@
       return `<div class="hli"><span class="dot" style="background:${onRoad ? 'var(--warn)' : next ? 'var(--primary)' : 'var(--ok)'}"></span><div class="t"><b>${esc(n)}</b><div class="s">${sub}</div></div>${pill}</div>`;
     }).join('') : '<div class="hempty">No drivers out right now. Loads you assign show up here.</div>';
     document.querySelectorAll('#homeCard .hOpen').forEach(b => b.onclick = () => { selectTab('documents'); openLoad(b.dataset.id); });
-    document.querySelectorAll('#homeAttnList .hNote').forEach(b => b.onclick = () => saveLoadNote(b.dataset.id, (loads.find(x => x.id === b.dataset.id) || {}).lastNote));
+    document.querySelectorAll('#homeAttnList .hNote').forEach(b => b.onclick = () => { const L = loads.find(x => x.id === b.dataset.id) || {}; saveLoadNote(b.dataset.id, L.poNumber || L.loadNumber); });
     loadCheckOn();
     document.querySelectorAll('#homeCard .hRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));   // retry right here, no detour into the load
   }
@@ -7938,7 +7971,7 @@
     if (document.querySelector('.histOverlay:not(.hide)')) return false;
     const sw = $('setupWizard'); if (sw && !sw.classList.contains('hide')) return false;
     // A document being read, split or cropped — a reload would close it (someone can read a BOL for 2+ minutes).
-    for (const id of ['docViewer', 'splitModal', 'cropModal']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
+    for (const id of ['docViewer', 'splitModal', 'cropModal', 'noteModal']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
     if (typeof ldPicked !== 'undefined' && ldPicked.length) return false;   // files picked for a stop, not uploaded yet
     const ld = $('loadDetailCard'); if (ld && !ld.classList.contains('hide') && (ld.classList.contains('editing') || (typeof _ldDirty !== 'undefined' && _ldDirty))) return false;
     return true;

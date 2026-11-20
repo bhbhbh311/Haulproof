@@ -988,6 +988,13 @@ test('call notes: a note on a load shows as its latest note (connector and check
   const item = (await brk('GET', '/api/loads/check-on')).body.items.find(i => i.poNumber === '125999N-0');
   assert.equal(item.lastNote, 'Called Kenny at J5, driver is Mike, ETA 2 PM');
   assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND type = 'note'").get(lid).detail, /📝 Called Kenny/);
+  // a second note doesn't replace the first: both are kept, newest first, and the list counts them
+  await brk('POST', '/api/loads/' + lid + '/note', { note: 'Mike texted, running 30 min late' });
+  const all = (await brk('GET', '/api/loads/' + lid + '/notes')).body.notes;
+  assert.deepEqual(all.map(n => n.text), ['Mike texted, running 30 min late', 'Called Kenny at J5, driver is Mike, ETA 2 PM']);
+  assert.equal(all[0].by, 'Broker Admin');
+  assert.equal((await brk('GET', '/api/loads/check-on')).body.items.find(i => i.poNumber === '125999N-0').noteCount, 2);
+  assert.equal((await (await login('ship@test.example'))('GET', '/api/loads/' + lid + '/notes')).status, 404, 'another company can’t read them');
   await brk('POST', '/api/loads/' + lid + '/note', { note: '' });
   assert.equal(db.prepare('SELECT lastNote FROM loads WHERE id = ?').get(lid).lastNote, null);
   assert.equal((await (await login('ship@test.example'))('POST', '/api/loads/' + lid + '/note', { note: 'x' })).status, 404, 'another company can’t');
