@@ -914,7 +914,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-11b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-20a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -2411,7 +2411,12 @@ window.__startApp=function(){
 
   // ---- In-app camera: live video + a page-shaped outline; shutter grabs a full-resolution frame ----
   var cam = { stream:null, tick:0, running:false };
-  function startPhotoCapture(){ try{ if(online()) loadAi().catch(function(){}); }catch(e){}  /* warm the AI model while they frame the shot, so it's ready by the time they crop */ openInAppCamera(); }
+  // The phone's own camera is the default: it takes a full-resolution, sharpened photo, while the in-app camera only
+  // grabs a video frame (≈1080p on iPhone) that drivers found blurry. The in-app camera stays for a phone set to
+  // hp_cam_mode=inapp. Called straight from the tap, so iOS lets the file input open.
+  function startPhotoCapture(){ try{ if(online()) loadAi().catch(function(){}); }catch(e){}  /* warm the AI model while they frame the shot, so it's ready by the time they crop */
+    var inApp=false; try{ inApp = localStorage.getItem("hp_cam_mode")==="inapp"; }catch(e){}
+    if(inApp) openInAppCamera(); else startNativeCamera(); }
   function startNativeCamera(){ $("camInput").value=""; $("camInput").click(); }
   function layoutCamFrame(){
     var vw=window.innerWidth, vh=window.innerHeight;
@@ -2765,8 +2770,10 @@ window.__startApp=function(){
   });
   if($("scMore")) $("scMore").addEventListener("click", function(){
     if(!scan || scan.stage!==2) return;
-    finalizeScan();          // adds the page to the tray
-    startPhotoCapture();     // and opens the camera for the next one
+    // Open the phone camera first, while the tap still counts (iOS drops a file-input click that comes after the
+    // slow page cleanup); the page is added to the tray right after, long before the next photo comes back.
+    startPhotoCapture();     // opens the camera for the next one
+    finalizeScan();          // and adds this page to the tray
   });
   $("scCancel").addEventListener("click", function(){
     if(!scan) return;
@@ -3991,8 +3998,9 @@ window.__startApp=function(){
           var unlock=loadUnlock(); if(unlock) hdrs["X-Driver-Unlock"]=unlock;
           var _ug=lastGps||bestGps(); if(_ug&&_ug.lat!=null){ hdrs["X-POD-Gps"]=_ug.lat+","+_ug.lng;
             if(_ug.source) hdrs["X-POD-Gps-Source"]=_ug.source; if(_ug.acc!=null) hdrs["X-POD-Gps-Acc"]=String(_ug.acc); }
-          var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
+          var res=await postRetrying(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
           if(res.ok){ var okj=await res.json().catch(function(){return {};}); try{ loadMyLoads(); }catch(_){} showSavedConfirmation(okj.poNumber||poNum, okj.poRenamed?(okj.originalPo||poNum):null, paper); return; }
+          if(res.status>=500) throw new Error("server "+res.status);   // still down after the retries: queue it below, it sends on its own
           var eb=await res.json().catch(function(){return {};});
           if(isLinkError(res.status, eb.error)){ showLinkExpired(); toast("Driver link expired — reconnect to upload"); return; }
           toast(eb.error||("Save failed ("+res.status+")")); return;
@@ -4058,6 +4066,17 @@ window.__startApp=function(){
   // Upload a SIGNED POD straight from memory to the ingest endpoint — no dependency on phone storage, so a
   // full phone can never silently drop a signed document. Mirrors doSync()'s headers for a signed (not prepared)
   // POD. Returns {ok,resp} | {linkError:true} | {error} | {network:true}.
+  // POST that rides out a server restart: a 502/503/504 (HaulProof updating, or the host's proxy hiccuping) is tried
+  // again after 3, 6 and 10 s before giving up. The caller's X-POD-ClientId keeps a retry from filing a duplicate.
+  async function postRetrying(ep, opts){
+    var waits=[3000,6000,10000], res;
+    for(var i=0;;i++){
+      res=await fetch(ep, opts);
+      if([502,503,504].indexOf(res.status)<0 || i>=waits.length) return res;
+      if(i===0) toast("HaulProof is busy — trying again…");
+      await new Promise(function(r){ setTimeout(r, waits[i]); });
+    }
+  }
   async function uploadSignedNow(pod, bytes){
     var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim();
     if(!ep || !bytes) return { network:true };   // nothing to send to — treat like offline, fall back to the outbox
@@ -4082,8 +4101,9 @@ window.__startApp=function(){
         if(pod.gps.source) hdrs["X-POD-Gps-Source"]=pod.gps.source; if(pod.gps.acc!=null) hdrs["X-POD-Gps-Acc"]=String(pod.gps.acc); }
       if(pod.driver) hdrs["X-POD-Driver"]=he(pod.driver);   // who signed it — keeps the load on this driver's "Your loads"
       if(pod.stopNum) hdrs["X-POD-Stop"]=String(pod.stopNum);
-      var res=await fetch(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
+      var res=await postRetrying(ep,{method:"POST",headers:hdrs,body:new Blob([bytes],{type:"application/pdf"})});
       if(res.ok){ var okj=await res.json().catch(function(){return {};}); return { ok:true, resp:okj }; }
+      if(res.status>=500) return { network:true };   // still down after the retries: the outbox sends it once it's back
       var eb=await res.json().catch(function(){return {};});
       if(isLinkError(res.status, eb.error)) return { linkError:true };
       return { error: eb.error || ("Upload failed ("+res.status+")") };
