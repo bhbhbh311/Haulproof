@@ -261,6 +261,9 @@ test('driver buttons: on my way, pickup with a photo, delivery photos, undo; ano
   const pu = await drv('POST', `/api/drivers/my-loads/${l.id}/pickup`, { gps, photos: [jpg] });
   assert.equal(pu.status, 200); assert.equal(pu.body.photoCount, 1);
   assert.equal((await drv('POST', `/api/drivers/my-loads/${l.id}/en-route`, {})).status, 400, 'already picked up');
+  // dispatch can reset "On my way" (e.g. after a test run)
+  const ce = await api('POST', `/api/loads/${l.id}/clear-en-route`);
+  assert.equal(ce.status, 200); assert.equal(db.prepare('SELECT enRouteAt FROM loads WHERE id = ?').get(l.id).enRouteAt, null);
   const dp = await drv('POST', `/api/drivers/my-loads/${l.id}/delivery-photos`, { stopNumber: 1, photos: [jpg, jpg] });
   assert.deepEqual([dp.status, dp.body.added], [200, 2]);
   assert.equal((await drv('POST', `/api/drivers/my-loads/${l.id}/delivery-photos`, { photos: [] })).status, 400);

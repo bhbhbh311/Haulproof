@@ -304,6 +304,15 @@ router.post('/:id/clear-pickup', requireAuth, (req, res) => {
   res.json({ ok: true, load: loadOut(updated, req) });
 });
 
+// Dispatch correction: reset "On my way" (a test run, or tapped by mistake). The driver can tap it again.
+router.post('/:id/clear-en-route', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  db.prepare(`UPDATE loads SET enRouteAt = NULL, enRouteGps = NULL WHERE id = ?`).run(load.id);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'en_route_cleared', detail: '"On my way" reset by dispatch', actor: actorOf(req) });
+  res.json({ ok: true, load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
+});
+
 // Dispatch correction of a stop's in/out time: { kind: 'pickup' | 'delivery', stopNumber, inAt, outAt } where each
 // time is epoch ms, null to clear, or omitted to leave as is. Anyone who can manage the load may do it; it's logged.
 router.put('/:id/stop-times', requireAuth, (req, res) => {

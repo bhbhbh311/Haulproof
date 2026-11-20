@@ -4903,7 +4903,8 @@
     if (curLoad.enRouteAt) {
       let et = ''; try { et = new Date(curLoad.enRouteAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) {}
       const emap = gpsLinkHtml(curLoad.enRouteGps);
-      rows.push(['On my way', '<span style="font-weight:700;">🚚 Set off ' + esc(et) + '</span>' + (emap ? ' · ' + emap : '')]);
+      rows.push(['On my way', '<span style="font-weight:700;">🚚 Set off ' + esc(et) + '</span>' + (emap ? ' · ' + emap : '')
+        + (curLoad.pickedUpAt ? '' : ' <button id="ldClearEnRoute" type="button" class="ghost" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">Reset</button>')]);
     }
     // Pickup (driver tapped "Pickup complete" — GPS + time, no signature). Only shown once it's happened.
     if (curLoad.pickedUpAt) {
@@ -4974,6 +4975,15 @@
     };
     if ($('ldPodMode')) $('ldPodMode').onchange = _pmSave;
     if ($('ldPaperStops')) $('ldPaperStops').onchange = _pmSave;
+    // Reset "On my way" (a test run, or tapped by mistake) — the driver can tap it again
+    const _ce = $('ldClearEnRoute');
+    if (_ce) _ce.onclick = async () => {
+      if (!curLoad || !confirm('Reset "On my way" on this load?\n\nThe driver can tap it again when they head out.')) return;
+      _ce.disabled = true; _ce.textContent = 'Resetting…';
+      try { const r = await api('/api/loads/' + curLoad.id + '/clear-en-route', { method: 'POST' }); if (r && r.load) curLoad = r.load; renderLdView();
+        try { loadHistory(curLoad.id); } catch (e) {} try { autoRefreshLoads(); } catch (e) {} }
+      catch (e) { alert(e.message || 'Could not reset'); _ce.disabled = false; _ce.textContent = 'Reset'; }
+    };
     // Reset pickup (dispatch correction — clears the recorded pickup time/GPS/photos, driver can mark it again).
     const _cp = $('ldClearPickup');
     if (_cp) _cp.onclick = async () => {
