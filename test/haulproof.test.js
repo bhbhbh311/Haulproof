@@ -23,7 +23,7 @@ const twilioFake = http.createServer((req, res) => {
     res.writeHead(201, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ sid: 'SM' + smsSent.length, status: 'queued' }));
   });
 }).listen(TW_PORT, '127.0.0.1');
-Object.assign(process.env, { TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'tok-test', TWILIO_FROM: '+18884017286', TWILIO_API_BASE: 'http://127.0.0.1:' + TW_PORT });
+Object.assign(process.env, { DRIVER_REQUEST_BATCH_MS: '400', TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'tok-test', TWILIO_FROM: '+18884017286', TWILIO_API_BASE: 'http://127.0.0.1:' + TW_PORT });
 const { db } = require('../db');
 const { createUser } = require('../auth');
 
@@ -834,6 +834,22 @@ test('ask the carrier who’s driving: the carrier answers on the form, the driv
   assert.match(hist, /Driver Ned Driver \(417-260-5588\) given by Ask Carrier LLC; HaulProof link texted/);
 });
 
+
+test('who’s driving: several loads asked of the same carrier email go out as ONE email, each load with its own form link', async () => {
+  const car = org('Batch Carrier LLC', 'carrier');
+  const mk = n => { const lid = id(); db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,?,'assigned',?)`)
+    .run(lid, broker, n, n + '-0', car, 'Batch Carrier LLC', Date.now()); return lid; };
+  const a = mk('126001'), b = mk('126002'), c = mk('126003');
+  const call = mcpToken('brk@test.example');
+  for (const n of ['126001', '126002', '126003']) assert.equal((await call('ask_carrier_for_driver', { load: n, email: 'disp@batchcarrier.example' })).err, false);
+  const rows = () => db.prepare('SELECT loadId, emailedAt, link FROM driver_requests WHERE email = ?').all('disp@batchcarrier.example');
+  assert.ok(rows().every(r => r.emailedAt === null && /\/driver-request\?t=/.test(r.link)), 'held a moment, links saved');
+  await new Promise(r => setTimeout(r, 1200));
+  const sent = rows();
+  assert.equal(sent.length, 3); assert.ok(sent[0].emailedAt);
+  assert.equal(new Set(sent.map(r => r.emailedAt)).size, 1, 'all three in the same email');
+  assert.deepEqual(sent.map(r => r.loadId).sort(), [a, b, c].sort());
+});
 
 test('text delivery tracking: Twilio reports back (signed); a text that did not get through goes on the load and emails the dispatcher with the link', async () => {
   const car = org('Track Carrier LLC', 'carrier');
