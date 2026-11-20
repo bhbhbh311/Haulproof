@@ -9,7 +9,8 @@ const { requireAuth } = require('./auth');
 const { logEvent } = require('./events');
 
 for (const [t, c] of [['loads', 'pickupAt INTEGER'], ['loads', 'pickupNote TEXT'], ['loads', 'checkOnStage TEXT'], ['orgs', 'checkOnEmails TEXT'],
-  ['loads', 'lastNote TEXT'], ['loads', 'lastNoteAt INTEGER'], ['loads', 'lastNoteBy TEXT']]) {   // the latest call note ("Called Kenny, driver is Mike")
+  ['loads', 'lastNote TEXT'], ['loads', 'lastNoteAt INTEGER'], ['loads', 'lastNoteBy TEXT'],   // the latest call note ("Called Kenny, driver is Mike")
+  ['orgs', 'onSiteMinutes INTEGER']]) {   // "on site too long": minutes checked in at a stop before it's flagged (default 120)
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch (e) {}
 }
 
@@ -23,6 +24,11 @@ const REASON = {
   not_en_route: 'Driver hasn’t tapped “On my way” yet',
   late_pickup: 'Past the pickup time and not picked up',
 };
+const ON_SITE_DEFAULT = 120;   // minutes a driver can be checked in at a stop before it's flagged (detention building)
+function onSiteMinutes(orgId) {
+  try { const o = db.prepare(`SELECT onSiteMinutes FROM orgs WHERE id = ?`).get(orgId); const n = o && Number(o.onSiteMinutes); return n > 0 ? n : ON_SITE_DEFAULT; } catch (e) { return ON_SITE_DEFAULT; }
+}
+const hm = (ms) => { const m = Math.max(0, Math.round(ms / MIN)), h = Math.floor(m / 60); return (h ? h + ' h ' : '') + (m % 60) + ' m'; };
 
 // Central wall time -> epoch ms
 function ctToEpoch(y, mo, d, h, mi) {
@@ -98,8 +104,10 @@ function dueList(orgId, now = Date.now()) {
     FROM loads l LEFT JOIN drivers d ON d.id = l.assignedDriverId LEFT JOIN orgs c ON c.id = l.carrierId
     WHERE (l.orgId = ? OR l.brokerId = ?) AND l.pickupAt IS NOT NULL AND l.pickedUpAt IS NULL
       AND l.pickupAt <= ? AND l.pickupAt >= ?`).all(orgId, orgId, now + LEAD_NO_DRIVER, now - 3 * 24 * 60 * MIN);
-  const out = [];
+  const out = onSiteList(orgId, now);
+  const onSite = new Set(out.map(i => i.id));   // a driver already at the shipper isn't also "late for pickup"
   for (const l of rows) {
+    if (onSite.has(l.id)) continue;
     if (l.completeNotifiedAt || (l.docs > 0 && l.signed >= l.docs)) continue;   // done
     const until = l.pickupAt - now;
     let stage = null;
@@ -111,11 +119,43 @@ function dueList(orgId, now = Date.now()) {
       pickupAt: l.pickupAt, pickupNote: l.pickupNote, pickupText: fmtCT(l.pickupAt) + (l.pickupNote && l.pickupNote !== 'date only' ? ' (' + l.pickupNote + ')' : l.pickupNote === 'date only' ? ' (date only)' : ''),
       minutesUntilPickup: Math.round(until / MIN), stage, reason: REASON[stage],
       carrier: l.carrierName || null, carrierPhone: fmtPhone(l.carrierPhone), driver: l.driverName || null, driverPhone: fmtPhone(l.driverPhone),
-      enRouteAt: l.enRouteAt || null, alerted: l.checkOnStage === stage,
+      enRouteAt: l.enRouteAt || null, alerted: l.checkOnStage === stage, alertKey: stage,
       lastNote: l.lastNote || null, lastNoteAt: l.lastNoteAt || null, lastNoteBy: l.lastNoteBy || null, noteCount: noteCount(l.id) });
   }
-  const rank = { late_pickup: 0, not_en_route: 1, no_driver: 2 };
-  return out.sort((a, b) => rank[a.stage] - rank[b.stage] || a.pickupAt - b.pickupAt);
+  const rank = { late_pickup: 0, on_site: 1, not_en_route: 2, no_driver: 3 };
+  return out.sort((a, b) => rank[a.stage] - rank[b.stage] || (a.pickupAt || 0) - (b.pickupAt || 0));
+}
+
+// "On site too long": the driver checked in at the shipper or a receiver (in/out times) and hasn't checked out after
+// the company's limit (default 2 h). Detention is building, so dispatch can call the facility and the customer.
+// Each stop alerts once (alertKey), and the load drops off once the driver checks out, completes pickup or signs.
+function onSiteList(orgId, now = Date.now()) {
+  const limit = onSiteMinutes(orgId);
+  let rows = [];
+  try {
+    rows = db.prepare(`SELECT st.kind, st.stopNumber, st.inAt, l.*, d.phone AS driverPhone, c.contactPhone AS carrierPhone,
+        (SELECT MAX(stopNumber) FROM stop_times s2 WHERE s2.loadId = l.id AND s2.kind = 'delivery') AS maxStop
+      FROM stop_times st JOIN loads l ON l.id = st.loadId LEFT JOIN drivers d ON d.id = l.assignedDriverId LEFT JOIN orgs c ON c.id = l.carrierId
+      WHERE (l.orgId = ? OR l.brokerId = ?) AND st.inAt IS NOT NULL AND st.outAt IS NULL
+        AND st.inAt <= ? AND st.inAt >= ? AND l.completeNotifiedAt IS NULL
+      ORDER BY st.inAt`).all(orgId, orgId, now - limit * MIN, now - 2 * 24 * 60 * MIN);
+  } catch (e) { return []; }   // no stop_times table yet
+  const out = [], seen = new Set();
+  for (const r of rows) {
+    if (seen.has(r.id)) continue; seen.add(r.id);
+    if (r.kind === 'pickup' && r.pickedUpAt) continue;   // picked up: the pickup check-out records itself
+    const where = r.kind === 'pickup' ? 'the shipper' : 'the receiver' + ((r.maxStop || 1) > 1 || r.stopNumber > 1 ? ' (stop ' + r.stopNumber + ')' : '');
+    out.push({ id: r.id, poNumber: r.poNumber, loadNumber: r.loadNumber, customer: r.customer, origin: r.origin,
+      pickupAt: r.pickupAt || null, pickupNote: r.pickupNote || null,
+      pickupText: r.pickupAt ? fmtCT(r.pickupAt) + (r.pickupNote && r.pickupNote !== 'date only' ? ' (' + r.pickupNote + ')' : r.pickupNote === 'date only' ? ' (date only)' : '') : '—',
+      minutesUntilPickup: r.pickupAt ? Math.round((r.pickupAt - now) / MIN) : null, stage: 'on_site',
+      reason: 'At ' + where + ' ' + hm(now - r.inAt) + ' (checked in ' + fmtCT(r.inAt, false) + ')',
+      atStop: { kind: r.kind, stopNumber: r.stopNumber, inAt: r.inAt, minutes: Math.round((now - r.inAt) / MIN), limitMinutes: limit },
+      carrier: r.carrierName || null, carrierPhone: fmtPhone(r.carrierPhone), driver: r.driverName || null, driverPhone: fmtPhone(r.driverPhone),
+      enRouteAt: r.enRouteAt || null, alertKey: 'on_site:' + r.kind + ':' + r.stopNumber, alerted: r.checkOnStage === 'on_site:' + r.kind + ':' + r.stopNumber,
+      lastNote: r.lastNote || null, lastNoteAt: r.lastNoteAt || null, lastNoteBy: r.lastNoteBy || null, noteCount: noteCount(r.id) });
+  }
+  return out;
 }
 
 const portalBase = () => (process.env.PORTAL_URL || 'https://haulproofepod.com').replace(/\/+$/, '');
@@ -129,15 +169,17 @@ function emailFor(items, fresh) {
   const table = list => `<table style="border-collapse:collapse;font-size:14px;width:100%"><tr style="text-align:left;color:#5a6b82;font-size:12px"><th style="padding:6px 8px">Load</th><th style="padding:6px 8px">Pickup</th><th style="padding:6px 8px">Why</th><th style="padding:6px 8px">Carrier</th><th style="padding:6px 8px">Driver</th></tr>${list.map(row).join('')}</table>`;
   const others = items.filter(i => !fresh.includes(i));
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0e1a2d;max-width:760px">
-    <p>${fresh.length === 1 ? 'This load needs' : 'These loads need'} a check-in call: the pickup time is close or past and the driver hasn't shown "On my way" (or picked up) in HaulProof.</p>
+    <p>${fresh.length === 1 ? 'This load needs' : 'These loads need'} a check-in call: ${fresh.every(i => i.stage === 'on_site') ? 'the driver has been checked in at the stop past the free time and hasn\'t checked out, so detention may be building' : 'the pickup time is close or past and the driver hasn\'t shown "On my way" (or picked up) in HaulProof' + (fresh.some(i => i.stage === 'on_site') ? ', or the driver has been on site past the free time' : '')}.</p>
     ${table(fresh)}
     ${others.length ? '<p style="margin-top:18px;color:#5a6b82">Still on the list from earlier:</p>' + table(others) : ''}
     <p style="margin-top:18px"><a href="${portalBase()}/app" style="display:inline-block;background:#1655d1;color:#fff;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:9px">Open the check-on list</a></p>
-    <p style="color:#5a6b82;font-size:12.5px">A load comes off the list once the driver taps "On my way" (and then "Pickup complete" after the pickup time). Pickup times are Central.</p></div>`;
+    <p style="color:#5a6b82;font-size:12.5px">A load comes off the list once the driver taps "On my way" (and then "Pickup complete" after the pickup time), or checks out of the stop they're waiting at. Times are Central.</p></div>`;
   const text = 'Check on these loads (pickup close or past, driver not "On my way" in HaulProof):\n\n' +
     items.map(i => `${i.loadNumber || i.poNumber} · ${i.pickupText} · ${i.reason} · ${i.carrier || ''} ${i.carrierPhone || ''} · driver ${i.driver || '—'} ${i.driverPhone || ''}`).join('\n') +
     `\n\n${portalBase()}/app`;
-  const subject = fresh.length === 1 ? `Check on load ${fresh[0].loadNumber || fresh[0].poNumber}: ${fresh[0].reason}` : `Check on ${fresh.length} loads: pickup close and driver not on the way`;
+  const subject = fresh.length === 1 ? `Check on load ${fresh[0].loadNumber || fresh[0].poNumber}: ${fresh[0].reason}`
+    : fresh.every(i => i.stage === 'on_site') ? `Check on ${fresh.length} loads: drivers on site past the free time`
+    : `Check on ${fresh.length} loads: pickup close and driver not on the way`;
   return { subject, html, text };
 }
 
@@ -157,8 +199,8 @@ async function tick(now = Date.now(), { anyHour = false } = {}) {
     const msg = emailFor(items, fresh);
     try { await require('./mailer').sendMail({ to, subject: msg.subject, text: msg.text, html: msg.html }); } catch (e) { console.error('[check-on] mail', e.message); continue; }
     for (const i of fresh) {
-      db.prepare(`UPDATE loads SET checkOnStage = ? WHERE id = ?`).run(i.stage, i.id);
-      try { logEvent({ orgId: o.id, loadId: i.id, poNumber: i.poNumber, type: 'note', detail: `Check-on reminder sent to ${to.join(', ')}: ${i.reason} (pickup ${i.pickupText})`, actor: 'HaulProof' }); } catch (e) {}
+      db.prepare(`UPDATE loads SET checkOnStage = ? WHERE id = ?`).run(i.alertKey || i.stage, i.id);
+      try { logEvent({ orgId: o.id, loadId: i.id, poNumber: i.poNumber, type: 'note', detail: `Check-on reminder sent to ${to.join(', ')}: ${i.reason}` + (i.stage === 'on_site' ? '' : ` (pickup ${i.pickupText})`), actor: 'HaulProof' }); } catch (e) {}
     }
     sent.push({ org: o.name, to, loads: fresh.map(i => i.loadNumber || i.poNumber) });
   }
@@ -177,7 +219,7 @@ router.get('/check-on', requireAuth, (req, res) => {
   const org = orgOf(req); if (!org) return res.json({ items: [], emails: [] });
   const o = db.prepare(`SELECT checkOnEmails FROM orgs WHERE id = ?`).get(org);
   res.json({ items: dueList(org), emails: String((o && o.checkOnEmails) || '').split(/[;,\s]+/).filter(Boolean),
-    rules: { notEnRouteMinutesBefore: LEAD_EN_ROUTE / MIN, noDriverMinutesBefore: LEAD_NO_DRIVER / MIN, latePickupMinutesAfter: LATE_PICKUP / MIN } });
+    rules: { notEnRouteMinutesBefore: LEAD_EN_ROUTE / MIN, noDriverMinutesBefore: LEAD_NO_DRIVER / MIN, latePickupMinutesAfter: LATE_PICKUP / MIN, onSiteMinutes: onSiteMinutes(org) } });
 });
 // A call note on a load ("Called Kenny at J5, driver is Mike, ETA 2 PM"): shown as the load's latest note on the Dashboard
 // and the check-on list/email, and kept in the load's history. Empty text clears the latest note (history stays).
@@ -210,11 +252,23 @@ router.get('/:id/notes', requireAuth, (req, res) => {
 router.put('/check-on/settings', requireAuth, express.json(), (req, res) => {
   if (!['admin', 'dispatcher', 'superadmin'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
   const org = orgOf(req); if (!org) return res.status(400).json({ error: 'No company' });
-  const list = (Array.isArray(req.body && req.body.emails) ? req.body.emails : String((req.body && req.body.emails) || '').split(/[;,\s]+/))
-    .map(s => String(s).trim().toLowerCase()).filter(Boolean);
-  if (list.some(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))) return res.status(400).json({ error: 'Enter valid email addresses' });
-  db.prepare(`UPDATE orgs SET checkOnEmails = ? WHERE id = ?`).run(list.join(', ') || null, org);
-  res.json({ ok: true, emails: list });
+  const b = req.body || {};
+  // On-site limit (minutes a driver can be checked in at a stop before it's flagged). Sent alone, emails stay as they are.
+  if (b.onSiteMinutes !== undefined) {
+    const n = parseInt(b.onSiteMinutes, 10);
+    if (!(n >= 15 && n <= 24 * 60)) return res.status(400).json({ error: 'On-site limit must be 15 minutes to 24 hours' });
+    db.prepare(`UPDATE orgs SET onSiteMinutes = ? WHERE id = ?`).run(n, org);
+  }
+  let list;
+  if (b.emails !== undefined) {
+    list = (Array.isArray(b.emails) ? b.emails : String(b.emails || '').split(/[;,\s]+/)).map(s => String(s).trim().toLowerCase()).filter(Boolean);
+    if (list.some(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))) return res.status(400).json({ error: 'Enter valid email addresses' });
+    db.prepare(`UPDATE orgs SET checkOnEmails = ? WHERE id = ?`).run(list.join(', ') || null, org);
+  } else {
+    const o = db.prepare(`SELECT checkOnEmails FROM orgs WHERE id = ?`).get(org);
+    list = String((o && o.checkOnEmails) || '').split(/[;,\s]+/).filter(Boolean);
+  }
+  res.json({ ok: true, emails: list, onSiteMinutes: onSiteMinutes(org) });
 });
 
-module.exports = { router, start, tick, dueList, applyPickup, parsePickup, ctToEpoch, fmtCT };
+module.exports = { router, start, tick, dueList, onSiteList, applyPickup, parsePickup, ctToEpoch, fmtCT };

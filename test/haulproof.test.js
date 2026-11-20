@@ -953,6 +953,27 @@ test('check-on list: pickup close and the driver not "On my way" (or no driver, 
   const second = (await CO.tick(Date.now(), { anyHour: true })).find(s => s.org === 'Test Broker LLC');
   assert.equal(second, undefined, 'nothing new: no second email');
   assert.match(db.prepare("SELECT detail FROM load_events WHERE loadId = ? AND detail LIKE 'Check-on reminder%'").get(late.id).detail, /Past the pickup time and not picked up/);
+  // on site too long: checked in at the receiver 2½ h ago, not checked out → flagged once; checked in 30 min ago → not yet
+  const ons = await mk('CHK-ONSITE', now - 6 * H, true), ok30 = await mk('CHK-ON30', now - 6 * H, true);
+  db.prepare('UPDATE loads SET pickedUpAt = ? WHERE id IN (?, ?)').run(now - 4 * H, ons.id, ok30.id);
+  require('../stoptimes');
+  const stIns = db.prepare("INSERT INTO stop_times (id, loadId, kind, stopNumber, inAt, updatedAt) VALUES (?, ?, 'delivery', 1, ?, ?)");
+  stIns.run(id(), ons.id, now - 150 * 60e3, now); stIns.run(id(), ok30.id, now - 30 * 60e3, now);
+  r = await list();
+  const os = r.items.find(i => i.poNumber === 'CHK-ONSITE');
+  assert.equal(os.stage, 'on_site'); assert.match(os.reason, /^At the receiver 2 h 30 m/);
+  assert.ok(!r.items.some(i => i.poNumber === 'CHK-ON30'), '30 minutes is inside the free time');
+  assert.equal(r.rules.onSiteMinutes, 120);
+  const third = (await CO.tick(Date.now(), { anyHour: true })).find(s => s.org === 'Test Broker LLC');
+  assert.deepEqual(third.loads, ['CHK-ONSITE'], 'only the new on-site load is emailed');
+  // a 20-minute limit catches the other one; setting the limit alone keeps the emails
+  assert.equal((await brk('PUT', '/api/loads/check-on/settings', { onSiteMinutes: 5 })).status, 400);
+  const lim = (await brk('PUT', '/api/loads/check-on/settings', { onSiteMinutes: 20 })).body;
+  assert.deepEqual([lim.onSiteMinutes, lim.emails], [20, ['disp@test.example', 'ops@test.example']]);
+  assert.ok((await list()).items.some(i => i.poNumber === 'CHK-ON30'));
+  // the driver checks out: off the list
+  db.prepare("UPDATE stop_times SET outAt = ? WHERE loadId = ?").run(Date.now(), ons.id);
+  assert.ok(!(await list()).items.some(i => i.poNumber === 'CHK-ONSITE'));
   // edit: change the pickup on the load; an unreadable one is refused
   assert.equal((await brk('PUT', '/api/loads/' + later.id, { pickup: 'whenever' })).status, 400);
   const ed = await brk('PUT', '/api/loads/' + later.id, { pickup: '', pickupNote: '' });

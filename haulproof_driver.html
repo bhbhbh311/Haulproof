@@ -1764,7 +1764,7 @@ window.__startApp=function(){
           sec("Paperwork");
           var nextStop = Math.min(signed+1, paperStops||1), many = (paperStops||1) > 1;
           var pc=slot("2px 0 8px");
-          pc.innerHTML='<button class="btn primary sm" type="button">📷 Photo of the signed BOL'+(many?(' · Stop '+nextStop+' of '+paperStops):'')+'</button><div style="color:var(--muted);font-size:12px;margin-top:4px;">After the receiver signs the paper BOL, photograph every page. That photo is the POD; it completes '+(many?'this stop':'the delivery')+'.</div>';
+          pc.innerHTML='<button class="btn primary sm" type="button">📷 Photo of the POD (signed BOL)'+(many?(' · Stop '+nextStop+' of '+paperStops):'')+'</button><div style="color:var(--muted);font-size:12px;margin-top:4px;">After the receiver signs the paper BOL, photograph every page. That photo is the POD; it completes '+(many?'this stop':'the delivery')+'.</div>';
           pc.querySelector("button").addEventListener("click", function(){ scanPaperBol(g, many?nextStop:null); });
         }
         else if(noDoc && !ready.length && !waiting.length){
@@ -3276,7 +3276,7 @@ window.__startApp=function(){
     if($("saveLaterRow")) $("saveLaterRow").classList.remove("hide");   // a doc is loaded — save it to the load
     var slb=$("saveLaterBtn");
     if(slb){
-      slb.textContent = _paperUpload ? "✅ Send the signed BOL" : _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
+      slb.textContent = _paperUpload ? "✅ Send POD" : _dispatchUpload ? "📤 Send to dispatch" : "💾 Save to load — sign later";
       if(_dispatchUpload || _paperUpload){
         // This is the ONE action on the upload screen — make it big and obvious, and keep it pulsing (always, not
         // just first-time) so drivers can't miss the final send step.

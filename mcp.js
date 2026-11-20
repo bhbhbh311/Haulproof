@@ -1018,10 +1018,17 @@ const TOOLS = [
       return Object.assign({ saved: true }, loadDetail(await api(user, 'GET', '/api/loads/' + d.load.id), base));
     } },
   { name: 'set_check_on_emails', title: 'Who gets the check-on emails',
-    description: 'Sets who is emailed the check-on list as loads become due (pickup close and the driver not “On my way”). Pass one or more emails; an empty list turns the emails off. Confirm with the user first.',
-    inputSchema: { type: 'object', properties: { emails: { type: 'array', items: { type: 'string' }, description: 'Email addresses' } }, required: ['emails'] },
+    description: 'Sets who is emailed the check-on list as loads become due (pickup close and the driver not “On my way”, or the driver checked in at a shipper/receiver past the on-site limit). Pass one or more emails; an empty list turns the emails off. on_site_minutes alone changes only the on-site limit (default 120). Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { emails: { type: 'array', items: { type: 'string' }, description: 'Email addresses' },
+      on_site_minutes: { type: 'integer', description: 'Flag a driver checked in at a stop this many minutes without checking out (15–1440; default 120)' } } },
     annotations: { readOnlyHint: false, destructiveHint: false },
-    run: async (user, a) => { needCompany(user); const r = await api(user, 'PUT', '/api/loads/check-on/settings', { json: { emails: a.emails || [] } }); return { emails_go_to: r.emails }; } },
+    run: async (user, a) => {
+      needCompany(user);
+      if (a.emails === undefined && a.on_site_minutes === undefined) throw new Error('Pass emails and/or on_site_minutes');
+      const body = {}; if (a.emails !== undefined) body.emails = a.emails || []; if (a.on_site_minutes !== undefined) body.onSiteMinutes = a.on_site_minutes;
+      const r = await api(user, 'PUT', '/api/loads/check-on/settings', { json: body });
+      return { emails_go_to: r.emails, on_site_minutes: r.onSiteMinutes };
+    } },
   { name: 'ask_carrier_for_driver', title: 'Ask the carrier who’s driving',
     description: 'For a load with a carrier but no driver: emails the carrier (their dispatch / rate con email) that we need their driver to run this load through HaulProof, with a short form for the driver’s name and cell #. When they answer, the driver is added under the carrier, put on the load and texted their HaulProof link, and you get an email. If the carrier has no HaulProof login yet, that email also becomes the carrier’s admin login. Dispatchers can use it. Confirm the email with the user first.',
     inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id'), email: str('Carrier’s email to ask (dispatch or rate con email)'),
