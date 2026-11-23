@@ -3302,6 +3302,7 @@
           + (d.linkLastOpenedAt ? ' <span class="sub" style="font-size:12px;">· opened link ' + esc(new Date(d.linkLastOpenedAt).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</span>' : '') + '</div>'
           + '<button class="ghost chCopy" data-link="' + esc(d.link || '') + '" data-name="' + esc(d.name || 'Driver') + '" type="button" style="padding:5px 9px;font-size:12px;">Copy link</button>'
           + drvTextHtml(d, '/api/drivers/for-carrier/' + enc + '/' + encodeURIComponent(d.id) + '/text-link', '5px 9px')
+          + '<button class="ghost chLoads" type="button" title="Every load assigned to this driver" style="padding:5px 9px;font-size:12px;">📋 Loads</button>'
           + '<button class="ghost chEdit" type="button" style="padding:5px 9px;font-size:12px;">Edit</button>'
           + '</div>').join('') : '<div class="sub" style="margin:0 0 4px;">No drivers yet.</div>')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input class="chDName" placeholder="Driver name" ' + inp + '><input class="chDPhone" placeholder="Cell #" ' + inp + '><input class="chDEmail" placeholder="Email (optional)" ' + inp + '><button class="chDAdd" type="button" style="padding:6px 12px;font-size:12.5px;">＋ Add driver</button><span class="chDMsg" style="font-size:12.5px;"></span></div>'
@@ -3315,6 +3316,7 @@
     host.querySelectorAll('.chCopy').forEach(b => b.onclick = async () => { const ok = await copyRichLink(b.dataset.link, 'HaulProof — ' + (b.dataset.name || 'Driver')); b.textContent = ok ? 'Copied ✓' : 'Copy failed'; setTimeout(() => { b.textContent = 'Copy link'; }, 1600); });
     host.querySelectorAll('.chDrv').forEach(row => {
       const d = drivers.find(x => x.id === row.dataset.id); const eb = row.querySelector('.chEdit'); if (!d || !eb) return;
+      const lb = row.querySelector('.chLoads'); if (lb) lb.onclick = () => showDriverLoads(d.id, (d.name || 'Driver') + ' (' + cname + ')');
       eb.onclick = () => {
         row.innerHTML = '<input class="eN" value="' + esc(d.name || '') + '" placeholder="Name" ' + inp + '><input class="eP" value="' + esc(d.phone || '') + '" placeholder="Cell #" ' + inp + '><input class="eE" value="' + esc(d.email || '') + '" placeholder="Email" ' + inp + '>'
           + '<label style="display:inline;font-size:12.5px;font-weight:400;"><input type="checkbox" class="eA"' + (d.active ? ' checked' : '') + ' style="width:auto;"> Active</label>'
@@ -3460,6 +3462,7 @@
         ${drvTextHtml(d, '/api/drivers/' + d.id + '/text-link', '6px 10px')}
       </div></td>
       <td style="text-align:right;white-space:nowrap;">
+        <button class="ghost drvLoads" data-id="${d.id}" data-name="${esc(d.name || 'Driver')}" title="Every load assigned to this driver" style="padding:6px 10px;font-size:12px;">📋 Loads</button>
         <button class="ghost drvEdit" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone || '')}" data-email="${esc(d.email || '')}" data-haspin="${d.hasPin ? 1 : 0}" style="padding:6px 10px;font-size:12px;">Edit</button>
         <button class="ghost drvToggle" data-id="${d.id}" data-active="${d.active ? 1 : 0}" style="padding:6px 10px;font-size:12px;">${d.active ? 'Turn off' : 'Turn on'}</button>
         <button class="ghost drvDel" data-id="${d.id}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>
@@ -3501,6 +3504,42 @@
     };
     upd();
   }
+  // One driver's loads (Drivers page and a carrier's drivers): every load assigned to that driver record that this
+  // account can see, newest first, with where the driver is on it and a button to open the load.
+  async function showDriverLoads(driverId, name) {
+    let ov = $('drvLoadsModal');
+    if (!ov) {
+      ov = document.createElement('div'); ov.id = 'drvLoadsModal'; ov.className = 'histOverlay'; ov.style.zIndex = '10040';
+      ov.innerHTML = '<div class="histBox" style="max-width:860px;width:94vw;max-height:88vh;display:flex;flex-direction:column;">'
+        + '<div class="histHead" style="flex-shrink:0;"><h1 style="margin:0;font-size:16px;" id="drvLoadsTitle">Loads</h1><button class="ghost" type="button" id="drvLoadsClose">✕ Close</button></div>'
+        + '<div id="drvLoadsBody" style="overflow:auto;margin-top:10px;"></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); });
+      ov.querySelector('#drvLoadsClose').onclick = () => ov.classList.add('hide');
+    }
+    ov.classList.remove('hide');
+    $('drvLoadsTitle').textContent = 'Loads assigned to ' + name;
+    const body = $('drvLoadsBody'); body.innerHTML = '<div class="sub">Loading…</div>';
+    let r; try { r = await api('/api/loads?driverId=' + encodeURIComponent(driverId)); } catch (e) { body.innerHTML = '<div class="umsg-err">' + esc(e.message) + '</div>'; return; }
+    const rows = r.results || [];
+    const when = ms => ms ? new Date(ms).toLocaleString('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    const step = l => {
+      if (l.complete) return '<span class="chip signed">✓ Signed / done</span>';
+      if (l.stopsDone) return '<span class="chip prepared">' + l.stopsDone + ' of ' + l.stopsTotal + ' signed</span>';
+      if (l.pickedUpAt) return '<span class="chip prepared">Picked up ' + esc(when(l.pickedUpAt)) + '</span>';
+      if (l.enRouteAt) return '<span class="chip prepared">On the way since ' + esc(when(l.enRouteAt)) + '</span>';
+      return '<span class="chip received">Not started</span>';
+    };
+    body.innerHTML = rows.length
+      ? '<table style="width:100%;font-size:13.5px;"><thead><tr><th>Load</th><th>Customer</th><th>Pickup</th><th>Where the driver is</th><th></th></tr></thead><tbody>'
+        + rows.map(l => '<tr><td><b>' + esc(l.loadNumber || l.poNumber) + '</b>' + (l.carrierName ? '<div class="sub" style="font-size:12px;margin:0;">' + esc(l.carrierName) + '</div>' : '') + '</td>'
+          + '<td>' + esc(l.customer || '—') + (l.origin || l.destination ? '<div class="sub" style="font-size:12px;margin:0;">' + esc([l.origin, l.destination].filter(Boolean).join(' → ')) + '</div>' : '') + '</td>'
+          + '<td>' + (l.pickupAt ? esc(when(l.pickupAt)) : '—') + '</td><td>' + step(l) + '</td>'
+          + '<td style="text-align:right;"><button class="ghost dlOpen" data-id="' + esc(l.id) + '" type="button" style="padding:5px 10px;font-size:12px;">Open</button></td></tr>').join('')
+        + '</tbody></table><div class="sub" style="font-size:12px;margin-top:8px;">' + rows.length + ' load' + (rows.length === 1 ? '' : 's') + ', newest first. This is what shows on the driver’s phone, plus the loads they’ve finished.</div>'
+      : '<div class="hempty">No loads are assigned to ' + esc(name) + ' right now.</div>';
+    body.querySelectorAll('.dlOpen').forEach(b => b.onclick = () => { ov.classList.add('hide'); selectTab('documents'); openLoad(b.dataset.id); });
+  }
   async function loadDrivers(orgId, tbody) {
     try {
       const r = await api('/api/drivers' + (orgId ? ('?orgId=' + encodeURIComponent(orgId)) : ''));
@@ -3529,6 +3568,7 @@
   function wireDriverTable(tbody, orgId) {
     tbody.onclick = async (e) => {
       const c = e.target.closest('.drvCopy'), t = e.target.closest('.drvToggle'), d = e.target.closest('.drvDel'), ed = e.target.closest('.drvEdit'), em = e.target.closest('.drvEmail');
+      const dl = e.target.closest('.drvLoads'); if (dl) { showDriverLoads(dl.dataset.id, dl.dataset.name); return; }
       if (ed) { openEditDriver({ id: ed.dataset.id, name: ed.dataset.name, phone: ed.dataset.phone, email: ed.dataset.email, hasPin: ed.dataset.haspin === '1' }, orgId, () => loadDrivers(orgId, tbody)); return; }
       if (em) {
         em.disabled = true; const o0 = em.textContent; em.textContent = 'Sending…';

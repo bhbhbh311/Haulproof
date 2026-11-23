@@ -523,6 +523,10 @@ test('paper BOL load: the driver sees it as paper; each stop\'s photo is its sig
   assert.ok((await fetch(B + '/api/pods/ingest', { method: 'POST', body: sharper, headers: { 'X-Api-Key': tok, 'Content-Type': 'application/pdf',
     'X-POD-PO': 'PAPER-1', 'X-POD-Paper': '1', 'X-POD-LoadId': l.id, 'X-POD-Stop': '2', 'X-POD-ClientId': 'paper-s2-retake', 'X-POD-Name': 'Signed BOL - PO PAPER-1' } })).status < 300);
   assert.equal((await card()).length, 0, 'done again');
+  // the Drivers page "Loads" button: one driver's loads, by their driver record
+  const byDriver = (await api('GET', '/api/loads?driverId=' + d.id)).body.results;
+  assert.deepEqual(byDriver.map(x => x.id), [l.id]);
+  assert.deepEqual((await api('GET', '/api/loads?driverId=nobody')).body.results, []);
   // Reset load (a test run): progress cleared, the signed photos go to the recovery bin, the load is back on the driver's list
   db.prepare('UPDATE loads SET enRouteAt = ?, pickedUpAt = ?, completeNotifiedAt = ? WHERE id = ?').run(Date.now(), Date.now(), Date.now(), l.id);
   const rs = await api('POST', `/api/loads/${l.id}/reset`);

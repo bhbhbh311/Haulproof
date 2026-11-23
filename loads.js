@@ -160,6 +160,10 @@ router.get('/', requireAuth, (req, res) => {
   }
   if (po) { where.push(`poNumber LIKE ?`); args.push(`%${po}%`); }
   if (load) { where.push(`loadNumber LIKE ?`); args.push(`%${load}%`); }
+  // One driver's loads (the Drivers page "Loads" button): what's assigned to that exact driver record, not every
+  // "Keith" on every carrier. Still limited to loads this account can see.
+  const driverId = String(req.query.driverId || '').trim();
+  if (driverId) { where.push(`assignedDriverId = ?`); args.push(driverId); }
   // One box finds a load by PO #, load #, customer, consignee, carrier, driver, origin/destination, truck or trailer
   if (q) {
     const cols = ['poNumber', 'loadNumber', 'customer', 'consignee', 'carrierName', 'driverName', 'origin', 'destination', 'truck', 'trailer'];
@@ -173,7 +177,7 @@ router.get('/', requireAuth, (req, res) => {
   const archIds = uid ? db.prepare(`SELECT loadId FROM load_archives WHERE userId = ?`).all(uid).map(r => r.loadId) : [];
   const archSet = new Set(archIds);
   const archivedOnly = req.query.archived === '1' || req.query.archived === 'true';
-  const searching = !!(q || po || load);
+  const searching = !!(q || po || load || driverId);
   if (archivedOnly) {
     if (archIds.length) { where.push(`id IN (${archIds.map(() => '?').join(',')})`); args.push(...archIds); }
     else { where.push('1 = 0'); }   // nothing archived yet → empty archived view
