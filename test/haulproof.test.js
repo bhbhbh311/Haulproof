@@ -237,6 +237,17 @@ test('connector: the master admin turns a company off and back on; others never 
   const notMaster = await mcpToken('ship@test.example')('set_company_active', { company: 'Test Carrier Inc', active: false });
   assert.equal(notMaster.err, true, 'a company login can not use it');
   assert.equal(db.prepare('SELECT active FROM orgs WHERE id = ?').get(carrier).active, 1);
+  // move a login that landed in a stray company: it (and an app connected with it) works in the new company
+  const stray = org('Stray Co', 'customer');
+  createUser({ email: 'stray.login@test.example', name: 'Stray', role: 'admin', password: PW, orgId: stray });
+  const look = await master('move_login', { email: 'stray.login@test.example' });
+  assert.equal(look.out.company, 'Stray Co');
+  const mv = await master('move_login', { email: 'Stray.Login@test.example', company: 'Test Broker LLC' });
+  assert.equal(mv.err, false, JSON.stringify(mv.out)); assert.equal(mv.out.changed, true);
+  assert.equal(db.prepare('SELECT orgId FROM users WHERE email = ?').get('stray.login@test.example').orgId, broker);
+  assert.ok((await mcpToken('stray.login@test.example')('find_loads', {})).err === false, 'its connection now works in the broker');
+  assert.equal((await master('move_login', { email: 'master@test.example', company: 'Test Broker LLC' })).err, true, 'master admin stays put');
+  assert.equal((await mcpToken('ship@test.example')('move_login', { email: 'stray.login@test.example', company: 'Stray Co' })).err, true, 'master admin only');
   // rename a carrier HaulProof named from its owner's name: the carrier name on its loads follows
   const ren = org('JIM JOHNSON', 'carrier'), rl = id();
   db.prepare(`INSERT INTO loads (id, orgId, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,'assigned',?)`).run(rl, broker, 'REN-1', ren, 'JIM JOHNSON', Date.now());

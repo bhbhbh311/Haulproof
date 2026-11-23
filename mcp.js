@@ -534,6 +534,31 @@ const TOOLS = [
       catch (e) { if (e instanceof MergeError) throw new ToolError(e.message); throw e; }
     } },
 
+  { name: 'move_login', title: 'Move a team login to another company (master admin)', masterOnly: true,
+    description: 'Master admin only: moves one team login (by email) into another company, e.g. a login that ended up in a stray duplicate account. '
+      + 'Its password and connected apps (an FMS connection made with it) keep working and act in the new company from then on. '
+      + 'Without company it just shows which company the login is in. Master admin and HaulProof Help logins can’t be moved. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { email: str('The login’s email'), company: str('Company name or id to move it into (from list_companies); leave out to only look'),
+      role: { type: 'string', enum: ['admin', 'dispatcher', 'sales'], description: 'Optional: its role in the new company (default: keep)' } }, required: ['email'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      const u = db.prepare(`SELECT id, email, name, role, orgId FROM users WHERE LOWER(email) = LOWER(?)`).get(String(a.email || '').trim());
+      if (!u) throw new ToolError('No login with that email');
+      const orgOf = id => id ? db.prepare(`SELECT id, name, kind, active FROM orgs WHERE id = ?`).get(id) : null;
+      const cur = orgOf(u.orgId);
+      const now = { email: u.email, name: u.name, role: u.role, company: cur ? cur.name : null, company_type: cur ? cur.kind : null, company_id: u.orgId || null };
+      if (!a.company) return now;
+      if (u.role === 'superadmin' || /^haulproofhelp\+/i.test(u.email)) throw new ToolError('Master admin and HaulProof Help logins can’t be moved');
+      const to = pickOne(db.prepare(`SELECT id, name, kind, active FROM orgs`).all(), a.company, 'company', x => x.name);
+      if (!to.active) throw new ToolError(to.name + ' is turned off; move the login into an active company');
+      if (to.id === u.orgId) return Object.assign(now, { changed: false, note: 'Already in ' + to.name });
+      const role = a.role || u.role;
+      db.prepare(`UPDATE users SET orgId = ?, role = ? WHERE id = ?`).run(to.id, role, u.id);
+      console.log('[mcp] master admin ' + user._master.email + ' moved login ' + u.email + ' from ' + (cur ? cur.name : 'no company') + ' to ' + to.name);
+      return { email: u.email, moved_from: cur ? cur.name + ' (' + cur.kind + ')' : null, moved_to: to.name + ' (' + to.kind + ')', role, changed: true,
+        note: 'Signed-in sessions pick up the new company at the next sign-in; connected apps (FMS) act in it right away.' };
+    } },
+
   { name: 'set_company_active', title: 'Turn a company off or on (master admin)', masterOnly: true,
     description: 'Master admin only: turns a company (customer, carrier, broker or receiver) off or back on, the same as Deactivate / Reactivate in Master Admin. '
       + 'Off locks out its logins and driver links and hides it from carrier and customer pick lists; nothing is deleted, and turning it back on restores everything. '
