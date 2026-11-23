@@ -12,6 +12,7 @@ const GRAPH = () => (process.env.MS_GRAPH_BASE || 'https://graph.microsoft.com/v
 const DIRECT_MAX = 3 * 1024 * 1024;     // raw MIME bytes we send in one request (base64 grows it by a third)
 const SMALL_ATTACH = 3 * 1024 * 1024;   // attachments under this go in one call; bigger ones use an upload session
 const CHUNK = 320 * 1024 * 10;          // upload-session chunks must be multiples of 320 KB
+const JSON_ATTACH_MAX = 2850 * 1024;    // attachments that still fit the 4 MB cap as one JSON sendMail (base64 once)
 
 function graphConfigured() {
   return !!(process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET);
@@ -52,9 +53,24 @@ async function sendMail(msg) {
     await call('POST', box + '/sendMail', { body: full.toString('base64'), type: 'text/plain' });
     return { messageId: null, via: 'graph' };
   }
-  // Too big for one request: draft without the attachments, add them, then send.
   const attachments = (msg.attachments || []).map(a => ({ name: a.filename || 'attachment', bytes: attachmentBytes(a), type: a.contentType || 'application/octet-stream' }));
-  const draft = await call('POST', box + '/messages', { body: (await mime({ ...msg, attachments: [] })).toString('base64'), type: 'text/plain' });
+  // Mid-size (a 2.5-3 MB photo BOL): the MIME form is base64'd twice and passes Graph's 4 MB cap, but the JSON form
+  // (attachments base64'd once) still fits. It needs only Mail.Send. Custom headers must start with "x-" there, so
+  // List-Unsubscribe is dropped on these; the unsubscribe link in the body footer stays.
+  const attBytes = attachments.reduce((n, a) => n + a.bytes.length, 0);
+  if (attBytes <= JSON_ATTACH_MAX) {
+    const who = s => String(s || '').split(',').map(x => addressOnly(x)).filter(Boolean).map(address => ({ emailAddress: { address } }));
+    const message = { subject: msg.subject || '', body: msg.html ? { contentType: 'HTML', content: msg.html } : { contentType: 'Text', content: msg.text || '' },
+      toRecipients: who(msg.to), ccRecipients: who(msg.cc),
+      attachments: attachments.map(a => ({ '@odata.type': '#microsoft.graph.fileAttachment', name: a.name, contentType: a.type, contentBytes: a.bytes.toString('base64') })) };
+    await call('POST', box + '/sendMail', { body: JSON.stringify({ message, saveToSentItems: true }) });
+    return { messageId: null, via: 'graph-json' };
+  }
+  // Too big for one request: draft without the attachments, add them, then send. Drafts need Mail.ReadWrite on the
+  // Entra app (Mail.Send alone gets "403 Access is denied"); that 403 is marked so the caller can send a link instead.
+  let draft;
+  try { draft = await call('POST', box + '/messages', { body: (await mime({ ...msg, attachments: [] })).toString('base64'), type: 'text/plain' }); }
+  catch (e) { if (/Graph 403/.test(e.message)) e.code = 'ATTACH_TOO_BIG'; throw e; }
   try {
     for (const a of attachments) {
       if (a.bytes.length < SMALL_ATTACH) {

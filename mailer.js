@@ -105,7 +105,22 @@ async function emailPodCopy({ to, pod, filePath, contentBytes }) {
         },
       });
       results.push({ to: rcpt, messageId: info.messageId });
-    } catch (e) {
+    } catch (e0) {
+      let e = e0;
+      // Too big to attach with this mailbox's permission: send the copy as a download link instead of failing.
+      if (e0 && e0.code === 'ATTACH_TOO_BIG') {
+        try {
+          const jwt = require('jsonwebtoken'), { JWT_SECRET } = require('./auth');
+          const link = portalUrl() + '/d/' + jwt.sign({ k: 'dl', p: pod.id }, JWT_SECRET, { expiresIn: '30d' });
+          const info = await getTransport().sendMail({ from, to: rcpt, subject,
+            text: `The signed proof of delivery for ${pod.consignee || 'your shipment'} is too large to attach. Download it here (link works for 30 days):\n${link}\n\nThank you,\nHaulProof` + footerText(rcpt),
+            html: `<p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">The signed proof of delivery for ${pod.consignee || 'your shipment'} is too large to attach.</p><p style="font:15px system-ui,Arial,sans-serif"><a href="${link}" style="display:inline-block;background:#1655d1;color:#fff;font-weight:700;text-decoration:none;padding:10px 18px;border-radius:9px">Download the signed POD (PDF)</a></p><p style="font:13px system-ui,Arial,sans-serif;color:#5a6577">The link works for 30 days.</p><p style="font:15px system-ui,Arial,sans-serif;color:#1f2733">Thank you,<br>HaulProof</p>` + footerHtml(rcpt),
+            headers: { 'List-Unsubscribe': `<${unsubUrl(rcpt)}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } });
+          console.log('[mailer] POD ' + pod.id + ' too large to attach; sent ' + rcpt + ' a download link instead');
+          results.push({ to: rcpt, messageId: info.messageId, asLink: true });
+          continue;
+        } catch (e2) { e = e2; }
+      }
       console.error('emailPodCopy to', rcpt, e.message);
       failed.push({ to: rcpt, error: e.message });
     }
