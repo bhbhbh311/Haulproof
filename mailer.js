@@ -177,4 +177,18 @@ async function sendStatusNotice({ to, subject, text, html }) {
   return { sent: results.length > 0, sentTo: results.map(r => r.to), blocked, results };
 }
 
-module.exports = { emailPodCopy, sendMail, sendStatusNotice, helpEmail, portalUrl, mailConfigured };
+// "Your HaulProof login is ready": the set-a-password email as a real email with a button (a bare URL in a
+// plain-text email shows as a long raw link in Outlook). text stays as the plain-text fallback.
+function loginInviteMail(intro, link) {
+  const e = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const text = `${intro}\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.`;
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0e1a2d;max-width:560px">`
+    + `<p style="font-size:20px;font-weight:800;margin:0 0 14px;color:#1655d1">HaulProof</p>`
+    + `<p style="font-size:15px;line-height:1.5;margin:0 0 18px">${e(intro)}</p>`
+    + `<p style="margin:0 0 18px"><a href="${e(link)}" style="display:inline-block;background:#1655d1;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:10px">Choose your password and sign in</a></p>`
+    + `<p style="font-size:13px;color:#5a6b82;margin:0 0 6px">This link expires in 7 days.</p>`
+    + `<p style="font-size:12px;color:#8a94a6;margin:0">If the button doesn't work, copy this into your browser:<br><a href="${e(link)}" style="color:#5a6b82;word-break:break-all">${e(link)}</a></p></div>`;
+  return { text, html };
+}
+
+module.exports = { emailPodCopy, sendMail, sendStatusNotice, helpEmail, portalUrl, mailConfigured, loginInviteMail };

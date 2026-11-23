@@ -22,7 +22,7 @@ function inviteLogin(req, { email, name, role, orgId, company }) {
   const user = createUser({ email, name: name || '', role: role || 'admin', password: crypto.randomBytes(16).toString('hex'), orgId });
   const link = passwordLink(req, user.id);
   sendMail({ to: email, subject: 'Your HaulProof login is ready',
-    text: `You've been set up on HaulProof${name ? ', ' + name : ''}${company ? ' for ' + company : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+    ...require('./mailer').loginInviteMail(`You've been set up on HaulProof${name ? ', ' + name : ''}${company ? ' for ' + company : ''}.`, link) });
   return { user, link };
 }
 

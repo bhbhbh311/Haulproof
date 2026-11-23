@@ -85,7 +85,7 @@ router.post('/', requireAuth, (req, res) => {
     const origin = (process.env.PORTAL_URL || '').replace(/\/+$/, '') || (req.protocol + '://' + req.get('host'));
     const link = origin + '/login-info?t=' + token;
     sendMail({ to: em, subject: 'Your HaulProof login is ready',
-      text: `You've been set up on HaulProof${name ? ', ' + name : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+      ...require('./mailer').loginInviteMail(`You've been set up on HaulProof${name ? ', ' + name : ''}.`, link) });
     // "This person also drives": an owner-operator gets a driver record with the same email (linked to this login).
     let driver = null;
     if (req.body && req.body.alsoDrives) {
@@ -135,7 +135,7 @@ router.post('/import', requireAuth, requireCap('manage_users'), async (req, res)
       let emailed;
       if (sendEmail) {
         try { const m = await sendMail({ to: em, subject: 'Your HaulProof login is ready',
-          text: `You've been set up on HaulProof${name ? ', ' + name : ''}${company ? ' for ' + company : ''}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+          ...require('./mailer').loginInviteMail(`You've been set up on HaulProof${name ? ', ' + name : ''}${company ? ' for ' + company : ''}.`, link) });
           emailed = !!(m && (m.sent || m.simulated)); } catch (e) { emailed = false; }
       }
       links.push({ email: em, name, role, link, emailed });
@@ -191,7 +191,7 @@ router.post('/for-carrier/:carrierId', requireAuth, (req, res) => {
     const link = origin + '/login-info?t=' + token;
     const by = req.user.orgName || 'Your broker';
     sendMail({ to: em, subject: 'Your HaulProof login is ready',
-      text: `${by} set you up on HaulProof${name ? ', ' + name : ''} for ${carrier.name}.\n\nOpen this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+      ...require('./mailer').loginInviteMail(`${by} set you up on HaulProof${name ? ', ' + name : ''} for ${carrier.name}.`, link) });
     try { require('./events').logEvent({ orgId: carrier.id, type: 'note', detail: `${by} added team login ${em} (${role}) for ${carrier.name}`, actor: req.user.email }); } catch (e) {}
     res.status(201).json({ user: { id: u.id, email: em, name, role }, link, expiresAt });
   } catch (e) { res.status(500).json({ error: 'Could not create the login' }); }

@@ -171,7 +171,7 @@ router.post('/:id/grant', requireAuth, requireSuper, express.json(), (req, res) 
         db.prepare(`UPDATE access_requests SET status='granted', decidedAt=?, createdOrgId=? WHERE id=?`).run(Date.now(), same.id, r.id);
         pushThread(r, 'admin', `Approved — added to the existing ${orgType} account "${same.name}"; login emailed.`);
         sendMail({ to: r.email, subject: 'Your HaulProof login is ready',
-          text: `You now have a login for "${same.name}" on HaulProof.\n\nYour login is ${adminEmail}. Open this link to choose your password and sign in:\n${link}\n\nThis link expires in 7 days.` });
+          ...require('./mailer').loginInviteMail(`You now have a login for "${same.name}" on HaulProof. Your login is ${adminEmail}.`, link) });
         return res.json({ ok: true, kind: 'company', orgType, orgId: same.id, adminEmail, adminLink: link, joined: true, company: same.name });
       }
       const orgId = crypto.randomUUID();
