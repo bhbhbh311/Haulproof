@@ -897,6 +897,34 @@ test('Loads search finds a load by PO #, load #, carrier, driver, customer and d
   }
 });
 
+test('master dashboard: jump to a load by load # or PO # across companies, and open a company\'s loads behind "Companies this week"', async () => {
+  try { createUser({ email: 'master2@test.example', name: 'Master Two', role: 'superadmin', password: PW, orgId: null }); } catch (e) {}
+  const co = org('Drill Down Co', 'broker'), other = org('Other Co', 'broker');
+  const a = id(), b = id(), old = id();
+  const ins = db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, driverName, origin, destination, status, createdAt) VALUES (?,?,?,?,?,?,?,'assigned',?)`);
+  ins.run(a, co, '127701', '127701-0', 'Dan Driver', 'Kansas City, MO', 'Olathe, KS', Date.now());
+  ins.run(b, other, '127702', '127702-0', null, null, null, Date.now());
+  ins.run(old, co, '127703', '127703-0', null, null, null, Date.now() - 20 * 864e5);   // 20 days old, nothing open: not "this week"
+  const m = await login('master2@test.example');
+  let r = await m('GET', '/api/stats/find-load?q=127701');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.loads.map(l => l.id), [a], 'exact load # finds just that load');
+  assert.equal(r.body.loads[0].orgName, 'Drill Down Co');
+  r = await m('GET', '/api/stats/find-load?q=127702-0');
+  assert.deepEqual(r.body.loads.map(l => l.id), [b], 'PO # works, in another company too');
+  r = await m('GET', '/api/stats/find-load?q=12770');
+  assert.ok([a, b, old].every(x => r.body.loads.some(l => l.id === x)), 'a partial number lists every match');
+  r = await m('GET', '/api/stats/company-loads/' + co);
+  assert.equal(r.body.org.name, 'Drill Down Co');
+  assert.deepEqual(r.body.loads.map(l => l.id), [a], 'this week\'s loads only');
+  assert.equal(r.body.loads[0].driver, 'Dan Driver');
+  const sum = await m('GET', '/api/stats/summary');
+  assert.ok(sum.body.companies.some(c => c.orgId === co), 'each company row carries its id so it can be opened');
+  const brk = await login('brk@test.example');
+  assert.equal((await brk('GET', '/api/stats/find-load?q=127701')).status, 403, 'company logins can\'t search every company');
+  assert.equal((await brk('GET', '/api/stats/company-loads/' + co)).status, 403);
+});
+
 test('who’s driving: several loads asked of the same carrier email go out as ONE email, each load with its own form link', async () => {
   const car = org('Batch Carrier LLC', 'carrier');
   const mk = n => { const lid = id(); db.prepare(`INSERT INTO loads (id, orgId, loadNumber, poNumber, carrierId, carrierName, status, createdAt) VALUES (?,?,?,?,?,?,'assigned',?)`)

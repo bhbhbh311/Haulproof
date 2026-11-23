@@ -373,7 +373,7 @@ app.get('/api/stats/summary', requireAuth, requireSuper, (_req, res) => {
     try { c.onRoad += JSON.parse(a.loads || '[]').filter(l => l.onRoad).length; } catch (e) {} });
   // Per-company activity this week, busiest first.
   const byOrg = {};
-  loads.forEach(l => { if (!l.orgId) return; const o = byOrg[l.orgId] = byOrg[l.orgId] || { name: l.orgName || '?', loads: 0, signed: 0, road: 0, attention: 0 };
+  loads.forEach(l => { if (!l.orgId) return; const o = byOrg[l.orgId] = byOrg[l.orgId] || { orgId: l.orgId, name: l.orgName || '?', loads: 0, signed: 0, road: 0, attention: 0 };
     if (l.createdAt >= week) o.loads++;
     if (l.lastSigned && l.lastSigned >= week) o.signed++;
     if (onRoad.indexOf(l) >= 0) o.road++;
@@ -401,6 +401,44 @@ app.get('/api/stats/summary', requireAuth, requireSuper, (_req, res) => {
     billing: (() => { try { return require('./billing').summary(); } catch (e) { return null; } })(),
     companies,
   });
+});
+
+// Master Dashboard drill-downs (super-admin): the loads behind one "Companies this week" row, and a load # / PO #
+// search across every company so the master can jump straight to a load.
+const SUMMARY_LOAD_SQL = `SELECT l.id, l.orgId, l.poNumber, l.loadNumber, l.driverName, l.origin, l.destination, l.pickedUpAt, l.createdAt,
+    o.name AS orgName,
+    (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status NOT IN ('parked','not_used')) AS total,
+    (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS done,
+    (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.status = 'awaiting_build') AS setup,
+    (SELECT COUNT(*) FROM pods p WHERE p.loadId = l.id AND p.emailFailedTo IS NOT NULL AND p.emailFailedTo NOT IN ('', '[]')) AS failed,
+    (SELECT MAX(signedAt) FROM pods p WHERE p.loadId = l.id AND p.status IN ('signed','emailed')) AS lastSigned
+  FROM loads l LEFT JOIN orgs o ON o.id = l.orgId`;
+function summaryLoadRow(l) {
+  const done = l.total > 0 && l.done >= l.total;
+  const state = l.setup > 0 ? 'setup' : l.failed > 0 ? 'failed' : done ? 'done' : (l.pickedUpAt || l.done > 0) ? 'road' : 'open';
+  return { id: l.id, po: l.poNumber || '', loadNumber: l.loadNumber || '', orgName: l.orgName || '', driver: l.driverName || '',
+    origin: l.origin || '', destination: l.destination || '', createdAt: l.createdAt, lastSigned: l.lastSigned || null, state };
+}
+app.get('/api/stats/company-loads/:orgId', requireAuth, requireSuper, (req, res) => {
+  const now = Date.now(), week = now - 7 * 864e5, month = now - 30 * 864e5;
+  const org = db.prepare('SELECT id, name FROM orgs WHERE id = ?').get(req.params.orgId);
+  if (!org) return res.status(404).json({ error: 'Company not found' });
+  // The same loads the "Companies this week" counts come from: new this week, delivered this week, or still on the
+  // road / needing attention from the last 30 days.
+  const rows = db.prepare(SUMMARY_LOAD_SQL + ' WHERE l.orgId = ? AND l.createdAt >= ? ORDER BY l.createdAt DESC').all(org.id, month)
+    .map(summaryLoadRow)
+    .filter(l => l.createdAt >= week || (l.lastSigned && l.lastSigned >= week) || l.state === 'road' || l.state === 'setup' || l.state === 'failed');
+  res.json({ org: { id: org.id, name: org.name }, loads: rows });
+});
+app.get('/api/stats/find-load', requireAuth, requireSuper, (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json({ loads: [] });
+  const like = q.replace(/[\\%_]/g, m => '\\' + m) + '%';
+  const rows = db.prepare(SUMMARY_LOAD_SQL + ` WHERE l.poNumber = ? COLLATE NOCASE OR l.loadNumber = ? COLLATE NOCASE
+      OR l.poNumber LIKE ? ESCAPE '\\' OR l.loadNumber LIKE ? ESCAPE '\\'
+    ORDER BY (l.poNumber = ? COLLATE NOCASE OR l.loadNumber = ? COLLATE NOCASE) DESC, l.createdAt DESC LIMIT 25`)
+    .all(q, q, like, like, q, q);
+  res.json({ loads: rows.map(summaryLoadRow) });
 });
 
 // --- Opt-out (unsubscribe) admin views. Super-admin only. ---

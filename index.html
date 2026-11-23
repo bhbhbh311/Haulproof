@@ -423,6 +423,15 @@
   .hli .s{color:var(--muted);font-size:12px;}
   .hli button{padding:5px 11px;font-size:12px;flex:none;}
   .hempty{padding:18px 16px;color:var(--muted);font-size:13px;}
+  .hli.go{cursor:pointer;} .hli.go:hover{background:rgba(77,141,255,.10);}
+  .hmore{display:block;width:100%;text-align:left;background:none;border:0;border-radius:0;color:var(--primary);font-weight:700;padding:12px 16px;cursor:pointer;font-size:13px;}
+  .hmore:hover{background:rgba(77,141,255,.10);}
+  .shFind{position:absolute;top:18px;right:20px;z-index:3;display:flex;gap:6px;width:min(320px,40%);}
+  .shFind input{flex:1;min-width:0;font-size:13px;padding:8px 11px;}
+  .shFind button{padding:8px 14px;font-size:13px;}
+  .shFindRes{margin:-4px 0 16px;max-height:360px;overflow:auto;}
+  @media (min-width:1201px){ #superHomeCard .hhero h1, #superHomeCard .hhero p{margin-right:340px;} }
+  @media (max-width:1200px){ .shFind{position:relative;top:auto;right:auto;width:100%;max-width:420px;margin-bottom:12px;} }
   #upToggle{white-space:nowrap;}
   .ldbulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:13px;color:var(--muted);}
   .ldbulk span{margin-right:auto;}
@@ -809,6 +818,10 @@
          version of a company's Dashboard. -->
     <div class="hide" id="superHomeCard" style="margin-bottom:16px;">
       <div class="hhero">
+        <form class="shFind" id="shFind" autocomplete="off">
+          <input type="search" id="shFindQ" placeholder="Jump to load # / PO #" aria-label="Find a load by load # or PO #">
+          <button type="submit">Go</button>
+        </form>
         <h1 id="shHello">Welcome</h1>
         <p id="shLine">Loading…</p>
         <div class="hbtns">
@@ -817,6 +830,7 @@
           <button type="button" class="ghost" id="shRefresh">Refresh</button>
         </div>
       </div>
+      <div class="hpanel shFindRes hide" id="shFindRes"></div>
       <div class="htiles" id="shTiles"></div>
       <div class="hpanels">
         <div class="hpanel"><h2>Needs attention</h2><div id="shAttn"><div class="hempty">Loading…</div></div></div>
@@ -2739,20 +2753,73 @@
     (bl.ended || []).forEach(t => items.push(['var(--warn)', `<b>Free trial ended</b> · ${esc(t.name)}`, 'Ended ' + (-t.daysLeft) + ' day' + (t.daysLeft === -1 ? '' : 's') + ' ago — switch them to Paid, extend, or make them Free', 'Plans', 'ghost shPlans', '']));
     (bl.endingSoon || []).forEach(t => items.push(['var(--side-muted)', `<b>Free trial ends ${t.daysLeft === 0 ? 'today' : 'in ' + t.daysLeft + ' day' + (t.daysLeft === 1 ? '' : 's')}</b> · ${esc(t.name)}`, 'Time to talk about the paid plan', 'Plans', 'ghost shPlans', '']));
     if (a.accessRequests) items.push(['var(--warn)', `<b>${a.accessRequests} access request${a.accessRequests === 1 ? '' : 's'}</b>`, 'Companies or drivers asking to join', 'Review', 'ghost shGo', 'requests']);
-    const shown = items.slice(0, 10);
+    // Every row is clickable: a load opens that load, the rest go where their button goes. The button keeps its own
+    // action (Retry email opens the retry box; the row itself opens the load). "+ N more" shows the whole list.
+    const showAll = !!window._shAttnAll, shown = showAll ? items : items.slice(0, 10);
     $('shAttn').innerHTML = shown.length
-      ? shown.map(i => `<div class="hli"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]}" data-id="${esc(i[5] || '')}">${i[3]}</button></div>`).join('')
-        + (items.length > shown.length ? `<div class="hempty">+ ${items.length - shown.length} more</div>` : '')
+      ? shown.map(i => { const loadRow = /shOpen|shRetry/.test(i[4]);
+          return `<div class="hli go" data-kind="${loadRow ? 'load' : /shPlans/.test(i[4]) ? 'plans' : 'tab'}" data-id="${esc(i[5] || '')}" title="${loadRow ? 'Open this load' : 'Open'}"><span class="dot" style="background:${i[0]}"></span><div class="t">${i[1]}<div class="s">${i[2]}</div></div><button type="button" class="${i[4]}" data-id="${esc(i[5] || '')}">${i[3]}</button></div>`; }).join('')
+        + (items.length > 10 ? `<button type="button" class="hmore" id="shAttnMore">${showAll ? 'Show fewer' : '+ ' + (items.length - shown.length) + ' more — show all'}</button>` : '')
       : '<div class="hempty">All caught up — nothing needs attention across HaulProof.</div>';
+    const toPlans = () => { const c = $('billingCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    $('shAttn').querySelectorAll('.hli.go').forEach(row => row.onclick = (e) => {
+      if (e.target.closest('button')) return;
+      const k = row.dataset.kind, id = row.dataset.id;
+      if (k === 'load') { if (id) openLoadFromDash(id); } else if (k === 'plans') toPlans(); else if (id) selectTab(id);
+    });
     $('shAttn').querySelectorAll('.shGo').forEach(b => b.onclick = () => selectTab(b.dataset.id));
-    $('shAttn').querySelectorAll('.shPlans').forEach(b => b.onclick = () => { const c = $('billingCard'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    $('shAttn').querySelectorAll('.shPlans').forEach(b => b.onclick = toPlans);
     $('shAttn').querySelectorAll('.shOpen').forEach(b => b.onclick = () => openLoadFromDash(b.dataset.id));
     $('shAttn').querySelectorAll('.shRetry').forEach(b => b.onclick = () => openRetryEmail(b.dataset.id));
+    if ($('shAttnMore')) $('shAttnMore').onclick = () => { window._shAttnAll = !window._shAttnAll; loadSuperHome(); };
     const cos = r.companies || [];
-    $('shCos').innerHTML = cos.length ? cos.map(c => `<div class="hli"><span class="dot" style="background:${c.attention ? 'var(--bad)' : c.road ? 'var(--warn)' : 'var(--ok)'}"></span><div class="t"><b>${esc(c.name)}</b><div class="s">`
+    $('shCos').innerHTML = cos.length ? cos.map(c => `<div class="hli go" data-org="${esc(c.orgId || '')}" title="See this company's loads"><span class="dot" style="background:${c.attention ? 'var(--bad)' : c.road ? 'var(--warn)' : 'var(--ok)'}"></span><div class="t"><b>${esc(c.name)}</b><div class="s">`
         + [c.loads + ' new load' + (c.loads === 1 ? '' : 's'), c.signed + ' delivered', c.road ? c.road + ' on the road' : '', c.attention ? c.attention + ' need' + (c.attention === 1 ? 's' : '') + ' attention' : ''].filter(Boolean).join(' · ')
-        + '</div></div></div>').join('')
+        + '</div></div><span style="color:var(--muted);flex:none;">›</span></div>').join('')
       : '<div class="hempty">No loads in the last week.</div>';
+    $('shCos').querySelectorAll('.hli.go').forEach(row => row.onclick = () => { if (row.dataset.org) openCompanyLoads(row.dataset.org); });
+  }
+
+  // One line per load for the master drill-downs and the load search.
+  const SH_STATE = { setup: ['Needs setup', 'var(--violet)'], failed: ['Email failed', 'var(--bad)'], done: ['Delivered', 'var(--ok)'], road: ['On the road', 'var(--warn)'], open: ['Waiting on paperwork', 'var(--side-muted)'] };
+  function shLoadRow(l, withOrg) {
+    const st = SH_STATE[l.state] || SH_STATE.open;
+    const name = l.po && l.loadNumber && l.po !== l.loadNumber ? esc(l.po) + ' <span style="color:var(--muted);font-weight:400;">· ' + esc(l.loadNumber) + '</span>' : esc(l.po || l.loadNumber || 'Load');
+    const bits = [withOrg ? esc(l.orgName) : '', l.driver ? esc(l.driver) : '', l.origin || l.destination ? esc([l.origin, l.destination].filter(Boolean).join(' → ')) : '',
+      l.createdAt ? 'added ' + new Date(l.createdAt).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) : ''].filter(Boolean).join(' · ');
+    return `<div class="hli go" data-id="${esc(l.id)}" title="Open this load"><span class="dot" style="background:${st[1]}"></span><div class="t"><b>${name}</b><div class="s">${bits}</div></div><span class="s" style="flex:none;color:${st[1]};font-weight:700;">${st[0]}</span></div>`;
+  }
+  // "Companies this week" → that company's loads behind the counts, each one click from open.
+  async function openCompanyLoads(orgId) {
+    let ov = $('shCoModal');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'shCoModal'; ov.className = 'histOverlay hide'; ov.style.zIndex = '10070';
+      ov.innerHTML = '<div class="histBox" style="max-width:720px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><h1 style="margin:0;font-size:19px;" id="shCoTitle">Loads</h1><button class="ghost" type="button" id="shCoClose">✕ Close</button></div><p class="sub" style="margin:6px 0 10px;" id="shCoSub"></p><div id="shCoBody" style="border:1px solid var(--line);border-radius:10px;overflow:hidden;"></div></div>';
+      document.body.appendChild(ov); ov.addEventListener('click', e => { if (e.target === ov) ov.classList.add('hide'); });
+      $('shCoClose').onclick = () => ov.classList.add('hide'); }
+    $('shCoTitle').textContent = 'Loads'; $('shCoSub').textContent = ''; $('shCoBody').innerHTML = '<div class="hempty">Loading…</div>'; ov.classList.remove('hide');
+    let r; try { r = await api('/api/stats/company-loads/' + encodeURIComponent(orgId)); } catch (e) { $('shCoBody').innerHTML = '<div class="hempty">' + esc(e.message) + '</div>'; return; }
+    const ls = r.loads || [], count = s => ls.filter(l => l.state === s).length;
+    $('shCoTitle').textContent = (r.org && r.org.name) || 'Loads';
+    $('shCoSub').textContent = ls.length ? [ls.length + ' load' + (ls.length === 1 ? '' : 's') + ' this week', count('road') ? count('road') + ' on the road' : '', count('setup') + count('failed') ? (count('setup') + count('failed')) + ' need attention' : '', count('done') ? count('done') + ' delivered' : ''].filter(Boolean).join(' · ') + ' — click a load to open it.' : '';
+    $('shCoBody').innerHTML = ls.length ? ls.map(l => shLoadRow(l, false)).join('') : '<div class="hempty">No loads this week.</div>';
+    $('shCoBody').querySelectorAll('.hli.go').forEach(row => row.onclick = () => { ov.classList.add('hide'); openLoadFromDash(row.dataset.id); });
+  }
+  // Jump to a load by load # or PO # across every company: one match opens it, several show a pick list.
+  if ($('shFind')) {
+    const res = $('shFindRes'), hideRes = () => res.classList.add('hide');
+    $('shFind').onsubmit = async (e) => {
+      e.preventDefault();
+      const q = ($('shFindQ').value || '').trim(); if (!q) return;
+      res.innerHTML = '<div class="hempty">Searching…</div>'; res.classList.remove('hide');
+      let r; try { r = await api('/api/stats/find-load?q=' + encodeURIComponent(q)); } catch (err) { res.innerHTML = '<div class="hempty">' + esc(err.message) + '</div>'; return; }
+      const ls = r.loads || [];
+      const exact = ls.filter(l => [l.po, l.loadNumber].some(v => v && v.toLowerCase() === q.toLowerCase()));
+      if (exact.length === 1 || ls.length === 1) { hideRes(); openLoadFromDash((exact.length === 1 ? exact : ls)[0].id); return; }
+      res.innerHTML = ls.length ? ls.map(l => shLoadRow(l, true)).join('') : '<div class="hempty">No load matches “' + esc(q) + '”.</div>';
+      res.querySelectorAll('.hli.go').forEach(row => row.onclick = () => { hideRes(); openLoadFromDash(row.dataset.id); });
+    };
+    document.addEventListener('click', e => { if (!e.target.closest('#shFind, #shFindRes')) hideRes(); });
+    $('shFindQ').addEventListener('keydown', e => { if (e.key === 'Escape') hideRes(); });
   }
   // Plans & billing: one row per company — plan, trial end, price, drivers, and this month's bill. Edits save on change.
   async function loadBilling(){
@@ -8100,7 +8167,7 @@
     if (document.querySelector('.histOverlay:not(.hide)')) return false;
     const sw = $('setupWizard'); if (sw && !sw.classList.contains('hide')) return false;
     // A document being read, split or cropped — a reload would close it (someone can read a BOL for 2+ minutes).
-    for (const id of ['docViewer', 'splitModal', 'cropModal', 'noteModal']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
+    for (const id of ['docViewer', 'splitModal', 'cropModal', 'noteModal', 'shFindRes']) { const m = $(id); if (m && !m.classList.contains('hide')) return false; }
     if (typeof ldPicked !== 'undefined' && ldPicked.length) return false;   // files picked for a stop, not uploaded yet
     const ld = $('loadDetailCard'); if (ld && !ld.classList.contains('hide') && (ld.classList.contains('editing') || (typeof _ldDirty !== 'undefined' && _ldDirty))) return false;
     return true;
