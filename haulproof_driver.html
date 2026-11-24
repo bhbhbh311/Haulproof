@@ -921,7 +921,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-20b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-24a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -931,6 +931,68 @@ window.__startApp=function(){
   function genId(){ return Date.now().toString(36)+Math.floor(Math.random()*1e5).toString(36); }
   function u8ToB64(u8){ var CH=0x8000,s=""; for(var i=0;i<u8.length;i+=CH){ s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH)); } return btoa(s); }
   function b64ToBlob(b64,type){ var bin=atob(b64),u8=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i); return new Blob([u8],{type:type||"application/pdf"}); }
+  /* ============ outbox file bytes (IndexedDB) ============
+     The browser's localStorage is only ~5 MB per site on a phone. A few BOL photos saved there as base64 filled it, and
+     then a BOL that couldn't upload right away had nowhere to go ("Storage full"). The outbox list (names, PO #, status)
+     stays in localStorage; the PDF bytes of a document waiting to send go to IndexedDB, which has far more room.
+     A pod marked idb:true has its bytes there; an older pod (or a phone without IndexedDB) still carries b64. */
+  var _idbP=null;
+  function idbOpen(){
+    if(_idbP) return _idbP;
+    _idbP=new Promise(function(res){
+      try{
+        if(!window.indexedDB){ res(null); return; }
+        var rq=indexedDB.open("hp_outbox",1);
+        rq.onupgradeneeded=function(){ try{ rq.result.createObjectStore("bytes"); }catch(e){} };
+        rq.onsuccess=function(){ res(rq.result); };
+        rq.onerror=function(){ res(null); }; rq.onblocked=function(){ res(null); };
+      }catch(e){ res(null); }
+    });
+    return _idbP;
+  }
+  function idbDo(mode, fn){
+    return idbOpen().then(function(db){
+      if(!db) return null;
+      return new Promise(function(res){
+        try{ var tx=db.transaction("bytes",mode), st=tx.objectStore("bytes"), rq=fn(st), out=null;
+          if(rq) rq.onsuccess=function(){ out=rq.result; };
+          tx.oncomplete=function(){ res(mode==="readwrite"?true:out); };
+          tx.onerror=tx.onabort=function(){ res(null); };
+        }catch(e){ res(null); }
+      });
+    });
+  }
+  function bytesPut(id,u8){ return idbDo("readwrite",function(st){ return st.put(new Blob([u8],{type:"application/pdf"}), id); }).then(function(ok){ return ok===true; }); }
+  function bytesGet(id){ return idbDo("readonly",function(st){ return st.get(id); }); }
+  function bytesDel(id){ return idbDo("readwrite",function(st){ return st.delete(id); }); }
+  // Keep this document's bytes for the outbox: IndexedDB first, base64 in the pod as the fallback. Returns the pod.
+  async function stashPodBytes(pod,u8){
+    delete pod.b64; delete pod.idb;
+    if(u8 && await bytesPut(pod.id,u8)) pod.idb=true; else if(u8) pod.b64=u8ToB64(u8);
+    return pod;
+  }
+  // The bytes of a document waiting in the outbox, as a Blob (null when they're gone).
+  async function podBlob(p){
+    if(p.b64) return b64ToBlob(p.b64);
+    if(p.idb){ var b=await bytesGet(p.id); if(b) return (b instanceof Blob)?b:new Blob([b],{type:"application/pdf"}); }
+    return null;
+  }
+  // Done with a document's local bytes (it's on the server): drop them from both places.
+  function freePodBytes(p){ if(p.idb){ try{ bytesDel(p.id); }catch(e){} } delete p.b64; delete p.idb; p.freed=true; }
+  // Phones that saved documents before this build hold them as base64 in localStorage: move them to IndexedDB to
+  // free that space (only once IndexedDB has the copy), and drop bytes of documents already on the server.
+  async function migrateOutboxBytes(){
+    try{
+      var a=loadPods(), changed=false;
+      for(var i=0;i<a.length;i++){
+        var p=a[i]; if(!p.b64) continue;
+        if(p.status==="uploaded"){ delete p.b64; p.freed=true; changed=true; continue; }
+        var blob=b64ToBlob(p.b64), u8=new Uint8Array(await blob.arrayBuffer());
+        if(await bytesPut(p.id,u8)){ delete p.b64; p.idb=true; changed=true; }
+      }
+      if(changed) savePods(a);
+    }catch(e){}
+  }
   /* consignee memory (recognized by location) */
   function loadConsignees(){ return lsGet("hp_consignees",[]); }
   function saveConsignees(a){ lsSet("hp_consignees",a); }
@@ -1039,7 +1101,9 @@ window.__startApp=function(){
           hdrs["X-POD-App-Build"]=APP_BUILD;                 // which driver-app build sent this → shown in the load history
           if(p.stopNum) hdrs["X-POD-Stop"]=String(p.stopNum); // one upload split into per-stop docs on the same load
           if(p.paper){ hdrs["X-POD-Paper"]="1"; hdrs["X-POD-LoadId"]=he(p.loadId||""); }   // photo of the signed paper BOL: the POD for that stop
-          var res=await fetch(ep,{method:"POST",headers:hdrs,body:b64ToBlob(p.b64)});
+          var body0=await podBlob(p);
+          if(!body0){ p.error="This document's file isn't on this phone any more — scan it again"; p.errorAt=Date.now(); changed=true; continue; }
+          var res=await fetch(ep,{method:"POST",headers:hdrs,body:body0});
           if(!res.ok){
             var body=await res.json().catch(function(){return {};});
             p.error = body.error || ("Upload failed ("+res.status+")");
@@ -1051,7 +1115,7 @@ window.__startApp=function(){
           try{ var ok=await res.json(); if(ok&&ok.podId) p.serverId=ok.podId; if(ok&&ok.poRenamed&&ok.poNumber){ p.poNumber=ok.poNumber; toast("PO "+(ok.originalPo||p.poNumber)+" was in use — sent as new load "+ok.poNumber); } }catch(_){}
           // Free the heavy PDF bytes now that it's safely on the server — this keeps the phone's storage
           // from filling up (which was silently dropping later saves). View re-fetches it from the server.
-          delete p.b64; p.freed=true;
+          freePodBytes(p);
         }
         else { await new Promise(function(r){setTimeout(r,500);}); } // simulated upload
         p.status="uploaded"; p.uploadedAt=Date.now(); p.error=null; p.pinNeeded=false; changed=true;
@@ -1061,6 +1125,10 @@ window.__startApp=function(){
     renderOutbox(); renderCloud();
   }
   window.addEventListener("online", function(){ renderCloud(); syncOutbox(); });
+  // Weak signal never fires "online" (the phone thinks it's connected the whole time), so a document that missed its
+  // upload would wait until the app was reopened. Retry anything waiting every 2 minutes while the app is open.
+  setInterval(function(){ try{ if(online() && loadPods().some(function(p){ return p.status==="pending"; })) syncOutbox(); }catch(e){} }, 120000);
+  setTimeout(function(){ migrateOutboxBytes().then(function(){ try{ if(online()) syncOutbox(); }catch(e){} }); }, 1500);   // free localStorage held by older builds
   window.addEventListener("offline", function(){ renderCloud(); });
 
   /* ============ views ============ */
@@ -3418,10 +3486,11 @@ window.__startApp=function(){
         var bytes=await out.save();
         var stopNo=gi+1;
         var cons=((_ssConsignee[g.stop]||"").trim()) || fallbackCons;   // the consignee the driver typed for THIS stop
-        pods.unshift({ id:genId(), name:"PO "+po+" · Stop "+stopNo+(cons?(" — "+cons):""), poNumber:po, loadNumber:loadNo, consignee:cons, customerId:custId,
-          stopNum:stopNo, createdAt:Date.now(), signedAt:Date.now(), size:bytes.length, status:"pending", unsigned:true, b64:u8ToB64(bytes) });
+        pods.unshift(await stashPodBytes({ id:genId(), name:"PO "+po+" · Stop "+stopNo+(cons?(" — "+cons):""), poNumber:po, loadNumber:loadNo, consignee:cons, customerId:custId,
+          stopNum:stopNo, createdAt:Date.now(), signedAt:Date.now(), size:bytes.length, status:"pending", unsigned:true }, bytes));
       }
-      if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); }
+      if(!savePods(pods)){ pruneUploadedBytes(); var fresh=loadPods(); pods.forEach(function(p){ if(!fresh.some(function(x){ return x.id===p.id; })) fresh.push(p); }); fresh.sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
+        if(!savePods(fresh)){ alert("Couldn't save these stops on this phone. Nothing was sent — check your signal and tap Create again."); return; } }
       $("stopSplit").classList.add("hide");
       toast(groups.length+" stops created — sign each from Your loads");
       // Reset the build screen and jump to Your loads, where each stop now shows ready to sign.
@@ -3938,7 +4007,7 @@ window.__startApp=function(){
       // phone this may not fit even after a prune — that's fine now, because _compBytes carries it in memory and
       // uploads directly when they tap Send. So we never let a failed save here block reaching the done screen.
       try{
-        var pb=Object.assign({}, pod, { b64:u8ToB64(signedPdfBytes) });
+        var pb=await stashPodBytes(Object.assign({}, pod), signedPdfBytes);
         var pods=loadPods(); pods.unshift(pb);
         if(!savePods(pods)){ pruneUploadedBytes(); pods=loadPods(); pods.unshift(pb); savePods(pods); }
       }catch(_){ /* storage full even after prune — the in-memory copy is the source of truth now */ }
@@ -4026,17 +4095,26 @@ window.__startApp=function(){
     // OFFLINE (or no endpoint / upload hiccup): queue it in the outbox to upload when signal returns.
     var pod={ id:cid, name:(paper?"Signed BOL - PO ":"PO ")+poNum+(consVal?(" - "+consVal):""), poNumber:poNum, loadNumber:loadVal, consignee:consVal, customerId:custVal,
       forDispatch:_dispatchUpload, driver:driverName(), stopId:currentStop?currentStop.id:null, prepId:(pulledMeta&&pulledMeta.id)||null, createdAt:Date.now(), signedAt:Date.now(),
-      gps:lastGps, size:bytes.length, status:"pending", unsigned:!paper, paper:!!paper, loadId:paper?paper.loadId:null, stopNum:paper?paper.stop:null, b64:u8ToB64(bytes) };
+      gps:lastGps, size:bytes.length, status:"pending", unsigned:!paper, paper:!!paper, loadId:paper?paper.loadId:null, stopNum:paper?paper.stop:null };
+    await stashPodBytes(pod, bytes);   // the file goes to IndexedDB (plenty of room); only this small entry goes in the list
     var arr=loadPods(); arr.unshift(pod);
-    if(!savePods(arr)){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); savePods(arr); }   // free space if storage is full
+    var kept=savePods(arr);
+    if(!kept){ pruneUploadedBytes(); arr=loadPods(); arr.unshift(pod); kept=savePods(arr); }   // free space if storage is full
     renderCloud();
+    // Never say "Saved" when nothing was kept: the photo is still on screen, so the driver can tap Send again.
+    if(!kept || !(pod.idb || pod.b64)){
+      if(pod.idb){ try{ bytesDel(pod.id); }catch(_){} }
+      alert("Not sent yet.\n\nHaulProof couldn't reach the office and couldn't keep this on your phone. Your photo is still here: move to better signal and tap the button again.");
+      return;
+    }
     showSavedConfirmation(poNum, null, paper);
+    setTimeout(function(){ try{ syncOutbox(); }catch(_){} }, 5000);   // signal often comes right back: try again shortly
   }
   // Reclaim phone storage: drop the heavy PDF bytes of PODs that already uploaded (they live on the server
   // now). Keeps the lightweight outbox entry so the list still shows them.
   function pruneUploadedBytes(){
     try{ var a=loadPods(), changed=false;
-      a.forEach(function(p){ if(p.status==="uploaded" && p.b64){ delete p.b64; p.freed=true; changed=true; } });
+      a.forEach(function(p){ if(p.status==="uploaded" && (p.b64 || p.idb)){ freePodBytes(p); changed=true; } });
       if(changed) savePods(a);
     }catch(e){}
   }
@@ -4128,7 +4206,7 @@ window.__startApp=function(){
   // Make sure the signed stop is in the outbox WITH its bytes so a background sync can upload it. The fallback
   // when a direct upload isn't possible (offline) or failed (network). Re-adds the bytes that may not have fit
   // at sign time on a full phone.
-  function ensureQueuedForSync(pod){
+  async function ensureQueuedForSync(pod){
     if(!pod) return;
     try{
       var a=loadPods(), found=null;
@@ -4137,10 +4215,10 @@ window.__startApp=function(){
         if(found.status==="uploaded") return;   // already on the server
         found.status="pending";
         if(compRecips && compRecips.length) found.recipients=compRecips.slice();
-        if(!found.b64 && _compBytes){ found.b64=u8ToB64(_compBytes); }
+        if(!found.b64 && !found.idb && _compBytes) await stashPodBytes(found, _compBytes);
       } else {
         var np=Object.assign({}, pod, { status:"pending", recipients:(compRecips||[]).slice() });
-        if(_compBytes) np.b64=u8ToB64(_compBytes);
+        if(_compBytes) await stashPodBytes(np, _compBytes);
         a.unshift(np);
       }
       if(!savePods(a)){ pruneUploadedBytes(); savePods(a); }
@@ -4191,7 +4269,7 @@ window.__startApp=function(){
         var r=await uploadSignedNow(compPod, _compBytes);
         if(r.ok){
           // Mark any backup outbox copy as uploaded and free its bytes so it doesn't re-upload or waste storage.
-          try{ var a=loadPods(), ch=false; a.forEach(function(x){ if(x.id===compPod.id && x.status!=="uploaded"){ x.status="uploaded"; x.uploadedAt=Date.now(); x.error=null; if(x.serverId==null && r.resp && r.resp.podId) x.serverId=r.resp.podId; delete x.b64; x.freed=true; ch=true; } }); if(ch) savePods(a); }catch(_){}
+          try{ var a=loadPods(), ch=false; a.forEach(function(x){ if(x.id===compPod.id && x.status!=="uploaded"){ x.status="uploaded"; x.uploadedAt=Date.now(); x.error=null; if(x.serverId==null && r.resp && r.resp.podId) x.serverId=r.resp.podId; freePodBytes(x); ch=true; } }); if(ch) savePods(a); }catch(_){}
           if(r.resp && r.resp.podId) compPod.serverId=r.resp.podId;
           renderOutbox(); renderCloud();
           showSendSuccess(stopN, (pod && pod.poNumber) || null);
@@ -4200,13 +4278,13 @@ window.__startApp=function(){
         if(r.linkError){ showLinkExpired(); toast("Driver link expired — reconnect to send"); bSend.disabled=false; bSend.textContent="✅ Send documents & complete"; return; }
         // Network/other failure: fall back to the outbox so a background sync retries it. Make sure the bytes are
         // queued first (they may not have fit at sign time on a full phone), then let the normal sync try once.
-        ensureQueuedForSync(compPod);
+        await ensureQueuedForSync(compPod);
         try{ await syncOutbox(); }catch(_){}
         showSendSuccess(stopN, (pod && pod.poNumber) || null);
         return;
       }
       // OFFLINE (or bytes unavailable): make sure it's queued for background sync, then show the done screen.
-      ensureQueuedForSync(compPod);
+      await ensureQueuedForSync(compPod);
       try{ if(online()) await syncOutbox(); }catch(_){}
       // Clear, state-aware "you're done" screen that then returns to Home on its own, so the driver is
       // never left wondering what to do next after signing.
@@ -4290,7 +4368,7 @@ window.__startApp=function(){
   function renderChips(){ if(!compBox)return; var c=compBox._chips; c.innerHTML=""; compRecips.forEach(function(e){ var s=document.createElement("span"); s.className="c"; s.appendChild(document.createTextNode(e)); var x=document.createElement("button"); x.type="button"; x.setAttribute("aria-label","Remove"); x.textContent="×"; x.addEventListener("click",function(){ removeRecip(e); }); s.appendChild(x); c.appendChild(s); }); }
   function renderSuggest(){ if(!compBox||!compBox._sug)return; var s=compBox._sug; s.innerHTML=""; (compBox._match.emails||[]).forEach(function(e){ if(compRecips.indexOf(e)>=0) return; var b=document.createElement("button"); b.type="button"; b.className="s"; b.textContent="＋ "+e; b.addEventListener("click",function(){ tryAddRecip(e); }); s.appendChild(b); }); }
   function renderNote(){ if(!compBox)return; var n=compBox._note; n.textContent = compRecips.length ? ("A copy will be emailed to "+compRecips.length+" recipient"+(compRecips.length>1?"s":"")+" when this POD uploads.") : "Add an email to send the consignee a copy (optional)."; }
-  function downloadPod(pod){ savePdfFile(b64ToBlob(pod.b64), pod.name); }
+  async function downloadPod(pod){ var b=await podBlob(pod); if(b) savePdfFile(b, pod.name); else toast("This document's file isn't on this phone"); }
   window.hpSavePdf = savePdfFile;   // reachable from the automated browser check
   // In-app viewer: render any signed PDF inside the app so there's always a Close button back to HaulProof.
   var pvBytes=null, pvName="document";
@@ -4315,8 +4393,10 @@ window.__startApp=function(){
     }catch(e){ console.error(e); body.innerHTML='<div style="color:var(--danger);padding:30px;text-align:center;">Couldn\'t preview this document. Tap <b>Save</b> to open it in your files.</div>'; }
   }
   // Local (just-signed) POD stored on the phone.
-  function viewPod(pod){ showPdfInViewer(pod.poNumber?("PO "+pod.poNumber):(pod.name||"Signed document"), pod.name, function(){
-    if(pod.b64){ return b64ToBlob(pod.b64).arrayBuffer().then(function(ab){return new Uint8Array(ab);}); }
+  function viewPod(pod){ showPdfInViewer(pod.poNumber?("PO "+pod.poNumber):(pod.name||"Signed document"), pod.name, async function(){
+    // The copy kept on the phone (IndexedDB, or base64 from an older build)
+    var b=(pod.b64 || pod.idb) ? await podBlob(pod) : null;
+    if(b) return new Uint8Array(await b.arrayBuffer());
     // On a full phone the bytes may not have been stored — use the in-memory copy of the stop being completed.
     if(_compBytes && compPod && pod.id===compPod.id){ return Promise.resolve(_compBytes); }
     // Bytes were freed after upload to save phone storage — fetch the copy from the server instead.
