@@ -153,7 +153,8 @@ function addColumn(table, col, decl) {
 addColumn('users', 'orgId', 'TEXT');
 addColumn('users', 'lastLoginAt', 'INTEGER');   // last time this login signed in (master admin's All logins cleanup view)
 addColumn('users', 'capabilities', 'TEXT');   // JSON array of extra capabilities an admin granted this login
-addColumn('users', 'betaAccess', 'INTEGER NOT NULL DEFAULT 0');   // master-admin-granted "tester" flag: sees the not-yet-rolled-out sections behind a toggle
+addColumn('users', 'betaAccess', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('users', 'signedCopies', 'INTEGER NOT NULL DEFAULT 1');   // admins and dispatchers get every signed BOL / POD unless they turn it off   // master-admin-granted "tester" flag: sees the not-yet-rolled-out sections behind a toggle
 addColumn('loads', 'orgId', 'TEXT');
 addColumn('pods',  'orgId', 'TEXT');
 addColumn('pods',  'fields', 'TEXT');   // older DBs predate the signature template column

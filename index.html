@@ -1715,8 +1715,8 @@
         <span id="nuMsg" style="font-size:13px;font-weight:600;"></span>
       </div>
       <table style="margin-top:18px;">
-        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
-        <tbody id="userRows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th title="Admins and dispatchers get every signed BOL / POD by email unless this is unticked">Signed BOLs</th><th>Added</th><th></th></tr></thead>
+        <tbody id="userRows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
       </table>
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--line);">
         <h1 style="font-size:16px;margin-bottom:4px;">Always notify (master list)</h1>
@@ -8153,9 +8153,12 @@
       _teamUsers = r.users || [];
       loadMasterNotify();
       const tb = $('userRows');
-      if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'; bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: '', url: id => '/api/users/' + id, reload: loadUsers }); return; }
+      if (!r.users || !r.users.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">No logins yet.</td></tr>'; bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: '', url: id => '/api/users/' + id, reload: loadUsers }); return; }
       tb.innerHTML = r.users.map(u => `<tr>
         <td>${esc(u.email)}</td><td>${esc(u.name) || '—'}</td><td>${u.role}${u.alsoDrives ? ' <span class="sub" style="font-size:12px;" title="Same email as one of your drivers — they can open their driver app from the menu">· also drives</span>' : ''}</td>
+        <td>${(/^haulproofhelp\+/i.test(u.email || '') || !(u.role === 'admin' || u.role === 'dispatcher'))
+          ? '<span class="sub" style="font-size:12px;" title="Only admins and dispatchers get every signed BOL. Add others to Always notify below.">—</span>'
+          : `<label style="display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer;" title="Gets every signed BOL / POD on your loads by email. Untick to opt out."><input type="checkbox" class="nuCopies" data-id="${u.id}"${u.signedCopies ? ' checked' : ''}${(u.id === myId() || isAdmin() || hasCap('manage_users')) ? '' : ' disabled'} style="width:16px;height:16px;margin:0;"> ${u.signedCopies ? 'On' : 'Off'}</label>`}</td>
         <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
         <td style="text-align:right;white-space:nowrap;">${(/^haulproofhelp\+/i.test(u.email || '') && !(user && user.role === 'superadmin'))
           // The built-in HaulProof Help login is managed only by the master admin (outside Help mode) — no buttons here.
@@ -8165,8 +8168,17 @@
           ${(u.id === myId() || /^haulproofhelp\+/i.test(u.email || '')) ? '' : `<button class="ghost nuDel" data-id="${u.id}" data-email="${esc(u.email)}" style="padding:6px 10px;font-size:12px;color:var(--bad);">Remove</button>`}`}
         </td></tr>`).join('');
       bulkify(tb, { delSel: '.nuDel', noun: 'login', warn: 'they can no longer sign in and stop getting signed copies. This can’t be undone.', url: id => '/api/users/' + id, reload: loadUsers });
-    } catch (e) { $('userRows').innerHTML = '<tr><td colspan="5" class="empty">' + e.message + '</td></tr>'; }
+    } catch (e) { $('userRows').innerHTML = '<tr><td colspan="6" class="empty">' + e.message + '</td></tr>'; }
   }
+  // "Signed BOLs" tick per login: on by default for admins and dispatchers; untick to stop getting every signed copy.
+  $('userRows').addEventListener('change', async (e) => {
+    const cb = e.target.closest('.nuCopies'); if (!cb) return;
+    const lbl = cb.parentNode; cb.disabled = true;
+    try { await api('/api/users/' + cb.dataset.id + '/signed-copies', { method: 'PUT', body: JSON.stringify({ on: cb.checked }) });
+      lbl.lastChild.textContent = ' ' + (cb.checked ? 'On' : 'Off'); }
+    catch (err) { cb.checked = !cb.checked; alert(err.message || 'Could not change it'); }
+    finally { cb.disabled = false; }
+  });
   $('nuBtn').onclick = async () => {
     const email = $('nuEmail').value.trim(), name = $('nuName').value.trim(), role = $('nuRole').value;
     const alsoDrives = !!($('nuDrives') && $('nuDrives').checked), phone = $('nuPhone') ? $('nuPhone').value.trim() : '';

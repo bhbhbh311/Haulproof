@@ -26,12 +26,26 @@ router.get('/', requireAuth, (req, res) => {
   if (!['admin', 'superadmin', 'dispatcher'].includes(req.user.role)) return res.status(403).json({ error: 'Not allowed' });
   const orgId = scopeOrgId(req);
   const rows = db.prepare(
-    `SELECT id, email, name, role, capabilities, betaAccess, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
+    `SELECT id, email, name, role, capabilities, betaAccess, signedCopies, createdAt FROM users WHERE orgId IS ? AND role != 'superadmin' ORDER BY createdAt DESC`
   ).all(orgId);
   const users = rows.map(u => { let caps = []; try { caps = u.capabilities ? JSON.parse(u.capabilities) : []; } catch (e) { caps = []; }
     const drv = require('./drivers').driverForLogin(orgId, u.email);
-    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, betaAccess: !!u.betaAccess, alsoDrives: !!drv, capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
+    return { id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.createdAt, betaAccess: !!u.betaAccess, alsoDrives: !!drv,
+      signedCopies: u.signedCopies !== 0, getsSignedCopies: (u.role === 'admin' || u.role === 'dispatcher') && u.signedCopies !== 0,
+      capabilities: Array.isArray(caps) ? caps.filter(c => ALL_CAPS.includes(c)) : [] }; });
   res.json({ users });
+});
+
+// "Signed BOLs" on / off for one login: admins and dispatchers get every signed BOL / POD on their company's loads
+// unless this is off. Anyone may turn their own off or on; an account admin (manage_users) may set it for others.
+router.put('/:id/signed-copies', requireAuth, (req, res) => {
+  const target = db.prepare('SELECT id, orgId, role, email FROM users WHERE id = ?').get(req.params.id);
+  if (!target || target.role === 'superadmin' || !sameOrg(req, target.orgId)) return res.status(404).json({ error: 'That login no longer exists' });
+  const isSelf = target.id === (req.user.sub || req.user.id);
+  if (!isSelf && !userHasCap(req, 'manage_users')) return res.status(403).json({ error: 'Not allowed' });
+  const on = !!(req.body && req.body.on);
+  db.prepare('UPDATE users SET signedCopies = ? WHERE id = ?').run(on ? 1 : 0, target.id);
+  res.json({ ok: true, id: target.id, signedCopies: on });
 });
 
 // Master notify list: team logins who always get an update email when a load's stops complete.
@@ -227,9 +241,11 @@ router.delete('/by-email', requireAuth, (req, res) => {
 router.get('/all', requireAuth, (req, res) => {
   if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'Master admin only' });
   const notify = new Set(db.prepare('SELECT userId FROM org_notify').all().map(r => r.userId));
-  const users = db.prepare(`SELECT u.id, u.email, u.name, u.role, u.orgId, u.createdAt, u.lastLoginAt, o.name AS orgName, o.kind AS orgKind
+  const users = db.prepare(`SELECT u.id, u.email, u.name, u.role, u.orgId, u.createdAt, u.lastLoginAt, u.signedCopies, o.name AS orgName, o.kind AS orgKind
      FROM users u LEFT JOIN orgs o ON o.id = u.orgId ORDER BY (o.name IS NULL), o.name COLLATE NOCASE, u.email`).all()
-    .map(u => { const system = /^haulproofhelp\+/i.test(u.email || ''); return Object.assign(u, { system, getsCopies: !system && (u.role === 'admin' || notify.has(u.id)) }); });
+    .map(u => { const system = /^haulproofhelp\+/i.test(u.email || '');
+      const byRole = (u.role === 'admin' || u.role === 'dispatcher') && u.signedCopies !== 0;
+      delete u.signedCopies; return Object.assign(u, { system, getsCopies: !system && (byRole || notify.has(u.id)) }); });
   const ccOrgs = db.prepare(`SELECT id, name, notifyEmails FROM orgs WHERE notifyEmails IS NOT NULL AND TRIM(notifyEmails) != ''`).all();
   res.json({ users, ccOrgs });
 });

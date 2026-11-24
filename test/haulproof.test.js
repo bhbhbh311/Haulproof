@@ -73,6 +73,30 @@ test('special instructions: the owner saves them on the load', async () => {
   assert.equal(u.instructions, 'NO UNLOAD APPT NEEDED');
 });
 
+test('signed BOLs go to every admin and dispatcher by default; each can opt out (sales only via Always notify)', async () => {
+  const co = org('Copies Co', 'broker');
+  createUser({ email: 'cadm@test.example', name: 'C Admin', role: 'admin', password: PW, orgId: co });
+  createUser({ email: 'cdisp@test.example', name: 'C Disp', role: 'dispatcher', password: PW, orgId: co });
+  createUser({ email: 'csales@test.example', name: 'C Sales', role: 'sales', password: PW, orgId: co });
+  const lid = id(); db.prepare('INSERT INTO loads (id, orgId, poNumber, status, createdAt) VALUES (?,?,?,?,?)').run(lid, co, 'CPY-1', 'open', Date.now());
+  const p = pod(co, lid, 'signed');
+  const { signedPodRecipients } = require('../pods');
+  const who = () => signedPodRecipients(p, db.prepare('SELECT * FROM loads WHERE id = ?').get(lid), co, []);
+  assert.deepEqual(who().filter(e => /^c(adm|disp|sales)@/.test(e)).sort(), ['cadm@test.example', 'cdisp@test.example'], 'admin + dispatcher on by default');
+  // the dispatcher turns it off for themselves; the admin's list shows it
+  const disp = await login('cdisp@test.example'), adm = await login('cadm@test.example');
+  const me = (await adm('GET', '/api/users')).body.users.find(u => u.email === 'cdisp@test.example');
+  assert.equal(me.signedCopies, true);
+  assert.equal((await disp('PUT', `/api/users/${me.id}/signed-copies`, { on: false })).status, 200);
+  assert.ok(!who().includes('cdisp@test.example'), 'opted out');
+  assert.equal((await adm('GET', '/api/users')).body.users.find(u => u.email === 'cdisp@test.example').signedCopies, false);
+  // a dispatcher can't change someone else's; the admin can turn it back on
+  const admRow = (await adm('GET', '/api/users')).body.users.find(u => u.email === 'cadm@test.example');
+  assert.equal((await disp('PUT', `/api/users/${admRow.id}/signed-copies`, { on: false })).status, 403);
+  assert.equal((await adm('PUT', `/api/users/${me.id}/signed-copies`, { on: true })).status, 200);
+  assert.ok(who().includes('cdisp@test.example'), 'back on');
+});
+
 test('Remove driver takes the load off the driver\'s phone and clears driver, truck and trailer', async () => {
   const api = await login('ship@test.example');
   const d = (await api('POST', '/api/drivers', { name: 'Old Load Driver' })).body.driver;

@@ -557,13 +557,14 @@ function signedPodRecipients(id, load, orgId, extra) {
     // The load's customer's assigned sales reps also get the stop-completed update (covers customers with
     // several reps — each of them is notified, not just the single per-stop rep above).
     if (load && load.customerId) customerRepEmails(load.customerId).forEach(e => notifyEmails.push(e));
-    // Dispatch ALWAYS gets a copy: the admins of every org on this load (its owner, plus the assigned
-    // carrier and broker) and whoever created it. This guarantees a completed stop reaches a real person
-    // even when no sales rep / subscriber / notify list was set up. Duplicates are removed by the Set below.
+    // Dispatch gets a copy: every admin and dispatcher of every org on this load (its owner, plus the assigned
+    // carrier and broker) who hasn't turned "Signed BOLs" off, and whoever created it. On by default, so a completed
+    // stop reaches real people even when no sales rep / subscriber / notify list was set up. The Set below dedupes.
     const notifyOrgs = [load.orgId, load.carrierId, load.brokerId].filter(Boolean);
     if (notifyOrgs.length) {
       const ph = notifyOrgs.map(() => '?').join(',');
-      db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin') AND email IS NOT NULL AND TRIM(email) != '' AND email NOT LIKE 'haulproofhelp+%'`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
+      db.prepare(`SELECT email FROM users WHERE orgId IN (${ph}) AND role IN ('admin','superadmin','dispatcher') AND COALESCE(signedCopies, 1) = 1
+         AND email IS NOT NULL AND TRIM(email) != '' AND email NOT LIKE 'haulproofhelp+%'`).all(...notifyOrgs).forEach(r => notifyEmails.push(r.email));
       // Plus each org's "always CC" completion addresses (set in the portal) — a reliable dispatch inbox that
       // doesn't have to be a login, so it gets EVERY stop regardless of the consignee typed at signing.
       db.prepare(`SELECT notifyEmails AS ne FROM orgs WHERE id IN (${ph})`).all(...notifyOrgs).forEach(r => {
@@ -1392,3 +1393,4 @@ router.canAccess = canAccess;
 router.fileSignedBol = fileSignedBol;
 router.combinedPodBytes = combinedPodBytes;   // used by emailretry.js to resend   // shared with the AI placement routes (aiplace.js)
 module.exports = router;
+module.exports.signedPodRecipients = signedPodRecipients;   // tests: who a signed stop is emailed to
