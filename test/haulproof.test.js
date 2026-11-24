@@ -73,6 +73,24 @@ test('special instructions: the owner saves them on the load', async () => {
   assert.equal(u.instructions, 'NO UNLOAD APPT NEEDED');
 });
 
+test('Remove driver takes the load off the driver\'s phone and clears driver, truck and trailer', async () => {
+  const api = await login('ship@test.example');
+  const d = (await api('POST', '/api/drivers', { name: 'Old Load Driver' })).body.driver;
+  const drv = asDriver(db.prepare('SELECT token FROM drivers WHERE id = ?').get(d.id).token);
+  const l = (await api('POST', '/api/loads', { poNumber: 'RMD-1' })).body.load;
+  assert.equal((await api('POST', `/api/loads/${l.id}/assign-driver`, { driverId: d.id, truck: '9' })).status, 200);
+  const p = pod(shipper, l.id, 'prepared');
+  db.prepare('UPDATE pods SET assignedDriverId = ? WHERE id = ?').run(d.id, p);
+  assert.ok((await drv('GET', '/api/drivers/my-loads')).body.loads.some(x => x.loadId === l.id), 'on the phone first');
+  const r = await api('POST', `/api/loads/${l.id}/remove-driver`, {});
+  assert.equal(r.status, 200);
+  assert.equal(r.body.load.driverName, null); assert.equal(r.body.load.truck, null); assert.equal(r.body.load.assignedDriverId, null);
+  assert.ok(!(await drv('GET', '/api/drivers/my-loads')).body.loads.some(x => x.loadId === l.id), 'gone from the phone');
+  assert.equal(db.prepare('SELECT assignedDriverId FROM pods WHERE id = ?').get(p).assignedDriverId, null);
+  assert.ok(db.prepare(`SELECT 1 FROM load_events WHERE loadId = ? AND detail LIKE 'Driver Old Load Driver taken off%'`).get(l.id), 'in the history');
+  assert.equal((await api('POST', `/api/loads/${l.id}/remove-driver`, {})).status, 400, 'nothing left to remove');
+});
+
 test('a load given to a driver shows on their phone before any paperwork, with its instructions; it drops off once signed', async () => {
   const api = await login('ship@test.example');
   const d = (await api('POST', '/api/drivers', { name: 'Fleet Driver' })).body.driver;

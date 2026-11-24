@@ -685,6 +685,22 @@ router.post('/:id/unassign-broker', requireAuth, (req, res) => {
   res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
 });
 
+// Take the driver off a load (wrong driver, or an old load still showing on their phone): clears the driver, truck and
+// trailer, and its unsigned documents leave that driver's phone. Signed documents keep who signed them. Anyone who can
+// set the driver can remove it.
+router.post('/:id/remove-driver', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  if (!load.driverName && !load.assignedDriverId) return res.status(400).json({ error: 'No driver is on this load' });
+  const name = load.driverName || 'the driver';
+  db.prepare(`UPDATE loads SET driverName = NULL, truck = NULL, trailer = NULL, assignedDriverId = NULL WHERE id = ?`).run(load.id);
+  if (load.assignedDriverId) db.prepare(`UPDATE pods SET assignedDriverId = NULL, assignedDriverName = NULL
+     WHERE loadId = ? AND status IN ('received','prepared','awaiting_build') AND assignedDriverId = ?`).run(load.id, load.assignedDriverId);
+  logEvent({ orgId: load.orgId, loadId: load.id, poNumber: load.poNumber, type: 'driver_assigned',
+    detail: 'Driver ' + name + ' taken off this load', actor: actorOf(req) });
+  res.json({ load: loadOut(db.prepare(`SELECT * FROM loads WHERE id = ?`).get(load.id), req) });
+});
+
 // Record the driver + truck + trailer on a load. The assigned carrier, the owning customer, or super.
 router.post('/:id/assign-driver', requireAuth, (req, res) => {
   const load = accessibleLoad(req, req.params.id);

@@ -5052,7 +5052,8 @@
     rows.push(['Carrier / broker', asg.length ? asg.join(' · ')
       : (ownTruck(curLoad) ? ownTruckTag(curLoad) + ' ' + esc(curLoad.driverName) : '<span class="ld-missing">Not assigned</span>')]);
     const drv = curLoad.driverName
-      ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : ''))
+      ? (esc(curLoad.driverName) + (curLoad.truck ? (' · Truck ' + esc(curLoad.truck)) : '') + (curLoad.trailer ? (' · Trailer ' + esc(curLoad.trailer)) : '')
+        + ' <button id="ldRemoveDriver" type="button" class="ghost" title="Take this driver off the load — it leaves their phone" style="padding:3px 9px;font-size:11.5px;margin-left:8px;vertical-align:middle;">Remove driver</button>')
       : '<span class="ld-missing">Not set</span>';
     rows.push(['Driver & equipment', drv]);
     // How the driver delivers: Paper BOL (a photo of the BOL the receiver signed on paper) or ePOD (signed on the phone).
@@ -5148,6 +5149,17 @@
     };
     if ($('ldPodMode')) $('ldPodMode').onchange = _pmSave;
     if ($('ldPaperStops')) $('ldPaperStops').onchange = _pmSave;
+    // Remove the driver: the load leaves their phone and the driver / truck / trailer clear (pick a driver again to re-add)
+    const _rd = $('ldRemoveDriver');
+    if (_rd) _rd.onclick = async () => {
+      if (!curLoad || !confirm('Take ' + (curLoad.driverName || 'the driver') + ' off this load?\n\nIt leaves their phone. Anything they already signed stays on the load. You can pick a driver again any time.')) return;
+      _rd.disabled = true; _rd.textContent = 'Removing…';
+      try { const r = await api('/api/loads/' + curLoad.id + '/remove-driver', { method: 'POST' }); if (r && r.load) curLoad = r.load;
+        renderLdView(); try { populateLdDrivers(); } catch (e) {}
+        if ($('ldDrvSummary')) { $('ldDrvSummary').textContent = 'Not set — tap to add'; $('ldDrvSummary').classList.add('ld-missing'); }
+        try { loadHistory(curLoad.id); } catch (e) {} try { autoRefreshLoads(); } catch (e) {} }
+      catch (e) { alert(e.message || 'Could not remove the driver'); _rd.disabled = false; _rd.textContent = 'Remove driver'; }
+    };
     // Reset "On my way" (a test run, or tapped by mistake) — the driver can tap it again
     const _ce = $('ldClearEnRoute');
     if (_ce) _ce.onclick = async () => {
