@@ -142,6 +142,39 @@ test('a broker helps an approved carrier: adds and edits its drivers and adds it
   assert.ok(db.prepare("SELECT 1 FROM app_once WHERE key = '2026-11-18-carriers-allow-broker-help'").get());
 });
 
+test('dispatcher on a load: each company picks one of its own team logins, and only it sees who', async () => {
+  const kyle = createUser({ email: 'kyle@disp.example', name: 'Kyle', role: 'dispatcher', password: PW, orgId: carrier });
+  createUser({ email: 'cory@disp.example', name: 'Cory', role: 'dispatcher', password: PW, orgId: carrier });
+  const brk = await login('brk@test.example');
+  const l = (await brk('POST', '/api/loads', { poNumber: 'DISP-1' })).body.load;
+  db.prepare('UPDATE loads SET carrierId = ?, carrierName = ?, status = ? WHERE id = ?').run(carrier, 'Test Carrier Inc', 'assigned', l.id);
+  const k = await login('kyle@disp.example'), c = await login('cory@disp.example');
+  const kyleId = (kyle && kyle.id) || db.prepare('SELECT id FROM users WHERE email = ?').get('kyle@disp.example').id;
+  const brokerAdminId = db.prepare('SELECT id FROM users WHERE email = ?').get('brk@test.example').id;
+  // the carrier can't put the broker's people on it, and a stranger id is refused
+  assert.equal((await k('PUT', `/api/loads/${l.id}/dispatcher`, { userId: brokerAdminId })).status, 400);
+  const set = await k('PUT', `/api/loads/${l.id}/dispatcher`, { userId: kyleId });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  assert.equal(set.body.myDispatcherName, 'Kyle');
+  // Kyle's teammate sees it on the list and the load; the broker does not see the carrier's pick
+  const cl = (await c('GET', '/api/loads?q=DISP-1')).body.results.find(x => x.id === l.id);
+  assert.equal(cl.myDispatcherId, kyleId);
+  assert.equal((await c('GET', `/api/loads/${l.id}`)).body.load.myDispatcherName, 'Kyle');
+  const bl = (await brk('GET', '/api/loads?q=DISP-1')).body.results.find(x => x.id === l.id);
+  assert.equal(bl.myDispatcherId, null, 'the broker only sees its own dispatcher');
+  // the broker picks its own, independently
+  assert.equal((await brk('PUT', `/api/loads/${l.id}/dispatcher`, { userId: brokerAdminId })).body.myDispatcherName, 'Broker Admin');
+  assert.equal((await c('GET', `/api/loads/${l.id}`)).body.load.myDispatcherId, kyleId, 'the carrier’s pick is untouched');
+  // picking a dispatcher doesn't become the load's status in the list
+  assert.notEqual(((await brk('GET', '/api/loads?q=DISP-1')).body.results.find(x => x.id === l.id).lastEvent || {}).type, 'dispatcher');
+  assert.ok((await brk('GET', `/api/loads/${l.id}/history`)).body.events.some(e => /Test Carrier Inc dispatcher: Kyle/.test(e.detail)));
+  // a carrier that isn't on the load can't touch it; clearing works
+  assert.equal((await c('PUT', `/api/loads/${l.id}/dispatcher`, { userId: '' })).body.myDispatcherId, null);
+  assert.equal((await k('GET', `/api/loads/${l.id}`)).body.load.myDispatcherId, null);
+  db.prepare('UPDATE loads SET carrierId = NULL WHERE id = ?').run(l.id);
+  assert.equal((await k('PUT', `/api/loads/${l.id}/dispatcher`, { userId: kyleId })).status, 404);
+});
+
 test('carrier cancels: unassigning the carrier also takes its driver off, and the load leaves that driver’s phone', async () => {
   const api = await login('brk@test.example');
   const l = (await api('POST', '/api/loads', { poNumber: 'CANCEL-1' })).body.load;

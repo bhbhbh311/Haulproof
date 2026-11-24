@@ -1242,6 +1242,14 @@
       <!-- READ-ONLY SUMMARY (shown when viewing) -->
       <div id="ldView" class="ld-viewonly" style="margin-top:14px;"></div>
 
+      <!-- Our dispatcher on this load: one of the viewer's own team logins (a carrier's dispatchers split loads this way) -->
+      <div id="ldDispBar" class="hide" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;">
+        <label for="ldDispSel" style="margin:0;font-weight:700;text-transform:none;letter-spacing:0;font-size:13.5px;">👤 Dispatcher</label>
+        <select id="ldDispSel" style="width:auto;min-width:200px;padding:6px 10px;font-size:13.5px;"><option value="">— nobody yet —</option></select>
+        <span id="ldDispMsg" style="font-size:13px;font-weight:600;"></span>
+        <span class="sub" style="margin:0;font-size:12.5px;">Only your company sees who you pick. Use “My loads” on the Loads list to see yours.</span>
+      </div>
+
       <!-- EDITABLE basic fields (shown after clicking Edit) -->
       <div id="ldEditForm" class="ld-editonly hide" style="margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;">
         <div class="row" style="grid-template-columns:1fr 1fr;">
@@ -2277,6 +2285,7 @@
       _ldDetailSig = sig;
       curLoad = r.load; _lastPods = r.pods || []; _ldStopTimes = r.stopTimes || []; _ldStepAnswers = r.stepAnswers || []; _ldFields = r.loadFields || []; _ldOwnerLabels = r.ownerLabels || null;
       var sm = $('ldSummary'); if (sm) sm.textContent = 'Status: ' + (curLoad.status || 'open');
+      try { renderDispBar(curLoad); } catch (e) {}
       renderLdView();
       updateLdArchiveBtn();
       configureLoadDeleteControl();
@@ -4177,8 +4186,11 @@
   }
   const noDriver = (l) => !l.driverName && !l.driverId && ['ready', 'open'].indexOf(loadCat(l)) >= 0;
   const needsAttn = (l) => loadCat(l) === 'setup' || l.emailFailed > 0 || l.pickPending > 0 || noDriver(l);   // the Dashboard's Needs attention list
+  const _meId = () => (user && (user.sub || user.id)) || null;
   const LD_FILTERS = [
     ['', 'All', () => true],
+    ['mine', '👤 My loads', l => !!l.myDispatcherId && l.myDispatcherId === _meId()],
+    ['nodisp', 'No dispatcher', l => !l.myDispatcherId && loadCat(l) !== 'done'],
     ['attn', 'Needs attention', needsAttn],
     ['setup', 'Needs setup', l => loadCat(l) === 'setup'],
     ['ready', 'Ready for driver', l => loadCat(l) === 'ready'],
@@ -4194,7 +4206,9 @@
   function renderLdFilters(loads, show) {
     const box = $('ldFilters'); if (!box) return;
     if (!show) { box.innerHTML = ''; return; }
+    const usesDisp = loads.some(l => l.myDispatcherId);   // dispatcher filters only once this company has started picking
     box.innerHTML = LD_FILTERS.map(f => {
+      if ((f[0] === 'mine' || f[0] === 'nodisp') && !usesDisp && _loadFilter !== f[0]) return '';
       const n = f[0] ? loads.filter(f[2]).length : loads.length;
       if (f[0] && !n && _loadFilter !== f[0]) return '';
       return `<button type="button" class="ldf${_loadFilter === f[0] ? ' on' : ''}" data-f="${f[0]}">${f[1]}${f[0] ? ' · ' + n : ''}</button>`;
@@ -4480,7 +4494,7 @@
       box.innerHTML = heading + bulkBar + '<table><thead><tr>' + (canBulk ? '<th style="width:34px;"><input type="checkbox" id="ldAll" title="Select all shown"></th>' : '') + '<th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
         showing.map(l => `<tr class="ldrow ${loadRowTone(l)}">
           ${canBulk ? `<td><input type="checkbox" class="ldChk" data-id="${l.id}" data-po="${esc(l.poNumber || '')}"${_ldSel.has(l.id) ? ' checked' : ''}></td>` : ''}
-          <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a></td>
+          <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a>${l.myDispatcherName ? `<div style="font-family:inherit;font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px;" title="Your dispatcher on this load">👤 ${esc(l.myDispatcherName)}</div>` : ''}</td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
           <td>${ownTruck(l) ? ownTruckTag(l) : (esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>')}</td>
           <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
@@ -4630,6 +4644,7 @@
       setFindVisForDetail(true);   // a single load is open — hide Find a document + the recent-docs list
       $('ldTitle').textContent = 'PO ' + (curLoad.poNumber || '—');
       $('ldSummary').textContent = 'Status: ' + (curLoad.status || 'open');
+      renderDispBar(curLoad);
       // Carriers just view + set the driver — hide the assign section entirely.
       const carrierUser = isCarrierUser(), brokerUser = isBrokerUser();
       $('ldCarrierSection').classList.toggle('hide', carrierUser);
@@ -6436,6 +6451,28 @@
     else box.innerHTML = users.map(u => `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" class="ldSubCb" value="${u.id}" style="width:auto;"${selected.indexOf(u.id) > -1 ? ' checked' : ''}> ${esc(u.name || u.email)}</label>`).join('');
     if ($('ldSubsSummary')) $('ldSubsSummary').textContent = selected.length ? (selected.length + ' getting updates') : 'None yet';
   }
+  // ---- Our dispatcher on the open load (one of MY company's team logins; each company on the load picks its own) ----
+  async function renderDispBar(load) {
+    const bar = $('ldDispBar'), sel = $('ldDispSel'); if (!bar || !sel || !load) return;
+    if (!user || !user.orgId) { bar.classList.add('hide'); return; }   // master admin outside a company: nobody to pick from
+    if (document.activeElement === sel) return;                       // they're choosing right now — don't redraw under them
+    const users = await getTeamUsers();
+    if (!users.length) { bar.classList.add('hide'); return; }
+    const cur = load.myDispatcherId || '';
+    sel.innerHTML = '<option value="">— nobody yet —</option>' + users.map(u => `<option value="${u.id}"${u.id === cur ? ' selected' : ''}>${esc(u.name || u.email)}${(user.sub || user.id) === u.id ? ' (me)' : ''}</option>`).join('');
+    if (cur && !users.some(u => u.id === cur)) sel.insertAdjacentHTML('beforeend', `<option value="${cur}" selected>${esc(load.myDispatcherName || 'Removed login')}</option>`);
+    sel.dataset.load = load.id;
+    bar.classList.remove('hide');
+  }
+  if ($('ldDispSel')) $('ldDispSel').onchange = async function () {
+    const sel = this, msg = $('ldDispMsg'), id = sel.dataset.load; if (!id) return;
+    msg.textContent = 'Saving…'; msg.className = '';
+    try {
+      const r = await api('/api/loads/' + id + '/dispatcher', { method: 'PUT', body: JSON.stringify({ userId: sel.value }) });
+      if (curLoad && curLoad.id === id) { curLoad.myDispatcherId = r.myDispatcherId; curLoad.myDispatcherName = r.myDispatcherName; }
+      msg.textContent = 'Saved ✓'; msg.className = 'umsg-ok'; setTimeout(() => { if (msg.textContent === 'Saved ✓') msg.textContent = ''; }, 1800);
+    } catch (e) { msg.textContent = e.message || 'Could not save'; msg.className = 'umsg-err'; }
+  };
   if ($('ldSubsToggle')) $('ldSubsToggle').onclick = () => { const b = $('ldSubsBody'); b.classList.toggle('hide'); $('ldSubsCaret').textContent = b.classList.contains('hide') ? '▸' : '▾'; if (!b.classList.contains('hide')) loadLoadSubscribers(); };
   if ($('ldSubsSave')) $('ldSubsSave').onclick = async () => {
     const ids = Array.prototype.map.call($('ldSubsList').querySelectorAll('.ldSubCb:checked'), c => c.value);

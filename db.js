@@ -343,6 +343,17 @@ CREATE TABLE IF NOT EXISTS load_subscribers (
   PRIMARY KEY (loadId, userId)
 );
 CREATE INDEX IF NOT EXISTS idx_loadsubs_load ON load_subscribers(loadId);
+-- The dispatcher handling a load, per company: the broker, the customer and the carrier on the same load each pick
+-- one of their OWN team logins, so a carrier like J5 can split its loads between its dispatchers and filter "My loads".
+CREATE TABLE IF NOT EXISTS load_dispatchers (
+  loadId    TEXT NOT NULL,
+  orgId     TEXT NOT NULL,
+  userId    TEXT NOT NULL,
+  setBy     TEXT,
+  setAt     INTEGER NOT NULL,
+  PRIMARY KEY (loadId, orgId)
+);
+CREATE INDEX IF NOT EXISTS idx_loaddisp_org ON load_dispatchers(orgId, userId);
 CREATE TABLE IF NOT EXISTS org_notify (
   orgId     TEXT NOT NULL,
   userId    TEXT NOT NULL,

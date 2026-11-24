@@ -191,7 +191,7 @@ router.get('/', requireAuth, (req, res) => {
      LIMIT 200`).all(...args);
   // Attach ONLY the latest history event to each load (the list shows the current step;
   // the full timeline lives in the load's detail view).
-  const lastEv = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? ORDER BY createdAt DESC LIMIT 1`);
+  const lastEv = db.prepare(`SELECT type, detail, actor, createdAt FROM load_events WHERE loadId = ? AND type != 'dispatcher' ORDER BY createdAt DESC LIMIT 1`);
   // Carrier/broker viewers also see which CUSTOMER each load came from (customers never see this — they
   // only ever see their own loads).
   const viewerIsCB = isCarrier(req) || isBroker(req);
@@ -210,6 +210,7 @@ router.get('/', requireAuth, (req, res) => {
      SUM(CASE WHEN redoOf IS NOT NULL AND status IN ('prepared','awaiting_build') THEN 1 ELSE 0 END) AS redoout
      FROM pods WHERE loadId = ?`);
   const noteCount = db.prepare(`SELECT COUNT(*) AS n FROM load_events WHERE loadId = ? AND type = 'note' AND detail LIKE '📝 %'`);
+  const dispOf = dispatcherMap(req.user.orgId, rows.map(l => l.id));
   const out = rows.map(l => {
     // Scrub the carrier out of the list row's last-event too, so a "Carrier assigned (X)" event doesn't leak
     // the broker's carrier to the customer.
@@ -235,6 +236,7 @@ router.get('/', requireAuth, (req, res) => {
     if (viewerIsCB && (l.orgId || null) !== (req.user.orgId || null)) o.customerName = (orgName.get(l.orgId) || {}).name || null;
     o.archived = archSet.has(l.id);   // this user has hidden this load from their own list
     o.noteCount = l.lastNote ? noteCount.get(l.id).n : 0;   // call notes kept on the load (Dashboard: "2 earlier")
+    const d = dispOf.get(l.id); o.myDispatcherId = d ? d.userId : null; o.myDispatcherName = d ? d.name : null;
     return o;
   });
   res.json({ count: out.length, results: out, viewerKind: req.user.orgKind || null, archivedCount: archIds.length });
@@ -255,7 +257,8 @@ router.get('/:id', requireAuth, (req, res) => {
   // Authority warnings on the assigned carrier/broker (added by an admin override, not yet active on FMCSA).
   const warnOf = (id) => { if (!id) return null; const o = db.prepare(`SELECT authWarning FROM orgs WHERE id = ?`).get(id); return o ? o.authWarning || null : null; };
   const lo = loadOut(load, req);
-  res.json({ load: { ...lo, archived, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id), loadFields: require('./loadfields').valuesFor(load),
+  const disp = dispatcherMap(req.user.orgId, [load.id]).get(load.id) || null;
+  res.json({ load: { ...lo, archived, myDispatcherId: disp ? disp.userId : null, myDispatcherName: disp ? disp.name : null, carrierAuthWarning: lo.carrierId ? warnOf(lo.carrierId) : null, brokerAuthWarning: warnOf(load.brokerId) }, pods, stopTimes: stoptimes.listFor(load.id), loadFields: require('./loadfields').valuesFor(load),
     // another company's load: their names for its fields, with the standard name after ("BOL # (PO #)")
     ownerLabels: (load.orgId && load.orgId !== req.user.orgId) ? require('./loadfields').shared(load.orgId) : null,
     stepAnswers: require('./steps').answersFor(load.id).map(a => ({ name: a.name || '(removed step)', when: a.whenAt, stopNumber: a.stopNumber, value: a.value, at: a.at })) });
@@ -395,6 +398,44 @@ router.put('/:id/archive', requireAuth, (req, res) => {
     db.prepare(`DELETE FROM load_archives WHERE userId = ? AND loadId = ?`).run(uid, load.id);
   }
   res.json({ ok: true, archived: !!on });
+});
+
+// The dispatcher each company put on its loads: Map loadId -> { userId, name } for ONE company (the viewer's), so a
+// carrier only ever sees its own people and a broker its own. Super-admin with no company sees none.
+function dispatcherMap(orgId, loadIds) {
+  const m = new Map();
+  if (!orgId || !loadIds || !loadIds.length) return m;
+  for (let i = 0; i < loadIds.length; i += 400) {
+    const chunk = loadIds.slice(i, i + 400);
+    db.prepare(`SELECT ld.loadId, ld.userId, u.name, u.email FROM load_dispatchers ld JOIN users u ON u.id = ld.userId
+                WHERE ld.orgId = ? AND ld.loadId IN (${chunk.map(() => '?').join(',')})`).all(orgId, ...chunk)
+      .forEach(r => m.set(r.loadId, { userId: r.userId, name: r.name || r.email }));
+  }
+  return m;
+}
+// Put one of MY company's team logins on a load as its dispatcher (or clear it with userId ""). Anyone who can see the
+// load can set it for their own company: a carrier's dispatchers split the broker's loads between themselves.
+router.put('/:id/dispatcher', requireAuth, (req, res) => {
+  const load = accessibleLoad(req, req.params.id);
+  if (!load) return res.status(404).json({ error: 'Load not found' });
+  const orgId = req.user.orgId || null;
+  if (!orgId) return res.status(400).json({ error: 'Open a company first: the dispatcher is one of that company’s team logins.' });
+  const uid = String((req.body && req.body.userId) || '').trim();
+  const before = dispatcherMap(orgId, [load.id]).get(load.id) || null;
+  const org = db.prepare(`SELECT name FROM orgs WHERE id = ?`).get(orgId) || {};
+  if (!uid) {
+    db.prepare(`DELETE FROM load_dispatchers WHERE loadId = ? AND orgId = ?`).run(load.id, orgId);
+    if (before) logEvent({ orgId: load.orgId || orgId, loadId: load.id, poNumber: load.poNumber || null, type: 'dispatcher', detail: (org.name || 'Your company') + ' dispatcher removed (was ' + before.name + ')', actor: actorOf(req) });
+    return res.json({ ok: true, myDispatcherId: null, myDispatcherName: null });
+  }
+  const u = db.prepare(`SELECT id, name, email FROM users WHERE id = ? AND orgId = ? AND role != 'superadmin'`).get(uid, orgId);
+  if (!u) return res.status(400).json({ error: 'Pick someone from your own team logins.' });
+  db.prepare(`INSERT INTO load_dispatchers (loadId, orgId, userId, setBy, setAt) VALUES (?,?,?,?,?)
+              ON CONFLICT(loadId, orgId) DO UPDATE SET userId = excluded.userId, setBy = excluded.setBy, setAt = excluded.setAt`)
+    .run(load.id, orgId, u.id, actorOf(req), Date.now());
+  const name = u.name || u.email;
+  if (!before || before.userId !== u.id) logEvent({ orgId: load.orgId || orgId, loadId: load.id, poNumber: load.poNumber || null, type: 'dispatcher', detail: (org.name || 'Your company') + ' dispatcher: ' + name, actor: actorOf(req) });
+  res.json({ ok: true, myDispatcherId: u.id, myDispatcherName: name });
 });
 
 // Who gets update emails for THIS load (chosen from the customer's own team logins).
