@@ -1279,54 +1279,7 @@
         </div>
       </div>
 
-      <!-- Stops & documents on this load -->
-      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-          <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
-          <button class="ghost hide" id="ldAddStopToggle" type="button" style="display:none !important;">＋ Add stop / documents</button>
-          <span><button class="ghost btn-sm" id="ldSignedBolBtn" type="button" title="File a BOL that was already signed (the paper copy the carrier sent in) as this stop's signed BOL">✔ Add signed BOL</button>
-            <input type="file" id="ldSignedBolFile" accept="application/pdf" style="display:none"><span id="ldSignedBolMsg" style="font-size:13px;font-weight:600;margin-left:6px;"></span></span>
-        </div>
-        <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
-        <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
-          <div class="row" style="grid-template-columns:1fr 1fr;">
-            <div style="display:none !important;"><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
-            <div><label>Document type</label><select id="ldDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
-            <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select>
-              <button type="button" id="ldReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
-          </div>
-          <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
-            <div><label>Sales rep for this stop <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — emailed when this stop completes</span></label>
-              <select id="ldSalesRep"><option value="">— none —</option></select>
-              <button type="button" id="ldSalesRepAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find sales rep</button></div>
-          </div>
-          <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
-            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Each pick adds to the list, so you can choose files one at a time from different folders. They're merged into one document in this order. Uncheck any pages below you don't want.</div>
-            <div id="ldFileList" class="hide" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div></div>
-          <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,var(--sunk));max-height:340px;overflow:auto;"></div>
-          <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
-            <button id="ldUploadBtn" type="button">Upload to this stop</button>
-            <button class="ghost" id="ldStopCancel" type="button">Cancel</button>
-            <span id="ldUploadMsg" style="font-size:13px;font-weight:600;"></span>
-          </div>
-        </div>
-      </div>
-      <div style="margin-top:18px;" id="ldPickupSection">
-        <h1 style="font-size:16px;margin:0 0 6px;">Pickup appointment <span style="font-weight:400;font-size:13px;color:var(--muted)">Central time</span></h1>
-        <p class="sub" style="margin:0 0 8px;">If the driver hasn't tapped "On my way" 2 hours before this, the load goes on the <b>Check on these</b> list on the Dashboard (and its email).</p>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="datetime-local" id="ldPickup" style="width:auto;">
-          <input id="ldPickupNote" maxlength="80" placeholder="Window / note, e.g. 7-3 FCFS" style="flex:1;min-width:160px;">
-          <button type="button" id="ldPickupSave">Save</button><span id="ldPickupMsg" style="font-size:13px;font-weight:600;"></span>
-        </div>
-        <div id="ldPickupStatus" class="sub" style="margin-top:6px;"></div>
-      </div>
-      <div style="margin-top:18px;" id="ldInsSection">
-        <h1 style="font-size:16px;margin:0 0 6px;">Special instructions for the driver</h1>
-        <p class="sub" style="margin:0 0 8px;">Shows at the top of the load on the driver's phone: unload instructions, receiving hours, equipment, PPE.</p>
-        <textarea id="ldIns" rows="3" maxlength="4000" placeholder="e.g. NO UNLOAD APPT NEEDED · Receiving M-F 8A-3P · Forklift side unload · Max lift 6000#" style="width:100%;box-sizing:border-box;"></textarea>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;"><button type="button" id="ldInsSave">Save instructions</button><span id="ldInsMsg" style="font-size:13px;font-weight:600;"></span></div>
-      </div>
+      <!-- Carrier + driver sit right under the load's details so who's on it is easy to see -->
       <div style="margin-top:18px;" id="ldCarrierSection" class="ld-editonly hide">
         <h1 style="font-size:16px;" id="ldAssignTitle">Assign</h1>
         <div id="ldCarrierNow" class="sub"></div>
@@ -1396,8 +1349,56 @@
               <button type="button" id="ldDriverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / create driver</button>
               <button type="button" id="ldAskCarrier" class="ghost" style="display:none;margin-top:6px;font-size:12px;padding:5px 9px;" title="Email the carrier a short form for the driver’s name and cell #. The driver is then put on this load and texted their link.">✉ Ask the carrier who’s driving</button></div>
           </div>
-          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;"><button id="ldDrvBtn" type="button">Save driver</button><button id="ldDrvRemove" type="button" class="ghost hide" title="Take this driver off the load — it leaves their phone">Remove driver</button><span id="ldDrvMsg" style="font-size:13px;font-weight:600;"></span></div>
         </div>
+      </div>
+      <!-- Stops & documents on this load -->
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <h1 style="font-size:16px;margin:0;">Stops &amp; documents</h1>
+          <button class="ghost hide" id="ldAddStopToggle" type="button" style="display:none !important;">＋ Add stop / documents</button>
+          <span><button class="ghost btn-sm" id="ldSignedBolBtn" type="button" title="File a BOL that was already signed (the paper copy the carrier sent in) as this stop's signed BOL">✔ Add signed BOL</button>
+            <input type="file" id="ldSignedBolFile" accept="application/pdf" style="display:none"><span id="ldSignedBolMsg" style="font-size:13px;font-weight:600;margin-left:6px;"></span></span>
+        </div>
+        <div id="ldDocs" style="margin-top:12px;"><div class="empty">No documents on this load yet.</div></div>
+        <div id="ldStopForm" class="hide" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;">
+          <div class="row" style="grid-template-columns:1fr 1fr;">
+            <div style="display:none !important;"><label>Stop #</label><input id="ldStop" type="number" min="1" step="1" placeholder="1"></div>
+            <div><label>Document type</label><select id="ldDocType"><option>BOL</option><option>POD</option><option>LUMPER</option><option>OTHER</option></select></div>
+            <div><label>Receiver <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional</span></label><select id="ldReceiver"><option value="">— none —</option></select>
+              <button type="button" id="ldReceiverAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find receiver</button></div>
+          </div>
+          <div class="row" style="grid-template-columns:1fr;margin-top:12px;">
+            <div><label>Sales rep for this stop <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">optional — emailed when this stop completes</span></label>
+              <select id="ldSalesRep"><option value="">— none —</option></select>
+              <button type="button" id="ldSalesRepAdd" class="ghost" style="margin-top:6px;font-size:12px;padding:5px 9px;">＋ Add / find sales rep</button></div>
+          </div>
+          <div style="margin-top:12px;"><label>PDF file(s) for this stop</label><input id="ldFiles" type="file" accept="application/pdf" multiple>
+            <div style="font-size:11px;color:var(--muted);margin-top:5px;">Each pick adds to the list, so you can choose files one at a time from different folders. They're merged into one document in this order. Uncheck any pages below you don't want.</div>
+            <div id="ldFileList" class="hide" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div></div>
+          <div id="ldPagePicker" class="hide" style="margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,var(--sunk));max-height:340px;overflow:auto;"></div>
+          <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
+            <button id="ldUploadBtn" type="button">Upload to this stop</button>
+            <button class="ghost" id="ldStopCancel" type="button">Cancel</button>
+            <span id="ldUploadMsg" style="font-size:13px;font-weight:600;"></span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:18px;" id="ldPickupSection">
+        <h1 style="font-size:16px;margin:0 0 6px;">Pickup appointment <span style="font-weight:400;font-size:13px;color:var(--muted)">Central time</span></h1>
+        <p class="sub" style="margin:0 0 8px;">If the driver hasn't tapped "On my way" 2 hours before this, the load goes on the <b>Check on these</b> list on the Dashboard (and its email).</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="datetime-local" id="ldPickup" style="width:auto;">
+          <input id="ldPickupNote" maxlength="80" placeholder="Window / note, e.g. 7-3 FCFS" style="flex:1;min-width:160px;">
+          <button type="button" id="ldPickupSave">Save</button><span id="ldPickupMsg" style="font-size:13px;font-weight:600;"></span>
+        </div>
+        <div id="ldPickupStatus" class="sub" style="margin-top:6px;"></div>
+      </div>
+      <div style="margin-top:18px;" id="ldInsSection">
+        <h1 style="font-size:16px;margin:0 0 6px;">Special instructions for the driver</h1>
+        <p class="sub" style="margin:0 0 8px;">Shows at the top of the load on the driver's phone: unload instructions, receiving hours, equipment, PPE.</p>
+        <textarea id="ldIns" rows="3" maxlength="4000" placeholder="e.g. NO UNLOAD APPT NEEDED · Receiving M-F 8A-3P · Forklift side unload · Max lift 6000#" style="width:100%;box-sizing:border-box;"></textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;"><button type="button" id="ldInsSave">Save instructions</button><span id="ldInsMsg" style="font-size:13px;font-weight:600;"></span></div>
       </div>
       <div class="ld-editonly hide" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);">
         <div id="ldSubsToggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
@@ -2257,6 +2258,7 @@
       var lc = $('loadsCard'); if (!lc || lc.classList.contains('hide')) return false;
       var det = $('loadDetailCard'); if (det && !det.classList.contains('hide')) return false;
       var s = $('lSearch'); if (s && s.value.trim() && (Date.now() - _lSearchTypedAt) < 3000) return false;
+      if (document.querySelector('#loadList .ldDrvPick')) return false;   // picking a driver on a row: don't redraw under it
       return true;
     } catch (e) { return false; }
   }
@@ -4489,6 +4491,7 @@
       const isCB = r.viewerKind === 'carrier' || r.viewerKind === 'broker';
       // Tick boxes for deleting several loads at once (anyone allowed to delete loads).
       const canBulk = hasCap('delete_loadsdocs') || isAdmin();
+      const canSetDrv = !!user && user.role !== 'superadmin';   // set / remove a load's driver right from the list
       _ldSel = new Set([..._ldSel].filter(id => showing.some(l => l.id === id)));
       const bulkBar = canBulk ? `<div class="ldbulk" id="ldBulk"><span id="ldBulkTxt"></span><button type="button" class="btn-danger btn-sm" id="ldBulkDel" disabled>🗑 Delete selected</button><button type="button" class="ghost btn-sm" id="ldBulkClear" disabled>Clear</button></div>` : '';
       box.innerHTML = heading + bulkBar + '<table><thead><tr>' + (canBulk ? '<th style="width:34px;"><input type="checkbox" id="ldAll" title="Select all shown"></th>' : '') + '<th class="mono">PO #</th>' + (isCB ? '<th>Customer</th>' : '') + '<th>Carrier</th><th>Driver / Truck</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -4497,7 +4500,9 @@
           <td class="mono"><a href="#" class="poHist" data-load="${l.id}" title="Open load" style="color:var(--primary);font-weight:700;text-decoration:none;">${esc(l.poNumber) || '—'}</a>${l.myDispatcherName ? `<div style="font-family:inherit;font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px;" title="Your dispatcher on this load">👤 ${esc(l.myDispatcherName)}</div>` : ''}</td>
           ${isCB ? `<td>${esc(l.customer || l.customerName) || '<span style="color:var(--muted)">— none —</span>'}</td>` : ''}
           <td>${ownTruck(l) ? ownTruckTag(l) : (esc(l.carrierName) || '<span style="color:var(--muted)">— none —</span>')}</td>
-          <td>${esc(l.driverName) || '—'}${l.truck ? ' / ' + esc(l.truck) : ''}</td>
+          <td class="ldDrvCell" data-id="${l.id}">${l.driverName
+            ? `${esc(l.driverName)}${l.truck ? ' / ' + esc(l.truck) : ''}${canSetDrv && !l.complete ? ` <button type="button" class="ghost ldDrvX" data-id="${l.id}" data-name="${esc(l.driverName)}" title="Remove driver: the load leaves their phone" aria-label="Remove driver" style="padding:1px 7px;font-size:12px;margin-left:4px;line-height:1.4;">✕</button>` : ''}`
+            : (canSetDrv && !l.complete ? `<button type="button" class="ghost ldDrvAdd" data-id="${l.id}" data-carrier="${esc(l.carrierId || '')}" style="padding:3px 9px;font-size:12px;">＋ Driver</button>` : '—')}</td>
           <td>${loadStatusChip(l)}${pickupBadge(l)}</td>
           <td style="text-align:right;white-space:nowrap;">
             <button class="ghost ldArch" data-id="${l.id}" data-on="${l.archived ? '0' : '1'}" title="${l.archived ? 'Bring this load back into your list' : 'Hide this load from your list (does not delete it)'}" style="padding:6px 9px;font-size:12px;margin-right:6px;">${l.archived ? '↩ Unarchive' : '🗄 Archive'}</button>
@@ -4511,11 +4516,56 @@
       // Guide the dispatcher to the single next action: pulse the FIRST load that's waiting to be set up.
       const firstSetup = box.querySelector('.ldOpen[data-needsetup="1"]'); if (firstSetup) firstSetup.classList.add('lead-cta');
       box.querySelectorAll('.ldArch').forEach(b => b.onclick = (e) => { e.stopPropagation(); archiveLoad(b.dataset.id, b.dataset.on === '1'); });
+      wireRowDrivers(box);
       box.querySelectorAll('.poHist').forEach(a => a.onclick = (e) => { e.preventDefault(); openLoad(a.dataset.load); });
       const showBtn = $('lArchShow'); if (showBtn) showBtn.onclick = (e) => { e.preventDefault(); _showArchived = true; loadLoads(); };
       const backBtn = $('lArchBack'); if (backBtn) backBtn.onclick = (e) => { e.preventDefault(); _showArchived = false; loadLoads(); };
       const trashBtn = $('lTrashShow'); if (trashBtn) trashBtn.onclick = (e) => { e.preventDefault(); loadTrash(); };
     } catch (e) { box.innerHTML = '<div class="empty">' + e.message + '</div>'; }
+  }
+  // Driver column on the loads list: ✕ takes the driver off (the load leaves their phone), ＋ Driver picks one in place.
+  // The pick list is the same one the load page uses: a broker's loads with a carrier offer that carrier's drivers.
+  const _rowDrvCache = {};
+  async function rowDriverList(carrierId) {
+    const key = (isBrokerUser() && carrierId) ? 'c:' + carrierId : 'own';
+    if (_rowDrvCache[key]) return _rowDrvCache[key];
+    let drivers = null;
+    if (key !== 'own') { try { drivers = (await api('/api/drivers/for-carrier/' + encodeURIComponent(carrierId))).drivers || []; } catch (e) { drivers = null; } }
+    if (drivers === null) drivers = (await api('/api/drivers')).drivers || [];
+    drivers = drivers.filter(d => d.active !== false);
+    _rowDrvCache[key] = drivers; setTimeout(() => { delete _rowDrvCache[key]; }, 60000);
+    return drivers;
+  }
+  function wireRowDrivers(box) {
+    box.querySelectorAll('.ldDrvX').forEach(b => b.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm('Take ' + (b.dataset.name || 'the driver') + ' off this load?\n\nIt leaves their phone. You can pick a driver again any time.')) return;
+      b.disabled = true;
+      try { await api('/api/loads/' + b.dataset.id + '/remove-driver', { method: 'POST' }); loadLoads(); }
+      catch (err) { alert(err.message || 'Could not remove the driver'); b.disabled = false; }
+    });
+    box.querySelectorAll('.ldDrvAdd').forEach(b => b.onclick = async (e) => {
+      e.stopPropagation();
+      const cell = b.closest('.ldDrvCell'), loadId = b.dataset.id;
+      cell.innerHTML = '<span style="color:var(--muted);font-size:12.5px;">Loading drivers…</span>';
+      let drivers = [];
+      try { drivers = await rowDriverList(b.dataset.carrier); } catch (err) { cell.innerHTML = '<span class="umsg-err" style="font-size:12.5px;">' + esc(err.message || 'Could not load drivers') + '</span>'; return; }
+      if (!drivers.length) { cell.innerHTML = '<span style="color:var(--muted);font-size:12.5px;">No drivers yet: add one from the load</span>'; return; }
+      const sel = document.createElement('select'); sel.className = 'ldDrvPick'; sel.style.cssText = 'width:auto;max-width:220px;padding:5px 8px;font-size:13px;';
+      sel.innerHTML = '<option value="">— pick a driver —</option>' + drivers.map(d => '<option value="' + esc(d.id) + '">' + esc(d.name) + (d.phone ? ' · ' + esc(d.phone) : '') + '</option>').join('');
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'ghost'; cancel.textContent = '✕'; cancel.title = 'Cancel';
+      cancel.style.cssText = 'padding:1px 7px;font-size:12px;margin-left:4px;';
+      cell.innerHTML = ''; cell.appendChild(sel); cell.appendChild(cancel);
+      cancel.onclick = (ev) => { ev.stopPropagation(); cell.innerHTML = ''; loadLoads(); };
+      sel.onclick = (ev) => ev.stopPropagation();
+      sel.onchange = async () => {
+        if (!sel.value) return;
+        sel.disabled = true;
+        try { await api('/api/loads/' + loadId + '/assign-driver', { method: 'POST', body: JSON.stringify({ driverId: sel.value }) }); cell.innerHTML = ''; loadLoads(); }
+        catch (err) { alert(err.message || 'Could not set the driver'); sel.disabled = false; }
+      };
+      sel.focus();
+    });
   }
   // Recovery bin: deleted loads + documents an admin can restore (or a master admin can purge for good).
   let _trashNotice = null;   // { loadId, text } — shown once at the top of the bin after a restore
@@ -7648,13 +7698,25 @@
       if (hint) hint.textContent = fromCarrier ? ('pick from ' + (curLoad.carrierName || 'the carrier') + '’s drivers — routes the load to their phone') : 'pick from your drivers — routes the load to their phone';
       drivers.filter(d => d.active !== false).forEach(d => {
         const o = document.createElement('option'); o.value = d.id; o.textContent = d.name + (d.phone ? ' · ' + d.phone : (d.email ? ' · ' + d.email : ' · #' + String(d.id).slice(-4))); o.dataset.name = d.name;
-        if (curLoad && curLoad.driverName && d.name === curLoad.driverName) { o.selected = true; _ldSelectedDriverId = d.id; }
+        // The driver actually linked to the load (whose phone it's on), not just someone with the same name
+        if (curLoad && (curLoad.assignedDriverId ? d.id === curLoad.assignedDriverId : (curLoad.assignedDriverId === undefined && curLoad.driverName && d.name === curLoad.driverName))) { o.selected = true; _ldSelectedDriverId = d.id; }
         sel.appendChild(o);
       });
     } catch (e) { /* non-admins can't list drivers — the free-text field still works */ }
     ssApply(sel, 'Type to search drivers…');
     _ldLastSavedDriverId = _ldSelectedDriverId;   // baseline: the driver already on the load, so auto-save won't re-assign it
+    if ($('ldDrvRemove')) $('ldDrvRemove').classList.toggle('hide', !(curLoad && (curLoad.driverName || curLoad.assignedDriverId)));
   }
+  if ($('ldDrvRemove')) $('ldDrvRemove').onclick = async () => {
+    if (!curLoad || !confirm('Take ' + (curLoad.driverName || 'the driver') + ' off this load?\n\nIt leaves their phone. You can pick a driver again any time.')) return;
+    $('ldDrvMsg').textContent = 'Removing…'; $('ldDrvMsg').className = '';
+    try {
+      const r = await api('/api/loads/' + curLoad.id + '/remove-driver', { method: 'POST' }); if (r && r.load) curLoad = r.load;
+      await populateLdDrivers();
+      if ($('ldDrvSummary')) { $('ldDrvSummary').textContent = 'Not set — tap to add'; $('ldDrvSummary').classList.add('ld-missing'); }
+      $('ldDrvMsg').textContent = 'Driver removed ✓'; $('ldDrvMsg').className = 'umsg-ok'; loadHistory(curLoad.id); renderLdView();
+    } catch (e) { $('ldDrvMsg').textContent = e.message; $('ldDrvMsg').className = 'umsg-err'; }
+  };
   let _ldDrvMsgTimer = null;
   if ($('ldDrvSelect')) $('ldDrvSelect').onchange = function () {
     _ldSelectedDriverId = this.value || '';
