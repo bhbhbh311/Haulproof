@@ -138,7 +138,8 @@
   @keyframes aiscan{from{background-position:0 100%;}to{background-position:0 -100%;}}
   body.aiworking #aiBtn .tbi{animation:aispin .9s linear infinite;}
   @media (prefers-reduced-motion:reduce){body.aiworking .page::after{animation:none;}body.aiworking #aiBtn .tbi{animation:none;}}
-  body.viewonly .fld{ cursor:default; }
+  body.layoutmode #cropBtn{ display:none !important; }   /* layout mode never changes the example document's file */
+ body.viewonly .fld{ cursor:default; }
   body.viewonly .fld .rsz, body.viewonly .fld .del{ display:none !important; }
   .viewbar{max-width:1200px;margin:12px auto 0;padding:0 16px;}
   .viewbar .vb{background:var(--primary-soft);border:1px solid var(--primary-line);color:var(--primary);border-radius:10px;padding:11px 14px;font-size:13.5px;line-height:1.4;}
@@ -475,6 +476,18 @@
     _vb.innerHTML='<div class="vb"><b>Signature setup preview.</b> The colored boxes show where each signer signs. This is read-only — use <b>✍ Signatures</b> on the load to change it.</div>';
     var _pg=document.getElementById('pages'); if(_pg&&_pg.parentNode) _pg.parentNode.insertBefore(_vb,_pg);
   }catch(e){} }
+  // Layout mode (?layout=1, from Customers → Saved layouts → View / edit): shows the customer's saved layout on one of
+  // their documents as an example. Saving changes ONLY the saved layout; that document, its boxes and its file stay as they are.
+  var LAYOUT = params.get('layout')==='1' && !VIEW;
+  if(LAYOUT){ try{
+    document.body.classList.add('layoutmode');
+    var _br=document.querySelector('.brand'); if(_br) _br.innerHTML='Haul<b>Proof</b> · Saved layout';
+    document.title='Saved layout — HaulProof';
+    var _lb=document.createElement('div'); _lb.className='viewbar'; _lb.id='lyModeBar';
+    _lb.innerHTML='<div class="vb"><b>Editing a saved layout.</b> Loading…</div>';
+    var _pg2=document.getElementById('pages'); if(_pg2&&_pg2.parentNode) _pg2.parentNode.insertBefore(_lb,_pg2);
+    var _sb=document.querySelector('#saveBtn span'); if(_sb) _sb.textContent='Save layout';
+  }catch(e){} }
   var toastT; function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('on');},2200);}
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   var KIND_NAME={sigdate:'Sign + date',sig:'Signature',initials:'Initials',date:'Date',time:'Time',text:'Text box',pickupdate:'Pickup date (auto)',puin:'Pickup in (auto)',puout:'Pickup out (auto)',dlin:'Delivery in (auto)',dlout:'Delivery out (auto)'};
@@ -622,7 +635,7 @@
   fetch('/api/pods/'+DOC_ID,{credentials:'include'}).then(function(r){return r.json();}).then(function(m){
     if(m.error){ $('#loadMsg').textContent=m.error; return; }
     meta=m; $('#ctx').textContent='PO '+(m.poNumber||'—')+(m.loadNumber?(' · Load '+m.loadNumber):'')+(m.consignee?(' · '+m.consignee):'');
-    if(m.loadId){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn .tbl').textContent='Back to load'; }
+    if(m.loadId && !LAYOUT){ backTo='/app?load='+encodeURIComponent(m.loadId); $('#backBtn .tbl').textContent='Back to load'; }
     checkTemplate();   // see if this customer + document type has a saved signature layout to offer
     return fetch('/api/pods/'+DOC_ID+'/file',{credentials:'include'}).then(function(r){return r.arrayBuffer();});
   }).then(function(buf){
@@ -798,7 +811,7 @@
     }
     buildFieldEl(f,left,top,w,hh); fields.push(f);
   }
-  function loadExisting(){ (meta&&meta.fields||[]).forEach(placeFromData); dirty=false; }   // loading the saved layout isn't an unsaved change
+  function loadExisting(){ if(LAYOUT){ dirty=false; return; } (meta&&meta.fields||[]).forEach(placeFromData); dirty=false; }   // layout mode shows the saved layout instead   // loading the saved layout isn't an unsaved change
 
   // Serialize the placed fields into the storable shape (shared by Save setup + Save-as-layout).
   function serialize(){
@@ -806,6 +819,12 @@
   }
   $('#saveBtn').addEventListener('click',function(){
     var out=serialize();
+    if(LAYOUT){   // layout mode: save the layout only, never this document
+      if(!out.length){ toast('Place at least one signature field before saving the layout'); return; }
+      saveTemplate(out).then(function(j){ dirty=false; toast('Saved the '+(j.docType||'BOL')+' layout for '+(j.customerName||'this customer')+'. Documents set up from now on use it.'); })
+        .catch(function(e){ toast(e.message||'Save failed'); });
+      return;
+    }
     // First offer to remember these boxes as the customer's layout (see askRemember), then save this document.
     askRemember(out).then(function(res){
       if(res.action==='cancel') return;   // back to editing — nothing saved
@@ -937,7 +956,17 @@
   function maybeAutoAssist(){
     if(_autoAssisted || VIEW) return;
     if(!_pagesReady || !_tplChecked) return;                    // wait for both the doc and the template lookup
-    if(fields.length) return;                                   // doc already has its own fields — leave them
+    if(LAYOUT){
+      _autoAssisted=true;
+      var bar=$('#lyModeBar .vb'), who=esc((_tpl&&_tpl.customerName)||'this customer'), dt=esc((_tpl&&_tpl.docType)||'BOL');
+      var ex=meta?('load '+esc(meta.loadNumber||meta.poNumber||'')):'one of their documents';
+      if(_tpl && _tpl.exists && (_tpl.fields||[]).length){
+        applyLayoutFields(_tpl.fields, dt); selectField(null); dirty=false;
+        if(bar) bar.innerHTML='<b>Saved '+dt+' layout for '+who+'.</b> Shown on '+ex+' as an example. Move or add boxes, then <b>Save layout</b>. This changes the saved layout only, not that load, and applies to documents set up from now on.';
+      } else if(bar) bar.innerHTML='<b>No saved '+dt+' layout for '+who+' yet.</b> Place the boxes, then <b>Save layout</b>.';
+      return;
+    }
+    if(fields.length) return;                                  // doc already has its own fields — leave them
     _autoAssisted=true;
     if(_tpl && _tpl.exists && ((_tpl.fields||[]).length)){
       applyLayoutFields(_tpl.fields, (_tpl.customerName?(_tpl.customerName+' · '):'')+(_tpl.docType||'BOL'));

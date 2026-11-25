@@ -196,6 +196,19 @@ router.get('/:id/layouts', requireAuth, (req, res) => {
   const layouts = rows.map(t => { let a = []; try { const p = JSON.parse(t.fields); if (Array.isArray(p)) a = p; } catch (e) {} return { docType: t.docType, count: a.length, fields: a, updatedAt: t.updatedAt, updatedBy: t.updatedBy || null }; });
   res.json({ customer: { id: cust.id, name: cust.name }, layouts });
 });
+// A document to show a saved layout on, so it can be viewed / edited without a load waiting for setup: this
+// customer's most recent document of that type. Opened in prepare.html?layout=1, which saves only the layout.
+router.get('/:id/layouts/:docType/sample', requireAuth, (req, res) => {
+  const org = ownerOrg(req);
+  if (!org) return res.status(400).json({ error: 'No organization on this login' });
+  const cust = db.prepare(`SELECT id FROM customers WHERE id = ? AND ownerOrgId = ?`).get(req.params.id, org);
+  if (!cust) return res.status(404).json({ error: 'Customer not found in your list' });
+  const p = db.prepare(`SELECT p.id FROM pods p JOIN loads l ON l.id = p.loadId
+      WHERE l.customerId = ? AND p.orgId IS ? AND COALESCE(NULLIF(p.docType,''),'BOL') = ? AND p.filename IS NOT NULL
+      ORDER BY (p.status IN ('signed','emailed')), p.uploadedAt DESC LIMIT 1`).get(cust.id, org, req.params.docType);   // a clean, unsigned copy first
+  if (!p) return res.status(404).json({ error: 'There’s no ' + req.params.docType + ' for this customer yet to show the layout on. It opens once one has been uploaded.' });
+  res.json({ podId: p.id });
+});
 router.delete('/:id/layouts/:docType', requireAuth, requireCap('manage_customers'), (req, res) => {
   const org = ownerOrg(req);
   if (!org) return res.status(400).json({ error: 'No organization on this login' });

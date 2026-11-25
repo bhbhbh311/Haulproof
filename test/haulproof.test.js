@@ -147,6 +147,20 @@ test('signature layouts: a load with no customer saves and reuses the company la
   assert.equal(next.exists, true); assert.deepEqual(next.fields, fields);
 });
 
+test('saved layouts open without a load waiting for setup: the customer\'s latest clean document is the example', async () => {
+  const api = await login('ship@test.example');
+  const cust = db.prepare('SELECT id FROM customers WHERE ownerOrgId = ? LIMIT 1').get(shipper) || (() => {
+    const cid = id(); db.prepare('INSERT INTO customers (id, ownerOrgId, name, createdAt) VALUES (?,?,?,?)').run(cid, shipper, 'Layout Cust', Date.now()); return { id: cid }; })();
+  assert.equal((await api('GET', `/api/customers/${cust.id}/layouts/BOL/sample`)).status, 404, 'no document yet');
+  const l = (await api('POST', '/api/loads', { poNumber: 'LAY-S' })).body.load;
+  db.prepare('UPDATE loads SET customerId = ? WHERE id = ?').run(cust.id, l.id);
+  const clean = pod(shipper, l.id, 'prepared');
+  pod(shipper, l.id, 'signed');   // newer, but signed: the clean copy is shown instead
+  const r = await api('GET', `/api/customers/${cust.id}/layouts/BOL/sample`);
+  assert.equal(r.status, 200); assert.equal(r.body.podId, clean);
+  assert.equal((await (await login('brk@test.example'))('GET', `/api/customers/${cust.id}/layouts/BOL/sample`)).status, 404, 'another company can\'t');
+});
+
 test('a company that owns a load and gave it to a carrier can add that carrier\'s driver and assign them', async () => {
   const api = await login('brk@test.example');
   const l = (await api('POST', '/api/loads', { poNumber: 'BRK-1' })).body.load;

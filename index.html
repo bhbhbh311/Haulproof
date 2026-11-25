@@ -4953,8 +4953,18 @@
     box.innerHTML = '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;">' + list.map(t =>
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);">'
       + '<div><b>' + esc(t.docType || 'BOL') + '</b><div style="color:var(--muted);font-size:12px;">' + t.count + ' field' + (t.count === 1 ? '' : 's') + (t.updatedAt ? (' · updated ' + new Date(t.updatedAt).toLocaleDateString()) : '') + (t.updatedBy ? (' · by ' + esc(t.updatedBy)) : '') + '</div></div>'
-      + '<button class="ghost clDel" data-doctype="' + esc(t.docType || 'BOL') + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Delete</button>'
+      + '<div style="display:flex;gap:6px;"><button class="clView" data-doctype="' + esc(t.docType || 'BOL') + '" type="button" style="font-size:12px;" title="See where each signer signs, and move the boxes if needed">View / edit</button>'
+      + '<button class="ghost clDel" data-doctype="' + esc(t.docType || 'BOL') + '" type="button" style="color:var(--danger);border-color:var(--danger);font-size:12px;">Delete</button></div>'
       + '</div>').join('') + '</div>';
+    // View / edit: open the layout on this customer's latest document of that type (layout-only mode: nothing on that document changes)
+    Array.prototype.forEach.call(box.querySelectorAll('.clView'), function (b) {
+      b.onclick = async function () {
+        const dt = b.getAttribute('data-doctype');
+        try { const r = await api('/api/customers/' + encodeURIComponent(_custLayoutsId) + '/layouts/' + encodeURIComponent(dt) + '/sample');
+          window.open('/prepare?id=' + encodeURIComponent(r.podId) + '&layout=1', '_blank'); }
+        catch (e) { alert(e.message); }
+      };
+    });
     Array.prototype.forEach.call(box.querySelectorAll('.clDel'), function (b) {
       b.onclick = async function () {
         const dt = b.getAttribute('data-doctype');
