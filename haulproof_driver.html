@@ -157,6 +157,7 @@
   .ldhead{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
   .ldhead.static{cursor:default;}
   .ldpo{font-weight:700;font-family:"IBM Plex Mono",monospace;font-size:14px;overflow-wrap:anywhere;}
+  .ldlane{font-weight:600;font-size:14px;margin-top:2px;overflow-wrap:anywhere;}
   .ldsub{color:var(--muted);font-size:13px;}
   .ldstat{font-size:12px;font-weight:700;margin-top:3px;}
   .ldmode{display:inline-block;font-size:11.5px;font-weight:700;margin-top:4px;padding:2px 8px;border-radius:999px;}
@@ -921,7 +922,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-24a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-25a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -1728,6 +1729,9 @@ window.__startApp=function(){
         var paperStops = g.docs.reduce(function(m,d){ return Math.max(m, d.paperStops||0); }, 0);
         if(podMode==="paper") total = Math.max(total, paperStops||1);
         var loadId = g.docs[0] && g.docs[0].loadId;
+        // Pickup city, ST → delivery city, ST next to the load # (driver feedback: tells the loads apart at a glance)
+        var o0=(g.docs.find(function(d){ return d.origin; })||{}).origin||"", d0=(g.docs.find(function(d){ return d.destination; })||{}).destination||"";
+        var lane = (o0||d0) ? ((o0||"?")+" → "+(d0||"?")) : "";
         var puAt = g.docs.reduce(function(m,d){ return Math.max(m, d.pickedUpAt||0); }, 0);
         var puT=null; g.docs.forEach(function(d){ if(!puT && d.pickupTimes) puT=d.pickupTimes; });
         var erAt = g.docs.reduce(function(m,d){ return Math.max(m, d.enRouteAt||0); }, 0);
@@ -1754,6 +1758,7 @@ window.__startApp=function(){
           : '<span style="background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">⏳ Waiting on dispatch</span>';
         cardEl.innerHTML='<div class="ldhead'+(canOpen?'':' static')+'"'+(canOpen?' role="button" tabindex="0" aria-expanded="'+isOpen+'"':'')+'><div style="min-width:0;flex:1;">'+
           '<div class="ldpo">'+ownerShort(g,"poNumber")+' '+esc(g.poNumber||"—")+(g.loadNumber?(" · "+ownerShort(g,"loadNumber")+" "+esc(g.loadNumber)):"")+'</div>'+
+          (lane?'<div class="ldlane">'+esc(lane)+'</div>':'')+
           (sub?'<div class="ldsub">'+esc(sub)+'</div>':'')+
           (podMode?'<div class="ldmode '+podMode+'">'+(podMode==="paper"?"📄 Paper BOL · send a photo once it's signed":"✍ ePOD · the BOL is signed on your phone")+'</div>':'')+
           (stat?'<div class="ldstat" style="color:'+statColor+';">'+esc(stat)+'</div>':'')+

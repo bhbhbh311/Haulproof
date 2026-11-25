@@ -320,9 +320,11 @@ router.get('/my-loads', (req, res) => {
   const timesFor = (loadId, kind, stop) => (times[loadId] || []).find(t => t.kind === kind && (kind === 'pickup' || t.stopNumber === (stop || 1))) || null;
   // awaiting_build docs are ones the driver handed to dispatch — shown as "waiting", not yet signable.
   const instr = {}, mode = {};
-  if (loadIds.length) db.prepare(`SELECT id, instructions, podMode, paperStops FROM loads WHERE id IN (${loadIds.map(() => '?').join(',')})`).all(...loadIds)
-    .forEach(l => { instr[l.id] = l.instructions || null; mode[l.id] = { podMode: l.podMode || null, paperStops: l.podMode === 'paper' ? (l.paperStops || 1) : null }; });
+  const lane = {};   // pickup and delivery city/state, shown next to the load # so drivers can tell loads apart
+  if (loadIds.length) db.prepare(`SELECT id, instructions, podMode, paperStops, origin, destination FROM loads WHERE id IN (${loadIds.map(() => '?').join(',')})`).all(...loadIds)
+    .forEach(l => { instr[l.id] = l.instructions || null; mode[l.id] = { podMode: l.podMode || null, paperStops: l.podMode === 'paper' ? (l.paperStops || 1) : null }; lane[l.id] = { origin: l.origin || null, destination: l.destination || null }; });
   const loads = rows.map(p => ({ id: p.id, loadId: p.loadId, poNumber: p.poNumber, loadNumber: p.loadNumber, consignee: p.consignee, noDoc: !!p.noDoc, instructions: instr[p.loadId] || null,
+    origin: (lane[p.loadId] || {}).origin || null, destination: (lane[p.loadId] || {}).destination || null,
     // 'paper' = send a photo of the signed paper BOL; 'epod' = sign on the phone; null = not set
     podMode: (mode[p.loadId] || {}).podMode || null, paperStops: (mode[p.loadId] || {}).paperStops || null,
     pickedUpAt: (pickup[p.loadId] || {}).at || null, pickedUpGps: (pickup[p.loadId] || {}).gps || null, enRouteAt: (pickup[p.loadId] || {}).enRouteAt || null,

@@ -124,6 +124,10 @@ test('a load given to a driver shows on their phone before any paperwork, with i
   const drv = asDriver(tok);
   let mine = (await drv('GET', '/api/drivers/my-loads')).body.loads.filter(x => x.loadId === l.id);
   assert.equal(mine.length, 1); assert.equal(mine[0].noDoc, true); assert.equal(mine[0].instructions, 'Tarps required');
+  // pickup and delivery city show next to the load #
+  db.prepare("UPDATE loads SET origin = 'Osceola, AR', destination = 'Muskogee, OK' WHERE id = ?").run(l.id);
+  mine = (await drv('GET', '/api/drivers/my-loads')).body.loads.filter(x => x.loadId === l.id);
+  assert.deepEqual([mine[0].origin, mine[0].destination], ['Osceola, AR', 'Muskogee, OK']);
   // the driver's buttons work on it
   assert.equal((await drv('POST', `/api/drivers/my-loads/${l.id}/en-route`, {})).status, 200);
   pod(shipper, l.id, 'signed');
