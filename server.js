@@ -857,7 +857,10 @@ const PORT = process.env.PORT || 4000;
 try { digest.startDailyDigest(); } catch (e) { console.error('digest arm', e && e.message); }
 try { require('./emailretry').startRetryLoop(); } catch (e) { console.error('email retry loop', e.message); }   // retry failed signed-copy emails
 try { require('./checkon').start(); } catch (e) { console.error('check-on', e.message); }   // email the check-on list as loads become due
-app.listen(PORT, () => {
+// On a deploy Render sends SIGTERM to the old server before starting the new one (the disk can't be shared).
+// Stop taking new requests but let ones already running finish, so a request is either fully done or never
+// started — the pages then safely retry anything that got a 502/503 while the new server boots.
+const httpServer = app.listen(PORT, () => {
   console.log(`HaulProof backend on http://localhost:${PORT}  (portal: ${PORTAL_URL})`);
   console.log('Email: ' + (require('./resendmail').resendConfigured() ? 'Resend as ' + require('./resendmail').fromAddr() : require('./graphmail').graphConfigured() ? 'Microsoft Graph as ' + (process.env.MS_SENDER || process.env.MAIL_FROM || '?') : process.env.SMTP_HOST ? 'SMTP' : 'NOT set up (emails are only simulated)') + ' · Off-site backups: ' + (require('./graphmail').graphConfigured() && (process.env.BACKUP_SHAREPOINT_SITE || process.env.BACKUP_ONEDRIVE_USER) ? 'on (' + (process.env.BACKUP_SHAREPOINT_SITE ? 'SharePoint ' + process.env.BACKUP_SHAREPOINT_SITE : 'OneDrive ' + process.env.BACKUP_ONEDRIVE_USER) + ')' : 'off'));
   if (ssoConfigured()) {
@@ -868,3 +871,13 @@ app.listen(PORT, () => {
     console.log(`   ${REDIRECT_URI}`);
   }
 });
+let _stopping = false;
+function shutDown(sig) {
+  if (_stopping) return; _stopping = true;
+  console.log(`${sig}: finishing in-flight requests, then exiting`);
+  httpServer.close(() => process.exit(0));
+  if (typeof httpServer.closeIdleConnections === 'function') httpServer.closeIdleConnections();
+  setTimeout(() => process.exit(0), 25000).unref();   // Render waits 30 s before forcing it
+}
+process.on('SIGTERM', () => shutDown('SIGTERM'));
+process.on('SIGINT', () => shutDown('SIGINT'));

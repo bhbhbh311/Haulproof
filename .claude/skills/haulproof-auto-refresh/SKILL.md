@@ -50,6 +50,17 @@ The data on screen refreshes separately and much more often (portal `autoRefresh
 - Driver app: reopen it on the home screen and wait about a minute without touching it — the blue "Updating
   HaulProof" strip appears, then it reloads.
 
+## Riding out the deploy itself (the ~40 s the server is down)
+
+The persistent disk means Render stops the old server before the new one starts, so each deploy has about 40 s of
+502/503 (measured 11/24: "Deploying…" 02:02:01 → live 02:02:42 UTC). Each page's `<head>` has the same
+`hp-deploy-retry` script: any same-origin request that gets 502/503/504 waits and retries for up to 3 minutes with a
+"HaulProof is updating" note, instead of failing. Network errors (no signal) pass straight through. server.js `shutDown`
+lets in-flight requests finish on SIGTERM, so a 502/503 always means the request never ran and the retry is safe.
+- Change it in all three pages at once: `test/deployretry.test.js` fails if the copies differ or it isn't in `<head>`.
+- The portal shows its own `serverDown()` note via `window.hpRetryNote`; the others use the script's blue note.
+- Don't add per-call 502 retry loops in page code: the script already covers every `fetch`.
+
 ## One mechanism per page — keep it that way
 
 Until 2026-11-03 the portal also ran an older checker (`checkAppVersion` on the 12 s tick) that reloaded sooner than

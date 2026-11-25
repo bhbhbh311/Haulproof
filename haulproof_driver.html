@@ -424,6 +424,46 @@
   :root:not([data-theme="light"]) .ldcard.reup{ border-top-color:var(--bad); }
   :root:not([data-theme="light"]) .bar{ border-bottom:1px solid rgba(176,201,255,.14); }
 </style>
+<!-- hp-deploy-retry: the same copy is in index.html, prepare.html and haulproof_driver.html (test/deployretry.test.js checks) -->
+<script>
+// While HaulProof is being updated (about 40 s at the 8 PM deploy) the server answers 502/503/504. A request to HaulProof
+// that gets one of those waits and tries again, for up to 3 minutes, with a "HaulProof is updating" note on screen,
+// instead of failing. The server finishes every request it started before it stops (server.js shutDown), so a
+// 502/503/504 means the request never ran and sending it again can't do it twice. No signal at all (a network error)
+// is passed straight through, so each page's own offline handling still works. A page can show its own note by
+// setting window.hpRetryNote = function(on){...}.
+(function(){
+  if (window.__hpRetry || !window.fetch) return; window.__hpRetry = true;
+  var realFetch = window.fetch.bind(window), CODES = [502, 503, 504], LIMIT = 180000, waiting = 0, note = null;
+  function ours(u){ try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; } }
+  function showNote(on){
+    try {
+      if (typeof window.hpRetryNote === 'function') return window.hpRetryNote(on);
+      if (on && !note && document.body) {
+        note = document.createElement('div'); note.setAttribute('role', 'status');
+        note.style.cssText = 'position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 12px);z-index:99999;background:#1f5ad6;color:#fff;font:700 15px/1.35 system-ui,sans-serif;padding:12px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);text-align:center;max-width:520px;margin:0 auto;';
+        note.textContent = 'HaulProof is updating — back in a moment…'; document.body.appendChild(note);
+      } else if (!on && note) { note.remove(); note = null; }
+    } catch (e) {}
+  }
+  window.fetch = function(input, init){
+    var url = typeof input === 'string' ? input : (input && input.url) || String(input);
+    if (!ours(url)) return realFetch(input, init);
+    var isReq = typeof Request !== 'undefined' && input instanceof Request, keep = isReq ? input.clone() : null;
+    var start = Date.now(), delay = 2000, counted = false;
+    function release(){ if (counted) { counted = false; if (--waiting <= 0) { waiting = 0; showNote(false); } } }
+    function attempt(){
+      return realFetch(isReq ? keep.clone() : input, init).then(function(res){
+        var aborted = init && init.signal && init.signal.aborted;
+        if (CODES.indexOf(res.status) < 0 || aborted || Date.now() - start > LIMIT) { release(); return res; }
+        if (!counted) { counted = true; waiting++; showNote(true); }
+        return new Promise(function(r){ setTimeout(r, delay); }).then(function(){ delay = Math.min(delay * 1.5, 8000); return attempt(); });
+      }, function(err){ release(); throw err; });
+    }
+    return attempt();
+  };
+})();
+</script>
 </head>
 <body>
 <header class="bar">
@@ -922,7 +962,7 @@ window.__startApp=function(){
   try{ var _savedLbl=lsGet("hp_labels",null); if(_savedLbl) setTimeout(function(){ applyDrvLabels(_savedLbl); },0); }catch(e){}
   function reqForLoad(loadId){ var d=(_lastMyLoads||[]).find(function(x){ return x.loadId===loadId && x.req; }); return d?d.req:null; }
   // PIN unlock: an opaque value the server hands back once the correct PIN is entered, tied to this link.
-  var APP_BUILD="2026-11-25a";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
+  var APP_BUILD="2026-11-25b";   // sent with every upload so dispatch can see (in the load history) which build a driver is on
   function currentKey(){ return (loadCfg().apikey||"").trim(); }
   function loadUnlock(){ var u=lsGet("hp_unlock",null); return (u && u.key===currentKey()) ? (u.unlock||"") : ""; }
   function saveUnlock(v){ lsSet("hp_unlock",{key:currentKey(), unlock:v}); }
@@ -4165,17 +4205,9 @@ window.__startApp=function(){
   // Upload a SIGNED POD straight from memory to the ingest endpoint — no dependency on phone storage, so a
   // full phone can never silently drop a signed document. Mirrors doSync()'s headers for a signed (not prepared)
   // POD. Returns {ok,resp} | {linkError:true} | {error} | {network:true}.
-  // POST that rides out a server restart: a 502/503/504 (HaulProof updating, or the host's proxy hiccuping) is tried
-  // again after 3, 6 and 10 s before giving up. The caller's X-POD-ClientId keeps a retry from filing a duplicate.
-  async function postRetrying(ep, opts){
-    var waits=[3000,6000,10000], res;
-    for(var i=0;;i++){
-      res=await fetch(ep, opts);
-      if([502,503,504].indexOf(res.status)<0 || i>=waits.length) return res;
-      if(i===0) toast("HaulProof is busy — trying again…");
-      await new Promise(function(r){ setTimeout(r, waits[i]); });
-    }
-  }
+  // POST that rides out a server restart: the deploy-retry script in <head> waits out a 502/503/504 (HaulProof
+  // updating) for up to 3 minutes. The caller's X-POD-ClientId keeps a retry from filing a duplicate.
+  async function postRetrying(ep, opts){ return fetch(ep, opts); }
   async function uploadSignedNow(pod, bytes){
     var cfg=loadCfg(); var ep=(cfg.endpoint||"").trim(), key=(cfg.apikey||"").trim();
     if(!ep || !bytes) return { network:true };   // nothing to send to — treat like offline, fall back to the outbox
