@@ -1238,7 +1238,7 @@ const TOOLS = [
       let fields = [], source, note = '', cost = null;
       let tpl = null; try { tpl = await api(user, 'GET', '/api/pods/' + pod.id + '/template'); } catch (e) {}
       if (method !== 'ai' && tpl && tpl.exists && (tpl.fields || []).length) {
-        fields = aidocs.layoutToFields(tpl.fields, info.numPages); source = 'saved layout' + (tpl.customerName ? ' for ' + tpl.customerName : '') + ' · ' + (tpl.docType || 'BOL');
+        fields = aidocs.layoutToFields(tpl.fields, info.numPages, info.pages.map(p => p.blank)); source = 'saved layout' + (tpl.customerName ? ' for ' + tpl.customerName : '') + ' · ' + (tpl.docType || 'BOL');
       } else if (method === 'saved_layout') {
         throw new ToolError('There’s no saved layout for this customer and document type yet. Use method "ai", or set it up once in HaulProof (signature_setup_link: ' + base + '/prepare?id=' + pod.id + ').');
       } else {

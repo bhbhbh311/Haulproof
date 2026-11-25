@@ -25,7 +25,19 @@ async function pageInfo(buf) {
       words.push([s.slice(0, 60), x0 * 1000 / W, y0 * 1000 / H, x1 * 1000 / W, y1 * 1000 / H]);
     });
     const raw = page.getViewport({ scale: 1, rotation: 0 });
-    pages.push({ W, H, vp, baseW: raw.width, baseH: raw.height, words, text: words.map(w => w[0]).join(' ') });
+    // A blank page (e.g. the empty second page a Word export leaves behind): no text, no image (a scanned page is
+    // an image) and next to no drawing. A saved layout isn't stamped onto it.
+    let blank = false;
+    if (!words.length) {
+      try {
+        const O = pdfjs().OPS, ops = await page.getOperatorList();
+        const imgOps = [O.paintImageXObject, O.paintInlineImageXObject, O.paintImageMaskXObject, O.paintJpegXObject, O.paintImageXObjectRepeat, O.paintInlineImageXObjectGroup].filter(v => v !== undefined);
+        const hasImage = ops.fnArray.some(f => imgOps.includes(f));
+        const paths = ops.fnArray.filter(f => f === O.constructPath).length;
+        blank = !hasImage && paths <= 2;
+      } catch (e) { blank = false; }
+    }
+    pages.push({ W, H, vp, baseW: raw.width, baseH: raw.height, words, blank, text: words.map(w => w[0]).join(' ') });
   }
   return { numPages: doc.numPages, pages };
 }
@@ -89,15 +101,19 @@ function growAutoField(f, baseW) {
   if (f.hPdf < m.h) { f.yPdf = Math.max(0, f.yPdf - (m.h - f.hPdf) / 2); f.hPdf = m.h; }
   return f;
 }
-// A saved customer layout: the page with the most boxes is the pattern, stamped onto every page (as the setup page does).
-function layoutToFields(layout, numPages) {
+// A saved customer layout: the page with the most boxes is the pattern, stamped onto every page (as the setup page does)
+// except blank ones (blankPages[i] true). If every page looks blank, stamp them all rather than none.
+function layoutToFields(layout, numPages, blankPages) {
   const byPage = {};
   (layout || []).forEach(f => { const p = f.pageIdx || 0; (byPage[p] = byPage[p] || []).push(f); });
   const keys = Object.keys(byPage); if (!keys.length) return [];
   let best = keys[0];
   keys.forEach(k => { if (byPage[k].length > byPage[best].length || (byPage[k].length === byPage[best].length && (+k) < (+best))) best = k; });
-  const out = [];
-  for (let i = 0; i < numPages; i++) byPage[best].forEach(f => { const c = { ...f, pageIdx: i }; delete c.value; out.push(c); });
+  const out = [], blank = Array.isArray(blankPages) ? blankPages : [];
+  let pages = [];
+  for (let i = 0; i < numPages; i++) if (!blank[i]) pages.push(i);
+  if (!pages.length) pages = Array.from({ length: numPages }, (_, i) => i);
+  for (const i of pages) byPage[best].forEach(f => { const c = { ...f, pageIdx: i }; delete c.value; out.push(c); });
   return out;
 }
 async function aiFields(reqLike, podId, buf, info) {
