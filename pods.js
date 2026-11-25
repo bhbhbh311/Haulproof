@@ -571,7 +571,12 @@ function signedPodRecipients(id, load, orgId, extra) {
         (r.ne || '').split(/[,;\s]+/).map(s => s.trim()).filter(Boolean).forEach(e => notifyEmails.push(e));
       });
     }
-    if (load.createdBy && /@/.test(load.createdBy)) notifyEmails.push(load.createdBy);
+    // Whoever created the load — unless that login has "Signed BOLs" off (e.g. the FMS sync login, whose loads are
+    // all "created" by fms@callahantrans.com, a login-only address with no mailbox).
+    if (load.createdBy && /@/.test(load.createdBy)) {
+      const cu = db.prepare('SELECT signedCopies FROM users WHERE LOWER(email) = LOWER(?)').get(load.createdBy);
+      if (!cu || cu.signedCopies !== 0) notifyEmails.push(load.createdBy);
+    }
   } catch (e) {}
   // The load's assigned customer's contacts who are flagged to receive signed documents.
   let customerEmails = [];
