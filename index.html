@@ -58,6 +58,9 @@
   .dup-warn{margin-top:10px;padding:10px 13px;border:1px solid var(--warn,var(--warn));background:var(--warn-soft,var(--warn-soft));color:var(--warn);border-radius:10px;font-size:13px;font-weight:600;line-height:1.4;}
   input.listFilter{padding:11px 13px;border:1.5px solid var(--primary-line);border-radius:10px;font-size:14px;background:var(--surface,var(--surface));box-shadow:0 1px 2px rgba(20,30,50,.05);}
   input.listFilter::placeholder{color:var(--muted);}
+  /* Search bars take the left half of the card, not the whole width, so they stand apart from the list (Brian, 11/25). Full width on phones. */
+  input.listFilter, #lSearch, #cmDocSearch, #hqQ{width:50% !important;max-width:50%;flex:0 1 50% !important;min-width:0 !important;box-sizing:border-box;}
+  @media (max-width:760px){ input.listFilter, #lSearch, #cmDocSearch, #hqQ{width:100% !important;max-width:none;flex:1 1 auto !important;} }
   input.listFilter:focus{outline:none;border-color:var(--primary,var(--primary));box-shadow:0 0 0 3px rgba(23,87,214,.14);}
   .row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} @media(max-width:720px){.row{grid-template-columns:1fr 1fr;}}
   /* buttons */
@@ -1592,7 +1595,8 @@
           <button id="mcCustAddBtn" type="button">＋ Add / find customer</button>
         </div>
       </div>
-      <div id="myCustomerRows" style="margin-top:14px;"><div class="empty">Loading…</div></div>
+      <input type="search" id="mcSearch" class="listFilter" placeholder="🔍 Search customers by name, MC#, DOT# or contact" autocomplete="off" style="margin-top:14px;">
+      <div id="myCustomerRows" style="margin-top:12px;"><div class="empty">Loading…</div></div>
     </div>
 
     <!-- Add / find / edit a customer in YOUR list (with duplicate check) — top-level so it overlays any tab -->
@@ -4895,7 +4899,11 @@
   function renderMyCustomerRows() {
     const box = $('myCustomerRows'); if (!box) return;
     if (!_myCustomers.length) { box.innerHTML = '<div class="empty">No customers yet. Use “＋ Add / find customer” to add the companies you haul for.</div>'; return; }
-    box.innerHTML = _myCustomers.map(c => {
+    const q = (($('mcSearch') || {}).value || '').trim().toLowerCase();
+    const shown = !q ? _myCustomers : _myCustomers.filter(c => [c.name, c.mcNumber, c.dotNumber, c.contactName, c.contactEmail, c.contactPhone].concat((c.contacts || []).map(x => (x.name || '') + ' ' + (x.email || '')))
+      .some(v => String(v || '').toLowerCase().includes(q)));
+    if (!shown.length) { box.innerHTML = '<div class="empty">No customers match “' + esc(q) + '”.</div>'; return; }
+    box.innerHTML = shown.map(c => {
       const meta = [c.mcNumber ? ('MC ' + esc(c.mcNumber)) : '', c.dotNumber ? ('DOT ' + esc(c.dotNumber)) : '', c.contactName ? esc(c.contactName) : '', c.contactPhone ? esc(formatUSPhone(c.contactPhone)) : ''].filter(Boolean).join(' · ');
       const recips = (c.contacts || []).filter(x => x.email && x.receiveDocs !== false);
       const recTxt = recips.length
@@ -4976,6 +4984,7 @@
   }
   if ($('custLayoutsClose')) $('custLayoutsClose').onclick = () => $('custLayoutsModal').classList.add('hide');
   if ($('custLayoutsModal')) $('custLayoutsModal').addEventListener('click', e => { if (e.target === $('custLayoutsModal')) $('custLayoutsModal').classList.add('hide'); });
+  if ($('mcSearch')) $('mcSearch').addEventListener('input', renderMyCustomerRows);
   async function loadMyCustomersTab() {
     try { const r = await api('/api/customers'); _myCustomers = r.customers || []; }
     catch (e) { _myCustomers = []; }
