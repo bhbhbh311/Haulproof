@@ -682,6 +682,67 @@ router.post('/:id/file-as-signed', requireAuth, express.json(), async (req, res)
   try { await emailSignedPod({ id: pod.id, load: target, orgId: target.orgId, meta, filepath: fresh.filepath, allRecipients, actor: who }); } catch (e) { console.error('file-as-signed: email', e.message); }
 });
 
+// The JPEG photos inside a PDF the driver app built from camera shots (each page is one embedded JPEG).
+async function jpegsInPdf(buf) {
+  const { PDFName, PDFRawStream } = require('pdf-lib');
+  const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  const out = [];
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    const d = obj.dict, sub = d.get(PDFName.of('Subtype')), filt = d.get(PDFName.of('Filter'));
+    if (!sub || sub.toString() !== '/Image' || !filt) continue;
+    const f = filt.toString();
+    if (f === '/DCTDecode' || f === '[ /DCTDecode ]' || f === '[/DCTDecode]') out.push(Buffer.from(obj.contents));
+  }
+  return out;
+}
+
+// ---- File a driver's stray upload as another load's PICKUP photo. ----
+// A driver sometimes starts his own load to send a photo of the pickup BOL (not signed by the receiver yet). This
+// moves the photo(s) into the pickup photos of the load he was given (same carrier), keeping the upload time, and
+// removes the stray document and the driver's now-empty load (both recoverable from the recovery bin).
+router.post('/:id/file-as-pickup-photo', requireAuth, express.json(), async (req, res) => {
+  const pod = db.prepare(`SELECT * FROM pods WHERE id = ?`).get(req.params.id);
+  if (!canAccess(req, pod)) return res.status(404).json({ error: 'Document not found' });
+  if (['signed', 'emailed'].indexOf(pod.status) >= 0) return res.status(409).json({ error: 'This is a signed copy — file it as the signed BOL instead.' });
+  if (!pod.filepath || !fs.existsSync(pod.filepath)) return res.status(404).json({ error: 'The document file is not available' });
+  const target = db.prepare(`SELECT * FROM loads WHERE id = ?`).get(String((req.body && req.body.loadId) || ''));
+  if (!target) return res.status(404).json({ error: 'Pick the load this pickup photo belongs to' });
+  if (target.id === pod.loadId) return res.status(400).json({ error: 'The document is already on that load' });
+  const my = req.user.orgId || null;
+  if (!isSuperReq(req) && [target.orgId, target.carrierId, target.brokerId].indexOf(my) < 0) return res.status(404).json({ error: 'Load not found' });
+  const src = pod.loadId ? db.prepare(`SELECT * FROM loads WHERE id = ?`).get(pod.loadId) : null;
+  const driverCo = (src && src.carrierId) || pod.orgId || null;
+  if (!driverCo || [target.carrierId, target.orgId].indexOf(driverCo) < 0) return res.status(409).json({ error: 'That load isn’t assigned to the carrier who uploaded this document.' });
+  let jpgs = [];
+  try { jpgs = await jpegsInPdf(fs.readFileSync(pod.filepath)); } catch (e) { console.error('pickup photo: read pdf', e.message); }
+  if (!jpgs.length) return res.status(422).json({ error: 'No photo found inside this document to use as a pickup photo.' });
+  const at = Number(pod.uploadedAt) || Date.now(), who = req.user.email || req.user.name || 'dispatch';
+  const dir = path.join(DATA_DIR, 'pickup-photos'); fs.mkdirSync(dir, { recursive: true });
+  const refs = jpgs.slice(0, 6).map(b => { const id = crypto.randomUUID(); fs.writeFileSync(path.join(dir, id + '.jpg'), b); return { id, at, filedBy: who }; });
+  let have = []; try { have = JSON.parse(target.pickedUpPhotos || '[]') || []; } catch (e) {}
+  const all = have.concat(refs).slice(-12);
+  db.transaction(() => {
+    db.prepare(`UPDATE loads SET pickedUpPhotos = ? WHERE id = ?`).run(JSON.stringify(all), target.id);
+    if (!target.pickedUpAt) db.prepare(`UPDATE loads SET pickedUpAt = ? WHERE id = ?`).run(at, target.id);
+    stashDoc(pod, 'doc', who);
+    db.prepare(`DELETE FROM pods WHERE id = ?`).run(pod.id);   // file kept for the recovery bin
+  })();
+  const drv = pod.driver || pod.assignedDriverName || null;
+  logEvent({ orgId: target.orgId, loadId: target.id, poNumber: target.poNumber, type: 'picked_up',
+    detail: refs.length + ' pickup photo' + (refs.length === 1 ? '' : 's') + (drv ? ' from driver ' + drv : '') + ' · filed by ' + who + ' from the driver’s upload on ' + (src && src.poNumber ? 'load ' + src.poNumber : 'another load'), actor: who });
+  let removedLoad = null;
+  if (src && src.id !== target.id && db.prepare(`SELECT COUNT(*) c FROM pods WHERE loadId = ?`).get(src.id).c === 0) {
+    try {
+      try { stashLoad(src, 0, who); } catch (e) { console.error('pickup photo: stash empty load', e.message); }
+      db.prepare(`DELETE FROM loads WHERE id = ?`).run(src.id);
+      logEvent({ orgId: src.orgId, loadId: src.id, poNumber: src.poNumber, type: 'deleted', detail: 'Empty load removed — its photo was filed as a pickup photo on load ' + (target.poNumber || target.id), actor: who });
+      removedLoad = src.poNumber || src.id;
+    } catch (e) { console.error('pickup photo: remove empty load', e.message); }
+  }
+  res.json({ ok: true, loadId: target.id, poNumber: target.poNumber, photos: refs.length, totalPickupPhotos: all.length, removedLoad });
+});
+
 // ---- SEARCH (portal). Session auth; scoped to caller's customer (super-admin may pass ?orgId). ----
 // ---- Count of LOADS with driver uploads still waiting for dispatch to set up (for the tab badge). ----
 // Counts loads, not documents, so the badge matches the "N loads needing action" list right below it —
@@ -1398,4 +1459,5 @@ router.canAccess = canAccess;
 router.fileSignedBol = fileSignedBol;
 router.combinedPodBytes = combinedPodBytes;   // used by emailretry.js to resend   // shared with the AI placement routes (aiplace.js)
 module.exports = router;
-module.exports.signedPodRecipients = signedPodRecipients;   // tests: who a signed stop is emailed to
+module.exports.signedPodRecipients = signedPodRecipients;
+module.exports.jpegsInPdf = jpegsInPdf;   // tests: pull the camera photos back out of a driver's PDF   // tests: who a signed stop is emailed to

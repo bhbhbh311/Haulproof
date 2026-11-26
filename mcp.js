@@ -634,6 +634,35 @@ const TOOLS = [
         note: 'Filed as the signed paper BOL. The signed copy is emailing in the background; the load history shows the result.' };
     } },
 
+  { name: 'file_pickup_photo', title: 'File a driver’s upload as another load’s pickup photo',
+    description: 'For a driver who started his own load to send a photo taken at PICKUP (e.g. the shipper’s BOL before the receiver signed, or the loaded freight), '
+      + 'instead of adding it from the load he was given. Moves the photo(s) into that load’s pickup photos (it must be assigned to the same carrier), keeping the upload time; '
+      + 'removes the stray document and the driver’s now-empty load (both recoverable). Nothing is emailed and the load is not marked delivered. '
+      + 'If the receiver already signed it, use file_signed_bol instead. Work in the carrier’s company (use_company) when the stray load is the carrier’s own. Confirm with the user first.',
+    inputSchema: { type: 'object', properties: { document: str('Id of the driver’s uploaded document (from get_load)'), load: str('PO #, load #, or load id it is the pickup photo for') }, required: ['document', 'load'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      needCompany(user);
+      const d = await resolveLoad(user, a.load);
+      const r = await api(user, 'POST', '/api/pods/' + encodeURIComponent(String(a.document).trim()) + '/file-as-pickup-photo', { json: { loadId: d.load.id } });
+      return { filed: true, po_number: r.poNumber, photos_added: r.photos, pickup_photos_on_load: r.totalPickupPhotos, removed_empty_load: r.removedLoad || null };
+    } },
+
+  { name: 'restore_load', title: 'Restore a deleted load',
+    description: 'Brings a deleted load and the documents deleted with it back from the recovery bin. Works in the company the load belonged to (use_company). '
+      + 'Give the PO # / load # as it was, or the load id. Without a match, lists what is in this company’s recovery bin.',
+    inputSchema: { type: 'object', properties: { load: str('PO #, load #, or load id of the deleted load') }, required: ['load'] },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+    run: async (user, a) => {
+      needCompany(user);
+      const bin = await api(user, 'GET', '/api/trash');
+      const q = String(a.load || '').trim().toLowerCase();
+      const hit = (bin.loads || []).find(l => [l.id, l.poNumber, l.loadNumber].some(v => v && String(v).toLowerCase() === q));
+      if (!hit) return { restored: false, note: 'Not in this company’s recovery bin.', in_bin: (bin.loads || []).slice(0, 25).map(l => ({ id: l.id, po_number: l.poNumber, load_number: l.loadNumber, documents: l.docCount, deleted_at: new Date(l.deletedAt).toISOString() })) };
+      const r = await api(user, 'POST', '/api/trash/load/' + encodeURIComponent(hit.id) + '/restore');
+      return { restored: true, load_id: hit.id, po_number: hit.poNumber, documents_restored: r.restoredDocs };
+    } },
+
   { name: 'list_customers', title: 'List customers',
     description: 'Lists the companies on this account’s customer list (the customer a load is for). Optionally filter by name.',
     inputSchema: { type: 'object', properties: { search: str('Part of a customer name to filter by') } }, annotations: { readOnlyHint: true },

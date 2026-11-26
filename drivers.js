@@ -391,9 +391,12 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
       });
     } catch (e) {}
   }
+  // Keep photos already on the load (an earlier tap, or a pickup photo dispatch filed from a stray upload) and add these.
+  let keep = []; try { keep = JSON.parse(load.pickedUpPhotos || '[]') || []; } catch (e) {}
+  const allPhotos = keep.concat(photoRefs).slice(-12);
   try {
     db.prepare(`UPDATE loads SET pickedUpAt = ?, pickedUpGps = ?, pickedUpPhotos = ? WHERE id = ?`)
-      .run(at, gps ? JSON.stringify(gps) : null, photoRefs.length ? JSON.stringify(photoRefs) : null, load.id);
+      .run(at, gps ? JSON.stringify(gps) : null, allPhotos.length ? JSON.stringify(allPhotos) : null, load.id);
   } catch (e) {}
   const where = gps ? (' near ' + gps.lat.toFixed(5) + ', ' + gps.lng.toFixed(5)) : ' (location unavailable)';
   const photoNote = photoRefs.length ? (' with ' + photoRefs.length + ' photo' + (photoRefs.length === 1 ? '' : 's')) : '';
@@ -401,7 +404,7 @@ router.post('/my-loads/:loadId/pickup', express.json({ limit: '28mb' }), (req, r
     detail: 'Picked up by ' + (r.driver.name || 'driver') + where + photoNote, actor: (r.driver.name || 'Driver') });
   // Pickup complete = out of the pickup (when in/out times are on and no check-out was recorded yet).
   stoptimes.autoOut({ load, kind: 'pickup', at, gps, by: r.driver.name || 'Driver', source: 'pickup', fallbackOrgId: org });
-  res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: photoRefs.length });
+  res.json({ ok: true, pickedUpAt: at, pickedUpGps: gps, photoCount: allPhotos.length });
 });
 
 // Driver taps "On my way to pickup" — stamps the load with the time (and GPS) the truck set off, so dispatch and a

@@ -17,7 +17,7 @@ const LEVELS = ['off', 'optional', 'required'];
 const BUILTIN = {
   enRoute: { name: 'On my way to pickup', when: 'pickup', help: 'Driver taps "On my way" when leaving for the pickup.' },
   stopTimes: { name: 'Check in / check out times', when: 'both', help: 'Driver taps Check in on arriving at the pickup and each delivery; check-out records itself.' },
-  pickupPhoto: { name: 'Pickup photos', when: 'pickup', help: 'Photos of the freight at pickup (up to 6).' },
+  pickupPhoto: { name: 'Pickup photos', when: 'pickup', help: 'Photos of the loaded freight or the pickup paperwork (BOL) at pickup (up to 6).' },
   deliveryPhoto: { name: 'Delivery photos', when: 'delivery', help: 'Photos sent with the signed paperwork (up to 6).' },
 };
 const KINDS = { check: 'Check box', text: 'Short answer', number: 'Number' };
